@@ -1,0 +1,200 @@
+{% extends 'base.html' %}
+
+{% block title %}Dispute Management{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+    <h2><i class="bi bi-exclamation-triangle"></i> Dispute Management</h2>
+    <div>
+        <a href="{% url 'manager_dashboard' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Back to Dashboard
+        </a>
+    </div>
+</div>
+
+<!-- Status Summary Cards -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-body py-2">
+                <div class="row text-center">
+                    {% for item in status_summary %}
+                    <div class="col">
+                        <span class="text-muted small">{{ item.label }}</span>
+                        <div class="fw-bold">{{ item.count }}</div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Search</label>
+                <input type="text" class="form-control" name="search"
+                       value="{{ search_query }}" placeholder="Ticket ID, email, or PayPal ID...">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Status</label>
+                <select class="form-select" name="status">
+                    <option value="">All Statuses</option>
+                    {% for value, label in status_choices %}
+                    <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>
+                        {{ label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="bi bi-search"></i> Filter
+                </button>
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <a href="{% url 'disputes:dispute_list' %}" class="btn btn-outline-secondary w-100">
+                    <i class="bi bi-x-circle"></i> Clear
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Disputes Table -->
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>PayPal ID</th>
+                        <th>Buyer</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                        <th>Zendesk Ticket</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for dispute in disputes %}
+                    <tr>
+                        <td>#{{ dispute.id }}</td>
+                        <td>
+                            <small class="text-monospace">{{ dispute.paypal_dispute_id|truncatechars:20 }}</small>
+                        </td>
+                        <td>
+                            <div>{{ dispute.buyer_email }}</div>
+                            {% if dispute.buyer_name %}
+                            <small class="text-muted">{{ dispute.buyer_name }}</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if dispute.dispute_amount %}
+                            {{ dispute.dispute_currency }} {{ dispute.dispute_amount }}
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge status-badge status-{{ dispute.status }}">
+                                {{ dispute.get_status_display }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if dispute.zd_ticket_id %}
+                            <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ dispute.zd_ticket_id }}"
+                               target="_blank" class="text-decoration-none">
+                                <i class="bi bi-ticket-perforated"></i> {{ dispute.zd_ticket_id }}
+                            </a>
+                            {% else %}
+                            <span class="text-muted">Not linked</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ dispute.created_at|date:"M d, Y H:i" }}</td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <a href="{% url 'disputes:dispute_detail' dispute.id %}"
+                                   class="btn btn-outline-primary" title="View Details">
+                                    <i class="bi bi-eye"></i> View
+                                </a>
+                                <form method="post" action="{% url 'disputes:dispute_capture_screenshots' dispute.id %}" class="d-inline">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-outline-success"
+                                            title="Capture Screenshot"
+                                            {% if not dispute.zd_ticket_id %}disabled{% endif %}>
+                                        <i class="bi bi-camera"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="8" class="text-center text-muted py-4">
+                            <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                            <p class="mb-0 mt-2">No disputes found</p>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Pagination -->
+    {% if page_obj.has_other_pages %}
+    <nav aria-label="Disputes pagination" class="mt-3">
+        <ul class="pagination justify-content-center">
+            {% if page_obj.has_previous %}
+            <li class="page-item">
+                <a class="page-link" href="?page=1{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}">
+                    <i class="bi bi-chevron-double-left"></i> First
+                </a>
+            </li>
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}">
+                    <i class="bi bi-chevron-left"></i> Previous
+                </a>
+            </li>
+            {% endif %}
+
+            <li class="page-item active">
+                <span class="page-link">
+                    Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+                </span>
+            </li>
+
+            {% if page_obj.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}">
+                    Next <i class="bi bi-chevron-right"></i>
+                </a>
+            </li>
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}">
+                    Last <i class="bi bi-chevron-double-right"></i>
+                </a>
+            </li>
+            {% endif %}
+        </ul>
+    </nav>
+    {% endif %}
+</div>
+
+<!-- Info Box -->
+<div class="alert alert-info mt-3">
+    <i class="bi bi-info-circle"></i>
+    <strong>Dispute Management:</strong>
+    <ul class="mb-0 mt-1">
+        <li>Click <strong>View</strong> to see full dispute details, screenshots, documents, and activity log.</li>
+        <li>Click the <strong>Camera</strong> icon to capture a screenshot of the Zendesk ticket.</li>
+        <li>Disputes are automatically created from PayPal webhook events.</li>
+    </ul>
+</div>
+{% endblock %}

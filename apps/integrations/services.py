@@ -1,0 +1,594 @@
+"""
+Zendesk integration services for LORA.
+Handles posting comments and fetching ticket data.
+"""
+
+import base64
+import json
+import logging
+import urllib.parse
+import urllib.request
+import urllib.error
+from typing import List, Dict, Any, Optional
+
+from django.conf import settings
+
+from apps.config.models import SystemSettings
+
+logger = logging.getLogger(__name__)
+
+
+def _get_zendesk_auth_headers() -> Dict[str, str]:
+    """
+    Generate Basic Auth headers for Zendesk API.
+    Uses email/token authentication.
+    """
+    system_settings = SystemSettings.get_instance()
+    
+    email = system_settings.zd_email
+    token = system_settings.zd_token
+    subdomain = system_settings.zd_subdomain
+    
+    if not all([email, token, subdomain]):
+        raise ValueError("Zendesk credentials not configured in SystemSettings")
+    
+    # Zendesk token auth: email/token
+    credentials = f"{email}/token:{token}"
+    encoded_credentials = base64.b64encode(credentials.encode('utf-8')).decode('utf-8')
+    
+    return {
+        'Authorization': f'Basic {encoded_credentials}',
+        'Content-Type': 'application/json',
+    }
+
+
+def _get_zendesk_base_url() -> str:
+    """
+    Get the base URL for Zendesk API.
+    """
+    system_settings = SystemSettings.get_instance()
+    subdomain = system_settings.zd_subdomain
+    
+    if not subdomain:
+        raise ValueError("Zendesk subdomain not configured in SystemSettings")
+    
+    return f"https://{subdomain}.zendesk.com/api/v2"
+
+
+def post_zendesk_comment(zd_ticket_id: str, comment_body: str, is_internal: bool = True) -> Optional[Dict[str, Any]]:
+    """
+    Post a comment to a Zendesk ticket.
+    
+    Args:
+        zd_ticket_id: The Zendesk ticket ID
+        comment_body: The comment text to post
+        is_internal: If True, post as internal note (default True)
+    
+    Returns:
+        The response data dict on success, None on failure
+    
+    Raises:
+        ValueError: If Zendesk credentials not configured
+    """
+    try:
+        base_url = _get_zendesk_base_url()
+        headers = _get_zendesk_auth_headers()
+
+        # Zendesk API v2: comments are added via ticket update (PUT), not a separate endpoint
+        url = f"{base_url}/tickets/{zd_ticket_id}.json"
+
+        # Build the request payload
+        payload = {
+            'ticket': {
+                'comment': {
+                    'body': comment_body,
+                    'public': not is_internal,  # Internal note if not public
+                }
+            }
+        }
+
+        data = json.dumps(payload).encode('utf-8')
+
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers=headers,
+            method='PUT'
+        )
+
+        logger.info(f"Posting comment to Zendesk ticket {zd_ticket_id}")
+
+        # Use configurable timeout
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            logger.info(f"Successfully posted comment to ticket {zd_ticket_id}")
+            return result
+            
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ''
+        logger.error(f"HTTP error posting to Zendesk ticket {zd_ticket_id}: {e.code} - {error_body}")
+        return None
+        
+    except urllib.error.URLError as e:
+        logger.error(f"URL error posting to Zendesk ticket {zd_ticket_id}: {e.reason}")
+        return None
+        
+    except ValueError as e:
+        logger.error(f"Configuration error: {e}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Unexpected error posting to Zendesk ticket {zd_ticket_id}: {e}")
+        return None
+
+
+def fetch_zendesk_comments(zd_ticket_id: str) -> List[Dict[str, Any]]:
+    """
+    Fetch all comments for a Zendesk ticket.
+    
+    Args:
+        zd_ticket_id: The Zendesk ticket ID
+    
+    Returns:
+        List of dicts with keys: author, body, created_at
+        Returns empty list on failure
+    """
+    try:
+        base_url = _get_zendesk_base_url()
+        headers = _get_zendesk_auth_headers()
+        
+        url = f"{base_url}/tickets/{zd_ticket_id}/comments.json"
+        
+        req = urllib.request.Request(
+            url,
+            headers=headers,
+            method='GET'
+        )
+        
+        logger.info(f"Fetching comments from Zendesk ticket {zd_ticket_id}")
+        
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            comments_data = result.get('comments', [])
+            
+            # Transform to simplified format
+            comments = []
+            for comment in comments_data:
+                author = comment.get('author', {})
+                comments.append({
+                    'id': comment.get('id'),
+                    'author': {
+                        'id': author.get('id'),
+                        'name': author.get('name', 'Unknown'),
+                        'email': author.get('email', ''),
+                    },
+                    'body': comment.get('body', ''),
+                    'public': comment.get('public', False),
+                    'created_at': comment.get('created_at'),
+                })
+            
+            logger.info(f"Fetched {len(comments)} comments from ticket {zd_ticket_id}")
+            return comments
+            
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ''
+        logger.error(f"HTTP error fetching comments from Zendesk ticket {zd_ticket_id}: {e.code} - {error_body}")
+        return []
+        
+    except urllib.error.URLError as e:
+        logger.error(f"URL error fetching comments from Zendesk ticket {zd_ticket_id}: {e.reason}")
+        return []
+        
+    except ValueError as e:
+        logger.error(f"Configuration error: {e}")
+        return []
+        
+    except Exception as e:
+        logger.error(f"Unexpected error fetching comments from Zendesk ticket {zd_ticket_id}: {e}")
+        return []
+
+
+def fetch_zendesk_ticket(zd_ticket_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetch a single Zendesk ticket by ID.
+    
+    Args:
+        zd_ticket_id: The Zendesk ticket ID
+    
+    Returns:
+        Ticket data dict on success, None on failure
+    """
+    try:
+        base_url = _get_zendesk_base_url()
+        headers = _get_zendesk_auth_headers()
+        
+        url = f"{base_url}/tickets/{zd_ticket_id}.json"
+        
+        req = urllib.request.Request(
+            url,
+            headers=headers,
+            method='GET'
+        )
+        
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            ticket = result.get('ticket', {})
+            
+            logger.info(f"Fetched Zendesk ticket {zd_ticket_id}")
+            return {
+                'id': ticket.get('id'),
+                'subject': ticket.get('subject'),
+                'status': ticket.get('status'),
+                'priority': ticket.get('priority'),
+                'requester_id': ticket.get('requester_id'),
+                'assignee_id': ticket.get('assignee_id'),
+                'created_at': ticket.get('created_at'),
+                'updated_at': ticket.get('updated_at'),
+            }
+            
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ''
+        logger.error(f"HTTP error fetching Zendesk ticket {zd_ticket_id}: {e.code} - {error_body}")
+        return None
+        
+    except urllib.error.URLError as e:
+        logger.error(f"URL error fetching Zendesk ticket {zd_ticket_id}: {e.reason}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Unexpected error fetching Zendesk ticket {zd_ticket_id}: {e}")
+        return None
+
+
+def create_zendesk_ticket(
+    subject: str,
+    comment_body: str,
+    requester_email: str,
+    tags: Optional[List[str]] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Create a new Zendesk ticket.
+    
+    Args:
+        subject: Ticket subject
+        comment_body: Initial comment body
+        requester_email: Email of the requester
+        tags: Optional list of tags
+    
+    Returns:
+        Ticket data dict on success, None on failure
+    """
+    try:
+        base_url = _get_zendesk_base_url()
+        headers = _get_zendesk_auth_headers()
+        
+        url = f"{base_url}/tickets.json"
+        
+        payload = {
+            'ticket': {
+                'subject': subject,
+                'comment': {
+                    'body': comment_body,
+                },
+                'requester': {
+                    'email': requester_email,
+                },
+                'tags': tags or ['lora', 'lost-object'],
+            }
+        }
+        
+        data = json.dumps(payload).encode('utf-8')
+        
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers=headers,
+            method='POST'
+        )
+        
+        logger.info(f"Creating Zendesk ticket for {requester_email}")
+        
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            ticket = result.get('ticket', {})
+            
+            logger.info(f"Created Zendesk ticket #{ticket.get('id')} for {requester_email}")
+            return {
+                'id': ticket.get('id'),
+                'subject': ticket.get('subject'),
+                'status': ticket.get('status'),
+                'url': ticket.get('url'),
+            }
+            
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ''
+        logger.error(f"HTTP error creating Zendesk ticket: {e.code} - {error_body}")
+        return None
+        
+    except urllib.error.URLError as e:
+        logger.error(f"URL error creating Zendesk ticket: {e.reason}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Unexpected error creating Zendesk ticket: {e}")
+        return None
+
+
+def update_zendesk_ticket_status(zd_ticket_id: str, status: str) -> Optional[Dict[str, Any]]:
+    """
+    Update the status of a Zendesk ticket.
+    
+    Args:
+        zd_ticket_id: The Zendesk ticket ID
+        status: New status (e.g., 'open', 'pending', 'solved', 'closed')
+    
+    Returns:
+        Ticket data dict on success, None on failure
+    """
+    try:
+        base_url = _get_zendesk_base_url()
+        headers = _get_zendesk_auth_headers()
+        
+        url = f"{base_url}/tickets/{zd_ticket_id}.json"
+        
+        payload = {
+            'ticket': {
+                'status': status,
+            }
+        }
+        
+        data = json.dumps(payload).encode('utf-8')
+        
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers=headers,
+            method='PUT'
+        )
+        
+        logger.info(f"Updating Zendesk ticket {zd_ticket_id} status to {status}")
+        
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            ticket = result.get('ticket', {})
+            
+            logger.info(f"Updated Zendesk ticket {zd_ticket_id} status to {status}")
+            return {
+                'id': ticket.get('id'),
+                'status': ticket.get('status'),
+            }
+            
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ''
+        logger.error(f"HTTP error updating Zendesk ticket {zd_ticket_id}: {e.code} - {error_body}")
+        return None
+        
+    except urllib.error.URLError as e:
+        logger.error(f"URL error updating Zendesk ticket {zd_ticket_id}: {e.reason}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Unexpected error updating Zendesk ticket {zd_ticket_id}: {e}")
+        return None
+
+
+def search_zendesk_tickets(query: str) -> List[Dict[str, Any]]:
+    """
+    Search Zendesk tickets using the Search API.
+    
+    Args:
+        query: Search query string (Zendesk search syntax)
+    
+    Returns:
+        List of ticket dicts, empty list on failure
+    """
+    try:
+        base_url = _get_zendesk_base_url()
+        headers = _get_zendesk_auth_headers()
+        
+        # Zendesk Search API endpoint
+        url = f"{base_url}/search.json"
+        
+        # Build query params
+        params = urllib.parse.urlencode({'query': query, 'type': 'ticket'})
+        full_url = f"{url}?{params}"
+        
+        req = urllib.request.Request(
+            full_url,
+            headers=headers,
+            method='GET'
+        )
+        
+        logger.info(f"Searching Zendesk tickets: {query}")
+        
+        # Use configurable timeout
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            results = result.get('results', [])
+            
+            logger.info(f"Found {len(results)} tickets matching: {query}")
+            return results
+            
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ''
+        logger.error(f"HTTP error searching Zendesk tickets: {e.code} - {error_body}")
+        return []
+        
+    except urllib.error.URLError as e:
+        logger.error(f"URL error searching Zendesk tickets: {e.reason}")
+        return []
+        
+    except Exception as e:
+        logger.error(f"Unexpected error searching Zendesk tickets: {e}")
+        return []
+
+
+def fetch_zendesk_ticket_full(ticket_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetch a complete Zendesk ticket including custom fields.
+    
+    Args:
+        ticket_id: The Zendesk ticket ID
+    
+    Returns:
+        Full ticket data dict with custom fields, None on failure
+    """
+    try:
+        base_url = _get_zendesk_base_url()
+        headers = _get_zendesk_auth_headers()
+        
+        # Fetch ticket with custom fields included
+        url = f"{base_url}/tickets/{ticket_id}.json"
+        
+        req = urllib.request.Request(
+            url,
+            headers=headers,
+            method='GET'
+        )
+        
+        logger.info(f"Fetching full Zendesk ticket {ticket_id}")
+        
+        # Use configurable timeout
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            ticket = result.get('ticket', {})
+            
+            if ticket:
+                logger.info(f"Fetched full Zendesk ticket {ticket_id}")
+                return {
+                    'id': ticket.get('id'),
+                    'subject': ticket.get('subject'),
+                    'description': ticket.get('description'),
+                    'status': ticket.get('status'),
+                    'priority': ticket.get('priority'),
+                    'requester_id': ticket.get('requester_id'),
+                    'assignee_id': ticket.get('assignee_id'),
+                    'custom_fields': ticket.get('custom_fields', []),
+                    'tags': ticket.get('tags', []),
+                    'created_at': ticket.get('created_at'),
+                    'updated_at': ticket.get('updated_at'),
+                    'url': ticket.get('url'),
+                }
+            return None
+            
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ''
+        logger.error(f"HTTP error fetching Zendesk ticket {ticket_id}: {e.code} - {error_body}")
+        return None
+        
+    except urllib.error.URLError as e:
+        logger.error(f"URL error fetching Zendesk ticket {ticket_id}: {e.reason}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Unexpected error fetching Zendesk ticket {ticket_id}: {e}")
+        return None
+
+
+def search_zendesk_ticket_for_dispute(
+    buyer_email: str,
+    buyer_name: str = '',
+    transaction_id: str = '',
+    transaction_date: str = ''
+) -> Optional[Dict[str, Any]]:
+    """
+    Search for a Zendesk ticket matching a PayPal dispute.
+    Uses multi-strategy search to find the related ticket.
+    
+    Args:
+        buyer_email: Buyer's email address
+        buyer_name: Buyer's name (optional)
+        transaction_id: PayPal transaction ID (optional)
+        transaction_date: Transaction date (optional)
+    
+    Returns:
+        First matching ticket data dict, None if no match
+    """
+    def _pick_best_result(results: list, transaction_date: str = '') -> Optional[Dict[str, Any]]:
+        """Pick the most recent ticket from search results."""
+        if not results:
+            return None
+        # Sort by created_at descending to get the most recent ticket
+        sorted_results = sorted(
+            results,
+            key=lambda t: t.get('created_at', ''),
+            reverse=True,
+        )
+        return sorted_results[0]
+
+    # Strategy 1: Search by buyer email
+    if buyer_email:
+        query = f'requester:{buyer_email}'
+        results = search_zendesk_tickets(query)
+        best = _pick_best_result(results, transaction_date)
+        if best:
+            logger.info(f"Found ticket by email search: {best.get('id')}")
+            return best
+
+    # Strategy 2: Search by transaction ID in ticket description/comments
+    if transaction_id:
+        query = f'{transaction_id} in description'
+        results = search_zendesk_tickets(query)
+        best = _pick_best_result(results)
+        if best:
+            logger.info(f"Found ticket by transaction ID search: {best.get('id')}")
+            return best
+
+    # Strategy 3: Search by buyer name + date
+    if buyer_name and transaction_date:
+        query = f'"{buyer_name}" created>{transaction_date}'
+        results = search_zendesk_tickets(query)
+        best = _pick_best_result(results, transaction_date)
+        if best:
+            logger.info(f"Found ticket by name+date search: {best.get('id')}")
+            return best
+
+    # Strategy 4: Search by buyer name only
+    if buyer_name:
+        query = f'"{buyer_name}"'
+        results = search_zendesk_tickets(query)
+        best = _pick_best_result(results)
+        if best:
+            logger.info(f"Found ticket by name search: {best.get('id')}")
+            return best
+    
+    logger.info(f"No matching Zendesk ticket found for dispute (email: {buyer_email})")
+    return None
+
+
+def match_alias_to_zendesk_ticket(alias: str) -> Optional[Dict[str, Any]]:
+    """
+    Search for a Zendesk ticket where a custom field contains the email alias.
+    
+    Args:
+        alias: The email alias to search for (e.g., "claim-123@mydomain.com")
+    
+    Returns:
+        Matching ticket data dict, None if no match
+    """
+    try:
+        system_settings = SystemSettings.get_instance()
+        custom_field_id = system_settings.zd_alias_custom_field_id
+        
+        if not custom_field_id:
+            logger.warning("Zendesk alias custom field ID not configured")
+            return None
+        
+        # Search for tickets where the custom field contains the alias
+        # Zendesk search syntax for custom fields: custom_fields_<id>:value
+        query = f'custom_fields_{custom_field_id}:"{alias}"'
+        results = search_zendesk_tickets(query)
+        
+        if results:
+            logger.info(f"Found ticket matching alias {alias}: {results[0].get('id')}")
+            return results[0]
+        
+        logger.info(f"No ticket found matching alias: {alias}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error matching alias to Zendesk ticket: {e}")
+        return None

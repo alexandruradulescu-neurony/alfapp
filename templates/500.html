@@ -1,0 +1,39 @@
+{% extends 'base_auth.html' %}
+
+{% block title %}Server Error{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center align-items-center" style="min-height: 100vh;">
+        <div class="col-md-6 text-center">
+            <i class="bi bi-x-octagon" style="font-size: 5rem; color: #dc3545;"></i>
+            <h1 class="mt-4">500 - Server Error</h1>
+            <p class="lead text-muted">
+                Something went wrong on our end. Please try again later.
+            </p>
+            <div class="alert alert-warning mt-4">
+                <strong>What you can do:</strong>
+                <ul class="mb-0 mt-2">
+                    <li>Refresh the page</li>
+                    <li>Go back to the previous page</li>
+                    <li>Contact support if the problem persists</li>
+                </ul>
+            </div>
+            <div class="mt-4">
+                {% if user.is_authenticated %}
+                    <a href="{% url 'dashboard' %}" class="btn btn-primary">
+                        <i class="bi bi-house"></i> Go to Dashboard
+                    </a>
+                {% else %}
+                    <a href="{% url 'login' %}" class="btn btn-primary">
+                        <i class="bi bi-box-arrow-in-right"></i> Go to Login
+                    </a>
+                {% endif %}
+                <a href="javascript:history.back()" class="btn btn-outline-secondary ms-2">
+                    <i class="bi bi-arrow-left"></i> Go Back
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

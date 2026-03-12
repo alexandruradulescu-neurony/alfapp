@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evidence Report - PayPal Dispute {{ dispute.paypal_dispute_id }}</title>
+</head>
+<body>
+    <!-- Cover Page -->
+    <div class="report-cover">
+        <h1>Evidence Report</h1>
+        <p style="font-size: 14pt; color: #666;">PayPal Dispute Documentation</p>
+        
+        <div class="dispute-info">
+            <p><strong>PayPal Dispute ID:</strong> {{ dispute.paypal_dispute_id }}</p>
+            <p><strong>PayPal Case ID:</strong> {{ dispute.paypal_case_id|default:"N/A" }}</p>
+            <p><strong>Transaction ID:</strong> {{ dispute.transaction_id }}</p>
+            <p><strong>Dispute Amount:</strong> {{ dispute.dispute_amount|default:"0.00" }} {{ dispute.dispute_currency|default:"USD" }}</p>
+            <p><strong>Buyer:</strong> {{ dispute.buyer_name|default:"Not provided" }} ({{ dispute.buyer_email }})</p>
+            <p><strong>Dispute Reason:</strong> {{ dispute.get_dispute_reason_display|default:dispute.dispute_reason }}</p>
+        </div>
+        
+        <div style="margin-top: 50px;">
+            <p><strong>Report Generated:</strong> {{ generated_at }}</p>
+            <p><strong>Zendesk Ticket:</strong> {{ dispute.zd_ticket_id|default:"Not linked" }}</p>
+            <p><strong>Claim ID:</strong> {{ dispute.claim.id|default:"N/A" }}</p>
+        </div>
+        
+        <div style="margin-top: 80px; border-top: 2px solid #0070d2; padding-top: 20px;">
+            <p style="color: #888; font-size: 10pt;">
+                This evidence report was automatically compiled by the LORA system.<br>
+                It includes Zendesk ticket data, screenshots, claim evidence, and communication history.
+            </p>
+        </div>
+    </div>
+
+    <!-- Section 1: Dispute Overview -->
+    <div class="section">
+        <h2>Section 1: Dispute Overview</h2>
+        
+        <div class="info-box">
+            <h3>Dispute Information</h3>
+            <table>
+                <tr>
+                    <th style="width: 30%;">PayPal Dispute ID</th>
+                    <td>{{ dispute.paypal_dispute_id }}</td>
+                </tr>
+                <tr>
+                    <th>PayPal Case ID</th>
+                    <td>{{ dispute.paypal_case_id|default:"N/A" }}</td>
+                </tr>
+                <tr>
+                    <th>Current Status</th>
+                    <td>{{ dispute.get_status_display }}</td>
+                </tr>
+                <tr>
+                    <th>Dispute Reason</th>
+                    <td>{{ dispute.get_dispute_reason_display|default:dispute.dispute_reason }}</td>
+                </tr>
+                <tr>
+                    <th>Dispute Amount</th>
+                    <td>{{ dispute.dispute_amount|default:"0.00" }} {{ dispute.dispute_currency|default:"USD" }}</td>
+                </tr>
+                <tr>
+                    <th>Transaction ID</th>
+                    <td>{{ dispute.transaction_id }}</td>
+                </tr>
+                <tr>
+                    <th>Transaction Date</th>
+                    <td>{{ dispute.transaction_date|date:"F d, Y H:i" }}</td>
+                </tr>
+                <tr>
+                    <th>Dispute Created</th>
+                    <td>{{ dispute.created_at|date:"F d, Y H:i" }}</td>
+                </tr>
+                <tr>
+                    <th>Seller Response Due</th>
+                    <td>{{ dispute.seller_response_due|date:"F d, Y H:i"|default:"Not specified" }}</td>
+                </tr>
+            </table>
+        </div>
+        
+        <div class="info-box">
+            <h3>Buyer Information</h3>
+            <p><strong>Name:</strong> {{ dispute.buyer_name|default:"Not provided" }}</p>
+            <p><strong>Email:</strong> {{ dispute.buyer_email }}</p>
+        </div>
+        
+        {% if dispute.claim %}
+        <div class="info-box">
+            <h3>Related Claim Information</h3>
+            <p><strong>Claim ID:</strong> {{ dispute.claim.id }}</p>
+            <p><strong>Claim Status:</strong> {{ dispute.claim.status }}</p>
+            <p><strong>Client Email:</strong> {{ dispute.claim.client_email }}</p>
+            <p><strong>Flight Details:</strong> {{ dispute.claim.flight_details|default:"Not provided" }}</p>
+            <p><strong>Claim Created:</strong> {{ dispute.claim.created_at|date:"F d, Y H:i" }}</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Section 2: Zendesk Ticket Timeline -->
+    <div class="section">
+        <h2>Section 2: Zendesk Ticket Timeline</h2>
+        
+        {% if dispute.zd_ticket_id %}
+            {% if ticket %}
+            <div class="info-box">
+                <h3>Ticket Summary</h3>
+                <p><strong>Ticket ID:</strong> {{ ticket.id }}</p>
+                <p><strong>Subject:</strong> {{ ticket.subject }}</p>
+                <p><strong>Status:</strong> {{ ticket.status }}</p>
+                <p><strong>Priority:</strong> {{ ticket.priority|default:"Normal" }}</p>
+                <p><strong>Created:</strong> {{ ticket.created_at|default:"N/A" }}</p>
+                <p><strong>Last Updated:</strong> {{ ticket.updated_at|default:"N/A" }}</p>
+                {% if ticket.description %}
+                <p><strong>Initial Description:</strong></p>
+                <p style="background: #f8f9fa; padding: 10px; border-radius: 5px;">{{ ticket.description|escape|linebreaks }}</p>
+                {% endif %}
+            </div>
+            {% endif %}
+            
+            <h3>Comment History ({{ comments|length }} comments)</h3>
+            
+            {% if comments %}
+                {% for comment in comments %}
+                <div class="timeline-item">
+                    <div class="timeline-author">
+                        {{ comment.author.name }}
+                        {% if comment.author.email %}
+                            &lt;{{ comment.author.email }}&gt;
+                        {% endif %}
+                        <span class="timeline-public {% if comment.public %}public{% else %}internal{% endif %}">
+                            {% if comment.public %}Public{% else %}Internal{% endif %}
+                        </span>
+                    </div>
+                    <div class="timeline-date">{{ comment.created_at|date:"F d, Y H:i" }}</div>
+                    <div class="comment-body" style="margin-top: 8px;">
+                        {{ comment.body|escape|linebreaks }}
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="no-data">No comments available for this Zendesk ticket.</p>
+            {% endif %}
+        {% else %}
+            <p class="no-data">No Zendesk ticket linked to this dispute.</p>
+        {% endif %}
+    </div>
+
+    <!-- Section 3: Screenshots Gallery -->
+    <div class="section">
+        <h2>Section 3: Screenshots Gallery</h2>
+        
+        {% if screenshots %}
+            <p style="color: #666; margin-bottom: 20px;">
+                The following screenshots were captured from the Zendesk ticket interface:
+            </p>
+            
+            {% for screenshot in screenshots %}
+            <div class="screenshot-item">
+                <p><strong>Screenshot #{{ screenshot.id }}</strong> - Captured: {{ screenshot.captured_at|date:"F d, Y H:i" }}</p>
+                <img src="{{ screenshot.data_uri }}" alt="Screenshot {{ screenshot.id }} for Dispute {{ dispute.id }}">
+                {% if screenshot.description %}
+                <p class="screenshot-description"><strong>Description:</strong> {{ screenshot.description }}</p>
+                {% endif %}
+                {% if screenshot.page_url %}
+                <p class="screenshot-description"><strong>Source URL:</strong> {{ screenshot.page_url }}</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+            <p class="no-data">No screenshots have been captured for this dispute.</p>
+        {% endif %}
+    </div>
+
+    <!-- Section 4: Claim Evidence -->
+    <div class="section">
+        <h2>Section 4: Claim Evidence</h2>
+        
+        {% if claim_evidence %}
+            <p style="color: #666; margin-bottom: 20px;">
+                Evidence images submitted by the claimant:
+            </p>
+            
+            {% for evidence in claim_evidence %}
+            <div class="evidence-item">
+                <img src="{{ evidence.data_uri }}" alt="Evidence for Claim {{ dispute.claim.id }}">
+                <p><strong>Description:</strong> {{ evidence.description|default:"No description provided" }}</p>
+                <p><strong>Uploaded:</strong> {{ evidence.uploaded_at|date:"F d, Y H:i" }}</p>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p class="no-data">No evidence images attached to the related claim.</p>
+        {% endif %}
+    </div>
+
+    <!-- Section 5: Communication History -->
+    <div class="section">
+        <h2>Section 5: Communication History</h2>
+        
+        {% if communication_history %}
+            <p style="color: #666; margin-bottom: 20px;">
+                Email correspondence related to this dispute (showing up to 50 most recent):
+            </p>
+            
+            {% for email in communication_history %}
+            <div class="email-item">
+                <p class="email-subject">
+                    {{ email.subject }}
+                    <span class="email-sentiment sentiment-{{ email.sentiment|default:'Neutral' }}">
+                        {{ email.sentiment|default:'Neutral' }}
+                    </span>
+                </p>
+                <p class="email-meta">
+                    <strong>From:</strong> {{ email.from_email }} | 
+                    <strong>Received:</strong> {{ email.received_at|date:"F d, Y H:i" }}
+                    {% if email.category %}
+                    | <strong>Category:</strong> {{ email.get_category_display }}
+                    {% endif %}
+                    {% if email.auto_resolved %}
+                    | <strong>Auto-Resolved:</strong> Yes
+                    {% endif %}
+                </p>
+                <div style="margin-top: 10px; padding: 10px; background: #fff; border-radius: 5px;">
+                    {{ email.body|escape|linebreaks }}
+                </div>
+                {% if email.ai_summary %}
+                <p style="margin-top: 10px; font-size: 10pt; color: #666;">
+                    <strong>AI Summary:</strong> {{ email.ai_summary }}
+                </p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+            <p class="no-data">No email communication history found for this dispute.</p>
+        {% endif %}
+    </div>
+
+    <!-- Appendix: Reference Information -->
+    <div class="section" style="page-break-before: always;">
+        <h2>Appendix: Reference Information</h2>
+        
+        <div class="info-box">
+            <h3>Document Information</h3>
+            <p><strong>Report Type:</strong> Evidence Report (Template-Generated)</p>
+            <p><strong>Generated At:</strong> {{ generated_at }}</p>
+            <p><strong>System:</strong> LORA (Lost Object Recovery Automation)</p>
+        </div>
+        
+        <div class="info-box">
+            <h3>Dispute Status Reference</h3>
+            <table>
+                <tr>
+                    <th>Status</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <td>RECEIVED</td>
+                    <td>Dispute has been received from PayPal</td>
+                </tr>
+                <tr>
+                    <td>MATCHED</td>
+                    <td>Dispute has been matched to a Zendesk ticket</td>
+                </tr>
+                <tr>
+                    <td>GATHERING_DATA</td>
+                    <td>Evidence and documentation are being gathered</td>
+                </tr>
+                <tr>
+                    <td>DOCUMENTS_READY</td>
+                    <td>All documents are ready for review</td>
+                </tr>
+                <tr>
+                    <td>UNDER_REVIEW</td>
+                    <td>Documents are under internal review</td>
+                </tr>
+                <tr>
+                    <td>EVIDENCE_SENT</td>
+                    <td>Evidence has been submitted to PayPal</td>
+                </tr>
+                <tr>
+                    <td>RESOLVED_WON</td>
+                    <td>Dispute resolved in our favor</td>
+                </tr>
+                <tr>
+                    <td>RESOLVED_LOST</td>
+                    <td>Dispute resolved in buyer's favor</td>
+                </tr>
+                <tr>
+                    <td>ACCEPTED</td>
+                    <td>Dispute accepted/refunded</td>
+                </tr>
+            </table>
+        </div>
+        
+        <div class="info-box">
+            <h3>Dispute Reason Reference</h3>
+            <table>
+                <tr>
+                    <th>Reason Code</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <td>MERCHANDISE_OR_SERVICE_NOT_RECEIVED</td>
+                    <td>Buyer claims they did not receive the item/service</td>
+                </tr>
+                <tr>
+                    <td>MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED</td>
+                    <td>Buyer claims item/service does not match description</td>
+                </tr>
+                <tr>
+                    <td>UNAUTHORIZED_TRANSACTION</td>
+                    <td>Buyer claims transaction was unauthorized</td>
+                </tr>
+                <tr>
+                    <td>CREDIT_NOT_PROCESSED</td>
+                    <td>Buyer claims expected credit was not processed</td>
+                </tr>
+                <tr>
+                    <td>DUPLICATE_TRANSACTION</td>
+                    <td>Buyer claims transaction was duplicated</td>
+                </tr>
+                <tr>
+                    <td>INCORRECT_AMOUNT</td>
+                    <td>Buyer claims incorrect amount was charged</td>
+                </tr>
+                <tr>
+                    <td>OTHER</td>
+                    <td>Other dispute reason not listed above</td>
+                </tr>
+            </table>
+        </div>
+        
+        <div class="info-box">
+            <h3>Notes</h3>
+            {% if dispute.notes %}
+            <p>{{ dispute.notes|escape|linebreaks }}</p>
+            {% else %}
+            <p class="no-data">No additional notes for this dispute.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <p>This evidence report was automatically generated by the LORA (Lost Object Recovery Automation) system.</p>
+        <p>This document is intended for internal review and submission to PayPal as part of the dispute resolution process.</p>
+        <p>PayPal Dispute ID: {{ dispute.paypal_dispute_id }} | Generated: {{ generated_at }}</p>
+    </div>
+</body>
+</html>

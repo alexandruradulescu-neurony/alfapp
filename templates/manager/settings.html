@@ -1,0 +1,166 @@
+{% extends 'base.html' %}
+
+{% block title %}System Settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2><i class="bi bi-gear"></i> System Settings</h2>
+</div>
+
+<form method="post">
+    {% csrf_token %}
+    
+    <!-- AI Configuration -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="bi bi-robot"></i> AI Configuration</h5>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label for="ai_prompt_template" class="form-label">
+                    <strong>AI Prompt Template</strong>
+                    <small class="text-muted d-block">
+                        Use {'{'}variable{'}'} placeholders for dynamic content.
+                    </small>
+                </label>
+                <textarea class="form-control" id="ai_prompt_template" name="ai_prompt_template" 
+                          rows="12">{{ settings.ai_prompt_template }}</textarea>
+            </div>
+        </div>
+    </div>
+    
+    <!-- IMAP Configuration -->
+    <div class="card mb-4">
+        <div class="card-header bg-info text-white">
+            <h5 class="mb-0"><i class="bi bi-envelope"></i> IMAP Configuration</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label for="imap_host" class="form-label">IMAP Host</label>
+                    <input type="text" class="form-control" id="imap_host" name="imap_host" 
+                           value="{{ settings.imap_host }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="imap_user" class="form-label">IMAP Username</label>
+                    <input type="text" class="form-control" id="imap_user" name="imap_user" 
+                           value="{{ settings.imap_user }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="imap_pass" class="form-label">
+                        IMAP Password
+                        <small class="text-muted">Leave blank to keep current</small>
+                    </label>
+                    <input type="password" class="form-control" id="imap_pass" name="imap_pass" 
+                           placeholder="{% if settings.imap_pass %}••••••••••••{% endif %}" autocomplete="off">
+                    {% if settings.imap_pass %}
+                        <div class="form-text">Current password is set. Enter new value to change.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Zendesk Configuration -->
+    <div class="card mb-4">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0"><i class="bi bi-ticket"></i> Zendesk Configuration</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label for="zd_subdomain" class="form-label">Zendesk Subdomain</label>
+                    <input type="text" class="form-control" id="zd_subdomain" name="zd_subdomain" 
+                           value="{{ settings.zd_subdomain }}" placeholder="your-company">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="zd_email" class="form-label">Zendesk Email</label>
+                    <input type="email" class="form-control" id="zd_email" name="zd_email" 
+                           value="{{ settings.zd_email }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="zd_token" class="form-label">
+                        Zendesk API Token
+                        <small class="text-muted">Leave blank to keep current</small>
+                    </label>
+                    <input type="password" class="form-control" id="zd_token" name="zd_token" 
+                           placeholder="{% if settings.zd_token %}••••••••••••{% endif %}" autocomplete="off">
+                    {% if settings.zd_token %}
+                        <div class="form-text">Current token is set. Enter new value to change.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- PayPal Configuration -->
+    <div class="card mb-4">
+        <div class="card-header bg-warning text-dark">
+            <h5 class="mb-0"><i class="bi bi-currency-dollar"></i> PayPal Configuration</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label for="paypal_client_id" class="form-label">PayPal Client ID</label>
+                    <input type="text" class="form-control" id="paypal_client_id" name="paypal_client_id" 
+                           value="{{ settings.paypal_client_id }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="paypal_secret" class="form-label">
+                        PayPal Secret
+                        <small class="text-muted">Leave blank to keep current</small>
+                    </label>
+                    <input type="password" class="form-control" id="paypal_secret" name="paypal_secret" 
+                           placeholder="{% if settings.paypal_secret %}••••••••••••{% endif %}" autocomplete="off">
+                    {% if settings.paypal_secret %}
+                        <div class="form-text">Current secret is set. Enter new value to change.</div>
+                    {% endif %}
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="paypal_webhook_id" class="form-label">PayPal Webhook ID</label>
+                    <input type="text" class="form-control" id="paypal_webhook_id" name="paypal_webhook_id" 
+                           value="{{ settings.paypal_webhook_id }}">
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Sidebar Authentication -->
+    <div class="card mb-4">
+        <div class="card-header bg-danger text-white">
+            <h5 class="mb-0"><i class="bi bi-shield-lock"></i> Sidebar Authentication</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="sidebar_secret_token" class="form-label">
+                        Sidebar Secret Token
+                        <small class="text-muted">Leave blank to keep current</small>
+                    </label>
+                    <input type="password" class="form-control" id="sidebar_secret_token" name="sidebar_secret_token" 
+                           placeholder="{% if settings.sidebar_secret_token %}••••••••••••{% endif %}" autocomplete="off">
+                    {% if settings.sidebar_secret_token %}
+                        <div class="form-text">Current token is set. Enter new value to change.</div>
+                    {% endif %}
+                    <small class="text-muted">Used to authenticate Zendesk sidebar widget requests.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Save Button -->
+    <div class="d-flex justify-content-end">
+        <button type="submit" class="btn btn-primary btn-lg">
+            <i class="bi bi-check-circle"></i> Save Settings
+        </button>
+    </div>
+</form>
+
+<!-- Security Notice -->
+<div class="alert alert-info mt-3">
+    <i class="bi bi-shield-check"></i> 
+    <strong>Security Notice:</strong> All sensitive credentials (passwords, tokens, secrets) are 
+    encrypted at rest in the database. Password fields are never pre-filled - enter a new value 
+    only when you want to change them.
+</div>
+{% endblock %}
