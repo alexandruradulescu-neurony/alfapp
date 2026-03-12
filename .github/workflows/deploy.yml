@@ -1,0 +1,62 @@
+name: Test & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Run checks
+    runs-on: ubuntu-22.04
+
+    env:
+      SECRET_KEY: test-secret-key-not-for-production
+      DEBUG: "False"
+      ALLOWED_HOSTS: localhost
+      ENCRYPTION_KEY: test-encryption-key-not-for-production
+      DATABASE_URL: sqlite:///db.sqlite3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0 libffi-dev libcairo2
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check for missing migrations
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Run Django system checks
+        run: python manage.py check --deploy
+
+      # TODO: Add `python manage.py test` once test suite is created
+
+  deploy:
+    name: Deploy to production
+    needs: test
+    runs-on: ubuntu-22.04
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: /opt/lora/deploy/deploy.sh

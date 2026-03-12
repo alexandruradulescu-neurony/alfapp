@@ -28,8 +28,8 @@ cryptography>=41.0.0
 # Browser automation for Zendesk screenshot capture
 playwright>=1.40.0
 
-# Production server (optional)
-# gunicorn>=21.0.0
+# Production server
+gunicorn>=21.0.0
 
-# PostgreSQL adapter (optional, for production)
-# psycopg2-binary>=2.9.0
+# PostgreSQL adapter
+psycopg2-binary>=2.9.0

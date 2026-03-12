@@ -1,0 +1,32 @@
+# Systemd service for LORA
+# Place at: /etc/systemd/system/lora.service
+# Enable: sudo systemctl enable lora
+# Start:  sudo systemctl start lora
+
+[Unit]
+Description=LORA Gunicorn Application Server
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=notify
+User=deploy
+Group=deploy
+RuntimeDirectory=lora
+WorkingDirectory=/opt/lora
+EnvironmentFile=/opt/lora/.env
+ExecStart=/opt/lora/venv/bin/gunicorn lora_app.wsgi:application --config /opt/lora/deploy/gunicorn.conf.py
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=30
+
+# Security hardening
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/lora/media /var/log/lora /run/lora
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
