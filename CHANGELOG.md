@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2026-03-17
+
+### 🎉 Added
+
+#### Email System Improvements
+- **Detailed Logging**: Success/failure icons for Zendesk posting visibility
+- **Explicit Match Logging**: Clear messages when emails will/won't be posted to Zendesk
+- **Enhanced Debugging**: Step-by-step logging of email matching and posting process
+
+### 🔧 Changed
+
+#### Email System Simplification
+- **Removed Sentiment Analysis**: No longer needed (emails only from airports/TSA/platforms)
+- **Simplified Zendesk Matching**: Uses ONLY custom field `13606076120860` (hardcoded)
+- **Removed from_email Fallback**: Only alias-based matching via Zendesk custom field
+- **Full Email Posting**: Posts complete email body + AI summary (not just summary)
+- **New Zendesk Format**: Shows email headers, full body, then AI analysis
+
+#### Email Categories (Unchanged)
+- OBJECT_FOUND - Item located
+- OBJECT_NOT_FOUND - Search completed, not found (auto-resolvable)
+- RESUBMISSION_REQUIRED - Need more information
+- SUBMISSION_CONFIRMATION - Form submission acknowledgment (auto-resolvable)
+- GENERAL_CORRESPONDENCE - Other communication
+- UNKNOWN - Cannot categorize
+
+### 🗑️ Removed
+
+- **EmailLog.sentiment** field and database index
+- **SENTIMENT_CHOICES** from model
+- **Sentiment filter** from email list template
+- **Sentiment display** from email detail template
+- **Sentiment extraction** from AI parsing
+- **from_email fallback matching** in email processing
+
+### 📦 Dependencies
+
+No new dependencies added.
+
+### ⚠️ Database Changes
+
+- **communications.EmailLog**: Removed `sentiment` field
+- **communications.EmailLog**: Removed `sentiment` index
+
+### 🚀 Migration
+
+```bash
+python manage.py migrate
+```
+
+This will remove the sentiment field and index from the EmailLog table.
+
+### 📝 Documentation
+
+- **README.md**: Added comprehensive Email System section
+- **README.md**: Updated version to 1.3.0
+- **README.md**: Added email flow diagram
+- **README.md**: Added Zendesk comment format example
+- **README.md**: Added configuration table for email settings
+- **README.md**: Updated Email Processing features list
+
+---
+
 ## [1.2.0] - 2026-03-17
 
 ### 🎉 Added

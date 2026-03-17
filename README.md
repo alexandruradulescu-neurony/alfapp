@@ -1,6 +1,6 @@
 # LORA - Lost Object Recovery Automation
 
-**Version:** 1.2.0
+**Version:** 1.3.0
 **Framework:** Django 5.2.11 | Python 3.10+
 **UI:** Tailwind CSS 4 + DaisyUI 5
 
@@ -35,9 +35,10 @@ A comprehensive platform for automating lost object recovery claims, dispute man
 
 ### Email Processing
 - **IMAP Integration**: Automatic fetching of unread emails every 3 minutes
-- **AI Analysis**: Automatic categorization, sentiment analysis, and action detection
-- **Zendesk Integration**: Auto-posting AI summaries to tickets
-- **Alias Matching**: Route emails to correct claims/tickets via custom email aliases
+- **AI Analysis**: Automatic categorization and action detection
+- **Zendesk Integration**: Auto-posting full emails + AI summaries to tickets
+- **Alias Matching**: Route emails to tickets via custom field 13606076120860
+- **Auto-Resolution**: Smart categorization marks simple emails as processed
 
 ### Dispute Management (PayPal)
 - **Webhook Integration**: Real-time dispute notifications from PayPal
@@ -544,6 +545,120 @@ GET    /api/payments/proof-of-work/{claim_id}/  # Generate proof-of-work PDF
 ```
 GET    /api/zd/info/  # Get Zendesk sidebar widget data
 POST   /api/zd/sync/  # Sync claim to Zendesk (create ticket)
+```
+
+---
+
+## 📧 Email System
+
+### Overview
+
+The email system automatically processes incoming emails from airports, TSA, and submission platforms:
+
+1. **Fetches** emails from IMAP server every 3 minutes
+2. **Analyzes** with AI for categorization and action items
+3. **Matches** to Zendesk tickets via custom field `13606076120860`
+4. **Posts** full email + AI summary to Zendesk as internal note
+5. **Auto-resolves** simple emails based on category
+
+### Email Flow
+
+```
+Email sent to client-123@yourdomain.com
+         ↓
+Arrives at your IMAP inbox
+         ↓
+APScheduler fetches (every 3 min)
+         ↓
+Extract alias from Delivered-To header
+         ↓
+Search Zendesk: custom_fields_13606076120860 = "client-123@yourdomain.com"
+         ↓
+    ┌────┴────┐
+    ↓         ↓
+Found     Not Found
+    ↓         ↓
+Post to    Log only
+Zendesk    (no ticket)
+    ↓
+Full email + AI analysis
+as internal note
+    ↓
+Auto-resolve if category =
+SUBMISSION_CONFIRMATION or
+OBJECT_NOT_FOUND
+```
+
+### Zendesk Comment Format
+
+When an email is matched to a ticket, it's posted as an **internal note**:
+
+```
+📧 **New Email Received**
+
+**From:** airport@tsa.gov
+**Subject:** Claim Submission Confirmed
+**Alias:** client-123@yourdomain.com
+
+---
+
+**Original Message:**
+
+[Full email body - exactly as received]
+
+---
+
+**AI Analysis**
+
+**Category:** SUBMISSION_CONFIRMATION
+**Summary:** Customer email confirms they submitted a claim...
+**Action Required:** No
+**Auto-Resolved:** Yes
+```
+
+### Email Categories
+
+- **OBJECT_FOUND** - The lost object has been located
+- **OBJECT_NOT_FOUND** - Search completed, object not found (auto-resolvable)
+- **RESUBMISSION_REQUIRED** - Additional information needed
+- **SUBMISSION_CONFIRMATION** - Acknowledgment of form submission (auto-resolvable)
+- **GENERAL_CORRESPONDENCE** - Other communication
+- **UNKNOWN** - Cannot determine category
+
+### Configuration Required
+
+**SystemSettings (Database):**
+
+| Setting | Description | Example |
+|---------|-------------|---------|
+| `imap_host` | IMAP server hostname | `imap.gmail.com` |
+| `imap_user` | IMAP username | `support@yourdomain.com` |
+| `imap_pass` | IMAP password (encrypted) | App-specific password |
+| `email_domain` | Domain for alias matching | `yourdomain.com` |
+| `ai_api_key` | AI API key (encrypted) | Your API key |
+| `ai_api_base` | AI API endpoint | `https://api.deepseek.com/v1` |
+
+**Zendesk Setup:**
+
+1. Create a **custom ticket field** (type: text) to store email aliases
+2. Note the field ID (e.g., `13606076120860`)
+3. Populate the field on tickets with values like `client-123@yourdomain.com`
+4. Configure email aliases to forward to your IMAP inbox
+
+### Management
+
+Access via **Manager → Configuration** page:
+
+- **Test IMAP** - Verify connection
+- **Start/Stop Scheduler** - Control email fetching
+- **Enable/Disable** - Toggle processing
+- **View Logs** - See processing history
+
+### API Endpoints
+
+```
+GET    /api/communications/email-logs/     # List emails
+GET    /api/communications/email-logs/{id}/ # Get email detail
 ```
 
 ---
