@@ -30,20 +30,6 @@
                    placeholder="Subject or From Email">
         </div>
 
-        <!-- Sentiment Filter -->
-        <div class="md:col-span-2">
-            <label class="label">
-                <span class="label-text text-sm text-base-content/60">Sentiment</span>
-            </label>
-            <select class="select rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full" name="sentiment">
-                <option value="">All Sentiments</option>
-                <option value="Positive" {% if sentiment_filter == 'Positive' %}selected{% endif %}>Positive</option>
-                <option value="Neutral" {% if sentiment_filter == 'Neutral' %}selected{% endif %}>Neutral</option>
-                <option value="Frustrated" {% if sentiment_filter == 'Frustrated' %}selected{% endif %}>Frustrated</option>
-                <option value="Urgent" {% if sentiment_filter == 'Urgent' %}selected{% endif %}>Urgent</option>
-            </select>
-        </div>
-
         <!-- Category Filter -->
         <div class="md:col-span-3">
             <label class="label">
@@ -115,7 +101,6 @@
                     <th>Subject</th>
                     <th>From</th>
                     <th>Category</th>
-                    <th>Sentiment</th>
                     <th>Zendesk Ticket</th>
                     <th>Received</th>
                     <th>Actions</th>
@@ -145,11 +130,6 @@
                         {% endif %}
                     </td>
                     <td>
-                        <span class="badge sentiment-{{ email.sentiment|default:'Neutral' }}">
-                            {{ email.sentiment|default:'Neutral' }}
-                        </span>
-                    </td>
-                    <td>
                         {% if email.zd_ticket_id %}
                         <a href="https://{{ settings.zd_subdomain|default:'lora' }}.zendesk.com/agent/tickets/{{ email.zd_ticket_id }}"
                            target="_blank" class="btn btn-sm btn-outline btn-info rounded-xl transition-all duration-200">
@@ -171,7 +151,7 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="8" class="text-center py-12">
+                    <td colspan="7" class="text-center py-12">
                         <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
                             <i class="bi bi-inbox text-3xl text-base-content/40"></i>
                         </div>

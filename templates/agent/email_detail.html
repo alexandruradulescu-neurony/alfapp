@@ -60,12 +60,6 @@
             </h3>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="flex justify-between items-center p-3 bg-base-200/50 rounded-xl">
-                    <span class="text-sm text-base-content/50">Sentiment</span>
-                    <span class="badge sentiment-{{ email.sentiment|default:'Neutral' }}">
-                        {{ email.sentiment|default:'Neutral' }}
-                    </span>
-                </div>
-                <div class="flex justify-between items-center p-3 bg-base-200/50 rounded-xl">
                     <span class="text-sm text-base-content/50">Category</span>
                     <span class="badge status-{{ email.category }}">
                         {{ email.get_category_display }}

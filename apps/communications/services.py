@@ -200,7 +200,7 @@ def extract_raw_headers(msg: email.message.Message) -> str:
 def call_qwen_ai(prompt: str, email_body: str, subject: str = '') -> Dict[str, Any]:
     """
     Call AI API to analyze email content.
-    Returns parsed JSON with summary, sentiment, category, action_required, auto_resolvable.
+    Returns parsed JSON with summary, category, action_required, auto_resolvable.
 
     Security: Email content is passed in the 'user' role message, separate from
     system instructions, to prevent prompt injection from malicious email bodies.
@@ -221,8 +221,7 @@ def call_qwen_ai(prompt: str, email_body: str, subject: str = '') -> Dict[str, A
     system_prompt = (
         "You are an email analysis assistant for a lost luggage recovery service. "
         "Analyze the email provided by the user and respond with ONLY valid JSON in this exact format:\n"
-        '{"summary": "brief summary", "sentiment": "Positive|Neutral|Frustrated|Urgent", '
-        '"category": "OBJECT_FOUND|OBJECT_NOT_FOUND|RESUBMISSION_REQUIRED|SUBMISSION_CONFIRMATION|GENERAL_CORRESPONDENCE|UNKNOWN", '
+        '{"summary": "brief summary", "category": "OBJECT_FOUND|OBJECT_NOT_FOUND|RESUBMISSION_REQUIRED|SUBMISSION_CONFIRMATION|GENERAL_CORRESPONDENCE|UNKNOWN", '
         '"action_required": true/false, "auto_resolvable": true/false}\n\n'
         "Categories:\n"
         "- OBJECT_FOUND: The lost object has been located\n"
@@ -260,12 +259,11 @@ def call_qwen_ai(prompt: str, email_body: str, subject: str = '') -> Dict[str, A
 
 def parse_ai_response(raw_response: str) -> Dict[str, Any]:
     """
-    Parse the AI response to extract summary, sentiment, category, action_required, auto_resolvable.
+    Parse the AI response to extract summary, category, action_required, auto_resolvable.
     Handles various JSON formats and provides fallback values.
     """
     result = {
         'summary': '',
-        'sentiment': 'Neutral',
         'category': 'UNKNOWN',
         'action_required': False,
         'auto_resolvable': False,
@@ -301,24 +299,6 @@ def parse_ai_response(raw_response: str) -> Dict[str, Any]:
                 result['summary'] = str(data[key])[:1000]  # Limit length
                 break
 
-        # Extract sentiment
-        sentiment_raw = ''
-        for key in ['sentiment', 'Sentiment', 'SENTIMENT']:
-            if key in data and data[key]:
-                sentiment_raw = str(data[key]).strip()
-                break
-
-        # Normalize sentiment to valid choices
-        sentiment_lower = sentiment_raw.lower()
-        if 'urgent' in sentiment_lower or 'emergency' in sentiment_lower:
-            result['sentiment'] = 'Urgent'
-        elif 'frustrat' in sentiment_lower or 'angr' in sentiment_lower or 'upset' in sentiment_lower:
-            result['sentiment'] = 'Frustrated'
-        elif 'posit' in sentiment_lower or 'happy' in sentiment_lower or 'thank' in sentiment_lower:
-            result['sentiment'] = 'Positive'
-        else:
-            result['sentiment'] = 'Neutral'
-
         # Extract category
         category_raw = ''
         for key in ['category', 'Category', 'CATEGORY']:
@@ -331,7 +311,7 @@ def parse_ai_response(raw_response: str) -> Dict[str, Any]:
             'OBJECT_FOUND', 'OBJECT_NOT_FOUND', 'RESUBMISSION_REQUIRED',
             'SUBMISSION_CONFIRMATION', 'GENERAL_CORRESPONDENCE', 'UNKNOWN'
         ]
-        
+
         if category_raw in valid_categories:
             result['category'] = category_raw
         else:
@@ -369,10 +349,6 @@ def parse_ai_response(raw_response: str) -> Dict[str, Any]:
                     result['auto_resolvable'] = value.lower() in ['true', 'yes', '1']
                 break
 
-        # Auto-detect action_required based on sentiment if not provided
-        if result['sentiment'] in ['Urgent', 'Frustrated']:
-            result['action_required'] = True
-
         # Auto-detect auto_resolvable based on category if not explicitly set
         if result['category'] in AUTO_RESOLVABLE_CATEGORIES and not result['action_required']:
             result['auto_resolvable'] = True
@@ -385,15 +361,6 @@ def parse_ai_response(raw_response: str) -> Dict[str, Any]:
 
         # Fallback: try to infer from raw text
         raw_lower = raw_response.lower()
-        
-        if 'urgent' in raw_lower or 'asap' in raw_lower or 'immediately' in raw_lower:
-            result['sentiment'] = 'Urgent'
-            result['action_required'] = True
-        elif 'frustrat' in raw_lower or 'angry' in raw_lower:
-            result['sentiment'] = 'Frustrated'
-            result['action_required'] = True
-        elif 'thank' in raw_lower or 'great' in raw_lower:
-            result['sentiment'] = 'Positive'
 
         # Infer category from text (check "not found" before "found")
         if 'not found' in raw_lower or ('lost' in raw_lower and 'object' in raw_lower):
@@ -424,30 +391,46 @@ def mark_email_as_seen(imap_conn: imaplib.IMAP4_SSL, uid: str) -> bool:
         return False
 
 
-def post_ai_summary_to_zendesk(zd_ticket_id: str, parsed: Dict[str, Any], subject: str) -> bool:
+def post_ai_summary_to_zendesk(
+    zd_ticket_id: str,
+    parsed: Dict[str, Any],
+    subject: str,
+    from_email: str,
+    email_body: str,
+    alias: str = '',
+) -> bool:
     """
-    Post AI analysis summary as internal note to Zendesk ticket.
-    
+    Post full email body + AI analysis summary as internal note to Zendesk ticket.
+
     Args:
         zd_ticket_id: The Zendesk ticket ID
         parsed: Parsed AI analysis result
         subject: Original email subject
-        
+        from_email: Sender email address
+        email_body: Full email body content
+        alias: Matched email alias (if any)
+
     Returns:
         True if successful, False otherwise
     """
-    if not zd_ticket_id or not parsed.get('summary'):
+    if not zd_ticket_id:
         return False
-    
+
     try:
         internal_note = (
-            f"**AI Analysis of Customer Email**\n\n"
-            f"**Summary:** {parsed['summary']}\n\n"
-            f"**Sentiment:** {parsed['sentiment']}\n\n"
+            f"📧 **New Email Received**\n\n"
+            f"**From:** {from_email}\n"
+            f"**Subject:** {subject}\n"
+            f"**Alias:** {alias}\n\n"
+            f"---\n\n"
+            f"**Original Message:**\n\n"
+            f"{email_body}\n\n"
+            f"---\n\n"
+            f"**AI Analysis**\n\n"
             f"**Category:** {parsed['category']}\n\n"
+            f"**Summary:** {parsed['summary']}\n\n"
             f"**Action Required:** {'Yes' if parsed['action_required'] else 'No'}\n\n"
-            f"**Auto-Resolved:** {'Yes' if parsed.get('auto_resolvable', False) else 'No'}\n\n"
-            f"**Original Subject:** {subject}\n"
+            f"**Auto-Resolved:** {'Yes' if parsed.get('auto_resolvable', False) else 'No'}\n"
         )
 
         result = post_zendesk_comment(
@@ -457,10 +440,10 @@ def post_ai_summary_to_zendesk(zd_ticket_id: str, parsed: Dict[str, Any], subjec
         )
 
         if result:
-            logger.info(f"Posted AI summary to Zendesk ticket {zd_ticket_id}")
+            logger.info(f"Posted email + AI summary to Zendesk ticket {zd_ticket_id}")
             return True
         else:
-            logger.warning(f"Failed to post AI summary to Zendesk ticket {zd_ticket_id}")
+            logger.warning(f"Failed to post email + AI summary to Zendesk ticket {zd_ticket_id}")
             return False
 
     except Exception as e:
@@ -507,31 +490,22 @@ def process_single_email(
         claim = None
         matched_via = 'none'
         
-        # Step 1: Try alias-based matching first
+        # Step 1: Try alias-based matching via Zendesk custom field
         if alias:
             logger.info(f"Attempting to match alias {alias} to Zendesk ticket")
             ticket_data = match_alias_to_zendesk_ticket(alias)
-            
+
             if ticket_data:
                 zd_ticket_id = str(ticket_data.get('id', ''))
                 matched_via = 'alias'
                 logger.info(f"Matched alias {alias} to Zendesk ticket {zd_ticket_id}")
-                
+
                 # Try to find associated claim
                 claim = Claim.objects.filter(zd_ticket_id=zd_ticket_id).first()
-        
-        # Step 2: Fall back to from_email matching if no alias match
-        if not zd_ticket_id:
-            logger.info(f"No alias match, falling back to from_email matching: {from_email}")
-            claim = Claim.objects.filter(client_email=from_email).first()
-            
-            if claim:
-                matched_via = 'from_email'
-                if claim.zd_ticket_id:
-                    zd_ticket_id = claim.zd_ticket_id
-                logger.info(f"Matched from_email {from_email} to Claim #{claim.id}")
             else:
-                logger.info(f"No claim found for email {from_email} - will log email without claim")
+                logger.info(f"No Zendesk ticket found for alias {alias}")
+        else:
+            logger.info(f"No alias found in email headers")
         
         # Extract email body
         body = extract_email_body(msg)
@@ -568,7 +542,7 @@ def process_single_email(
         # Determine if email should be auto-resolved
         auto_resolved = False
         should_mark_as_seen = False
-        
+
         if parsed.get('auto_resolvable', False) and parsed.get('category') in AUTO_RESOLVABLE_CATEGORIES:
             auto_resolved = True
             should_mark_as_seen = True
@@ -577,13 +551,12 @@ def process_single_email(
             # Leave unread for agent attention
             logger.info(f"Email requires agent attention: category={parsed['category']}, UID={uid}")
 
-        # Create EmailLog entry with all new fields
+        # Create EmailLog entry
         email_log = EmailLog.objects.create(
             claim=claim,
             subject=subject[:500],  # Limit length
             body=body,
             ai_summary=parsed['summary'],
-            sentiment=parsed['sentiment'],
             action_required=parsed['action_required'],
             from_email=from_email,
             to_email=to_email,
@@ -600,10 +573,17 @@ def process_single_email(
             f"zd_ticket={zd_ticket_id}, category={parsed['category']}, auto_resolved={auto_resolved}"
         )
 
-        # Post AI summary as internal note to Zendesk — only if matched via alias
+        # Post full email + AI summary to Zendesk — only if matched via alias
         # (from_email fallback is unreliable and could post to wrong ticket)
         if zd_ticket_id and matched_via == 'alias':
-            post_ai_summary_to_zendesk(zd_ticket_id, parsed, subject)
+            post_ai_summary_to_zendesk(
+                zd_ticket_id=zd_ticket_id,
+                parsed=parsed,
+                subject=subject,
+                from_email=from_email,
+                email_body=body,
+                alias=alias or '',
+            )
         elif zd_ticket_id and matched_via != 'alias':
             logger.info(
                 f"Skipping Zendesk posting for ticket {zd_ticket_id} — "

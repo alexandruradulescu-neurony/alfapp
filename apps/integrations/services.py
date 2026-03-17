@@ -582,29 +582,30 @@ def search_zendesk_ticket_for_dispute(
 
 def match_alias_to_zendesk_ticket(alias: str) -> Optional[Dict[str, Any]]:
     """
-    Search for a Zendesk ticket where a custom field contains the email alias.
-
+    Search for a Zendesk ticket where custom field 13606076120860 contains the email alias.
+    
+    This is the ONLY matching method - no fallback to other fields.
+    
     Args:
-        alias: The email alias to search for (e.g., "claim-123@mydomain.com")
-
+        alias: The email alias to search for (e.g., "client-123@mydomain.com")
+    
     Returns:
         Matching ticket data dict, None if no match
     """
     try:
-        system_settings = SystemSettings.get_instance()
-        custom_field_id = system_settings.zd_alias_custom_field_id
-
-        if not custom_field_id:
-            logger.warning("Zendesk alias custom field ID not configured")
-            return None
+        # Hard-coded custom field ID as specified
+        custom_field_id = '13606076120860'
         
-        # Search for tickets with the alias in the custom field
-        query = f'custom_field_{custom_field_id}:"{alias}"'
+        # Search for tickets where the custom field contains the alias
+        # Zendesk search syntax: custom_fields_{id}:"value"
+        query = f'custom_fields_{custom_field_id}:"{alias}"'
         results = search_zendesk_tickets(query)
         
         if results:
+            logger.info(f"Matched alias {alias} to Zendesk ticket {results[0].get('id')}")
             return results[0]
         
+        logger.debug(f"No Zendesk ticket found for alias {alias}")
         return None
         
     except Exception as e:

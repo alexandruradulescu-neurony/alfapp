@@ -5,17 +5,10 @@ class EmailLog(models.Model):
     """
     Logs incoming/outgoing emails related to claims and Zendesk tickets.
     Used for tracking communication history and AI analysis.
-    
+
     Note: claim ForeignKey is nullable - emails may link to Zendesk tickets
     without a corresponding Claim record.
     """
-
-    SENTIMENT_CHOICES = [
-        ('Positive', 'Positive'),
-        ('Neutral', 'Neutral'),
-        ('Frustrated', 'Frustrated'),
-        ('Urgent', 'Urgent'),
-    ]
 
     CATEGORY_CHOICES = [
         ('OBJECT_FOUND', 'Object Found'),
@@ -37,12 +30,6 @@ class EmailLog(models.Model):
     subject = models.CharField(max_length=500, db_index=True)
     body = models.TextField()
     ai_summary = models.TextField(blank=True)
-    sentiment = models.CharField(
-        max_length=20,
-        choices=SENTIMENT_CHOICES,
-        blank=True,
-        db_index=True,
-    )
     action_required = models.BooleanField(default=False, db_index=True)
     received_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
@@ -70,7 +57,6 @@ class EmailLog(models.Model):
         indexes = [
             models.Index(fields=['-received_at']),
             models.Index(fields=['claim', '-received_at']),
-            models.Index(fields=['sentiment', 'action_required']),
             models.Index(fields=['category', 'auto_resolved']),
             models.Index(fields=['from_email', '-received_at']),
         ]

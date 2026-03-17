@@ -18,8 +18,9 @@ class EmailLogSerializer(serializers.ModelSerializer):
             'subject',
             'body',
             'ai_summary',
-            'sentiment',
             'action_required',
+            'category',
+            'auto_resolved',
             'received_at',
         ]
         read_only_fields = [
@@ -27,17 +28,6 @@ class EmailLogSerializer(serializers.ModelSerializer):
             'claim_id',
             'claim_status',
             'ai_summary',
-            'sentiment',
             'action_required',
             'received_at',
         ]
-
-    def validate_sentiment(self, value):
-        """Validate sentiment is a valid choice."""
-        if value:
-            valid_sentiments = [choice[0] for choice in EmailLog.SENTIMENT_CHOICES]
-            if value not in valid_sentiments:
-                raise serializers.ValidationError(
-                    f"Invalid sentiment. Must be one of: {', '.join(valid_sentiments)}"
-                )
-        return value
