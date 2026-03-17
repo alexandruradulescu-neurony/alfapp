@@ -3,81 +3,83 @@
 {% block title %}Login - LORA{% endblock %}
 
 {% block content %}
-<div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8">
-  <div class="sm:mx-auto sm:w-full sm:max-w-sm">
-    <!-- LORA Logo Icon -->
-    <div class="mx-auto h-12 w-12 flex items-center justify-center rounded-lg bg-indigo-600">
-      <i class="bi bi-box-seam text-2xl text-white"></i>
+<div class="min-h-full flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-md w-full">
+    <!-- Logo and Title -->
+    <div class="text-center mb-8">
+      <div class="mx-auto h-16 w-16 bg-primary rounded-lg flex items-center justify-center">
+        <i class="bi bi-box-seam text-3xl text-white"></i>
+      </div>
+      <h2 class="mt-4 text-3xl font-bold text-base-content">LORA</h2>
+      <p class="mt-2 text-sm text-base-content/70">Lost Object Recovery Automation</p>
     </div>
-    <h2 class="mt-6 text-center text-2xl font-bold leading-9 tracking-tight text-gray-900">
-      Sign in to your account
-    </h2>
-    <p class="mt-2 text-center text-sm text-gray-600">
-      Lost Object Recovery Automation
-    </p>
-  </div>
 
-  <div class="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
-    <form method="post" action="{% url 'login' %}" class="space-y-6">
-      {% csrf_token %}
-      
-      <div>
-        <label for="username" class="block text-sm font-medium leading-6 text-gray-900">Username</label>
-        <div class="mt-2">
-          <input 
-            id="username" 
-            name="username" 
-            type="text" 
-            required 
-            autocomplete="username"
-            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm sm:leading-6"
-            placeholder="Enter your username"
-            autofocus
-          />
-        </div>
-      </div>
-
-      <div>
-        <div class="flex items-center justify-between">
-          <label for="password" class="block text-sm font-medium leading-6 text-gray-900">Password</label>
-        </div>
-        <div class="mt-2">
-          <input 
-            id="password" 
-            name="password" 
-            type="password" 
-            required 
-            autocomplete="current-password"
-            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm sm:leading-6"
-            placeholder="Enter your password"
-          />
-        </div>
-      </div>
-
-      {% if messages %}
-        {% for message in messages %}
-        <div class="rounded-md bg-red-50 p-4">
-          <div class="flex">
-            <div class="flex-shrink-0">
-              <i class="bi bi-exclamation-circle text-red-400"></i>
-            </div>
-            <div class="ml-3">
-              <p class="text-sm text-red-800">{{ message }}</p>
-            </div>
+    <!-- Login Form Card -->
+    <div class="card bg-base-100 shadow-xl">
+      <form method="post" action="{% url 'login' %}" class="card-body">
+        {% csrf_token %}
+        
+        <!-- Username Field -->
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text font-medium">Username</span>
+          </label>
+          <div class="relative">
+            <i class="bi bi-person absolute left-3 top-1/2 -translate-y-1/2 text-base-content/50"></i>
+            <input 
+              type="text" 
+              name="username" 
+              placeholder="Enter your username" 
+              required
+              autocomplete="username"
+              autofocus
+              class="input input-bordered w-full pl-10 focus:input-primary"
+            />
           </div>
         </div>
-        {% endfor %}
-      {% endif %}
 
-      <div>
-        <button 
-          type="submit" 
-          class="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-        >
-          Sign in
-        </button>
-      </div>
-    </form>
+        <!-- Password Field -->
+        <div class="form-control">
+          <label class="label">
+            <span class="label-text font-medium">Password</span>
+          </label>
+          <div class="relative">
+            <i class="bi bi-lock absolute left-3 top-1/2 -translate-y-1/2 text-base-content/50"></i>
+            <input 
+              type="password" 
+              name="password" 
+              placeholder="Enter your password" 
+              required
+              autocomplete="current-password"
+              class="input input-bordered w-full pl-10 focus:input-primary"
+            />
+          </div>
+        </div>
+
+        <!-- Error Messages -->
+        {% if messages %}
+          {% for message in messages %}
+          <div class="alert alert-error">
+            <i class="bi bi-exclamation-circle"></i>
+            <span>{{ message }}</span>
+          </div>
+          {% endfor %}
+        {% endif %}
+
+        <!-- Submit Button -->
+        <div class="form-control mt-6">
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-box-arrow-in-right mr-2"></i>
+            Sign In
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Footer -->
+    <p class="mt-8 text-center text-xs text-base-content/50">
+      &copy; {% now "Y" %} LORA - Lost Object Recovery Automation
+    </p>
   </div>
 </div>
 {% endblock %}
