@@ -13,6 +13,7 @@ class Claim(models.Model):
         ('Found', 'Found'),
         ('Shipped', 'Shipped'),
         ('Disputed', 'Disputed'),
+        ('REFUND_REQUESTED', 'Refund Requested'),
         ('REFUNDED', 'Refunded'),
         ('PARTIALLY_REFUNDED', 'Partially Refunded'),
     ]

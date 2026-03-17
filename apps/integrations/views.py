@@ -480,3 +480,98 @@ class RefundWebhookView(APIView):
                 {'error': 'Internal server error'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class ZendeskStatusWebhookView(APIView):
+    """
+    Webhook endpoint for receiving Zendesk ticket status changes.
+    
+    Expects POST request with JSON payload:
+    {
+        "ticket_id": "12345",
+        "status": "refund_requested",
+        "claim_id": "678"
+    }
+    
+    When Zendesk status changes to "refund_requested", this updates the Claim status.
+    """
+    permission_classes = [AllowAny]  # TODO: Add webhook signature verification
+    
+    def post(self, request):
+        """
+        Process Zendesk status change webhook.
+        """
+        try:
+            data = request.data
+            
+            # Validate required fields
+            ticket_id = data.get('ticket_id')
+            new_status = data.get('status')
+            claim_id = data.get('claim_id')
+            
+            if not all([ticket_id, new_status, claim_id]):
+                logger.warning(f"Missing required fields in Zendesk webhook: {data}")
+                return Response(
+                    {'error': 'Missing required fields'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Verify webhook secret
+            webhook_secret = request.headers.get('X-Webhook-Secret', '')
+            if webhook_secret:
+                system_settings = SystemSettings.get_instance()
+                expected_secret = system_settings.sidebar_secret_token
+                if not hmac.compare_digest(webhook_secret, expected_secret):
+                    logger.warning("Invalid webhook secret for Zendesk status change")
+                    return Response(
+                        {'error': 'Invalid webhook secret'},
+                        status=status.HTTP_401_UNAUTHORIZED
+                    )
+            
+            # Find claim by Zendesk ticket ID
+            from apps.claims.models import Claim
+            try:
+                claim = Claim.objects.get(zd_ticket_id=ticket_id)
+            except Claim.DoesNotExist:
+                # Try by claim_id if provided
+                try:
+                    claim = Claim.objects.get(id=claim_id)
+                except Claim.DoesNotExist:
+                    logger.warning(f"Claim not found for ticket {ticket_id}")
+                    return Response(
+                        {'error': 'Claim not found'},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+            
+            # Update claim status based on Zendesk status
+            if new_status == 'refund_requested':
+                if claim.status not in ['REFUND_REQUESTED', 'REFUNDED', 'PARTIALLY_REFUNDED']:
+                    claim.status = 'REFUND_REQUESTED'
+                    claim.save()
+                    logger.info(f"Claim #{claim.id} status updated to REFUND_REQUESTED from Zendesk")
+                    
+                    # Create a refund request record
+                    from apps.payments.models import Refund
+                    Refund.objects.get_or_create(
+                        claim=claim,
+                        defaults={
+                            'status': 'REQUESTED',
+                            'refund_type': 'FULL',
+                            'external_source': 'LORA',
+                            'reason': 'Refund requested via Zendesk',
+                            'metadata': {'zendesk_ticket_id': ticket_id},
+                        }
+                    )
+            
+            return Response({
+                'message': 'Status updated successfully',
+                'claim_id': claim.id,
+                'new_status': claim.status,
+            })
+            
+        except Exception as e:
+            logger.error(f"Error processing Zendesk status webhook: {e}", exc_info=True)
+            return Response(
+                {'error': 'Internal server error'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

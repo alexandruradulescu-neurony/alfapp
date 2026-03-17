@@ -10,6 +10,7 @@ class Refund(models.Model):
     """
     
     STATUS_CHOICES = [
+        ('REQUESTED', 'Requested'),
         ('PENDING', 'Pending'),
         ('PROCESSING', 'Processing'),
         ('COMPLETED', 'Completed'),
@@ -67,7 +68,7 @@ class Refund(models.Model):
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default='PENDING',
+        default='REQUESTED',
         help_text='Current refund status'
     )
     

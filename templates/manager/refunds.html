@@ -152,7 +152,7 @@
                         <span class="badge badge-sm badge-neutral">{{ refund.get_external_source_display }}</span>
                     </td>
                     <td>
-                        <span class="badge badge-sm {% if refund.status == 'COMPLETED' %}badge-success{% elif refund.status == 'PENDING' %}badge-warning{% elif refund.status == 'FAILED' %}badge-error{% elif refund.status == 'PROCESSING' %}badge-info{% else %}badge-neutral{% endif %}">
+                        <span class="badge badge-sm {% if refund.status == 'COMPLETED' %}badge-success{% elif refund.status == 'REQUESTED' %}badge-info{% elif refund.status == 'PENDING' %}badge-warning{% elif refund.status == 'FAILED' %}badge-error{% elif refund.status == 'PROCESSING' %}badge-primary{% else %}badge-neutral{% endif %}">
                             {{ refund.get_status_display }}
                         </span>
                     </td>
