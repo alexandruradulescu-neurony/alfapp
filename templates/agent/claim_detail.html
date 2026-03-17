@@ -1,17 +1,28 @@
 {% extends 'base.html' %}
 
-{% block title %}Claim #{{ claim.id }}{% endblock %}
+{% block title %}Claim #{{ claim.alf_claim_id|default:claim.id }}{% endblock %}
 
 {% block content %}
 <div class="animate-fade-in">
 <!-- Page Header -->
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-        <i class="bi bi-file-earmark-text"></i> Claim #{{ claim.id }}
-    </h2>
-    <a href="{% url 'agent_claims' %}" class="btn btn-outline rounded-xl transition-all duration-200">
-        <i class="bi bi-arrow-left"></i> Back to Claims
-    </a>
+    <div>
+        <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <i class="bi bi-file-earmark-text"></i> 
+            Claim #<span class="text-primary font-mono">{{ claim.alf_claim_id|default:claim.id }}</span>
+        </h2>
+        <span class="text-xs text-base-content/40">(Internal ID: {{ claim.id }})</span>
+    </div>
+    <div class="flex gap-2">
+        <button type="button" class="btn btn-primary rounded-xl transition-all duration-200"
+                onclick="updateFromZendesk({{ claim.id }})"
+                {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
+            <i class="bi bi-arrow-clockwise"></i> Update from Zendesk
+        </button>
+        <a href="{% url 'agent_claims' %}" class="btn btn-outline rounded-xl transition-all duration-200">
+            <i class="bi bi-arrow-left"></i> Back to Claims
+        </a>
+    </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -76,6 +87,20 @@
             </div>
         </div>
 
+        <!-- AI Summary -->
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-4">
+                <i class="bi bi-robot"></i> AI Summary
+            </h3>
+            {% if claim.ai_summary %}
+                <div class="rounded-xl bg-info/10 p-3">
+                    <span class="text-sm">{{ claim.ai_summary }}</span>
+                </div>
+            {% else %}
+                <p class="text-base-content/40 text-sm">No AI summary available yet.</p>
+            {% endif %}
+        </div>
+
         <!-- Flight Details -->
         <div class="card-modern p-6">
             <h3 class="text-lg font-semibold flex items-center gap-2 mb-4">
@@ -130,6 +155,42 @@
                     <i class="bi bi-inbox text-3xl text-base-content/40"></i>
                 </div>
                 <p class="text-base-content/60 mt-2 mb-0">No emails processed for this claim.</p>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Update Timeline -->
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-6">
+                <i class="bi bi-clock-history"></i> Update Timeline
+            </h3>
+            {% for update in claim.updates.all %}
+            <div class="border-l-2 border-primary pl-4 pb-4 mb-4 relative">
+                <div class="absolute -left-1.5 top-0 w-3 h-3 bg-primary rounded-full"></div>
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="badge badge-sm">{{ update.get_update_type_display }}</span>
+                    <span class="text-xs text-base-content/40">{{ update.created_at|date:"M d, Y H:i" }}</span>
+                </div>
+                {% if update.llm_summary %}
+                <p class="text-sm">{{ update.llm_summary }}</p>
+                {% endif %}
+                {% if update.changes_summary %}
+                <details class="mt-2">
+                    <summary class="text-xs text-primary cursor-pointer">View details</summary>
+                    <pre class="text-xs mt-1 bg-base-200 p-2 rounded overflow-auto max-h-40">{{ update.changes_summary }}</pre>
+                </details>
+                {% endif %}
+            </div>
+            {% empty %}
+            <div class="text-center py-8">
+                <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
+                    <i class="bi bi-clock-history text-3xl text-base-content/40"></i>
+                </div>
+                <p class="text-base-content/60 mb-3">No updates yet.</p>
+                <button type="button" class="btn btn-sm btn-primary" onclick="updateFromZendesk({{ claim.id }})"
+                        {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
+                    <i class="bi bi-arrow-clockwise"></i> Update from Zendesk
+                </button>
             </div>
             {% endfor %}
         </div>
@@ -206,4 +267,70 @@
     </div>
 </div>
 </div>
+
+<script>
+function updateFromZendesk(claimId) {
+    const button = event.target.closest('button');
+    const originalHTML = button.innerHTML;
+    const originalDisabled = button.disabled;
+    
+    // Show loading state
+    button.disabled = true;
+    button.innerHTML = '<i class="bi bi-hourglass-split"></i> Updating...';
+    
+    fetch(`/api/claims/${claimId}/update-from-zendesk/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCsrfToken(),
+        },
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Show success toast
+            showToast('Success', data.summary || 'Claim updated from Zendesk', 'success');
+            // Reload page to show updates
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            // Show error toast
+            showToast('Error', data.error || 'Failed to update from Zendesk', 'error');
+            button.disabled = false;
+            button.innerHTML = originalHTML;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showToast('Error', 'Failed to update from Zendesk', 'error');
+        button.disabled = false;
+        button.innerHTML = originalHTML;
+    });
+}
+
+function getCsrfToken() {
+    const cookieValue = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('csrftoken='))
+        ?.split('=')[1];
+    return cookieValue || '';
+}
+
+function showToast(title, message, type = 'info') {
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = `toast toast-end z-50`;
+    toast.innerHTML = `
+        <div class="alert alert-${type} text-white">
+            <span><strong>${title}:</strong> ${message}</span>
+        </div>
+    `;
+    
+    // Add to body
+    document.body.appendChild(toast);
+    
+    // Remove after 3 seconds
+    setTimeout(() => {
+        toast.remove();
+    }, 3000);
+}
+</script>
 {% endblock %}

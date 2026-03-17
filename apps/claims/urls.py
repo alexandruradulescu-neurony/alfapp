@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
-from apps.claims.views import ClaimViewSet, ClaimEvidenceViewSet
+from apps.claims.views import ClaimViewSet, ClaimEvidenceViewSet, ClaimUpdateFromZendeskView
 
 router = DefaultRouter()
 router.register(r'claims', ClaimViewSet, basename='claim')
@@ -9,4 +9,5 @@ router.register(r'evidence', ClaimEvidenceViewSet, basename='claim-evidence')
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('claims/<int:claim_id>/update-from-zendesk/', ClaimUpdateFromZendeskView.as_view(), name='claim-update-from-zendesk'),
 ]

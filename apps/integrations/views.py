@@ -698,7 +698,20 @@ class ZendeskClaimWebhookView(APIView):
                 if requester_email:
                     client_email = requester_email
                     logger.info(f"Using requester email as fallback: {client_email}")
+
+            # Generate AI summary from extracted data (for claim detail page display)
+            ai_summary_parts = []
+            if extracted_data.get('flight_details'):
+                ai_summary_parts.append(f"Flight: {extracted_data['flight_details']}.")
+            if extracted_data.get('object_description'):
+                ai_summary_parts.append(f"Lost item: {extracted_data['object_description']}.")
+            if extracted_data.get('phone'):
+                ai_summary_parts.append(f"Phone: {extracted_data['phone']}.")
+            if extracted_data.get('alternate_email'):
+                ai_summary_parts.append(f"Alternate email: {extracted_data['alternate_email']}.")
             
+            ai_summary = ' '.join(ai_summary_parts) if ai_summary_parts else ''
+
             # Create Claim
             claim = Claim.objects.create(
                 alf_claim_id=alf_claim_id,
@@ -710,6 +723,7 @@ class ZendeskClaimWebhookView(APIView):
                 alternate_email=extracted_data.get('alternate_email', ''),
                 status='Received',
                 llm_extraction_failed=llm_failed,
+                ai_summary=ai_summary,
             )
             
             logger.info(

@@ -81,6 +81,10 @@ class Claim(models.Model):
         default=False,
         help_text='True if LLM failed to extract data from Zendesk ticket'
     )
+    ai_summary = models.TextField(
+        blank=True,
+        help_text='AI-generated summary from Zendesk ticket analysis (generated once at creation)'
+    )
 
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
@@ -122,6 +126,56 @@ class Claim(models.Model):
         """Get the status of the latest refund."""
         latest = self.latest_refund
         return latest.status if latest else None
+
+
+class ClaimUpdateTimeline(models.Model):
+    """
+    Tracks updates from Zendesk ticket sync.
+    Creates a timeline of changes when ticket is updated from Zendesk.
+    """
+    
+    UPDATE_TYPE_CHOICES = [
+        ('STATUS_CHANGE', 'Status Change'),
+        ('NEW_COMMENT', 'New Comment'),
+        ('INFO_UPDATED', 'Information Updated'),
+        ('LLM_ANALYSIS', 'LLM Analysis'),
+    ]
+    
+    claim = models.ForeignKey(
+        Claim,
+        on_delete=models.CASCADE,
+        related_name='updates',
+        help_text='Claim this update belongs to'
+    )
+    zendesk_ticket_id = models.CharField(
+        max_length=50,
+        db_index=True,
+        help_text='Zendesk ticket ID'
+    )
+    update_type = models.CharField(
+        max_length=20,
+        choices=UPDATE_TYPE_CHOICES,
+        help_text='Type of update'
+    )
+    changes_summary = models.TextField(
+        blank=True,
+        help_text='JSON summary of what changed'
+    )
+    llm_summary = models.TextField(
+        blank=True,
+        help_text='LLM-generated summary of changes'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['claim', '-created_at']),
+            models.Index(fields=['zendesk_ticket_id']),
+        ]
+    
+    def __str__(self):
+        return f"Update for Claim #{self.claim_id} - {self.update_type} ({self.created_at|date:'M d, Y'})"
 
 
 class ClaimEvidence(models.Model):
