@@ -583,20 +583,112 @@ def search_zendesk_ticket_for_dispute(
 def match_alias_to_zendesk_ticket(alias: str) -> Optional[Dict[str, Any]]:
     """
     Search for a Zendesk ticket where a custom field contains the email alias.
-    
+
     Args:
         alias: The email alias to search for (e.g., "claim-123@mydomain.com")
-    
+
     Returns:
         Matching ticket data dict, None if no match
     """
     try:
         system_settings = SystemSettings.get_instance()
         custom_field_id = system_settings.zd_alias_custom_field_id
-        
+
         if not custom_field_id:
             logger.warning("Zendesk alias custom field ID not configured")
             return None
+        
+        # Search for tickets with the alias in the custom field
+        query = f'custom_field_{custom_field_id}:"{alias}"'
+        results = search_zendesk_tickets(query)
+        
+        if results:
+            return results[0]
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error matching alias to Zendesk ticket: {e}")
+        return None
+
+
+def tag_zendesk_ticket_as_refunded(zd_ticket_id: str) -> bool:
+    """
+    Add 'refunded' tag to a Zendesk ticket.
+    
+    This mimics the existing PHP logic for the "normal route" where
+    WordPress processes a refund and tags the Zendesk ticket.
+    
+    Args:
+        zd_ticket_id: The Zendesk ticket ID to tag
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        base_url = _get_zendesk_base_url()
+        headers = _get_zendesk_auth_headers()
+        
+        url = f"{base_url}/tickets/{zd_ticket_id}.json"
+        
+        # Add 'refunded' tag to existing tags
+        payload = {
+            'ticket': {
+                'tags': ['refunded']  # This appends to existing tags
+            }
+        }
+        
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode('utf-8'),
+            headers=headers,
+            method='PUT'
+        )
+        
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            logger.info(f"Added 'refunded' tag to Zendesk ticket {zd_ticket_id}")
+            return True
+            
+    except Exception as e:
+        logger.error(f"Error tagging Zendesk ticket as refunded: {e}")
+        return False
+
+
+def add_refund_comment_to_zendesk(
+    zd_ticket_id: str,
+    refund_amount: str,
+    refund_id: str,
+    reason: str,
+    is_internal: bool = True,
+) -> Optional[Dict[str, Any]]:
+    """
+    Add a comment to Zendesk ticket about a refund.
+    
+    Args:
+        zd_ticket_id: The Zendesk ticket ID
+        refund_amount: Refund amount with currency
+        refund_id: Refund transaction ID
+        reason: Reason for the refund
+        is_internal: If True, post as internal note
+    
+    Returns:
+        Response data dict on success, None on failure
+    """
+    try:
+        comment = (
+            f"💰 **Refund Processed**\n\n"
+            f"- **Amount**: {refund_amount}\n"
+            f"- **Refund ID**: {refund_id}\n"
+            f"- **Reason**: {reason}\n\n"
+            f"Refund has been processed via PayPal."
+        )
+        
+        return post_zendesk_comment(zd_ticket_id, comment, is_internal=is_internal)
+        
+    except Exception as e:
+        logger.error(f"Error adding refund comment to Zendesk: {e}")
+        return None
         
         # Search for tickets where the custom field contains the alias
         # Zendesk search syntax for custom fields: custom_fields_<id>:value

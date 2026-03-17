@@ -19,7 +19,9 @@ from django.db.models.functions import TruncDate
 from apps.claims.models import Claim
 from apps.communications.models import EmailLog
 from apps.config.models import SystemSettings
-from apps.payments.models import Dispute
+from apps.payments.models import Dispute, Refund
+from apps.payments.refund_service import RefundService
+from apps.integrations.services import tag_zendesk_ticket_as_refunded, add_refund_comment_to_zendesk
 
 logger = logging.getLogger(__name__)
 
@@ -383,6 +385,97 @@ class ZendeskTicketSyncView(APIView):
                 
         except Exception as e:
             logger.error(f"Error syncing claim {claim_id} to Zendesk: {e}")
+            return Response(
+                {'error': 'Internal server error'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class RefundWebhookView(APIView):
+    """
+    Webhook endpoint for receiving refund notifications from Zendesk/WordPress.
+    
+    Expects POST request with JSON payload:
+    {
+        "event": "refund_processed",
+        "claim_number": "123",
+        "refund_id": "WC-456",
+        "refund_amount": "50.00",
+        "currency": "USD",
+        "reason": "Customer request",
+        "order_id": "789",
+        "zd_ticket_id": "12345"
+    }
+    
+    Implements idempotency via Refund.paypal_refund_id unique constraint.
+    """
+    permission_classes = [AllowAny]  # TODO: Add webhook signature verification
+    
+    def post(self, request):
+        """
+        Process refund webhook from WordPress/Zendesk.
+        """
+        try:
+            data = request.data
+            
+            # Validate required fields
+            required_fields = ['claim_number', 'refund_id', 'refund_amount']
+            for field in required_fields:
+                if field not in data:
+                    logger.warning(f"Missing required field: {field}")
+                    return Response(
+                        {'error': f'Missing required field: {field}'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            # Verify webhook signature (TODO: Implement based on WordPress setup)
+            # For now, verify optional secret token
+            webhook_secret = request.headers.get('X-Webhook-Secret', '')
+            if webhook_secret:
+                system_settings = SystemSettings.get_instance()
+                expected_secret = system_settings.sidebar_secret_token
+                if not hmac.compare_digest(webhook_secret, expected_secret):
+                    logger.warning("Invalid webhook secret")
+                    return Response(
+                        {'error': 'Invalid webhook secret'},
+                        status=status.HTTP_401_UNAUTHORIZED
+                    )
+            
+            # Process refund
+            service = RefundService()
+            result = service.process_woocommerce_refund(
+                claim_number=str(data['claim_number']),
+                refund_amount=data['refund_amount'],
+                refund_id=str(data['refund_id']),
+                order_id=str(data.get('order_id', '')),
+                reason=data.get('reason', ''),
+            )
+            
+            if result['success']:
+                # Tag Zendesk ticket if provided
+                zd_ticket_id = data.get('zd_ticket_id')
+                if zd_ticket_id:
+                    tag_zendesk_ticket_as_refunded(zd_ticket_id)
+                    add_refund_comment_to_zendesk(
+                        zd_ticket_id=zd_ticket_id,
+                        refund_amount=f"{data['currency']} {data['refund_amount']}",
+                        refund_id=str(data['refund_id']),
+                        reason=data.get('reason', ''),
+                    )
+                
+                return Response({
+                    'message': 'Refund processed successfully',
+                    'refund_id': result['refund'].paypal_refund_id,
+                })
+            else:
+                logger.error(f"Refund processing failed: {result.get('error')}")
+                return Response(
+                    {'error': result.get('error', 'Processing failed')},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+        except Exception as e:
+            logger.error(f"Error processing refund webhook: {e}", exc_info=True)
             return Response(
                 {'error': 'Internal server error'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
