@@ -575,3 +575,148 @@ class ZendeskStatusWebhookView(APIView):
                 {'error': 'Internal server error'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class ZendeskClaimWebhookView(APIView):
+    """
+    Webhook endpoint for creating claims from Zendesk tickets.
+    
+    Triggered when Zendesk ticket status changes to 'investigation_initiated'.
+    
+    Expects POST request with JSON payload:
+    {
+        "ticket_id": "12345",
+        "subject": "Lost Item - ALF1234567",
+        "requester": {"email": "customer@example.com"},
+        "status": "investigation_initiated"
+    }
+    
+    Process:
+    1. Validate webhook secret
+    2. Check if claim already exists (by zd_ticket_id) - skip if exists
+    3. Fetch full ticket data from Zendesk API
+    4. Parse ALF claim ID from subject
+    5. Call LLM to extract claim data
+    6. Create Claim entity
+    7. Set llm_extraction_failed flag if LLM failed
+    
+    Idempotency: Duplicate webhooks for same ticket are skipped.
+    """
+    permission_classes = [AllowAny]  # Webhook secret verification
+    
+    def post(self, request):
+        """
+        Process Zendesk claim creation webhook.
+        """
+        try:
+            data = request.data
+            
+            # Validate required fields
+            ticket_id = data.get('ticket_id')
+            subject = data.get('subject', '')
+            
+            if not ticket_id:
+                logger.warning(f"Missing ticket_id in webhook payload: {data}")
+                return Response(
+                    {'error': 'Missing required field: ticket_id'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Verify webhook secret
+            webhook_secret = request.headers.get('X-Webhook-Secret', '')
+            if webhook_secret:
+                system_settings = SystemSettings.get_instance()
+                expected_secret = system_settings.sidebar_secret_token
+                if not hmac.compare_digest(webhook_secret, expected_secret):
+                    logger.warning("Invalid webhook secret for claim creation")
+                    return Response(
+                        {'error': 'Invalid webhook secret'},
+                        status=status.HTTP_401_UNAUTHORIZED
+                    )
+            
+            # Check if claim already exists (idempotency)
+            from apps.claims.models import Claim
+            existing_claim = Claim.objects.filter(zd_ticket_id=ticket_id).first()
+            
+            if existing_claim:
+                logger.info(f"Claim already exists for Zendesk ticket {ticket_id} (Claim #{existing_claim.id})")
+                return Response({
+                    'message': 'Claim already exists',
+                    'claim_id': existing_claim.id,
+                    'alf_claim_id': existing_claim.alf_claim_id,
+                }, status=status.HTTP_200_OK)
+            
+            # Fetch full ticket data from Zendesk API
+            from apps.integrations.services import (
+                fetch_zendesk_ticket,
+                fetch_zendesk_comments,
+                analyze_zendesk_ticket_for_claim,
+                parse_alf_claim_id_from_subject,
+            )
+            
+            ticket_data = fetch_zendesk_ticket(ticket_id)
+            if not ticket_data:
+                logger.error(f"Failed to fetch Zendesk ticket {ticket_id}")
+                return Response(
+                    {'error': 'Failed to fetch Zendesk ticket'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            # Fetch comments for LLM analysis
+            comments = fetch_zendesk_comments(ticket_id)
+            ticket_data['comments'] = comments
+            
+            # Parse ALF claim ID from subject
+            alf_claim_id = parse_alf_claim_id_from_subject(subject)
+            
+            if not alf_claim_id:
+                logger.warning(f"No ALF claim ID found in subject: {subject}")
+                # Generate a placeholder if not found (should not happen)
+                alf_claim_id = f"ALF{ticket_id.zfill(7)}"
+            
+            # Call LLM to extract claim data
+            extracted_data = analyze_zendesk_ticket_for_claim(ticket_data)
+            
+            # Determine if LLM extraction failed
+            llm_failed = not extracted_data.get('client_email') and not extracted_data.get('flight_details')
+            
+            # Use requester email as fallback if LLM didn't extract email
+            client_email = extracted_data.get('client_email', '')
+            if not client_email:
+                requester_email = data.get('requester', {}).get('email', '')
+                if requester_email:
+                    client_email = requester_email
+                    logger.info(f"Using requester email as fallback: {client_email}")
+            
+            # Create Claim
+            claim = Claim.objects.create(
+                alf_claim_id=alf_claim_id,
+                zd_ticket_id=ticket_id,
+                client_email=client_email,
+                flight_details=extracted_data.get('flight_details', ''),
+                object_description=extracted_data.get('object_description', ''),
+                phone=extracted_data.get('phone', ''),
+                alternate_email=extracted_data.get('alternate_email', ''),
+                status='Received',
+                llm_extraction_failed=llm_failed,
+            )
+            
+            logger.info(
+                f"Created Claim #{claim.id} ({alf_claim_id}) from Zendesk ticket {ticket_id}. "
+                f"LLM failed: {llm_failed}"
+            )
+            
+            return Response({
+                'message': 'Claim created successfully',
+                'claim_id': claim.id,
+                'alf_claim_id': claim.alf_claim_id,
+                'zd_ticket_id': claim.zd_ticket_id,
+                'llm_extraction_failed': claim.llm_extraction_failed,
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            logger.error(f"Error processing Zendesk claim webhook: {e}", exc_info=True)
+            return Response(
+                {'error': 'Internal server error'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

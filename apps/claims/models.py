@@ -18,19 +18,55 @@ class Claim(models.Model):
         ('PARTIALLY_REFUNDED', 'Partially Refunded'),
     ]
 
-    client_email = models.EmailField()  # Covered by Meta index
-    status = models.CharField(
+    # Claim Identifiers
+    alf_claim_id = models.CharField(
         max_length=20,
-        choices=STATUS_CHOICES,
-        default='Received',
-    )  # Covered by Meta composite index (status, -created_at)
+        unique=True,
+        db_index=True,
+        null=True,  # Allow null for existing claims
+        blank=True,
+        help_text='ALF claim ID (format: ALF1234567) from Zendesk ticket subject'
+    )
     zd_ticket_id = models.CharField(
         max_length=50,
         blank=True,
         db_index=True,
-        null=True,  # Allow null for unlinked claims
+        null=True,
+        help_text='Zendesk ticket ID'
     )
-    flight_details = models.TextField(blank=True)
+
+    # Client Information
+    client_email = models.EmailField(
+        db_index=True,
+        help_text='Client email address (extracted from Zendesk ticket)'
+    )
+    phone = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text='Client phone number'
+    )
+    alternate_email = models.EmailField(
+        blank=True,
+        help_text='Alternate contact email'
+    )
+
+    # Claim Details
+    flight_details = models.TextField(
+        blank=True,
+        help_text='Flight information (number, date, route)'
+    )
+    object_description = models.TextField(
+        blank=True,
+        help_text='Description of lost item'
+    )
+
+    # Workflow
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='Received',
+        help_text='Current claim status'
+    )
     assigned_to = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -38,8 +74,16 @@ class Claim(models.Model):
         blank=True,
         related_name='assigned_claims',
         help_text='Agent assigned to this claim',
-    )  # Covered by Meta composite index (assigned_to, -created_at)
-    created_at = models.DateTimeField(auto_now_add=True)  # Covered by Meta index
+    )
+
+    # LLM Extraction Tracking
+    llm_extraction_failed = models.BooleanField(
+        default=False,
+        help_text='True if LLM failed to extract data from Zendesk ticket'
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -49,10 +93,12 @@ class Claim(models.Model):
             models.Index(fields=['status', '-created_at']),
             models.Index(fields=['client_email']),
             models.Index(fields=['assigned_to', '-created_at']),
+            models.Index(fields=['alf_claim_id']),
+            models.Index(fields=['zd_ticket_id']),
         ]
 
     def __str__(self):
-        return f"Claim #{self.id} - {self.client_email} ({self.status})"
+        return f"Claim #{self.id} ({self.alf_claim_id}) - {self.client_email} ({self.status})"
     
     @property
     def has_refund(self):

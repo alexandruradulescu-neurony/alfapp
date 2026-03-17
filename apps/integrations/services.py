@@ -690,19 +690,149 @@ def add_refund_comment_to_zendesk(
     except Exception as e:
         logger.error(f"Error adding refund comment to Zendesk: {e}")
         return None
+
+
+def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, str]:
+    """
+    Use LLM to extract claim information from Zendesk ticket.
+    
+    Extracts:
+    - client_email: Customer's email address
+    - flight_details: Flight number, date, and route
+    - object_description: Description of lost item
+    - phone: Customer phone number (if available)
+    - alternate_email: Alternate email (if available)
+    
+    Args:
+        ticket_data: Zendesk ticket data including subject, description, comments
+    
+    Returns:
+        Dict with extracted fields (empty strings for fields not found)
+    """
+    from apps.communications.services import call_qwen_ai
+    
+    try:
+        subject = ticket_data.get('subject', '')
+        description = ticket_data.get('description', '')
+        comments = ticket_data.get('comments', [])
         
-        # Search for tickets where the custom field contains the alias
-        # Zendesk search syntax for custom fields: custom_fields_<id>:value
-        query = f'custom_fields_{custom_field_id}:"{alias}"'
-        results = search_zendesk_tickets(query)
+        # Build context from ticket data
+        context = f"Ticket Subject: {subject}\n\n"
+        context += f"Ticket Description:\n{description}\n\n"
         
-        if results:
-            logger.info(f"Found ticket matching alias {alias}: {results[0].get('id')}")
-            return results[0]
+        if comments:
+            context += "Comments:\n"
+            for comment in comments[:5]:  # Limit to first 5 comments
+                author = comment.get('author', {}).get('name', 'Unknown')
+                body = comment.get('body', '')
+                context += f"{author}: {body}\n\n"
         
-        logger.info(f"No ticket found matching alias: {alias}")
-        return None
+        # LLM prompt for extraction
+        prompt = (
+            "Extract the following information from this Zendesk ticket about a lost object claim.\n\n"
+            "Return ONLY valid JSON in this exact format:\n"
+            '{\n'
+            '  "client_email": "customer email address",\n'
+            '  "flight_details": "flight number, date, and route",\n'
+            '  "object_description": "description of lost item",\n'
+            '  "phone": "phone number if available",\n'
+            '  "alternate_email": "alternate email if available"\n'
+            '}\n\n'
+            "Return empty strings for fields not found.\n\n"
+            "Ticket Content:\n"
+        )
+        
+        # Call LLM
+        ai_result = call_qwen_ai(prompt, context, subject)
+        raw_response = ai_result.get('raw_response', '')
+        
+        # Parse response
+        import json
+        import re
+        
+        extracted = {
+            'client_email': '',
+            'flight_details': '',
+            'object_description': '',
+            'phone': '',
+            'alternate_email': '',
+        }
+        
+        # Try to parse JSON from response
+        data = None
+        try:
+            data = json.loads(raw_response.strip())
+        except (json.JSONDecodeError, ValueError):
+            # Try to find JSON in response
+            json_match = re.search(r'\{(?:[^{}]|\{[^{}]*\})*\}', raw_response, re.DOTALL)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group(0))
+                except (json.JSONDecodeError, ValueError):
+                    pass
+        
+        if data:
+            # Extract fields
+            for key in ['client_email', 'email']:
+                if key in data and data[key]:
+                    extracted['client_email'] = str(data[key])
+                    break
+            
+            for key in ['flight_details', 'flight']:
+                if key in data and data[key]:
+                    extracted['flight_details'] = str(data[key])
+                    break
+            
+            for key in ['object_description', 'description', 'item_description']:
+                if key in data and data[key]:
+                    extracted['object_description'] = str(data[key])
+                    break
+            
+            for key in ['phone', 'phone_number']:
+                if key in data and data[key]:
+                    extracted['phone'] = str(data[key])
+                    break
+            
+            for key in ['alternate_email', 'alt_email', 'secondary_email']:
+                if key in data and data[key]:
+                    extracted['alternate_email'] = str(data[key])
+                    break
+        
+        logger.info(f"LLM extraction completed for ticket {ticket_data.get('id', 'unknown')}")
+        return extracted
         
     except Exception as e:
-        logger.error(f"Error matching alias to Zendesk ticket: {e}")
+        logger.error(f"Error in LLM extraction for Zendesk ticket: {e}", exc_info=True)
+        # Return empty fields on error
+        return {
+            'client_email': '',
+            'flight_details': '',
+            'object_description': '',
+            'phone': '',
+            'alternate_email': '',
+        }
+
+
+def parse_alf_claim_id_from_subject(subject: str) -> Optional[str]:
+    """
+    Parse ALF claim ID from Zendesk ticket subject.
+    
+    Expected format: ALF followed by 7 digits (e.g., ALF1234567)
+    
+    Args:
+        subject: Zendesk ticket subject line
+    
+    Returns:
+        ALF claim ID if found, None otherwise
+    """
+    import re
+    
+    if not subject:
         return None
+
+    # Pattern: ALF followed by exactly 7 digits
+    match = re.search(r'ALF(\d{7})', subject, re.IGNORECASE)
+    if match:
+        return f"ALF{match.group(1)}"
+
+    return None

@@ -5,6 +5,7 @@ from apps.integrations.views import (
     ZendeskTicketSyncView,
     RefundWebhookView,
     ZendeskStatusWebhookView,
+    ZendeskClaimWebhookView,
 )
 
 urlpatterns = [
@@ -12,4 +13,5 @@ urlpatterns = [
     path('zd/sync/', ZendeskTicketSyncView.as_view(), name='zendesk-ticket-sync'),
     path('zd/refund-webhook/', RefundWebhookView.as_view(), name='zendesk-refund-webhook'),
     path('zd/status-webhook/', ZendeskStatusWebhookView.as_view(), name='zendesk-status-webhook'),
+    path('zd/claim-webhook/', ZendeskClaimWebhookView.as_view(), name='zendesk-claim-webhook'),
 ]
