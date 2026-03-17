@@ -1,10 +1,10 @@
 # LORA - Lost Object Recovery Automation
 
-**Version:** 1.1.0  
-**Framework:** Django 5.2.11 | Python 3.10+  
+**Version:** 1.2.0
+**Framework:** Django 5.2.11 | Python 3.10+
 **UI:** Tailwind CSS 4 + DaisyUI 5
 
-A comprehensive platform for automating lost object recovery claims, dispute management, and customer communications.
+A comprehensive platform for automating lost object recovery claims, dispute management, customer communications, and refund management.
 
 ---
 
@@ -51,6 +51,19 @@ A comprehensive platform for automating lost object recovery claims, dispute man
 - **Health Checks**: Test connectivity to AI, IMAP, Zendesk, PayPal
 - **Scheduler Control**: Start/stop email processing scheduler
 - **Enable/Disable**: Toggle individual services without configuration changes
+
+### Refund Management
+- **Status Workflow**: REQUESTED → PENDING → PROCESSING → COMPLETED/FAILED/CANCELLED
+- **Claim Statuses**: REFUND_REQUESTED, REFUNDED, PARTIALLY_REFUNDED
+- **PayPal Integration**: Process refunds via PayPal API
+- **Zendesk Integration**: Automatic status sync from Zendesk tickets
+- **Webhook Support**: 
+  - PayPal refund webhooks
+  - Zendesk status change webhooks
+  - WooCommerce refund notifications
+- **Manual Entry**: Create refund records manually
+- **Idempotency**: Prevent duplicate refunds via unique constraints
+- **Audit Trail**: Track who initiated each refund and when
 
 ### Zendesk Integration
 - **Ticket Management**: Create, update, and fetch tickets via API
@@ -360,6 +373,46 @@ Access via **Manager → Configuration** page.
 - 🔵 **Running** - Background service active
 - 🟡 **Stopped** - Background service stopped
 
+### Refund Management
+
+Access via **Manager → Refunds** page.
+
+**Refund Statuses:**
+- 🔵 **Requested** - Refund requested (from Zendesk or manual)
+- 🟡 **Pending** - Awaiting processing
+- 🔵 **Processing** - Being processed via PayPal
+- 🟢 **Completed** - Successfully refunded
+- 🔴 **Failed** - Processing failed
+- ⚪ **Cancelled** - Refund cancelled
+
+**Claim Statuses:**
+- **REFUND_REQUESTED** - Refund has been requested
+- **REFUNDED** - Full refund completed
+- **PARTIALLY_REFUNDED** - Partial refund completed
+
+**Workflow:**
+1. **Request Refund** - Agent marks Zendesk ticket as "refund requested" or creates manual request
+2. **Zendesk Webhook** - LORA receives status change, updates claim to REFUND_REQUESTED
+3. **Process Refund** - Manager processes refund via PayPal API
+4. **Complete** - Refund status updated to COMPLETED, claim status updated
+
+**Webhook Endpoints:**
+- `POST /api/integrations/zd/refund-webhook/` - PayPal/WooCommerce refund notifications
+- `POST /api/integrations/zd/status-webhook/` - Zendesk status changes
+
+**Zendesk Trigger Setup:**
+1. Admin → Triggers → Create trigger
+2. Conditions: `Status` is `Refund Requested`
+3. Action: Notify webhook → `https://your-lora.com/api/integrations/zd/status-webhook/`
+4. Payload:
+```json
+{
+    "ticket_id": "{{ticket.id}}",
+    "status": "refund_requested",
+    "claim_id": "{{ticket.custom_fields.claim_id}}"
+}
+```
+
 ---
 
 ## 📡 API Reference
@@ -400,6 +453,78 @@ POST   /api/services/scheduler/start/   # Start email scheduler
 POST   /api/services/scheduler/stop/    # Stop email scheduler
 POST   /api/services/scheduler/toggle/  # Toggle scheduler enabled
 GET    /api/services/scheduler/info/    # Get scheduler info
+```
+
+### Refund API
+
+```
+GET    /api/payments/refunds/              # List all refunds
+POST   /api/payments/refunds/              # Create manual refund
+GET    /api/payments/refunds/{id}/         # Get refund details
+PUT    /api/payments/refunds/{id}/         # Update refund
+PATCH  /api/payments/refunds/{id}/         # Partial update refund
+DELETE /api/payments/refunds/{id}/         # Delete refund
+
+POST   /api/payments/refunds/process/      # Process refund via PayPal
+GET    /api/payments/refunds/stats/        # Get refund statistics
+POST   /api/payments/refunds/{id}/update_status/  # Update refund status
+```
+
+**Example: Process Refund**
+```bash
+POST /api/payments/refunds/process/
+Content-Type: application/json
+X-CSRFToken: <token>
+
+{
+    "claim_id": 123,
+    "amount": "50.00",
+    "currency": "USD",
+    "refund_type": "FULL",
+    "reason": "Customer request"
+}
+```
+
+**Example: Get Statistics**
+```bash
+GET /api/payments/refunds/stats/
+
+Response:
+{
+    "total_refunds": 25,
+    "total_amount": 1250.00,
+    "by_status": {
+        "REQUESTED": 5,
+        "PENDING": 3,
+        "COMPLETED": 15,
+        "FAILED": 2
+    },
+    "by_type": {
+        "FULL": 20,
+        "PARTIAL": 5
+    },
+    "by_source": {
+        "LORA": 10,
+        "WOOCOMMERCE": 10,
+        "MANUAL": 5
+    }
+}
+```
+
+### Webhook Endpoints
+
+```
+POST   /api/integrations/zd/refund-webhook/   # PayPal/WooCommerce refund notifications
+POST   /api/integrations/zd/status-webhook/   # Zendesk status changes
+```
+
+**Zendesk Status Webhook Payload:**
+```json
+{
+    "ticket_id": "12345",
+    "status": "refund_requested",
+    "claim_id": "678"
+}
 ```
 
 ### PayPal Webhook

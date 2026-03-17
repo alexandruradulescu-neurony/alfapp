@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-03-17
+
+### 🎉 Added
+
+#### Refund Management System
+- **Refund Model** - Track refunds with status workflow (REQUESTED → PENDING → PROCESSING → COMPLETED/FAILED/CANCELLED)
+- **Claim Status Updates** - Added REFUND_REQUESTED, REFUNDED, PARTIALLY_REFUNDED statuses
+- **RefundService** - Process refunds via PayPal API with idempotency protection
+- **RefundViewSet** - Full CRUD API for refunds
+- **Refund Statistics** - GET /api/payments/refunds/stats/ endpoint
+- **Manager UI** - Refunds list page with filters, search, and statistics
+- **Process Refund Modal** - Create and process refunds from UI
+- **Sidebar Navigation** - "Refunds" menu item for MANAGER role
+
+#### Zendesk Integration for Refunds
+- **ZendeskStatusWebhookView** - Handle Zendesk ticket status changes
+- **Automatic Status Sync** - Zendesk "refund requested" → LORA REFUND_REQUESTED
+- **tag_zendesk_ticket_as_refunded()** - Add 'refunded' tag to tickets
+- **add_refund_comment_to_zendesk()** - Post refund details as comments
+- **Webhook Endpoints**:
+  - POST /api/integrations/zd/refund-webhook/ - PayPal/WooCommerce notifications
+  - POST /api/integrations/zd/status-webhook/ - Zendesk status changes
+
+#### API Endpoints
+- `GET /api/payments/refunds/` - List refunds
+- `POST /api/payments/refunds/` - Create manual refund
+- `POST /api/payments/refunds/process/` - Process refund via PayPal
+- `GET /api/payments/refunds/stats/` - Get statistics
+- `POST /api/payments/refunds/{id}/update_status/` - Update status
+- `POST /api/integrations/zd/status-webhook/` - Zendesk status webhook
+
+### 🔧 Changed
+
+- **Refund Default Status** - Changed from PENDING to REQUESTED
+- **Documentation** - Updated README with refund management features
+- **Version** - Bumped to 1.2.0
+
+### 📦 Dependencies
+
+No new dependencies added.
+
+### ⚠️ Database Changes
+
+- **claims.Claim** - Added REFUND_REQUESTED, REFUNDED, PARTIALLY_REFUNDED status choices
+- **payments.Refund** - Added REQUESTED status, changed default to REQUESTED
+
+### 🚀 Migration
+
+```bash
+python manage.py migrate
+```
+
+This will update status choices for existing models.
+
+---
+
 ## [1.1.0] - 2026-03-17
 
 ### 🎉 Added
