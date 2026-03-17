@@ -1,6 +1,6 @@
 from django.contrib import admin
-
-from apps.payments.models import Dispute, DisputeDocument, DisputeScreenshot, DisputeActivityLog, ProcessedWebhookEvent
+from django.utils import timezone
+from apps.payments.models import Dispute, DisputeDocument, DisputeScreenshot, DisputeActivityLog, ProcessedWebhookEvent, Refund
 
 
 @admin.register(Dispute)
@@ -121,3 +121,44 @@ class ProcessedWebhookEventAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+
+
+@admin.register(Refund)
+class RefundAdmin(admin.ModelAdmin):
+    list_display = ('id', 'claim', 'amount', 'currency', 'status', 'refund_type', 'external_source', 'created_at', 'created_by')
+    list_filter = ('status', 'refund_type', 'external_source', 'created_at')
+    search_fields = ('claim__client_email', 'paypal_refund_id', 'claim__id')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at', 'processed_at', 'metadata')
+
+    fieldsets = (
+        ('Refund Information', {
+            'fields': ('claim', 'paypal_refund_id', 'paypal_capture_id', 'amount', 'currency')
+        }),
+        ('Status & Type', {
+            'fields': ('status', 'refund_type', 'external_source')
+        }),
+        ('Details', {
+            'fields': ('reason', 'metadata')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at', 'processed_at', 'created_by')
+        }),
+    )
+
+    actions = ['mark_completed', 'mark_failed', 'mark_cancelled']
+
+    def mark_completed(self, request, queryset):
+        count = queryset.update(status='COMPLETED', processed_at=timezone.now())
+        self.message_user(request, f'{count} refunds marked as completed.')
+    mark_completed.short_description = 'Mark selected refunds as completed'
+
+    def mark_failed(self, request, queryset):
+        count = queryset.update(status='FAILED')
+        self.message_user(request, f'{count} refunds marked as failed.')
+    mark_failed.short_description = 'Mark selected refunds as failed'
+
+    def mark_cancelled(self, request, queryset):
+        count = queryset.update(status='CANCELLED')
+        self.message_user(request, f'{count} refunds marked as cancelled.')
+    mark_cancelled.short_description = 'Mark selected refunds as cancelled'

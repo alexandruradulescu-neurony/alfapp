@@ -13,6 +13,8 @@ class Claim(models.Model):
         ('Found', 'Found'),
         ('Shipped', 'Shipped'),
         ('Disputed', 'Disputed'),
+        ('REFUNDED', 'Refunded'),
+        ('PARTIALLY_REFUNDED', 'Partially Refunded'),
     ]
 
     client_email = models.EmailField()  # Covered by Meta index
@@ -50,6 +52,29 @@ class Claim(models.Model):
 
     def __str__(self):
         return f"Claim #{self.id} - {self.client_email} ({self.status})"
+    
+    @property
+    def has_refund(self):
+        """Check if claim has any refunds."""
+        return self.refunds.exists()
+    
+    @property
+    def refund_total(self):
+        """Calculate total refunded amount."""
+        from django.db.models import Sum
+        result = self.refunds.filter(status='COMPLETED').aggregate(total=Sum('amount'))
+        return result['total'] or 0
+    
+    @property
+    def latest_refund(self):
+        """Get the most recent refund."""
+        return self.refunds.order_by('-created_at').first()
+    
+    @property
+    def refund_status(self):
+        """Get the status of the latest refund."""
+        latest = self.latest_refund
+        return latest.status if latest else None
 
 
 class ClaimEvidence(models.Model):

@@ -1,5 +1,157 @@
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
+
+
+class Refund(models.Model):
+    """
+    Represents a refund transaction linked to a Claim.
+    Tracks refunds initiated via LORA, WooCommerce, or manually.
+    """
+    
+    STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('PROCESSING', 'Processing'),
+        ('COMPLETED', 'Completed'),
+        ('FAILED', 'Failed'),
+        ('CANCELLED', 'Cancelled'),
+    ]
+    
+    TYPE_CHOICES = [
+        ('FULL', 'Full Refund'),
+        ('PARTIAL', 'Partial Refund'),
+    ]
+    
+    SOURCE_CHOICES = [
+        ('LORA', 'LORA Initiated'),
+        ('WOOCOMMERCE', 'WooCommerce/WordPress'),
+        ('MANUAL', 'Manual Entry'),
+    ]
+    
+    # Relationship to Claim (One Claim can have multiple Refunds)
+    claim = models.ForeignKey(
+        'claims.Claim',
+        on_delete=models.PROTECT,  # Don't allow deleting claim with refunds
+        related_name='refunds',
+        null=True,
+        blank=True,
+        help_text='Claim associated with this refund'
+    )
+    
+    # PayPal Data
+    paypal_refund_id = models.CharField(
+        max_length=100,
+        unique=True,
+        db_index=True,
+        help_text='PayPal refund transaction ID'
+    )
+    paypal_capture_id = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text='Original PayPal capture ID'
+    )
+    
+    # Amount & Currency
+    amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text='Refund amount'
+    )
+    currency = models.CharField(
+        max_length=3,
+        default='USD',
+        help_text='Currency code (e.g., USD, EUR)'
+    )
+    
+    # Status Tracking
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='PENDING',
+        help_text='Current refund status'
+    )
+    
+    # Refund Type
+    refund_type = models.CharField(
+        max_length=10,
+        choices=TYPE_CHOICES,
+        help_text='Full or Partial refund'
+    )
+    
+    # Source Tracking
+    external_source = models.CharField(
+        max_length=20,
+        choices=SOURCE_CHOICES,
+        default='LORA',
+        help_text='Origin of the refund'
+    )
+    
+    # Metadata
+    reason = models.TextField(
+        help_text='Reason for the refund'
+    )
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='PayPal API response and additional data'
+    )
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    processed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When the refund was processed/completed'
+    )
+    
+    # Audit
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='refunds_created',
+        help_text='User who initiated the refund'
+    )
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Refund'
+        verbose_name_plural = 'Refunds'
+        indexes = [
+            models.Index(fields=['claim', 'status']),
+            models.Index(fields=['paypal_refund_id']),
+            models.Index(fields=['external_source', 'created_at']),
+        ]
+    
+    def __str__(self):
+        return f'Refund {self.id} - {self.currency} {self.amount} ({self.status})'
+    
+    def mark_completed(self):
+        """Mark refund as completed."""
+        self.status = 'COMPLETED'
+        self.processed_at = timezone.now()
+        self.save()
+    
+    def mark_failed(self, error_message=''):
+        """Mark refund as failed."""
+        self.status = 'FAILED'
+        if error_message:
+            self.metadata['error_message'] = error_message
+        self.save()
+    
+    def mark_processing(self):
+        """Mark refund as processing."""
+        self.status = 'PROCESSING'
+        self.save()
+    
+    @property
+    def is_completed(self):
+        return self.status == 'COMPLETED'
+    
+    @property
+    def is_pending(self):
+        return self.status == 'PENDING'
 
 
 class Dispute(models.Model):
