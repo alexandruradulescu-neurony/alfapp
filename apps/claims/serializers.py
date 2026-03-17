@@ -32,6 +32,9 @@ class ClaimSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at', 'evidence_count']
 
     def get_evidence_count(self, obj):
+        # Use annotated count if available (from ViewSet), otherwise fall back to query
+        if hasattr(obj, '_evidence_count'):
+            return obj._evidence_count
         return obj.evidence.count()
 
     def validate_status(self, value):

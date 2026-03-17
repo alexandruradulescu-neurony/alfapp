@@ -11,6 +11,7 @@ import os
 from datetime import datetime
 from typing import Optional, Tuple
 
+import bleach
 from django.conf import settings
 from django.db import transaction
 from django.template.loader import render_to_string
@@ -22,6 +23,10 @@ from apps.communications.models import EmailLog
 from apps.claims.models import ClaimEvidence
 
 logger = logging.getLogger(__name__)
+
+# Allowed HTML tags and attributes for sanitizing AI-generated content
+ALLOWED_HTML_TAGS = ['p', 'br', 'strong', 'em', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'div', 'span', 'blockquote']
+ALLOWED_HTML_ATTRIBUTES = {}
 
 
 def _get_weasyprint():
@@ -89,9 +94,17 @@ def _call_qwen_ai(prompt: str, context_data: dict) -> str:
         # Extract response text
         response_text = response.choices[0].message.content.strip()
         logger.info(f"Qwen AI generated response letter for dispute ({len(response_text)} chars)")
-        
-        return response_text
-        
+
+        # Sanitize HTML to prevent XSS attacks
+        sanitized_content = bleach.clean(
+            response_text,
+            tags=ALLOWED_HTML_TAGS,
+            attributes=ALLOWED_HTML_ATTRIBUTES,
+            strip=True,
+        )
+
+        return sanitized_content
+
     except Exception as e:
         logger.error(f"Error calling Qwen AI for dispute response: {e}")
         raise

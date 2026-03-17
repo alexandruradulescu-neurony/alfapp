@@ -6,29 +6,9 @@ from django_filters.rest_framework import DjangoFilterBackend
 
 from apps.communications.models import EmailLog
 from apps.communications.serializers import EmailLogSerializer
+from apps.users.permissions import IsAgentOrManager
 
 logger = logging.getLogger(__name__)
-
-
-class IsAgentOrManager(permissions.BasePermission):
-    """
-    Custom permission to allow only AGENT or MANAGER users.
-    Explicitly validates the role value.
-    """
-
-    def has_permission(self, request, view):
-        if not request.user.is_authenticated:
-            return False
-        if not hasattr(request.user, 'role'):
-            return False
-        return request.user.role in ['AGENT', 'MANAGER']
-
-    def has_object_permission(self, request, view, obj):
-        if not request.user.is_authenticated:
-            return False
-        if not hasattr(request.user, 'role'):
-            return False
-        return request.user.role in ['AGENT', 'MANAGER']
 
 
 class EmailLogViewSet(viewsets.ReadOnlyModelViewSet):
@@ -51,9 +31,14 @@ class EmailLogViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         """
         Filter queryset based on user role and query params.
+        Optimized to defer heavy text fields for list operations.
         """
         queryset = super().get_queryset()
         user = self.request.user
+
+        # Defer heavy text fields for list operations to reduce payload size
+        if self.action == 'list':
+            queryset = queryset.defer('body', 'raw_headers', 'ai_summary')
 
         # Filter by claim if provided
         claim_id = self.request.query_params.get('claim_id')

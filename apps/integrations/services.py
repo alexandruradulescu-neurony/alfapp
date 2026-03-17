@@ -148,7 +148,9 @@ def fetch_zendesk_comments(zd_ticket_id: str) -> List[Dict[str, Any]]:
         
         logger.info(f"Fetching comments from Zendesk ticket {zd_ticket_id}")
         
-        with urllib.request.urlopen(req, timeout=30) as response:
+        # Use configurable timeout
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
             comments_data = result.get('comments', [])
             
@@ -211,7 +213,9 @@ def fetch_zendesk_ticket(zd_ticket_id: str) -> Optional[Dict[str, Any]]:
             method='GET'
         )
         
-        with urllib.request.urlopen(req, timeout=30) as response:
+        # Use configurable timeout
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
             ticket = result.get('ticket', {})
             
@@ -289,7 +293,9 @@ def create_zendesk_ticket(
         
         logger.info(f"Creating Zendesk ticket for {requester_email}")
         
-        with urllib.request.urlopen(req, timeout=30) as response:
+        # Use configurable timeout
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
             ticket = result.get('ticket', {})
             
@@ -349,7 +355,9 @@ def update_zendesk_ticket_status(zd_ticket_id: str, status: str) -> Optional[Dic
         
         logger.info(f"Updating Zendesk ticket {zd_ticket_id} status to {status}")
         
-        with urllib.request.urlopen(req, timeout=30) as response:
+        # Use configurable timeout
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
             ticket = result.get('ticket', {})
             
@@ -376,50 +384,63 @@ def update_zendesk_ticket_status(zd_ticket_id: str, status: str) -> Optional[Dic
 def search_zendesk_tickets(query: str) -> List[Dict[str, Any]]:
     """
     Search Zendesk tickets using the Search API.
-    
+
     Args:
         query: Search query string (Zendesk search syntax)
-    
+
     Returns:
         List of ticket dicts, empty list on failure
+
+    Security Note:
+        Query parameter is safely URL-encoded using urllib.parse.urlencode
+        to prevent injection attacks.
     """
+    # Validate input to prevent empty or excessively long queries
+    if not query or not query.strip():
+        logger.warning("Empty search query provided to search_zendesk_tickets")
+        return []
+
+    if len(query) > 1000:
+        logger.warning(f"Search query too long ({len(query)} chars), truncating to 1000")
+        query = query[:1000]
+
     try:
         base_url = _get_zendesk_base_url()
         headers = _get_zendesk_auth_headers()
-        
+
         # Zendesk Search API endpoint
         url = f"{base_url}/search.json"
-        
-        # Build query params
+
+        # Build query params with proper URL encoding to prevent injection
         params = urllib.parse.urlencode({'query': query, 'type': 'ticket'})
         full_url = f"{url}?{params}"
-        
+
         req = urllib.request.Request(
             full_url,
             headers=headers,
             method='GET'
         )
-        
-        logger.info(f"Searching Zendesk tickets: {query}")
-        
+
+        logger.info(f"Searching Zendesk tickets: {query[:100]}...")
+
         # Use configurable timeout
         timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
         with urllib.request.urlopen(req, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
             results = result.get('results', [])
-            
-            logger.info(f"Found {len(results)} tickets matching: {query}")
+
+            logger.info(f"Found {len(results)} tickets matching: {query[:100]}...")
             return results
-            
+
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
         logger.error(f"HTTP error searching Zendesk tickets: {e.code} - {error_body}")
         return []
-        
+
     except urllib.error.URLError as e:
         logger.error(f"URL error searching Zendesk tickets: {e.reason}")
         return []
-        
+
     except Exception as e:
         logger.error(f"Unexpected error searching Zendesk tickets: {e}")
         return []

@@ -14,6 +14,7 @@ All API calls use the live PayPal API (production environment).
 import base64
 import json
 import logging
+import socket
 import urllib.request
 import urllib.error
 from typing import Dict, Any, Optional, List
@@ -21,6 +22,7 @@ from typing import Dict, Any, Optional, List
 from django.core.cache import cache
 from django.conf import settings
 from django.db import transaction
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from apps.payments.models import Dispute, DisputeDocument, DisputeActivityLog
 from apps.config.models import SystemSettings
@@ -28,6 +30,17 @@ from apps.config.models import SystemSettings
 logger = logging.getLogger(__name__)
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type((
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        socket.timeout,
+        ConnectionResetError,
+        ConnectionError,
+    ))
+)
 def get_paypal_access_token() -> Optional[str]:
     """
     Get OAuth2 access token from PayPal with caching.
@@ -108,6 +121,11 @@ def get_paypal_access_token() -> Optional[str]:
         return None
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type((urllib.error.HTTPError, urllib.error.URLError))
+)
 def fetch_dispute_details(dispute_id: str) -> Optional[Dict[str, Any]]:
     """
     Fetch full dispute details from PayPal.
@@ -173,6 +191,11 @@ def fetch_dispute_details(dispute_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type((urllib.error.HTTPError, urllib.error.URLError))
+)
 @transaction.atomic
 def provide_evidence(
     dispute_id: str,
@@ -306,6 +329,11 @@ def provide_evidence(
         return False
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type((urllib.error.HTTPError, urllib.error.URLError))
+)
 @transaction.atomic
 def accept_claim(dispute_id: str, note: str = '') -> bool:
     """
@@ -390,6 +418,11 @@ def accept_claim(dispute_id: str, note: str = '') -> bool:
         return False
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type((urllib.error.HTTPError, urllib.error.URLError))
+)
 @transaction.atomic
 def send_message(dispute_id: str, message: str) -> bool:
     """

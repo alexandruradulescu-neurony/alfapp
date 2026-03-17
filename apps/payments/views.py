@@ -192,17 +192,19 @@ class PayPalWebhookView(APIView):
                 paypal_webhook_id = system_settings.paypal_webhook_id
             except Exception as e:
                 logger.error(f"Error loading PayPal credentials from SystemSettings: {e}")
+                # Don't expose internal configuration errors to external callers
                 return Response(
-                    {'error': 'PayPal configuration error'},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    {'error': 'Service temporarily unavailable'},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
                 )
 
             # Validate credentials are configured
             if not all([paypal_client_id, paypal_secret, paypal_webhook_id]):
                 logger.warning("PayPal credentials not fully configured")
+                # Use generic error message instead of exposing configuration status
                 return Response(
-                    {'error': 'PayPal credentials not configured'},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    {'error': 'Service temporarily unavailable'},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE
                 )
 
             # Verify webhook signature
@@ -357,61 +359,80 @@ class PayPalWebhookView(APIView):
                 buyer_email = 'unknown@example.com'
 
             # 2. Create Dispute record with status RECEIVED
-            # First check if dispute already exists (idempotency at dispute level)
-            existing_dispute = Dispute.objects.filter(paypal_dispute_id=dispute_id).first()
-            if existing_dispute:
-                logger.info(f"Dispute {dispute_id} already exists, skipping creation")
-                # Mark webhook as processed
+            # Use select_for_update + get_or_create to prevent race conditions on concurrent webhooks
+            # This ensures atomic check-and-create operation
+            claim = None
+            try:
+                with transaction.atomic():
+                    dispute, created = Dispute.objects.select_for_update().get_or_create(
+                        paypal_dispute_id=dispute_id,
+                        defaults={
+                            'paypal_case_id': resource.get('case_id', ''),
+                            'status': 'RECEIVED',
+                            'dispute_reason': reason if reason in Dispute.VALID_REASONS else 'OTHER',
+                            'dispute_amount': dispute_amount,
+                            'dispute_currency': dispute_currency or 'USD',
+                            'buyer_email': buyer_email.lower().strip() if buyer_email else '',
+                            'buyer_name': buyer_name,
+                            'transaction_id': transaction_id,
+                            'transaction_date': transaction_date or timezone.now(),
+                            'seller_response_due': seller_response_due,
+                            'raw_webhook_payload': resource,
+                            'notes': f"Dispute created via webhook event {event_id}",
+                        }
+                    )
+
+                    if not created:
+                        logger.info(f"Dispute {dispute_id} already exists, skipping creation")
+                        # Mark webhook as processed
+                        if event_id:
+                            ProcessedWebhookEvent.mark_as_processed(
+                                event_id=event_id,
+                                event_type='CUSTOMER.DISPUTE.CREATED',
+                                resource_type='dispute',
+                                resource_id=dispute_id,
+                            )
+                        return Response({
+                            'status': 'duplicate_dispute',
+                            'dispute_id': dispute_id,
+                        })
+
+                    logger.info(f"Created Dispute #{dispute.id} for PayPal dispute {dispute_id}")
+
+                    # Link to claim INSIDE the atomic block to prevent race conditions
+                    if buyer_email and buyer_email != 'unknown@example.com':
+                        claim = Claim.objects.select_for_update().filter(
+                            client_email=buyer_email.lower().strip()
+                        ).first()
+                        if claim:
+                            dispute.claim = claim
+                            dispute.save(update_fields=['claim'])
+                            logger.info(f"Linked Dispute #{dispute.id} to Claim #{claim.id}")
+
+                    if not claim:
+                        logger.warning(f"No claim found for buyer email: {buyer_email}")
+
+                    # Log the creation
+                    DisputeActivityLog.objects.create(
+                        dispute=dispute,
+                        action='DISPUTE_CREATED',
+                        details=f"PayPal dispute {dispute_id} created via webhook. Reason: {reason}",
+                    )
+
+            except Exception as e:
+                logger.error(f"Error creating dispute: {e}")
                 if event_id:
-                    ProcessedWebhookEvent.mark_as_processed(
+                    ProcessedWebhookEvent.mark_as_failed(
                         event_id=event_id,
                         event_type='CUSTOMER.DISPUTE.CREATED',
+                        error_message=str(e),
                         resource_type='dispute',
                         resource_id=dispute_id,
                     )
-                return Response({
-                    'status': 'duplicate_dispute',
-                    'dispute_id': dispute_id,
-                })
-
-            # Find or create Claim for this dispute
-            claim = None
-            if buyer_email and buyer_email != 'unknown@example.com':
-                claim = Claim.objects.filter(client_email=buyer_email.lower().strip()).first()
-
-            if not claim:
-                logger.warning(f"No claim found for buyer email: {buyer_email}")
-                # Create a minimal claim reference or skip
-                # For now, we'll create the dispute without linking to a claim
-                # This can be manually linked later
-                pass
-
-            # Create the Dispute record
-            dispute = Dispute.objects.create(
-                paypal_dispute_id=dispute_id,
-                paypal_case_id=resource.get('case_id', ''),
-                claim=claim if claim else None,
-                status='RECEIVED',
-                dispute_reason=reason if reason in Dispute.VALID_REASONS else 'OTHER',
-                dispute_amount=dispute_amount,
-                dispute_currency=dispute_currency or 'USD',
-                buyer_email=buyer_email.lower().strip() if buyer_email else '',
-                buyer_name=buyer_name,
-                transaction_id=transaction_id,
-                transaction_date=transaction_date or timezone.now(),
-                seller_response_due=seller_response_due,
-                raw_webhook_payload=resource,
-                notes=f"Dispute created via webhook event {event_id}",
-            )
-
-            logger.info(f"Created Dispute #{dispute.id} for PayPal dispute {dispute_id}")
-
-            # Log the creation
-            DisputeActivityLog.objects.create(
-                dispute=dispute,
-                action='DISPUTE_CREATED',
-                details=f"PayPal dispute {dispute_id} created via webhook. Reason: {reason}",
-            )
+                return Response(
+                    {'error': 'Error creating dispute'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
 
             # 3. Search for matching Zendesk ticket
             zd_ticket = search_zendesk_ticket_for_dispute(

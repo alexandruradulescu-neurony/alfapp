@@ -43,6 +43,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'django_filters',
     'django_apscheduler',
+    'auditlog',
+    'csp',
     # Local apps
     'apps.users',
     'apps.claims',
@@ -58,9 +60,14 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'auditlog.middleware.AuditlogMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# Add CSP middleware only in production (when DEBUG is False)
+if not DEBUG:
+    MIDDLEWARE.append('csp.middleware.CSPMiddleware')
 
 ROOT_URLCONF = 'lora_app.urls'
 
@@ -115,6 +122,9 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+]
 
 # Media files (uploads)
 MEDIA_URL = 'media/'
@@ -155,6 +165,7 @@ REST_FRAMEWORK = {
         'user': '1000/hour',
         'login': '5/min',
         'paypal_webhook': '100/hour',
+        'zendesk_sidebar': '30/min',  # Rate limit for Zendesk sidebar widget
     },
 }
 
@@ -204,6 +215,20 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 CSRF_COOKIE_HTTPONLY = True
 CSRF_COOKIE_SECURE = not DEBUG  # Only secure in production
 CSRF_COOKIE_SAMESITE = 'Lax'
+
+# CSP Configuration (updated format for django-csp 4.0+) - only in production
+if not DEBUG:
+    CONTENT_SECURITY_POLICY = {
+        'DIRECTIVES': {
+            'default-src': ["'self'"],
+            'script-src': ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://code.jquery.com", "https://stackpath.bootstrapcdn.com"],
+            'style-src': ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://stackpath.bootstrapcdn.com"],
+            'img-src': ["'self'", "data:", "https:"],
+            'font-src': ["'self'", "https://fonts.gstatic.com"],
+            'connect-src': ["'self'", "https://api.paypal.com", "https://api.sandbox.paypal.com"],
+            'frame-ancestors': ["'none'"],
+        }
+    }
 
 # Security settings for production
 if not DEBUG:

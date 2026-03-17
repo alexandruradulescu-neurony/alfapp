@@ -28,8 +28,26 @@ cryptography>=41.0.0
 # Browser automation for Zendesk screenshot capture
 playwright>=1.40.0
 
+# Retry mechanism for external APIs
+tenacity>=8.2.0
+
+# Structured logging with correlation IDs
+structlog>=24.0.0
+
+# Audit logging
+django-auditlog>=2.4.0
+
 # Production server
 gunicorn>=21.0.0
 
+# Content Security Policy
+django-csp>=3.8.0
+
 # PostgreSQL adapter
 psycopg2-binary>=2.9.0
+
+# HTML sanitization for XSS prevention
+bleach>=6.0.0
+
+# File type detection for secure uploads
+python-magic>=0.4.27

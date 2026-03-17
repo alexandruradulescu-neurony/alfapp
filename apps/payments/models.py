@@ -100,6 +100,14 @@ class Dispute(models.Model):
             models.Index(fields=['status', '-created_at']),
             models.Index(fields=['buyer_email', '-created_at']),
             models.Index(fields=['transaction_id']),
+            models.Index(fields=['claim', '-created_at']),
+        ]
+        constraints = [
+            # Ensure buyer_email is set when claim is linked
+            models.CheckConstraint(
+                check=~models.Q(claim__isnull=False, buyer_email=''),
+                name='dispute_claim_requires_buyer_email',
+            ),
         ]
 
     def __str__(self):
@@ -167,6 +175,7 @@ class DisputeDocument(models.Model):
         null=True,
         blank=True,
         related_name='accepted_documents',
+        db_index=True,  # Add index for queries filtering by accepted_by
     )
 
     class Meta:
@@ -174,6 +183,7 @@ class DisputeDocument(models.Model):
         indexes = [
             models.Index(fields=['dispute', '-created_at']),
             models.Index(fields=['doc_type', 'status']),
+            models.Index(fields=['accepted_by', '-created_at']),  # Composite index for audit queries
         ]
 
     def __str__(self):

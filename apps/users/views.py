@@ -3,25 +3,75 @@ Frontend views for LORA dashboard.
 Template-based views using Bootstrap 5.
 """
 
+import filetype
+import logging
+import os
+import tempfile
+from functools import wraps
+
+import magic
+from django.core.cache import cache
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import models
 from django.db.models import Count, Q
+from django.utils.text import get_valid_filename
 from django.views.generic import CreateView, UpdateView
 from django.urls import reverse_lazy
+from django.views.decorators.csrf import csrf_protect
 
 from apps.users.decorators import login_redirect, agent_required, manager_required
+from django.db import transaction
 from apps.claims.models import Claim, ClaimEvidence
 from apps.communications.models import EmailLog
 from apps.config.models import SystemSettings
 from apps.users.models import User
 
+logger = logging.getLogger(__name__)
+
+
+def rate_limit_logins(max_attempts=5, timeout=60):
+    """
+    Decorator to rate limit login attempts.
+    
+    Args:
+        max_attempts: Maximum number of attempts allowed
+        timeout: Time window in seconds (default: 60 seconds = 1 minute)
+    """
+    def decorator(view_func):
+        @wraps(view_func)
+        def _wrapped_view(request, *args, **kwargs):
+            if request.method == 'POST':
+                # Get client IP address
+                ip = request.META.get('REMOTE_ADDR', '')
+                cache_key = f'login_attempts_{ip}'
+                
+                # Get current attempts
+                attempts = cache.get(cache_key, 0)
+                
+                if attempts >= max_attempts:
+                    logger.warning(f"Rate limit exceeded for IP: {ip}")
+                    from django.http import HttpResponseForbidden
+                    return HttpResponseForbidden(
+                        'Too many login attempts. Please try again later.',
+                        content_type='text/plain'
+                    )
+                
+                # Increment attempts
+                cache.set(cache_key, attempts + 1, timeout)
+            
+            return view_func(request, *args, **kwargs)
+        return _wrapped_view
+    return decorator
+
 
 # ============== Authentication Views ==============
 
 @login_redirect
+@rate_limit_logins(max_attempts=5, timeout=60)
+@csrf_protect  # Explicitly enforce CSRF protection
 def login_view(request):
     """Login view with role-based redirect."""
     if request.method == 'POST':
@@ -40,7 +90,7 @@ def login_view(request):
                 return redirect('agent_dashboard')
         else:
             messages.error(request, 'Invalid username or password.')
-    
+
     from django.conf import settings as django_settings
     return render(request, 'login.html', {'debug': django_settings.DEBUG})
 
@@ -67,7 +117,9 @@ def dashboard_redirect(request):
 
 @agent_required
 def agent_dashboard(request):
-    """Agent dashboard with overview stats."""
+    """Agent dashboard with overview stats.
+    Uses optimized aggregate queries to reduce database hits.
+    """
     # Get stats
     total_claims = Claim.objects.count()
     my_claims = Claim.objects.filter(
@@ -76,18 +128,27 @@ def agent_dashboard(request):
     urgent_emails = EmailLog.objects.filter(sentiment='Urgent', action_required=True).count()
     disputed = Claim.objects.filter(status='Disputed').count()
 
-    # Email stats
-    total_emails = EmailLog.objects.count()
-    emails_requiring_attention = EmailLog.objects.filter(action_required=True, auto_resolved=False).count()
-    auto_resolved_emails = EmailLog.objects.filter(auto_resolved=True).count()
+    # Consolidate email stats into single aggregate query
+    from django.db.models import Case, When, IntegerField
+    email_stats = EmailLog.objects.aggregate(
+        total=Count('id'),
+        requiring_attention=Count(Case(
+            When(action_required=True, auto_resolved=False, then=1),
+            output_field=IntegerField()
+        )),
+        auto_resolved=Count(Case(
+            When(auto_resolved=True, then=1),
+            output_field=IntegerField()
+        )),
+    )
 
-    # Email category breakdown
+    # Email category breakdown (already optimized)
     email_category_stats = EmailLog.objects.values('category').annotate(
         count=Count('id')
     ).order_by('-count')
 
     # Recent claims
-    recent_claims = Claim.objects.select_related().prefetch_related('evidence')[:10]
+    recent_claims = Claim.objects.select_related('assigned_to').prefetch_related('evidence')[:10]
 
     # Recent emails
     recent_emails = EmailLog.objects.select_related('claim').order_by('-received_at')[:10]
@@ -97,9 +158,9 @@ def agent_dashboard(request):
         'my_claims': my_claims,
         'urgent_emails': urgent_emails,
         'disputed': disputed,
-        'total_emails': total_emails,
-        'emails_requiring_attention': emails_requiring_attention,
-        'auto_resolved_emails': auto_resolved_emails,
+        'total_emails': email_stats['total'],
+        'emails_requiring_attention': email_stats['requiring_attention'],
+        'auto_resolved_emails': email_stats['auto_resolved'],
         'email_category_stats': email_category_stats,
         'recent_claims': recent_claims,
         'recent_emails': recent_emails,
@@ -193,9 +254,16 @@ def agent_assign_claim(request, claim_id):
     claim = get_object_or_404(Claim, id=claim_id)
     
     if request.method == 'POST':
+        # Validate agent_id is a valid integer
         agent_id = request.POST.get('agent_id')
         
         if agent_id:
+            try:
+                agent_id = int(agent_id)
+            except (ValueError, TypeError):
+                messages.error(request, 'Invalid agent ID format.')
+                return redirect('manager_claims')
+            
             try:
                 agent = User.objects.get(id=agent_id, role='AGENT')
                 claim.assigned_to = agent
@@ -213,6 +281,7 @@ def agent_assign_claim(request, claim_id):
 
 
 @agent_required
+@transaction.atomic
 def agent_update_status(request, claim_id):
     """Update claim status."""
     claim = get_object_or_404(Claim, id=claim_id)
@@ -238,8 +307,9 @@ def agent_update_status(request, claim_id):
 
 
 @agent_required
+@transaction.atomic
 def agent_upload_evidence(request, claim_id):
-    """Upload evidence for a claim."""
+    """Upload evidence for a claim with comprehensive file validation."""
     claim = get_object_or_404(Claim, id=claim_id)
 
     # Agents can only upload evidence for claims assigned to them (or unassigned)
@@ -253,34 +323,70 @@ def agent_upload_evidence(request, claim_id):
         description = request.POST.get('description', '')
 
         if image:
-            # Validate file size (max 10MB)
+            # Validate file size FIRST (max 10MB) - before reading content
             max_size = 10 * 1024 * 1024  # 10MB
             if image.size > max_size:
                 messages.error(request, f'File size must be less than {max_size // 1024 // 1024}MB.')
             else:
-                # Validate file type
-                allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-                if image.content_type not in allowed_types:
+                # Validate file extension (first line of defense)
+                allowed_extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp']
+                file_ext = image.name.split('.')[-1].lower() if '.' in image.name else ''
+                if file_ext not in allowed_extensions:
                     messages.error(
                         request,
-                        f'Invalid file type. Allowed types: JPEG, PNG, GIF, WebP.'
+                        f'Invalid file extension. Allowed extensions: {", ".join(allowed_extensions)}.'
                     )
                 else:
-                    # Validate file extension
-                    allowed_extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp']
-                    file_ext = image.name.split('.')[-1].lower() if '.' in image.name else ''
-                    if file_ext not in allowed_extensions:
-                        messages.error(
-                            request,
-                            f'Invalid file extension. Allowed extensions: {", ".join(allowed_extensions)}.'
-                        )
+                    # Validate using python-magic for accurate MIME type detection
+                    # Read first 1024 bytes for magic number detection
+                    image_file = image.read(1024)
+                    image.seek(0)  # Reset file pointer
+                    
+                    try:
+                        mime = magic.from_buffer(image_file, mime=True)
+                    except Exception as e:
+                        logger.error(f"Error detecting file type: {e}")
+                        messages.error(request, 'Could not validate file content. Please try again.')
+                        return redirect('agent_claim_detail', claim_id=claim_id)
+
+                    allowed_mime_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+                    if mime not in allowed_mime_types:
+                        messages.error(request, f'Invalid file type. Detected: {mime}')
                     else:
-                        ClaimEvidence.objects.create(
-                            claim=claim,
-                            image=image,
-                            description=description
-                        )
-                        messages.success(request, 'Evidence uploaded successfully.')
+                        # Validate file content using filetype as secondary check
+                        try:
+                            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                                for chunk in image.chunks():
+                                    tmp.write(chunk)
+                                tmp_path = tmp.name
+
+                            # Use filetype to detect actual file type (secondary validation)
+                            kind = filetype.guess(tmp_path)
+
+                            if kind is None or kind.mime not in allowed_mime_types:
+                                os.unlink(tmp_path)
+                                messages.error(
+                                    request,
+                                    f'Invalid file content. File does not appear to be a valid image.'
+                                )
+                                return redirect('agent_claim_detail', claim_id=claim_id)
+
+                            # File is valid, clean up temp file and save
+                            os.unlink(tmp_path)
+                            
+                            # Sanitize filename to prevent path traversal
+                            image.name = get_valid_filename(image.name)
+                            
+                            ClaimEvidence.objects.create(
+                                claim=claim,
+                                image=image,
+                                description=description
+                            )
+                            messages.success(request, 'Evidence uploaded successfully.')
+                            
+                        except Exception as e:
+                            logger.error(f"Error processing file upload: {e}")
+                            messages.error(request, 'Error processing file. Please try again.')
         else:
             messages.error(request, 'Please select an image file.')
 
@@ -305,8 +411,10 @@ def agent_emails(request):
     """
     from django.core.paginator import Paginator
 
-    # Base queryset
-    emails = EmailLog.objects.select_related('claim').order_by('-received_at')
+    # Base queryset — defer heavy text fields not needed in list view
+    emails = EmailLog.objects.select_related('claim').defer(
+        'body', 'raw_headers', 'ai_summary'
+    ).order_by('-received_at')
 
     # Default: Hide auto-resolved emails (show only emails needing attention)
     show_auto_resolved = request.GET.get('show_auto_resolved', '') == '1'
@@ -343,7 +451,7 @@ def agent_emails(request):
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    # Get system settings for Zendesk links
+    # Get system settings for Zendesk links (cached)
     settings = SystemSettings.get_instance()
 
     context = {
@@ -411,10 +519,18 @@ def manager_dashboard(request):
     # Agents count
     agents_count = User.objects.filter(role='AGENT').count()
 
-    # Email stats
-    total_emails = EmailLog.objects.count()
-    auto_resolved_emails = EmailLog.objects.filter(auto_resolved=True).count()
-    emails_requiring_attention = EmailLog.objects.filter(action_required=True, auto_resolved=False).count()
+    # Email stats - consolidate into single aggregate query
+    email_stats = EmailLog.objects.aggregate(
+        total=Count('id'),
+        requiring_attention=Count(Case(
+            When(action_required=True, auto_resolved=False, then=1),
+            output_field=IntegerField()
+        )),
+        auto_resolved=Count(Case(
+            When(auto_resolved=True, then=1),
+            output_field=IntegerField()
+        )),
+    )
 
     # Email category breakdown
     email_category_stats = EmailLog.objects.values('category').annotate(
@@ -445,9 +561,9 @@ def manager_dashboard(request):
         'found': stats['found'],
         'disputed': stats['disputed'],
         'agents_count': agents_count,
-        'total_emails': total_emails,
-        'auto_resolved_emails': auto_resolved_emails,
-        'emails_requiring_attention': emails_requiring_attention,
+        'total_emails': email_stats['total'],
+        'auto_resolved_emails': email_stats['auto_resolved'],
+        'emails_requiring_attention': email_stats['requiring_attention'],
         'email_category_stats': email_category_stats,
         'dispute_total': dispute_stats['total'],
         'dispute_received': dispute_stats['received'],
@@ -512,41 +628,37 @@ def manager_claims(request):
 
 @manager_required
 def manager_settings(request):
-    """Manager system settings view."""
+    """Manager system settings view with form validation."""
+    from apps.config.forms import SystemSettingsForm
+    
     settings = SystemSettings.get_instance()
 
     if request.method == 'POST':
-        # Update non-sensitive fields
-        settings.ai_prompt_template = request.POST.get('ai_prompt_template', '')
-        settings.imap_host = request.POST.get('imap_host', '')
-        settings.imap_user = request.POST.get('imap_user', '')
-        settings.zd_subdomain = request.POST.get('zd_subdomain', '')
-        settings.zd_email = request.POST.get('zd_email', '')
-        settings.paypal_client_id = request.POST.get('paypal_client_id', '')
-        settings.paypal_webhook_id = request.POST.get('paypal_webhook_id', '')
-        
-        # Update sensitive fields ONLY if new value provided (don't overwrite with empty string)
-        imap_pass = request.POST.get('imap_pass', '').strip()
-        if imap_pass:
-            settings.imap_pass = imap_pass
-        
-        zd_token = request.POST.get('zd_token', '').strip()
-        if zd_token:
-            settings.zd_token = zd_token
-        
-        paypal_secret = request.POST.get('paypal_secret', '').strip()
-        if paypal_secret:
-            settings.paypal_secret = paypal_secret
-        
-        sidebar_token = request.POST.get('sidebar_secret_token', '').strip()
-        if sidebar_token:
-            settings.sidebar_secret_token = sidebar_token
-
-        settings.save()
-        messages.success(request, 'Settings saved successfully.')
+        form = SystemSettingsForm(request.POST, instance=settings)
+        if form.is_valid():
+            # Save non-sensitive fields from the form
+            form.save()
+            
+            # Handle sensitive fields - only update if provided
+            sensitive_fields = ['imap_pass', 'zd_token', 'paypal_secret', 'sidebar_secret_token', 'zd_agent_password']
+            for field_name in sensitive_fields:
+                value = form.cleaned_data.get(field_name)
+                if value:
+                    setattr(settings, field_name, value)
+            
+            settings.save()
+            messages.success(request, 'Settings saved successfully.')
+        else:
+            # Show form errors
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, f"{field}: {error}")
+    else:
+        form = SystemSettingsForm(instance=settings)
 
     context = {
         'settings': settings,
+        'form': form,
     }
 
     return render(request, 'manager/settings.html', context)
@@ -557,9 +669,12 @@ def manager_users(request):
     """Manager user management view.
 
     Uses transaction.atomic() to ensure user creation is atomic.
+    Includes password validation to enforce strong passwords.
     """
     from django.db import transaction
-    
+    from django.contrib.auth.password_validation import validate_password
+    from django.core.exceptions import ValidationError
+
     users = User.objects.order_by('-date_joined')
 
     if request.method == 'POST':
@@ -577,6 +692,14 @@ def manager_users(request):
             elif role not in ['AGENT', 'MANAGER']:
                 messages.error(request, 'Invalid role.')
             else:
+                # Validate password strength
+                try:
+                    validate_password(password, user=None)
+                except ValidationError as e:
+                    error_messages = ' '.join(e.messages)
+                    messages.error(request, f'Weak password: {error_messages}')
+                    return render(request, 'manager/users.html', {'users': users, 'role_choices': User.ROLE_CHOICES})
+
                 try:
                     with transaction.atomic():
                         User.objects.create_user(

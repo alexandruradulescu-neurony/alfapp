@@ -1,6 +1,7 @@
 import logging
+from django.db.models import Count
 
-from rest_framework import viewsets, permissions, status
+from rest_framework import serializers, viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
@@ -8,41 +9,9 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 
 from apps.claims.models import Claim, ClaimEvidence
 from apps.claims.serializers import ClaimSerializer, ClaimDetailSerializer, ClaimEvidenceSerializer
+from apps.users.permissions import IsAgentOrManager, IsManager
 
 logger = logging.getLogger(__name__)
-
-
-class IsAgentOrManager(permissions.BasePermission):
-    """
-    Custom permission to allow only AGENT or MANAGER users.
-    Explicitly validates the role value.
-    """
-
-    def has_permission(self, request, view):
-        if not request.user.is_authenticated:
-            return False
-        if not hasattr(request.user, 'role'):
-            return False
-        return request.user.role in ['AGENT', 'MANAGER']
-
-    def has_object_permission(self, request, view, obj):
-        if not request.user.is_authenticated:
-            return False
-        if not hasattr(request.user, 'role'):
-            return False
-        return request.user.role in ['AGENT', 'MANAGER']
-
-
-class IsManager(permissions.BasePermission):
-    """
-    Custom permission to allow only MANAGER users.
-    """
-
-    def has_permission(self, request, view):
-        return request.user.is_authenticated and getattr(request.user, 'role', None) == 'MANAGER'
-
-    def has_object_permission(self, request, view, obj):
-        return request.user.is_authenticated and getattr(request.user, 'role', None) == 'MANAGER'
 
 
 class ClaimViewSet(viewsets.ModelViewSet):
@@ -69,15 +38,21 @@ class ClaimViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """
         Filter queryset based on user role.
-        Optimized to prevent N+1 queries with select_related and prefetch_related.
+        Optimized to prevent N+1 queries with select_related, prefetch_related, and annotate.
         MANAGERs see all claims, AGENTs see all claims (can be modified for multi-tenant).
         """
         queryset = super().get_queryset()
         user = self.request.user
-        
-        # Optimize queries: select_related for FK, prefetch_related for reverse FK
-        queryset = queryset.select_related('assigned_to').prefetch_related('evidence', 'emails')
-        
+
+        # Optimize queries: 
+        # - select_related for FK (assigned_to)
+        # - prefetch_related for reverse FK (evidence, emails)
+        # - annotate evidence_count to avoid N+1 in serializer
+        queryset = queryset.select_related('assigned_to').prefetch_related(
+            'evidence',
+            'emails'
+        ).annotate(_evidence_count=Count('evidence', distinct=True))
+
         if hasattr(user, 'role') and user.role == 'AGENT':
             # AGENTs can see all claims (adjust if needed for tenant isolation)
             return queryset

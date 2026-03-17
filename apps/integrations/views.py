@@ -6,6 +6,7 @@ Provides API endpoints for Zendesk sidebar widget.
 import hmac
 import logging
 
+from django.core.cache import cache
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -119,7 +120,20 @@ class ZendeskSidebarView(APIView):
 
         # Authenticate using sidebar secret token
         if not ZendeskSidebarAuth.authenticate(request):
-            logger.warning(f"Failed sidebar auth attempt for email: {customer_email or 'N/A'}, ticket_id: {ticket_id or 'N/A'}")
+            # Rate limit failed auth attempts by IP
+            ip = request.META.get('REMOTE_ADDR', '')
+            cache_key = f'sidebar_auth_fail_{ip}'
+            failed_attempts = cache.get(cache_key, 0)
+            cache.set(cache_key, failed_attempts + 1, 300)  # 5 min window
+            
+            logger.warning(f"Failed sidebar auth attempt for email: {customer_email or 'N/A'}, ticket_id: {ticket_id or 'N/A'}, IP: {ip}, attempt: {failed_attempts + 1}")
+            
+            if failed_attempts >= 5:
+                return Response(
+                    {'error': 'Too many failed attempts. Please try again later.'},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS
+                )
+            
             return Response(
                 {'error': 'Unauthorized'},
                 status=status.HTTP_403_FORBIDDEN
