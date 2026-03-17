@@ -673,13 +673,24 @@ class ZendeskClaimWebhookView(APIView):
                 logger.warning(f"No ALF claim ID found in subject: {subject}")
                 # Generate a placeholder if not found (should not happen)
                 alf_claim_id = f"ALF{ticket_id.zfill(7)}"
-            
+
             # Call LLM to extract claim data
-            extracted_data = analyze_zendesk_ticket_for_claim(ticket_data)
-            
+            try:
+                extracted_data = analyze_zendesk_ticket_for_claim(ticket_data)
+            except Exception as e:
+                logger.error(f"LLM extraction failed: {e}")
+                # Use empty data - will trigger fallback to requester email
+                extracted_data = {
+                    'client_email': '',
+                    'flight_details': '',
+                    'object_description': '',
+                    'phone': '',
+                    'alternate_email': '',
+                }
+
             # Determine if LLM extraction failed
             llm_failed = not extracted_data.get('client_email') and not extracted_data.get('flight_details')
-            
+
             # Use requester email as fallback if LLM didn't extract email
             client_email = extracted_data.get('client_email', '')
             if not client_email:

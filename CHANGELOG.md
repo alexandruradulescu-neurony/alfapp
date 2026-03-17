@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.0] - 2026-03-18
+
+### 🎉 Added
+
+#### Zendesk-First Claims Flow
+- **Webhook-Driven Claim Creation**: Claims automatically created from Zendesk tickets
+- **LLM-Powered Ticket Analysis**: Qwen AI extracts claim data from ticket content and comments
+- **ALF Claim ID Parsing**: Automatic extraction from subject line (format: `ALF1234567`)
+- **Idempotency Protection**: Duplicate webhooks for same ticket are skipped
+
+#### New Claim Model Fields
+- **`alf_claim_id`**: ALF claim ID parsed from Zendesk ticket subject
+- **`zd_ticket_id`**: Zendesk ticket ID for cross-referencing
+- **`phone`**: Client phone number extracted by LLM
+- **`alternate_email`**: Alternate contact email extracted by LLM
+- **`object_description`**: Description of lost item extracted by LLM
+- **`llm_extraction_failed`**: Boolean flag for manual review when LLM extraction fails
+
+#### Webhook Endpoint
+- **`POST /api/integrations/zd/claim-webhook/`**: Zendesk claim creation webhook
+- **Webhook Secret Verification**: Uses `SIDEBAR_SECRET_TOKEN` for authentication
+- **Comprehensive Error Handling**: Returns detailed error messages for debugging
+
+#### Zendesk Integration
+- **Trigger Configuration**: Step-by-step setup for Zendesk trigger
+- **Automatic Data Extraction**: Fetches ticket data and comments for LLM analysis
+- **Fallback Email Handling**: Uses requester email if LLM fails to extract
+
+### 🔧 Changed
+
+- **Claims Origin**: Claims now originate from Zendesk tickets (not external forms)
+- **Claim Creation Flow**: Fully automated via webhook (no manual entry required)
+- **Data Extraction**: LLM-powered instead of manual data entry
+
+### 📦 Dependencies
+
+No new dependencies added.
+
+### ⚠️ Database Changes
+
+- **claims.Claim**: Added `alf_claim_id` field (unique, indexed)
+- **claims.Claim**: Added `zd_ticket_id` field (indexed)
+- **claims.Claim**: Added `phone` field
+- **claims.Claim**: Added `alternate_email` field
+- **claims.Claim**: Added `object_description` field
+- **claims.Claim**: Added `llm_extraction_failed` field
+
+### 🚀 Migration
+
+```bash
+python manage.py migrate
+```
+
+This will apply migration `0010_claim_alf_claim_id_claim_alternate_email_and_more`.
+
+### 📝 Zendesk Setup
+
+1. **Create trigger**: Admin → Triggers → Add trigger
+2. **Conditions**: `Status` is `Investigation Initiated`
+3. **Action**: Notify webhook → `https://your-lora.com/api/integrations/zd/claim-webhook/`
+4. **Payload**:
+```json
+{
+  "ticket_id": "{{ticket.id}}",
+  "subject": "{{ticket.title}}",
+  "requester": {
+    "email": "{{ticket.requester.email}}"
+  },
+  "status": "{{ticket.status}}"
+}
+```
+5. **Headers**:
+   - `X-Webhook-Secret`: `your-sidebar-secret-token`
+   - `Content-Type`: `application/json`
+
+---
+
 ## [1.3.0] - 2026-03-17
 
 ### 🎉 Added
@@ -313,6 +390,9 @@ This will update status choices for existing models.
 
 | Version | Release Date | Key Changes |
 |---------|-------------|-------------|
+| 1.4.0 | 2026-03-18 | Zendesk-first claims, LLM extraction |
+| 1.3.0 | 2026-03-17 | Email system improvements, simplification |
+| 1.2.0 | 2026-03-17 | Refund management system |
 | 1.1.0 | 2026-03-17 | Tailwind migration, Service monitoring |
 | 1.0.0 | 2025-XX-XX | Initial release |
 

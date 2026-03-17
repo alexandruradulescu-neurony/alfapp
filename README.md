@@ -1,6 +1,6 @@
 # LORA - Lost Object Recovery Automation
 
-**Version:** 1.3.0
+**Version:** 1.4.0
 **Framework:** Django 5.2.11 | Python 3.10+
 **UI:** Tailwind CSS 4 + DaisyUI 5
 
@@ -71,6 +71,14 @@ A comprehensive platform for automating lost object recovery claims, dispute man
 - **Comment Posting**: Internal notes and public replies
 - **Custom Fields**: Store email aliases for routing
 - **Browser Automation**: Screenshot capture for evidence
+
+### Zendesk Claim Creation
+- **Webhook-Driven Flow**: Claims created automatically from Zendesk tickets
+- **LLM-Powered Extraction**: Qwen AI analyzes ticket content to extract claim data
+- **ALF Claim ID Parsing**: Automatic extraction from subject line (format: `ALF1234567`)
+- **Idempotency Protection**: Duplicate webhooks for same ticket are skipped
+- **Extraction Failure Flag**: `llm_extraction_failed` marks claims needing manual review
+- **Extracted Fields**: `client_email`, `flight_details`, `object_description`, `phone`, `alternate_email`
 
 ---
 
@@ -414,6 +422,191 @@ Access via **Manager → Refunds** page.
 }
 ```
 
+### Zendesk Claim Creation
+
+**Overview:** Claims are now created automatically from Zendesk tickets using a webhook-driven flow with LLM-powered data extraction. This eliminates manual claim entry and ensures consistency across systems.
+
+**Webhook Endpoint:** `POST /api/integrations/zd/claim-webhook/`
+
+#### How It Works
+
+```
+Zendesk Ticket Created (status: investigation_initiated)
+         ↓
+Zendesk Trigger fires webhook
+         ↓
+LORA validates webhook secret
+         ↓
+LORA fetches full ticket data + comments
+         ↓
+LLM (Qwen AI) extracts claim data
+         ↓
+ALF claim ID parsed from subject line
+         ↓
+Claim created in LORA database
+         ↓
+Idempotency check prevents duplicates
+```
+
+#### Zendesk Trigger Configuration
+
+1. **Create a new trigger:**
+   - Go to **Admin → Triggers → Add trigger**
+
+2. **Set trigger title:**
+   - Name: `LORA - Create Claim on Investigation`
+
+3. **Configure conditions:**
+   - `Status` → `Is` → `Investigation Initiated`
+   - `Type` → `Is` → `Ticket`
+
+4. **Configure actions:**
+   - **Notify webhook** → `https://your-lora.com/api/integrations/zd/claim-webhook/`
+   - **Content:**
+   ```json
+   {
+     "ticket_id": "{{ticket.id}}",
+     "subject": "{{ticket.title}}",
+     "requester": {
+       "email": "{{ticket.requester.email}}"
+     },
+     "status": "{{ticket.status}}"
+   }
+   ```
+   - **Headers:**
+     - `X-Webhook-Secret`: `your-sidebar-secret-token`
+     - `Content-Type`: `application/json`
+
+5. **Save the trigger**
+
+#### LLM Extraction Process
+
+When a webhook is received, LORA:
+
+1. **Fetches full ticket data** from Zendesk API (subject, description, requester info)
+2. **Fetches ticket comments** (up to first 5 comments for context)
+3. **Calls Qwen AI** with a structured prompt to extract:
+   - `client_email`: Customer's primary email address
+   - `flight_details`: Flight number, date, and route
+   - `object_description`: Description of the lost item
+   - `phone`: Phone number (if available)
+   - `alternate_email`: Alternate contact email (if available)
+
+4. **Parses ALF claim ID** from subject line using regex pattern `ALF(\d{7})`
+   - Example: `"Lost Item - ALF1234567"` → `ALF1234567`
+   - If not found, generates placeholder: `ALF{ticket_id}` (7 digits, zero-padded)
+
+5. **Creates Claim record** with extracted data
+
+#### Extracted Fields
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `alf_claim_id` | string | ALF claim ID from subject | `ALF1234567` |
+| `zd_ticket_id` | string | Zendesk ticket ID | `12345` |
+| `client_email` | email | Primary customer email | `customer@example.com` |
+| `phone` | string | Phone number | `+1-555-123-4567` |
+| `alternate_email` | email | Alternate contact email | `alt@example.com` |
+| `flight_details` | text | Flight info | `Flight AA123 on 2026-03-15 from JFK to LAX` |
+| `object_description` | text | Lost item description | `Black leather wallet with silver buckle` |
+| `llm_extraction_failed` | boolean | Manual review flag | `true` if LLM couldn't extract key data |
+
+#### Idempotency Behavior
+
+The webhook endpoint implements idempotency to prevent duplicate claims:
+
+- **Check:** Before creating a claim, LORA queries for existing claims with the same `zd_ticket_id`
+- **If exists:** Returns HTTP 200 with existing claim ID, skips creation
+- **If not exists:** Proceeds with claim creation
+
+This ensures that:
+- Multiple webhook deliveries for the same ticket don't create duplicate claims
+- Zendesk trigger re-fires are handled safely
+- Manual webhook re-plays don't cause data corruption
+
+#### LLM Extraction Failure Handling
+
+The `llm_extraction_failed` flag is set to `true` when:
+- LLM fails to extract `client_email` AND `flight_details`
+- LLM returns empty or malformed response
+- API error occurs during extraction
+
+**Manual Review Process:**
+1. Filter claims by `llm_extraction_failed = true`
+2. Review original Zendesk ticket manually
+3. Update claim fields with correct data
+4. Clear the `llm_extraction_failed` flag
+
+#### Example Webhook Payload
+
+**Request:**
+```http
+POST /api/integrations/zd/claim-webhook/
+Content-Type: application/json
+X-Webhook-Secret: your-sidebar-secret-token
+
+{
+  "ticket_id": "12345",
+  "subject": "Lost Item - ALF1234567",
+  "requester": {
+    "email": "customer@example.com"
+  },
+  "status": "investigation_initiated"
+}
+```
+
+**Response (Success - Created):**
+```json
+{
+  "message": "Claim created successfully",
+  "claim_id": 42,
+  "alf_claim_id": "ALF1234567",
+  "zd_ticket_id": "12345",
+  "llm_extraction_failed": false
+}
+```
+
+**Response (Success - Already Exists):**
+```json
+{
+  "message": "Claim already exists",
+  "claim_id": 42,
+  "alf_claim_id": "ALF1234567"
+}
+```
+
+**Response (Error - Invalid Secret):**
+```json
+{
+  "error": "Invalid webhook secret"
+}
+```
+
+**Response (Error - Missing Field):**
+```json
+{
+  "error": "Missing required field: ticket_id"
+}
+```
+
+#### Troubleshooting
+
+**Claim not created:**
+- Check Zendesk trigger is active and conditions match
+- Verify webhook URL is correct and accessible
+- Check LORA logs for webhook receipt errors
+- Ensure `X-Webhook-Secret` header matches LORA's `SIDEBAR_SECRET_TOKEN`
+
+**LLM extraction failed:**
+- Review ticket content quality (may be too vague or incomplete)
+- Check AI provider connectivity and API key validity
+- Manually extract data from Zendesk and update claim
+
+**Duplicate claims:**
+- Should not occur due to idempotency check
+- If duplicates exist, likely caused by manual creation or data migration
+- Merge or archive duplicate claims manually
+
 ---
 
 ## 📡 API Reference
@@ -434,6 +627,26 @@ DELETE /api/claims/{id}/         # Delete claim
 GET    /api/claims/evidence/     # List evidence
 POST   /api/claims/evidence/     # Upload evidence
 ```
+
+**Claim Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | integer | Auto-increment primary key |
+| `alf_claim_id` | string | ALF claim ID (format: `ALF1234567`) parsed from Zendesk subject |
+| `zd_ticket_id` | string | Zendesk ticket ID |
+| `client_email` | email | Client email address (extracted from Zendesk ticket) |
+| `phone` | string | Client phone number |
+| `alternate_email` | email | Alternate contact email |
+| `flight_details` | text | Flight information (number, date, route) |
+| `object_description` | text | Description of lost item |
+| `status` | string | Current status: `Received`, `Searching`, `Found`, `Shipped`, `Disputed`, `REFUND_REQUESTED`, `REFUNDED`, `PARTIALLY_REFUNDED` |
+| `assigned_to` | integer | User ID of assigned agent |
+| `llm_extraction_failed` | boolean | True if LLM failed to extract data (needs manual review) |
+| `created_at` | datetime | Claim creation timestamp |
+| `updated_at` | datetime | Last update timestamp |
+
+**Note:** Claims now originate from Zendesk tickets (not external forms). The `alf_claim_id` is automatically parsed from the Zendesk ticket subject line.
 
 ### Communications API
 
@@ -515,8 +728,21 @@ Response:
 ### Webhook Endpoints
 
 ```
-POST   /api/integrations/zd/refund-webhook/   # PayPal/WooCommerce refund notifications
-POST   /api/integrations/zd/status-webhook/   # Zendesk status changes
+POST   /api/integrations/zd/claim-webhook/      # Zendesk claim creation
+POST   /api/integrations/zd/refund-webhook/     # PayPal/WooCommerce refund notifications
+POST   /api/integrations/zd/status-webhook/     # Zendesk status changes
+```
+
+**Zendesk Claim Webhook Payload:**
+```json
+{
+  "ticket_id": "12345",
+  "subject": "Lost Item - ALF1234567",
+  "requester": {
+    "email": "customer@example.com"
+  },
+  "status": "investigation_initiated"
+}
 ```
 
 **Zendesk Status Webhook Payload:**
