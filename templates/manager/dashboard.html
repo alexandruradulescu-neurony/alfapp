@@ -6,6 +6,9 @@
 {% block title %}Manager Dashboard{% endblock %}
 
 {% block content %}
+<!-- Hidden CSRF token for JavaScript -->
+<input type="hidden" id="csrf_token" value="{{ csrf_token }}">
+
 <!-- Page Header -->
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
     <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">

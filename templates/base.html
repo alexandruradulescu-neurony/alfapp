@@ -1,178 +1,89 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full" data-theme="corporate">
+<html lang="en" class="h-full" data-theme="lora">
 <head>
     {% load static %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
     <title>{% block title %}LORA{% endblock %} - Lost Object Recovery Automation</title>
 
+    <!-- Inter Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- Tailwind CSS (compiled with DaisyUI) -->
     <link href="{% static 'css/tailwind.css' %}" rel="stylesheet">
     <!-- Bootstrap Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
 
-    <style>
-        /* Custom status colors for claims */
-        .status-Received { @apply badge-neutral; }
-        .status-Searching { @apply badge-info; }
-        .status-Found { @apply badge-success; }
-        .status-Shipped { @apply badge-primary; }
-        .status-Disputed { @apply badge-error; }
-
-        /* Dispute status colors */
-        .status-RECEIVED { @apply badge-neutral; }
-        .status-MATCHED { @apply badge-info; }
-        .status-GATHERING_DATA { @apply badge-warning; }
-        .status-DOCUMENTS_READY { @apply badge-success; }
-        .status-UNDER_REVIEW { @apply badge-primary; }
-        .status-EVIDENCE_SENT { @apply badge-info; }
-        .status-RESOLVED_WON { @apply badge-success; }
-        .status-RESOLVED_LOST { @apply badge-error; }
-        .status-ACCEPTED { @apply badge-warning; }
-
-        /* Sentiment colors */
-        .sentiment-Positive { @apply text-success; }
-        .sentiment-Neutral { @apply text-gray-500; }
-        .sentiment-Frustrated { @apply text-warning; }
-        .sentiment-Urgent { @apply text-error; }
-    </style>
-
     {% block extra_css %}{% endblock %}
 </head>
-<body class="h-full bg-base-200">
-    <!-- DaisyUI Navbar -->
-    <div class="navbar bg-base-100 shadow-md">
-        <div class="flex-1">
-            <!-- Mobile menu button -->
-            <label for="sidebar-drawer" class="btn btn-square btn-ghost lg:hidden">
-                <i class="bi bi-list text-xl"></i>
-            </label>
-            
-            <!-- Logo -->
-            <a href="{% url 'dashboard' %}" class="btn btn-ghost text-xl">
-                <i class="bi bi-box-seam"></i> LORA
-            </a>
-        </div>
-        
-        <div class="flex-none">
-            <!-- Desktop Navigation -->
-            <ul class="menu menu-horizontal px-1 hidden lg:flex">
-                {% if user.role == 'MANAGER' %}
-                    <li>
-                        <a href="{% url 'manager_dashboard' %}">
-                            <i class="bi bi-speedometer2"></i> Dashboard
-                        </a>
-                    </li>
-                    <li>
-                        <a href="{% url 'manager_claims' %}">
-                            <i class="bi bi-clipboard-data"></i> Claims
-                        </a>
-                    </li>
-                    <li>
-                        <a href="{% url 'agent_emails' %}">
-                            <i class="bi bi-envelope"></i> Emails
-                        </a>
-                    </li>
-                    <li>
-                        <a href="{% url 'disputes:dispute_list' %}">
-                            <i class="bi bi-exclamation-triangle"></i> Disputes
-                        </a>
-                    </li>
-                    <li>
-                        <a href="{% url 'manager_settings' %}">
-                            <i class="bi bi-gear"></i> Settings
-                        </a>
-                    </li>
-                    <li>
-                        <a href="{% url 'manager_users' %}">
-                            <i class="bi bi-people"></i> Users
-                        </a>
-                    </li>
-                {% else %}
-                    <li>
-                        <a href="{% url 'agent_dashboard' %}">
-                            <i class="bi bi-speedometer2"></i> Dashboard
-                        </a>
-                    </li>
-                    <li>
-                        <a href="{% url 'agent_claims' %}">
-                            <i class="bi bi-clipboard-data"></i> Claims
-                        </a>
-                    </li>
-                    <li>
-                        <a href="{% url 'agent_emails' %}">
-                            <i class="bi bi-envelope"></i> Emails
-                        </a>
-                    </li>
-                {% endif %}
-            </ul>
-
-            <!-- User Menu -->
-            <div class="dropdown dropdown-end">
-                <div tabindex="0" role="button" class="btn btn-ghost btn-circle avatar">
-                    <div class="w-10 rounded-full">
-                        <img alt="User" src="https://ui-avatars.com/api/?name={{ user.username|urlencode }}&background=0070d2&color=fff" />
-                    </div>
-                </div>
-                <ul tabindex="0" class="mt-3 z-[1] p-2 shadow menu menu-sm dropdown-content bg-base-100 rounded-box w-52">
-                    <li class="menu-title">
-                        <span>{{ user.username }}</span>
-                        <span class="badge badge-sm">{{ user.role }}</span>
-                    </li>
-                    <li>
-                        <a href="{% url 'logout' %}">
-                            <i class="bi bi-box-arrow-right"></i> Logout
-                        </a>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </div>
-
-    <!-- Drawer for Mobile Sidebar -->
-    <div class="drawer drawer-mobile lg:drawer-open">
-        <input id="sidebar-drawer" type="checkbox" class="drawer-toggle" />
-        
-        <!-- Page Content -->
-        <div class="drawer-content p-6">
-            <!-- Messages -->
-            {% if messages %}
-                {% for message in messages %}
-                <div class="alert alert-{{ message.tags }} mb-4">
-                    <i class="bi bi-info-circle"></i>
-                    <span>{{ message }}</span>
-                    <button class="btn btn-sm btn-ghost" onclick="this.closest('.alert').remove()">
-                        <i class="bi bi-x"></i>
-                    </button>
-                </div>
-                {% endfor %}
-            {% endif %}
-
-            <!-- Page Content Block -->
-            {% block content %}{% endblock %}
-        </div>
-        
+<body class="h-full mesh-bg">
+    <div class="flex h-full">
         <!-- Sidebar -->
-        <div class="drawer-side">
-            <label for="sidebar-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
-            <aside class="bg-base-100 min-h-screen w-64">
-                <ul class="menu p-4">
+        <aside class="w-64 glass-panel flex flex-col h-screen sticky top-0 z-40">
+            <!-- Logo -->
+            <a href="{% url 'dashboard' %}" class="flex items-center gap-3 px-6 py-5">
+                <img src="{% static 'images/loralogo.jpg' %}" alt="LORA" class="h-8 w-auto" />
+            </a>
+
+            <!-- Navigation -->
+            <nav class="flex-1 px-3 pt-4">
+                <ul class="sidebar-nav flex flex-col gap-1">
                     {% if user.role == 'MANAGER' %}
-                        <li class="menu-title">Manager Menu</li>
-                        <li><a href="{% url 'manager_dashboard' %}"><i class="bi bi-speedometer2"></i> Dashboard</a></li>
-                        <li><a href="{% url 'manager_claims' %}"><i class="bi bi-clipboard-data"></i> Claims</a></li>
-                        <li><a href="{% url 'agent_emails' %}"><i class="bi bi-envelope"></i> Emails</a></li>
-                        <li><a href="{% url 'disputes:dispute_list' %}"><i class="bi bi-exclamation-triangle"></i> Disputes</a></li>
-                        <li><a href="{% url 'manager_settings' %}"><i class="bi bi-gear"></i> Settings</a></li>
-                        <li><a href="{% url 'manager_users' %}"><i class="bi bi-people"></i> Users</a></li>
+                        <li><a href="{% url 'manager_dashboard' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-speedometer2 text-base w-5 text-center"></i> Dashboard</a></li>
+                        <li><a href="{% url 'manager_claims' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-clipboard-data text-base w-5 text-center"></i> Claims</a></li>
+                        <li><a href="{% url 'agent_emails' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-envelope text-base w-5 text-center"></i> Emails</a></li>
+                        <li><a href="{% url 'disputes:dispute_list' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-exclamation-triangle text-base w-5 text-center"></i> Disputes</a></li>
+                        <li class="mt-5 mb-1"><p class="text-xs font-medium text-base-content/40 px-4">Settings</p></li>
+                        <li><a href="{% url 'manager_settings' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-gear text-base w-5 text-center"></i> Configuration</a></li>
+                        <li><a href="{% url 'manager_users' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-people text-base w-5 text-center"></i> Users</a></li>
                     {% else %}
-                        <li class="menu-title">Agent Menu</li>
-                        <li><a href="{% url 'agent_dashboard' %}"><i class="bi bi-speedometer2"></i> Dashboard</a></li>
-                        <li><a href="{% url 'agent_claims' %}"><i class="bi bi-clipboard-data"></i> Claims</a></li>
-                        <li><a href="{% url 'agent_emails' %}"><i class="bi bi-envelope"></i> Emails</a></li>
+                        <li><a href="{% url 'agent_dashboard' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-speedometer2 text-base w-5 text-center"></i> Dashboard</a></li>
+                        <li><a href="{% url 'agent_claims' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-clipboard-data text-base w-5 text-center"></i> Claims</a></li>
+                        <li><a href="{% url 'agent_emails' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-envelope text-base w-5 text-center"></i> Emails</a></li>
                     {% endif %}
                 </ul>
-            </aside>
+            </nav>
+
+            <!-- User -->
+            <div class="p-4 mx-3 mb-3 rounded-xl bg-base-200/60">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-full bg-primary text-primary-content flex items-center justify-center font-semibold text-sm ring-2 ring-primary/20 ring-offset-2 ring-offset-base-100">
+                        {{ user.username|slice:":2"|upper }}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="font-semibold text-sm truncate">{{ user.username }}</div>
+                        <div class="text-xs text-base-content/50">{{ user.role }}</div>
+                    </div>
+                    <a href="{% url 'logout' %}" class="btn btn-ghost btn-sm btn-square text-base-content/40 hover:text-error transition-colors" title="Logout">
+                        <i class="bi bi-box-arrow-right"></i>
+                    </a>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <div class="flex-1 overflow-auto">
+            <div class="p-6 lg:p-8 max-w-7xl mx-auto animate-fade-in">
+                <!-- Messages -->
+                {% if messages %}
+                    {% for message in messages %}
+                    <div role="alert" class="alert alert-{{ message.tags }} mb-6 rounded-xl border-0 animate-fade-in-scale">
+                        <i class="bi bi-info-circle-fill"></i>
+                        <span>{{ message }}</span>
+                        <button class="btn btn-sm btn-ghost btn-circle" onclick="this.closest('.alert').remove()">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </div>
+                    {% endfor %}
+                {% endif %}
+
+                <!-- Page Content Block -->
+                <main>
+                    {% block content %}{% endblock %}
+                </main>
+            </div>
         </div>
     </div>
 

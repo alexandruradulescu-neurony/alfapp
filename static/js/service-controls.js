@@ -3,7 +3,7 @@
  * Handles AJAX interactions for service status and controls
  */
 
-// CSRF token helper
+// CSRF token helper - try multiple sources
 function getCookie(name) {
     let cookieValue = null;
     if (document.cookie && document.cookie !== '') {
@@ -19,7 +19,32 @@ function getCookie(name) {
     return cookieValue;
 }
 
-const csrftoken = getCookie('csrftoken');
+// Try to get CSRF token from multiple sources
+let csrftoken = getCookie('csrftoken');
+if (!csrftoken) {
+    // Try to get from meta tag
+    const metaTag = document.querySelector('meta[name="csrf-token"]');
+    if (metaTag) {
+        csrftoken = metaTag.getAttribute('content');
+    }
+}
+if (!csrftoken) {
+    // Try to get from hidden input (Django forms add this)
+    const input = document.querySelector('input[name="csrfmiddlewaretoken"]');
+    if (input) {
+        csrftoken = input.value;
+    }
+}
+if (!csrftoken) {
+    // Try to get from our custom hidden input
+    const input = document.getElementById('csrf_token');
+    if (input) {
+        csrftoken = input.value;
+    }
+}
+
+// Debug log
+console.log('Service Controls loaded, CSRF token:', csrftoken ? csrftoken.substring(0, 10) + '...' : 'MISSING');
 
 // Show toast notification
 function showToast(message, type = 'info') {
@@ -59,6 +84,8 @@ function hideToast() {
 async function testService(service) {
     const url = `/api/services/${service}/test/`;
     
+    console.log(`Testing ${service}...`);
+    
     try {
         const response = await fetch(url, {
             method: 'POST',
@@ -67,6 +94,13 @@ async function testService(service) {
                 'X-CSRFToken': csrftoken
             }
         });
+        
+        console.log(`Response status: ${response.status}`);
+        
+        if (response.status === 403) {
+            showToast('Authentication required. Please log in.', 'error');
+            return;
+        }
         
         const data = await response.json();
         
@@ -80,6 +114,7 @@ async function testService(service) {
         setTimeout(() => refreshServiceStatus(service), 1000);
         
     } catch (error) {
+        console.error(`Error testing ${service}:`, error);
         showToast(`Failed to test ${service}: ${error.message}`, 'error');
     }
 }
