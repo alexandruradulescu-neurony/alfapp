@@ -3,337 +3,348 @@
 {% block title %}Manager Dashboard{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <h2><i class="bi bi-speedometer2"></i> Manager Dashboard</h2>
+<!-- Page Header -->
+<div class="flex justify-between items-center mb-6">
+    <h2 class="text-2xl font-bold flex items-center gap-2">
+        <i class="bi bi-speedometer2"></i> Manager Dashboard
+    </h2>
 </div>
 
-<!-- Stats Cards -->
-<div class="row mb-4">
-    <div class="col-md-2">
-        <div class="card bg-primary text-white">
-            <div class="card-body">
-                <h5 class="card-title">Total Claims</h5>
-                <h2 class="mb-0">{{ total_claims }}</h2>
+<!-- Stats Grid -->
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+    <div class="stats shadow">
+        <div class="stat">
+            <div class="stat-figure text-primary">
+                <i class="bi bi-clipboard-data text-2xl"></i>
             </div>
+            <div class="stat-title">Total Claims</div>
+            <div class="stat-value text-primary">{{ total_claims }}</div>
         </div>
     </div>
-    <div class="col-md-2">
-        <div class="card bg-secondary text-white">
-            <div class="card-body">
-                <h5 class="card-title">Received</h5>
-                <h2 class="mb-0">{{ received }}</h2>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-2">
-        <div class="card bg-info text-white">
-            <div class="card-body">
-                <h5 class="card-title">Searching</h5>
-                <h2 class="mb-0">{{ searching }}</h2>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-2">
-        <div class="card bg-success text-white">
-            <div class="card-body">
-                <h5 class="card-title">Found</h5>
-                <h2 class="mb-0">{{ found }}</h2>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-2">
-        <div class="card bg-danger text-white">
-            <div class="card-body">
-                <h5 class="card-title">Disputed</h5>
-                <h2 class="mb-0">{{ disputed }}</h2>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-2">
-        <div class="card bg-warning text-dark">
-            <div class="card-body">
-                <h5 class="card-title">Agents</h5>
-                <h2 class="mb-0">{{ agents_count }}</h2>
-            </div>
-        </div>
-    </div>
-</div>
 
-<!-- Email Stats Cards -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card border-info">
-            <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-envelope"></i> Email Overview</h5>
-                <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-light">
-                    <i class="bi bi-arrow-right"></i> View All Emails
-                </a>
+    <div class="stats shadow">
+        <div class="stat">
+            <div class="stat-figure">
+                <i class="bi bi-inbox text-2xl"></i>
             </div>
-            <div class="card-body py-2">
-                <div class="row text-center">
-                    <div class="col-md-4">
-                        <span class="text-muted small">Total Emails</span>
-                        <div class="fw-bold fs-5">{{ total_emails|default:0 }}</div>
-                    </div>
-                    <div class="col-md-4">
-                        <span class="text-muted small">Auto-Resolved</span>
-                        <div class="fw-bold fs-5 text-success">{{ auto_resolved_emails|default:0 }}</div>
-                    </div>
-                    <div class="col-md-4">
-                        <span class="text-muted small">Requires Attention</span>
-                        <div class="fw-bold fs-5 text-danger">{{ emails_requiring_attention|default:0 }}</div>
-                    </div>
-                </div>
-                <!-- Category Breakdown -->
-                {% if email_category_stats %}
-                <div class="row mt-3 pt-2 border-top">
-                    <div class="col-12">
-                        <span class="text-muted small">Category Breakdown:</span>
-                        <div class="mt-1">
-                            {% for stat in email_category_stats %}
-                            <span class="badge status-badge status-{{ stat.category }} me-1">
-                                {{ stat.category }}: {{ stat.count }}
-                            </span>
-                            {% endfor %}
-                        </div>
-                    </div>
-                </div>
-                {% endif %}
+            <div class="stat-title">Received</div>
+            <div class="stat-value">{{ received }}</div>
+        </div>
+    </div>
+
+    <div class="stats shadow">
+        <div class="stat">
+            <div class="stat-figure text-secondary">
+                <i class="bi bi-search text-2xl"></i>
             </div>
+            <div class="stat-title">Searching</div>
+            <div class="stat-value text-secondary">{{ searching }}</div>
+        </div>
+    </div>
+
+    <div class="stats shadow">
+        <div class="stat">
+            <div class="stat-figure text-success">
+                <i class="bi bi-check-circle text-2xl"></i>
+            </div>
+            <div class="stat-title">Found</div>
+            <div class="stat-value text-success">{{ found }}</div>
+        </div>
+    </div>
+
+    <div class="stats shadow">
+        <div class="stat">
+            <div class="stat-figure text-error">
+                <i class="bi bi-exclamation-triangle text-2xl"></i>
+            </div>
+            <div class="stat-title">Disputed</div>
+            <div class="stat-value text-error">{{ disputed }}</div>
+        </div>
+    </div>
+
+    <div class="stats shadow">
+        <div class="stat">
+            <div class="stat-figure text-warning">
+                <i class="bi bi-people text-2xl"></i>
+            </div>
+            <div class="stat-title">Agents</div>
+            <div class="stat-value text-warning">{{ agents_count }}</div>
         </div>
     </div>
 </div>
 
-<!-- Dispute Stats Cards -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card border-danger">
-            <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Dispute Overview</h5>
-                <a href="{% url 'disputes:dispute_list' %}" class="btn btn-sm btn-light">
-                    <i class="bi bi-arrow-right"></i> View All Disputes
-                </a>
+<!-- Email Overview Card -->
+<div class="card bg-base-100 shadow-xl mb-6">
+    <div class="card-body">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="card-title">
+                <i class="bi bi-envelope"></i> Email Overview
+            </h3>
+            <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-primary">
+                View All Emails <i class="bi bi-arrow-right"></i>
+            </a>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="text-center">
+                <div class="text-sm text-base-content/70">Total Emails</div>
+                <div class="text-2xl font-bold">{{ total_emails|default:0 }}</div>
             </div>
-            <div class="card-body py-2">
-                <div class="row text-center">
-                    <div class="col">
-                        <span class="text-muted small">Total</span>
-                        <div class="fw-bold fs-5">{{ dispute_total|default:0 }}</div>
-                    </div>
-                    <div class="col">
-                        <span class="text-muted small">Received</span>
-                        <div class="fw-bold fs-5">{{ dispute_received|default:0 }}</div>
-                    </div>
-                    <div class="col">
-                        <span class="text-muted small">Gathering Data</span>
-                        <div class="fw-bold fs-5">{{ dispute_gathering_data|default:0 }}</div>
-                    </div>
-                    <div class="col">
-                        <span class="text-muted small">Docs Ready</span>
-                        <div class="fw-bold fs-5">{{ dispute_documents_ready|default:0 }}</div>
-                    </div>
-                    <div class="col">
-                        <span class="text-muted small">Under Review</span>
-                        <div class="fw-bold fs-5">{{ dispute_under_review|default:0 }}</div>
-                    </div>
-                    <div class="col">
-                        <span class="text-muted small">Evidence Sent</span>
-                        <div class="fw-bold fs-5">{{ dispute_evidence_sent|default:0 }}</div>
-                    </div>
-                    <div class="col">
-                        <span class="text-muted small">Resolved</span>
-                        <div class="fw-bold fs-5">{{ dispute_resolved|default:0 }}</div>
-                    </div>
-                </div>
+            <div class="text-center">
+                <div class="text-sm text-base-content/70">Auto-Resolved</div>
+                <div class="text-2xl font-bold text-success">{{ auto_resolved_emails|default:0 }}</div>
+            </div>
+            <div class="text-center">
+                <div class="text-sm text-base-content/70">Requires Attention</div>
+                <div class="text-2xl font-bold text-error">{{ emails_requiring_attention|default:0 }}</div>
+            </div>
+        </div>
+
+        {% if email_category_stats %}
+        <div class="divider"></div>
+        <div>
+            <div class="text-sm text-base-content/70 mb-2">Category Breakdown:</div>
+            <div class="flex flex-wrap gap-2">
+                {% for stat in email_category_stats %}
+                <div class="badge badge-lg gap-1">{{ stat.category }}: {{ stat.count }}</div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Dispute Overview Card -->
+<div class="card bg-base-100 shadow-xl mb-6">
+    <div class="card-body">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="card-title text-error">
+                <i class="bi bi-exclamation-triangle"></i> Dispute Overview
+            </h3>
+            <a href="{% url 'disputes:dispute_list' %}" class="btn btn-sm btn-error">
+                View All Disputes <i class="bi bi-arrow-right"></i>
+            </a>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+            <div class="text-center">
+                <div class="text-sm text-base-content/70">Total</div>
+                <div class="text-xl font-bold">{{ dispute_total|default:0 }}</div>
+            </div>
+            <div class="text-center">
+                <div class="text-sm text-base-content/70">Received</div>
+                <div class="text-xl font-bold">{{ dispute_received|default:0 }}</div>
+            </div>
+            <div class="text-center">
+                <div class="text-sm text-base-content/70">Gathering</div>
+                <div class="text-xl font-bold text-warning">{{ dispute_gathering_data|default:0 }}</div>
+            </div>
+            <div class="text-center">
+                <div class="text-sm text-base-content/70">Docs Ready</div>
+                <div class="text-xl font-bold text-success">{{ dispute_documents_ready|default:0 }}</div>
+            </div>
+            <div class="text-center">
+                <div class="text-sm text-base-content/70">Review</div>
+                <div class="text-xl font-bold text-info">{{ dispute_under_review|default:0 }}</div>
+            </div>
+            <div class="text-center">
+                <div class="text-sm text-base-content/70">Sent</div>
+                <div class="text-xl font-bold text-secondary">{{ dispute_evidence_sent|default:0 }}</div>
+            </div>
+            <div class="text-center">
+                <div class="text-sm text-base-content/70">Resolved</div>
+                <div class="text-xl font-bold">{{ dispute_resolved|default:0 }}</div>
             </div>
         </div>
     </div>
 </div>
 
-<div class="row">
+<!-- Recent Activity Grid -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
     <!-- Recent Claims -->
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-clock-history"></i> Recent Claims</h5>
-                <a href="{% url 'manager_claims' %}" class="btn btn-sm btn-outline-primary">View All</a>
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="card-title">
+                    <i class="bi bi-clock-history"></i> Recent Claims
+                </h3>
+                <a href="{% url 'manager_claims' %}" class="btn btn-sm btn-outline">View All</a>
             </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th>ID</th>
-                                <th>Email</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for claim in recent_claims %}
-                            <tr>
-                                <td>#{{ claim.id }}</td>
-                                <td>{{ claim.client_email }}</td>
-                                <td>
-                                    <span class="badge status-badge status-{{ claim.status }}">
-                                        {{ claim.status }}
-                                    </span>
-                                </td>
-                                <td>
-                                    <a href="{% url 'agent_claim_detail' claim.id %}" 
-                                       class="btn btn-sm btn-outline-primary">
-                                        <i class="bi bi-eye"></i>
-                                    </a>
-                                </td>
-                            </tr>
-                            {% empty %}
-                            <tr>
-                                <td colspan="4" class="text-center text-muted">No claims</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+
+            <div class="overflow-x-auto">
+                <table class="table table-zebra">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Email</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for claim in recent_claims %}
+                        <tr>
+                            <td class="font-mono">#{{ claim.id }}</td>
+                            <td>{{ claim.client_email }}</td>
+                            <td>
+                                <div class="badge {% if claim.status == 'Received' %}badge-neutral{% elif claim.status == 'Searching' %}badge-info{% elif claim.status == 'Found' %}badge-success{% elif claim.status == 'Shipped' %}badge-primary{% elif claim.status == 'Disputed' %}badge-error{% endif %}">
+                                    {{ claim.status }}
+                                </div>
+                            </td>
+                            <td>
+                                <a href="{% url 'agent_claim_detail' claim.id %}" class="btn btn-xs btn-ghost">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="4" class="text-center py-4">No claims</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
-    
+
     <!-- Recent Emails -->
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-envelope"></i> Recent Emails</h5>
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="card-title">
+                    <i class="bi bi-envelope"></i> Recent Emails
+                </h3>
+                <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-outline">View All</a>
             </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Claim</th>
-                                <th>Subject</th>
-                                <th>Sentiment</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for email in recent_emails %}
-                            <tr>
-                                <td>#{{ email.claim.id }}</td>
-                                <td>
-                                    <small class="text-truncate d-inline-block" style="max-width: 200px;">
-                                        {{ email.subject }}
-                                    </small>
-                                </td>
-                                <td>
-                                    <span class="badge sentiment-{{ email.sentiment|default:'Neutral' }}">
-                                        {{ email.sentiment|default:'Neutral' }}
-                                    </span>
-                                </td>
-                            </tr>
-                            {% empty %}
-                            <tr>
-                                <td colspan="3" class="text-center text-muted">No emails</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+
+            <div class="overflow-x-auto">
+                <table class="table table-zebra">
+                    <thead>
+                        <tr>
+                            <th>Claim</th>
+                            <th>Subject</th>
+                            <th>Sentiment</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for email in recent_emails %}
+                        <tr>
+                            <td class="font-mono">#{{ email.claim.id }}</td>
+                            <td>
+                                <div class="max-w-xs truncate" title="{{ email.subject }}">
+                                    {{ email.subject }}
+                                </div>
+                            </td>
+                            <td>
+                                <div class="badge {% if email.sentiment == 'Positive' %}badge-success{% elif email.sentiment == 'Frustrated' %}badge-warning{% elif email.sentiment == 'Urgent' %}badge-error{% else %}badge-ghost{% endif %}">
+                                    {{ email.sentiment|default:'Neutral' }}
+                                </div>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="3" class="text-center py-4">No emails</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Recent Disputes -->
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Recent Disputes</h5>
-                <a href="{% url 'disputes:dispute_list' %}" class="btn btn-sm btn-outline-danger">View All Disputes</a>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th>ID</th>
-                                <th>PayPal ID</th>
-                                <th>Buyer</th>
-                                <th>Amount</th>
-                                <th>Status</th>
-                                <th>Zendesk Ticket</th>
-                                <th>Created</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for dispute in recent_disputes %}
-                            <tr>
-                                <td>#{{ dispute.id }}</td>
-                                <td>
-                                    <small class="text-monospace">{{ dispute.paypal_dispute_id|truncatechars:15 }}</small>
-                                </td>
-                                <td>{{ dispute.buyer_email }}</td>
-                                <td>
-                                    {% if dispute.dispute_amount %}
-                                    {{ dispute.dispute_currency }} {{ dispute.dispute_amount }}
-                                    {% else %}
-                                    <span class="text-muted">-</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <span class="badge status-badge status-{{ dispute.status }}">
-                                        {{ dispute.get_status_display }}
-                                    </span>
-                                </td>
-                                <td>
-                                    {% if dispute.zd_ticket_id %}
-                                    <i class="bi bi-ticket-perforated"></i> {{ dispute.zd_ticket_id }}
-                                    {% else %}
-                                    <span class="text-muted">Not linked</span>
-                                    {% endif %}
-                                </td>
-                                <td>{{ dispute.created_at|date:"M d, Y" }}</td>
-                                <td>
-                                    <a href="{% url 'disputes:dispute_detail' dispute.id %}"
-                                       class="btn btn-sm btn-outline-primary">
-                                        <i class="bi bi-eye"></i> View
-                                    </a>
-                                </td>
-                            </tr>
-                            {% empty %}
-                            <tr>
-                                <td colspan="8" class="text-center text-muted">No disputes</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+<!-- Recent Disputes Table -->
+<div class="card bg-base-100 shadow-xl mb-6">
+    <div class="card-body">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="card-title text-error">
+                <i class="bi bi-exclamation-triangle"></i> Recent Disputes
+            </h3>
+            <a href="{% url 'disputes:dispute_list' %}" class="btn btn-sm btn-outline">View All</a>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>PayPal ID</th>
+                        <th>Buyer</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                        <th>Zendesk</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for dispute in recent_disputes %}
+                    <tr>
+                        <td class="font-mono">#{{ dispute.id }}</td>
+                        <td class="font-mono text-xs">{{ dispute.paypal_dispute_id|truncatechars:15 }}</td>
+                        <td>{{ dispute.buyer_email }}</td>
+                        <td>
+                            {% if dispute.dispute_amount %}
+                            <span class="font-semibold">{{ dispute.dispute_currency }} {{ dispute.dispute_amount }}</span>
+                            {% else %}
+                            <span class="text-base-content/50">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="badge {% if dispute.status == 'RECEIVED' %}badge-neutral{% elif dispute.status == 'MATCHED' %}badge-info{% elif dispute.status == 'GATHERING_DATA' %}badge-warning{% elif dispute.status == 'DOCUMENTS_READY' %}badge-success{% elif dispute.status == 'UNDER_REVIEW' %}badge-primary{% elif dispute.status == 'EVIDENCE_SENT' %}badge-info{% elif dispute.status == 'RESOLVED_WON' %}badge-success{% elif dispute.status == 'RESOLVED_LOST' %}badge-error{% elif dispute.status == 'ACCEPTED' %}badge-warning{% endif %}">
+                                {{ dispute.get_status_display }}
+                            </div>
+                        </td>
+                        <td>
+                            {% if dispute.zd_ticket_id %}
+                            <span class="flex items-center gap-1">
+                                <i class="bi bi-ticket-perforated"></i> {{ dispute.zd_ticket_id }}
+                            </span>
+                            {% else %}
+                            <span class="text-base-content/50">Not linked</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ dispute.created_at|date:"M d, Y" }}</td>
+                        <td>
+                            <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="btn btn-xs btn-ghost">
+                                <i class="bi bi-eye"></i> View
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="8" class="text-center py-8">
+                            <i class="bi bi-inbox text-4xl text-base-content/30"></i>
+                            <p class="text-base-content/50 mt-2">No disputes</p>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
 
 <!-- Quick Actions -->
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-lightning"></i> Quick Actions</h5>
-            </div>
-            <div class="card-body">
-                <a href="{% url 'disputes:dispute_list' %}" class="btn btn-danger me-2">
-                    <i class="bi bi-exclamation-triangle"></i> Manage Disputes
-                </a>
-                <a href="{% url 'manager_settings' %}" class="btn btn-primary me-2">
-                    <i class="bi bi-gear"></i> System Settings
-                </a>
-                <a href="{% url 'manager_users' %}" class="btn btn-outline-primary me-2">
-                    <i class="bi bi-people"></i> Manage Users
-                </a>
-                <a href="{% url 'manager_claims' %}" class="btn btn-outline-primary">
-                    <i class="bi bi-clipboard-data"></i> All Claims
-                </a>
-            </div>
+<div class="card bg-base-100 shadow-xl">
+    <div class="card-body">
+        <h3 class="card-title mb-4">
+            <i class="bi bi-lightning"></i> Quick Actions
+        </h3>
+        <div class="flex flex-wrap gap-2">
+            <a href="{% url 'disputes:dispute_list' %}" class="btn btn-error">
+                <i class="bi bi-exclamation-triangle"></i> Manage Disputes
+            </a>
+            <a href="{% url 'manager_settings' %}" class="btn btn-primary">
+                <i class="bi bi-gear"></i> System Settings
+            </a>
+            <a href="{% url 'manager_users' %}" class="btn btn-outline">
+                <i class="bi bi-people"></i> Manage Users
+            </a>
+            <a href="{% url 'manager_claims' %}" class="btn btn-outline">
+                <i class="bi bi-clipboard-data"></i> All Claims
+            </a>
         </div>
     </div>
 </div>
