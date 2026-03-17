@@ -598,7 +598,7 @@ def manager_claims(request):
     claims = Claim.objects.annotate(
         evidence_count=Count('evidence'),
         email_count=Count('emails')
-    ).select_related('assigned_to').order_by('-created_at')
+    ).order_by('-created_at')
 
     # Filter by status if provided
     status_filter = request.GET.get('status')
@@ -611,11 +611,9 @@ def manager_claims(request):
         claims = claims.filter(
             Q(client_email__icontains=search_query) |
             Q(zd_ticket_id__icontains=search_query) |
-            Q(flight_details__icontains=search_query)
+            Q(flight_details__icontains=search_query) |
+            Q(alf_claim_id__icontains=search_query)
         )
-
-    # Get all agents for assignment dropdown
-    agents = User.objects.filter(role='AGENT').order_by('username')
 
     # Pagination (20 claims per page)
     from django.core.paginator import Paginator
@@ -626,7 +624,6 @@ def manager_claims(request):
     context = {
         'page_obj': page_obj,
         'claims': page_obj,
-        'agents': agents,
         'status_filter': status_filter,
         'search_query': search_query,
         'status_choices': Claim.STATUS_CHOICES,

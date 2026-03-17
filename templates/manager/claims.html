@@ -55,10 +55,9 @@
         <table class="table-modern">
             <thead>
                 <tr>
-                    <th>ID</th>
+                    <th>ALF #</th>
                     <th>Customer Email</th>
                     <th>Status</th>
-                    <th>Assigned To</th>
                     <th>ZD Ticket</th>
                     <th>Evidence</th>
                     <th>Emails</th>
@@ -69,19 +68,12 @@
             <tbody>
                 {% for claim in claims %}
                 <tr>
-                    <td>#{{ claim.id }}</td>
+                    <td class="font-mono font-semibold text-primary">{{ claim.alf_claim_id|default:"-" }}</td>
                     <td>{{ claim.client_email }}</td>
                     <td>
                         <span class="badge status-{{ claim.status }} rounded-full">
                             {{ claim.status }}
                         </span>
-                    </td>
-                    <td>
-                        {% if claim.assigned_to %}
-                            <span class="badge-soft-primary rounded-full px-3 py-1 text-xs">{{ claim.assigned_to.username }}</span>
-                        {% else %}
-                            <span class="badge-soft-neutral rounded-full px-3 py-1 text-xs">Unassigned</span>
-                        {% endif %}
                     </td>
                     <td>{{ claim.zd_ticket_id|default:"-" }}</td>
                     <td>
@@ -97,48 +89,16 @@
                                class="btn btn-sm btn-outline btn-primary rounded-xl transition-all duration-200" title="View">
                                 <i class="bi bi-eye"></i>
                             </a>
-                            <button type="button" class="btn btn-sm btn-outline btn-success rounded-xl transition-all duration-200"
-                                    onclick="document.getElementById('assignModal{{ claim.id }}').showModal()"
-                                    title="Assign">
-                                <i class="bi bi-person-plus"></i>
-                            </button>
                             <a href="{% url 'agent_claim_detail' claim.id %}#proof-of-work"
                                class="btn btn-sm btn-outline btn-error rounded-xl transition-all duration-200" title="Download PDF">
                                 <i class="bi bi-file-earmark-pdf"></i>
                             </a>
                         </div>
-
-                        <!-- Assign Modal -->
-                        <dialog id="assignModal{{ claim.id }}" class="modal">
-                            <div class="modal-box rounded-2xl">
-                                <h3 class="text-lg font-semibold tracking-tight mb-4">Assign Claim #{{ claim.id }}</h3>
-                                <form method="post" action="{% url 'agent_assign_claim' claim.id %}">
-                                    {% csrf_token %}
-                                    <div class="form-control mb-4">
-                                        <select class="select select-bordered w-full rounded-xl" name="agent_id" required>
-                                            <option value="">-- Unassign Claim --</option>
-                                            {% for agent in agents %}
-                                            <option value="{{ agent.id }}" {% if claim.assigned_to_id == agent.id %}selected{% endif %}>
-                                                {{ agent.username }} ({{ agent.email }})
-                                            </option>
-                                            {% endfor %}
-                                        </select>
-                                    </div>
-                                    <div class="modal-action">
-                                        <button type="button" class="btn btn-outline rounded-xl transition-all duration-200" onclick="document.getElementById('assignModal{{ claim.id }}').close()">Cancel</button>
-                                        <button type="submit" class="btn btn-primary rounded-xl transition-all duration-200">Assign</button>
-                                    </div>
-                                </form>
-                            </div>
-                            <form method="dialog" class="modal-backdrop">
-                                <button>close</button>
-                            </form>
-                        </dialog>
                     </td>
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="9" class="text-center py-8">
+                    <td colspan="8" class="text-center py-8">
                         <i class="bi bi-inbox text-4xl text-base-content/30"></i>
                         <p class="text-base-content/60 mt-2 mb-0">No claims found</p>
                     </td>
