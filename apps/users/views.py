@@ -592,7 +592,7 @@ def manager_dashboard(request):
 @manager_required
 def manager_claims(request):
     """Manager claim overview (same as agent but with PDF access).
-    
+
     Includes pagination to prevent loading large datasets.
     """
     claims = Claim.objects.annotate(
@@ -616,7 +616,7 @@ def manager_claims(request):
 
     # Get all agents for assignment dropdown
     agents = User.objects.filter(role='AGENT').order_by('username')
-    
+
     # Pagination (20 claims per page)
     from django.core.paginator import Paginator
     paginator = Paginator(claims, 20)
@@ -633,6 +633,65 @@ def manager_claims(request):
     }
 
     return render(request, 'manager/claims.html', context)
+
+
+@manager_required
+def manager_refunds(request):
+    """Manager refund list view.
+    
+    Shows all refunds with filtering and search.
+    """
+    from apps.payments.models import Refund
+    from django.db.models import Sum
+    
+    refunds = Refund.objects.select_related('claim', 'created_by').order_by('-created_at')
+    
+    # Filter by status
+    status_filter = request.GET.get('status')
+    if status_filter:
+        refunds = refunds.filter(status=status_filter)
+    
+    # Filter by source
+    source_filter = request.GET.get('source')
+    if source_filter:
+        refunds = refunds.filter(external_source=source_filter)
+    
+    # Search
+    search_query = request.GET.get('search')
+    if search_query:
+        refunds = refunds.filter(
+            Q(claim__client_email__icontains=search_query) |
+            Q(paypal_refund_id__icontains=search_query) |
+            Q(reason__icontains=search_query)
+        )
+    
+    # Get statistics
+    stats = {
+        'total': refunds.count(),
+        'total_amount': refunds.filter(status='COMPLETED').aggregate(total=Sum('amount'))['total'] or 0,
+        'pending': refunds.filter(status='PENDING').count(),
+        'completed': refunds.filter(status='COMPLETED').count(),
+        'failed': refunds.filter(status='FAILED').count(),
+    }
+    
+    # Pagination
+    from django.core.paginator import Paginator
+    paginator = Paginator(refunds, 20)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_obj)
+    
+    context = {
+        'page_obj': page_obj,
+        'refunds': page_obj,
+        'status_filter': status_filter,
+        'source_filter': source_filter,
+        'search_query': search_query,
+        'stats': stats,
+        'status_choices': Refund.STATUS_CHOICES,
+        'source_choices': Refund.SOURCE_CHOICES,
+    }
+    
+    return render(request, 'manager/refunds.html', context)
 
 
 @manager_required
