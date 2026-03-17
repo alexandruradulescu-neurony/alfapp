@@ -28,25 +28,25 @@ class ConnectionTester:
                 )
             
             # Simple connectivity test - check if endpoint is reachable
-            response = requests.get(
-                f"{settings.ai_api_base}/health",
-                headers={'Authorization': f'Bearer {settings.ai_api_key}'},
-                timeout=self.timeout
-            )
-            
-            if response.status_code in [200, 401, 403]:
+            try:
+                response = requests.get(
+                    f"{settings.ai_api_base}",
+                    timeout=self.timeout
+                )
+                # If we get any response (even 401/403), the server is reachable
                 return self._update_status(
                     'AI',
                     'connected',
                     success=True,
                     message='AI provider is reachable'
                 )
-            else:
+            except requests.RequestException:
+                # Server not reachable
                 return self._update_status(
                     'AI',
                     'error',
                     success=False,
-                    message=f'Unexpected response: {response.status_code}'
+                    message='AI provider server not reachable'
                 )
                 
         except SystemSettings.DoesNotExist:
@@ -56,7 +56,7 @@ class ConnectionTester:
                 success=False,
                 message='System settings not configured'
             )
-        except requests.RequestException as e:
+        except Exception as e:
             return self._update_status(
                 'AI',
                 'error',
