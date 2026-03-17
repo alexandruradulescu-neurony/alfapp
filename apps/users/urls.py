@@ -26,6 +26,7 @@ urlpatterns = [
     path('manager/claims/<int:claim_id>/assign/', views.agent_assign_claim, name='agent_assign_claim'),
     path('manager/settings/', views.manager_settings, name='manager_settings'),
     path('manager/users/', views.manager_users, name='manager_users'),
+    path('manager/test-ai/', views.test_ai, name='test_ai'),
 
     # Dispute management views (MANAGER only)
     path('manager/disputes/', include('apps.payments.frontend_urls')),

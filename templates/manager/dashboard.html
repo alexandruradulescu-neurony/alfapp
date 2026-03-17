@@ -1,23 +1,16 @@
 {% extends 'base.html' %}
 {% load static %}
 {% load ui_filters %}
-{% load service_status_tags %}
 
 {% block title %}Manager Dashboard{% endblock %}
 
 {% block content %}
-<!-- Hidden CSRF token for JavaScript -->
-<input type="hidden" id="csrf_token" value="{{ csrf_token }}">
-
 <!-- Page Header -->
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
     <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
         <i class="bi bi-speedometer2"></i> Manager Dashboard
     </h2>
 </div>
-
-<!-- Services Dashboard Widget -->
-{% include 'config/services_dashboard.html' %}
 
 <!-- Stats Grid -->
 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6 animate-fade-in">
@@ -350,6 +343,4 @@
         </a>
     </div>
 </div>
-
-<script src="{% static 'js/service-controls.js' %}"></script>
 {% endblock %}

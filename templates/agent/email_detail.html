@@ -3,246 +3,180 @@
 {% block title %}Email Detail{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <h2><i class="bi bi-envelope-open"></i> Email Detail</h2>
-</div>
-
-<!-- Back Button -->
-<div class="mb-3">
-    <a href="{% url 'agent_emails' %}" class="btn btn-outline-secondary">
+<div class="animate-fade-in">
+<!-- Page Header -->
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+        <i class="bi bi-envelope-open"></i> Email Detail
+    </h2>
+    <a href="{% url 'agent_emails' %}" class="btn btn-outline rounded-xl transition-all duration-200">
         <i class="bi bi-arrow-left"></i> Back to Email List
     </a>
 </div>
 
-<div class="row">
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- Email Info Card -->
-    <div class="col-md-8">
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-info-circle"></i> Email Information</h5>
-            </div>
-            <div class="card-body">
-                <div class="row mb-3">
-                    <div class="col-md-3">
-                        <strong>Subject:</strong>
-                    </div>
-                    <div class="col-md-9">
-                        {{ email.subject }}
-                    </div>
+    <div class="lg:col-span-2 space-y-6">
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-6">
+                <i class="bi bi-info-circle"></i> Email Information
+            </h3>
+            <div class="space-y-4">
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                    <span class="text-sm text-base-content/50">Subject</span>
+                    <span class="sm:col-span-3 font-medium">{{ email.subject }}</span>
                 </div>
-                <div class="row mb-3">
-                    <div class="col-md-3">
-                        <strong>From:</strong>
-                    </div>
-                    <div class="col-md-9">
-                        <a href="mailto:{{ email.from_email }}">{{ email.from_email }}</a>
-                    </div>
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                    <span class="text-sm text-base-content/50">From</span>
+                    <a href="mailto:{{ email.from_email }}" class="text-primary hover:text-primary/80 transition-colors sm:col-span-3 font-medium">{{ email.from_email }}</a>
                 </div>
-                <div class="row mb-3">
-                    <div class="col-md-3">
-                        <strong>To:</strong>
-                    </div>
-                    <div class="col-md-9">
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                    <span class="text-sm text-base-content/50">To</span>
+                    <div class="sm:col-span-3 font-medium">
                         {{ email.to_email|default:"-" }}
                         {% if email.delivered_to %}
-                        <br><small class="text-muted">Delivered to: {{ email.delivered_to }}</small>
+                        <br><span class="text-sm text-base-content/40">Delivered to: {{ email.delivered_to }}</span>
                         {% endif %}
                         {% if email.alias_matched %}
-                        <br><small class="text-muted">Alias matched: {{ email.alias_matched }}</small>
+                        <br><span class="text-sm text-base-content/40">Alias matched: {{ email.alias_matched }}</span>
                         {% endif %}
                     </div>
                 </div>
-                <div class="row mb-3">
-                    <div class="col-md-3">
-                        <strong>Received:</strong>
-                    </div>
-                    <div class="col-md-9">
-                        {{ email.received_at|date:"F d, Y H:i:s" }}
-                    </div>
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                    <span class="text-sm text-base-content/50">Received</span>
+                    <span class="sm:col-span-3 font-medium">{{ email.received_at|date:"F d, Y H:i:s" }}</span>
                 </div>
-                <div class="row">
-                    <div class="col-md-3">
-                        <strong>Email ID:</strong>
-                    </div>
-                    <div class="col-md-9">
-                        #{{ email.id }}
-                    </div>
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                    <span class="text-sm text-base-content/50">Email ID</span>
+                    <span class="sm:col-span-3 font-medium">#{{ email.id }}</span>
                 </div>
             </div>
         </div>
 
         <!-- AI Analysis Box -->
-        <div class="card mb-4">
-            <div class="card-header bg-info text-white">
-                <h5 class="mb-0"><i class="bi bi-robot"></i> AI Analysis</h5>
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-6">
+                <i class="bi bi-robot"></i> AI Analysis
+            </h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="flex justify-between items-center p-3 bg-base-200/50 rounded-xl">
+                    <span class="text-sm text-base-content/50">Sentiment</span>
+                    <span class="badge sentiment-{{ email.sentiment|default:'Neutral' }}">
+                        {{ email.sentiment|default:'Neutral' }}
+                    </span>
+                </div>
+                <div class="flex justify-between items-center p-3 bg-base-200/50 rounded-xl">
+                    <span class="text-sm text-base-content/50">Category</span>
+                    <span class="badge status-{{ email.category }}">
+                        {{ email.get_category_display }}
+                    </span>
+                </div>
+                <div class="flex justify-between items-center p-3 bg-base-200/50 rounded-xl">
+                    <span class="text-sm text-base-content/50">Action Required</span>
+                    {% if email.action_required %}
+                    <span class="badge badge-error">
+                        <i class="bi bi-exclamation-triangle"></i> Yes
+                    </span>
+                    {% else %}
+                    <span class="badge badge-success">
+                        <i class="bi bi-check-circle"></i> No
+                    </span>
+                    {% endif %}
+                </div>
+                <div class="flex justify-between items-center p-3 bg-base-200/50 rounded-xl">
+                    <span class="text-sm text-base-content/50">Auto-Resolved</span>
+                    {% if email.auto_resolved %}
+                    <span class="badge badge-success">
+                        <i class="bi bi-check-circle"></i> Yes
+                    </span>
+                    {% else %}
+                    <span class="badge badge-ghost">No</span>
+                    {% endif %}
+                </div>
             </div>
-            <div class="card-body">
-                <div class="row mb-3">
-                    <div class="col-md-4">
-                        <strong>Sentiment:</strong>
-                    </div>
-                    <div class="col-md-8">
-                        <span class="badge sentiment-{{ email.sentiment|default:'Neutral' }} fs-6">
-                            {{ email.sentiment|default:'Neutral' }}
-                        </span>
-                    </div>
+            {% if email.ai_summary %}
+            <div class="mt-6">
+                <span class="text-sm text-base-content/50">AI Summary</span>
+                <div class="mt-2 rounded-xl bg-base-200/50 p-4 text-sm font-medium">
+                    {{ email.ai_summary }}
                 </div>
-                <div class="row mb-3">
-                    <div class="col-md-4">
-                        <strong>Category:</strong>
-                    </div>
-                    <div class="col-md-8">
-                        <span class="badge status-badge status-{{ email.category }} fs-6">
-                            {{ email.get_category_display }}
-                        </span>
-                    </div>
-                </div>
-                <div class="row mb-3">
-                    <div class="col-md-4">
-                        <strong>Action Required:</strong>
-                    </div>
-                    <div class="col-md-8">
-                        {% if email.action_required %}
-                        <span class="badge bg-danger fs-6">
-                            <i class="bi bi-exclamation-triangle"></i> Yes
-                        </span>
-                        {% else %}
-                        <span class="badge bg-success fs-6">
-                            <i class="bi bi-check-circle"></i> No
-                        </span>
-                        {% endif %}
-                    </div>
-                </div>
-                <div class="row mb-3">
-                    <div class="col-md-4">
-                        <strong>Auto-Resolved:</strong>
-                    </div>
-                    <div class="col-md-8">
-                        {% if email.auto_resolved %}
-                        <span class="badge bg-success fs-6">
-                            <i class="bi bi-check-circle"></i> Yes
-                        </span>
-                        {% else %}
-                        <span class="badge bg-secondary fs-6">No</span>
-                        {% endif %}
-                    </div>
-                </div>
-                {% if email.ai_summary %}
-                <div class="row">
-                    <div class="col-md-12">
-                        <strong>AI Summary:</strong>
-                        <div class="alert alert-light border mt-2">
-                            {{ email.ai_summary }}
-                        </div>
-                    </div>
-                </div>
-                {% endif %}
             </div>
+            {% endif %}
         </div>
 
         <!-- Email Body -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-file-text"></i> Email Body</h5>
-            </div>
-            <div class="card-body">
-                <div class="email-body bg-light p-3 rounded" style="white-space: pre-wrap; font-family: monospace; font-size: 0.9em;">
-                    {{ email.body }}
-                </div>
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-6">
+                <i class="bi bi-file-text"></i> Email Body
+            </h3>
+            <div class="rounded-xl bg-base-200/50 p-4 overflow-x-auto">
+                <pre class="whitespace-pre-wrap font-mono text-sm">{{ email.body }}</pre>
             </div>
         </div>
     </div>
 
     <!-- Sidebar -->
-    <div class="col-md-4">
+    <div class="lg:col-span-1 space-y-6">
         <!-- Linked Resources Card -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-link-45deg"></i> Linked Resources</h5>
-            </div>
-            <div class="card-body">
-                <!-- Zendesk Ticket -->
-                <div class="mb-3">
-                    <strong>Zendesk Ticket:</strong>
-                    {% if email.zd_ticket_id %}
-                    <div class="mt-2">
-                        <a href="https://{{ settings.zd_subdomain|default:'lora' }}.zendesk.com/agent/tickets/{{ email.zd_ticket_id }}" 
-                           target="_blank" class="btn btn-info w-100">
-                            <i class="bi bi-ticket-perforated"></i> View Ticket #{{ email.zd_ticket_id }}
-                        </a>
-                    </div>
-                    {% else %}
-                    <p class="text-muted mb-0 mt-2">No Zendesk ticket linked</p>
-                    {% endif %}
-                </div>
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-6">
+                <i class="bi bi-link-45deg"></i> Linked Resources
+            </h3>
 
-                <!-- Claim -->
-                <div class="mb-3">
-                    <strong>Linked Claim:</strong>
-                    {% if email.claim %}
-                    <div class="mt-2">
-                        <a href="{% url 'agent_claim_detail' email.claim.id %}" 
-                           class="btn btn-primary w-100">
-                            <i class="bi bi-clipboard-data"></i> View Claim #{{ email.claim.id }}
-                        </a>
-                        <div class="mt-2">
-                            <small class="text-muted">
-                                Status: 
-                                <span class="badge status-badge status-{{ email.claim.status }}">
-                                    {{ email.claim.status }}
-                                </span>
-                            </small>
-                        </div>
-                        <div class="mt-1">
-                            <small class="text-muted">
-                                Customer: {{ email.claim.client_email }}
-                            </small>
-                        </div>
+            <!-- Zendesk Ticket -->
+            <div class="mb-6">
+                <span class="text-sm text-base-content/50">Zendesk Ticket</span>
+                {% if email.zd_ticket_id %}
+                <a href="https://{{ settings.zd_subdomain|default:'lora' }}.zendesk.com/agent/tickets/{{ email.zd_ticket_id }}"
+                   target="_blank" class="btn btn-sm btn-info rounded-xl transition-all duration-200 w-full mt-2">
+                    <i class="bi bi-ticket-perforated"></i> View Ticket #{{ email.zd_ticket_id }}
+                </a>
+                {% else %}
+                <p class="text-base-content/40 text-sm mt-2 mb-0">No Zendesk ticket linked</p>
+                {% endif %}
+            </div>
+
+            <!-- Claim -->
+            <div>
+                <span class="text-sm text-base-content/50">Linked Claim</span>
+                {% if email.claim %}
+                <a href="{% url 'agent_claim_detail' email.claim.id %}"
+                   class="btn btn-sm btn-primary rounded-xl transition-all duration-200 w-full mt-2">
+                    <i class="bi bi-clipboard-data"></i> View Claim #{{ email.claim.id }}
+                </a>
+                <div class="mt-3 space-y-1">
+                    <div class="text-sm">
+                        <span class="text-base-content/50">Status:</span>
+                        <span class="badge status-{{ email.claim.status }} ml-1">
+                            {{ email.claim.status }}
+                        </span>
                     </div>
-                    {% else %}
-                    <p class="text-muted mb-0 mt-2">No claim linked</p>
-                    {% endif %}
+                    <div class="text-sm text-base-content/60">
+                        Customer: {{ email.claim.client_email }}
+                    </div>
                 </div>
+                {% else %}
+                <p class="text-base-content/40 text-sm mt-2 mb-0">No claim linked</p>
+                {% endif %}
             </div>
         </div>
 
         <!-- Raw Headers Toggle -->
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">
-                    <button class="btn btn-sm btn-outline-secondary" type="button" 
-                            data-bs-toggle="collapse" data-bs-target="#rawHeaders" 
-                            aria-expanded="false" aria-controls="rawHeaders">
-                        <i class="bi bi-code-slash"></i> Raw Headers
-                    </button>
-                </h5>
-            </div>
-            <div class="collapse" id="rawHeaders">
-                <div class="card-body">
+        <div class="card-modern p-6">
+            <details>
+                <summary class="btn btn-sm btn-outline rounded-xl transition-all duration-200 w-full">
+                    <i class="bi bi-code-slash"></i> Raw Headers
+                </summary>
+                <div class="mt-4 rounded-xl bg-base-200/50 p-4 max-h-96 overflow-y-auto">
                     {% if email.raw_headers %}
-                    <div class="raw-headers bg-dark text-light p-2 rounded" 
-                         style="white-space: pre-wrap; font-family: monospace; font-size: 0.75em; max-height: 400px; overflow-y: auto;">
-                        {{ email.raw_headers }}
-                    </div>
+                    <pre class="text-xs font-mono whitespace-pre-wrap">{{ email.raw_headers }}</pre>
                     {% else %}
-                    <p class="text-muted mb-0">No raw headers available</p>
+                    <p class="text-base-content/40 text-sm">No raw headers available</p>
                     {% endif %}
                 </div>
-            </div>
+            </details>
         </div>
     </div>
 </div>
-
-<!-- Additional CSS for email body -->
-<style>
-    .email-body {
-        word-wrap: break-word;
-        overflow-x: auto;
-    }
-    
-    .raw-headers {
-        word-wrap: break-word;
-        overflow-x: auto;
-    }
-</style>
+</div>
 {% endblock %}

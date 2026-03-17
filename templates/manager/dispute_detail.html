@@ -3,188 +3,185 @@
 {% block title %}Dispute #{{ dispute.id }} Details{% endblock %}
 
 {% block content %}
-<div class="page-header d-flex justify-content-between align-items-center">
-    <h2><i class="bi bi-exclamation-triangle"></i> Dispute #{{ dispute.id }}</h2>
-    <div>
-        <a href="{% url 'disputes:dispute_list' %}" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> Back to List
-        </a>
-    </div>
+<!-- Page Header -->
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+        <i class="bi bi-exclamation-triangle"></i> Dispute #{{ dispute.id }}
+    </h2>
+    <a href="{% url 'disputes:dispute_list' %}" class="btn btn-outline rounded-xl transition-all duration-200">
+        <i class="bi bi-arrow-left"></i> Back to List
+    </a>
 </div>
 
 <!-- Status Banner -->
-<div class="alert {% if dispute.status == 'RESOLVED_WON' %}alert-success{% elif dispute.status == 'RESOLVED_LOST' %}alert-danger{% elif dispute.status == 'ACCEPTED' %}alert-warning{% elif dispute.status == 'EVIDENCE_SENT' %}alert-info{% else %}alert-secondary{% endif %} mb-4">
-    <div class="d-flex justify-content-between align-items-center">
+<div class="rounded-2xl border-0 p-4 flex items-start gap-3 mb-6 {% if dispute.status == 'RESOLVED_WON' %}bg-success/10 text-success{% elif dispute.status == 'RESOLVED_LOST' %}bg-error/10 text-error{% elif dispute.status == 'ACCEPTED' %}bg-warning/10 text-warning{% elif dispute.status == 'EVIDENCE_SENT' %}bg-info/10 text-info{% else %}bg-base-200/60 text-base-content{% endif %}">
+    <i class="bi bi-info-circle text-lg mt-0.5"></i>
+    <div class="flex flex-col sm:flex-row gap-4 justify-between w-full">
         <div>
-            <strong>Status:</strong>
-            <span class="badge status-badge status-{{ dispute.status }} ms-2">
+            <span class="font-semibold">Status:</span>
+            <span class="badge status-{{ dispute.status }} rounded-full ml-2">
                 {{ dispute.get_status_display }}
             </span>
-            <span class="ms-3">
+            <span class="ml-3">
                 <i class="bi bi-paypal"></i> {{ dispute.paypal_dispute_id }}
             </span>
         </div>
-        <div>
-            {% if dispute.zd_ticket_id %}
-            <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ dispute.zd_ticket_id }}"
-               target="_blank" class="btn btn-sm btn-outline-primary">
-                <i class="bi bi-ticket-perforated"></i> Zendesk #{{ dispute.zd_ticket_id }}
-            </a>
-            {% endif %}
-        </div>
+        {% if dispute.zd_ticket_id %}
+        <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ dispute.zd_ticket_id }}"
+           target="_blank" class="btn btn-sm btn-outline btn-primary rounded-xl transition-all duration-200">
+            <i class="bi bi-ticket-perforated"></i> Zendesk #{{ dispute.zd_ticket_id }}
+        </a>
+        {% endif %}
     </div>
 </div>
 
-<div class="row">
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- Left Column: Info, Screenshots, Documents -->
-    <div class="col-lg-8">
+    <div class="lg:col-span-2 space-y-6">
         <!-- Dispute Information Card -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-info-circle"></i> Dispute Information</h5>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6 class="text-muted small">BUYER INFORMATION</h6>
-                        <table class="table table-sm table-borderless">
-                            <tr>
-                                <th class="text-muted">Name:</th>
-                                <td>{{ dispute.buyer_name|default:"N/A" }}</td>
-                            </tr>
-                            <tr>
-                                <th class="text-muted">Email:</th>
-                                <td>{{ dispute.buyer_email }}</td>
-                            </tr>
-                        </table>
-                    </div>
-                    <div class="col-md-6">
-                        <h6 class="text-muted small">DISPUTE DETAILS</h6>
-                        <table class="table table-sm table-borderless">
-                            <tr>
-                                <th class="text-muted">Reason:</th>
-                                <td>{{ dispute.get_dispute_reason_display|default:"N/A" }}</td>
-                            </tr>
-                            <tr>
-                                <th class="text-muted">Amount:</th>
-                                <td>
-                                    {% if dispute.dispute_amount %}
-                                    {{ dispute.dispute_currency }} {{ dispute.dispute_amount }}
-                                    {% else %}
-                                    N/A
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            <tr>
-                                <th class="text-muted">Seller Response Due:</th>
-                                <td>
-                                    {% if dispute.seller_response_due %}
-                                    {{ dispute.seller_response_due|date:"M d, Y H:i" }}
-                                    {% else %}
-                                    N/A
-                                    {% endif %}
-                                </td>
-                            </tr>
-                        </table>
-                    </div>
-                </div>
-                <hr>
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6 class="text-muted small">TRANSACTION INFORMATION</h6>
-                        <table class="table table-sm table-borderless">
-                            <tr>
-                                <th class="text-muted">Transaction ID:</th>
-                                <td class="text-monospace">{{ dispute.transaction_id }}</td>
-                            </tr>
-                            <tr>
-                                <th class="text-muted">Transaction Date:</th>
-                                <td>{{ dispute.transaction_date|date:"M d, Y H:i" }}</td>
-                            </tr>
-                        </table>
-                    </div>
-                    <div class="col-md-6">
-                        <h6 class="text-muted small">TIMELINE</h6>
-                        <table class="table table-sm table-borderless">
-                            <tr>
-                                <th class="text-muted">Created:</th>
-                                <td>{{ dispute.created_at|date:"M d, Y H:i" }}</td>
-                            </tr>
-                            <tr>
-                                <th class="text-muted">Last Updated:</th>
-                                <td>{{ dispute.updated_at|date:"M d, Y H:i" }}</td>
-                            </tr>
-                        </table>
-                    </div>
-                </div>
-                {% if dispute.notes %}
-                <hr>
+        <div class="card-modern p-6 animate-fade-in">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-4">
+                <i class="bi bi-info-circle"></i> Dispute Information
+            </h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                    <h6 class="text-muted small">NOTES</h6>
-                    <p class="mb-0">{{ dispute.notes|linebreaks }}</p>
+                    <h4 class="text-sm font-semibold text-base-content/60 mb-2">Buyer Information</h4>
+                    <div class="space-y-2">
+                        <div class="flex justify-between">
+                            <span class="text-sm text-base-content/60">Name:</span>
+                            <span class="text-sm">{{ dispute.buyer_name|default:"N/A" }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-sm text-base-content/60">Email:</span>
+                            <span class="text-sm">{{ dispute.buyer_email }}</span>
+                        </div>
+                    </div>
                 </div>
-                {% endif %}
+                <div>
+                    <h4 class="text-sm font-semibold text-base-content/60 mb-2">Dispute Details</h4>
+                    <div class="space-y-2">
+                        <div class="flex justify-between">
+                            <span class="text-sm text-base-content/60">Reason:</span>
+                            <span class="text-sm">{{ dispute.get_dispute_reason_display|default:"N/A" }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-sm text-base-content/60">Amount:</span>
+                            <span class="text-sm">
+                                {% if dispute.dispute_amount %}
+                                {{ dispute.dispute_currency }} {{ dispute.dispute_amount }}
+                                {% else %}
+                                N/A
+                                {% endif %}
+                            </span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-sm text-base-content/60">Seller Response Due:</span>
+                            <span class="text-sm">
+                                {% if dispute.seller_response_due %}
+                                {{ dispute.seller_response_due|date:"M d, Y H:i" }}
+                                {% else %}
+                                N/A
+                                {% endif %}
+                            </span>
+                        </div>
+                    </div>
+                </div>
             </div>
+            <div class="divider"></div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <h4 class="text-sm font-semibold text-base-content/60 mb-2">Transaction Information</h4>
+                    <div class="space-y-2">
+                        <div class="flex justify-between">
+                            <span class="text-sm text-base-content/60">Transaction ID:</span>
+                            <code class="text-sm">{{ dispute.transaction_id }}</code>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-sm text-base-content/60">Transaction Date:</span>
+                            <span class="text-sm">{{ dispute.transaction_date|date:"M d, Y H:i" }}</span>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="text-sm font-semibold text-base-content/60 mb-2">Timeline</h4>
+                    <div class="space-y-2">
+                        <div class="flex justify-between">
+                            <span class="text-sm text-base-content/60">Created:</span>
+                            <span class="text-sm">{{ dispute.created_at|date:"M d, Y H:i" }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-sm text-base-content/60">Last Updated:</span>
+                            <span class="text-sm">{{ dispute.updated_at|date:"M d, Y H:i" }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% if dispute.notes %}
+            <div class="divider"></div>
+            <div>
+                <h4 class="text-sm font-semibold text-base-content/60 mb-2">Notes</h4>
+                <p class="text-sm">{{ dispute.notes|linebreaks }}</p>
+            </div>
+            {% endif %}
         </div>
 
         <!-- Screenshots Gallery -->
-        <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-images"></i> Screenshots</h5>
-                <form method="post" action="{% url 'disputes:dispute_capture_screenshots' dispute.id %}" class="d-inline">
+        <div class="card-modern p-6 animate-fade-in">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 m-0">
+                    <i class="bi bi-images"></i> Screenshots
+                </h3>
+                <form method="post" action="{% url 'disputes:dispute_capture_screenshots' dispute.id %}" class="inline">
                     {% csrf_token %}
-                    <button type="submit" class="btn btn-sm btn-success"
+                    <button type="submit" class="btn btn-sm btn-success rounded-xl transition-all duration-200"
                             {% if not dispute.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
                         <i class="bi bi-camera"></i> Capture New
                     </button>
                 </form>
             </div>
-            <div class="card-body">
-                {% if screenshots %}
-                <div class="row">
-                    {% for screenshot in screenshots %}
-                    <div class="col-md-4 mb-3">
-                        <div class="card h-100">
-                            <a href="{{ screenshot.image.url }}" target="_blank" class="text-decoration-none">
-                                <img src="{{ screenshot.image.url }}" class="card-img-top" alt="{{ screenshot.description }}"
-                                     style="height: 200px; object-fit: cover; cursor: pointer;">
-                            </a>
-                            <div class="card-body p-2">
-                                <small class="text-muted">{{ screenshot.description|truncatechars:50 }}</small>
-                                <div class="small text-muted">{{ screenshot.captured_at|date:"M d, Y H:i" }}</div>
-                            </div>
-                        </div>
+            {% if screenshots %}
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {% for screenshot in screenshots %}
+                <div class="rounded-xl overflow-hidden bg-base-200/50 hover-lift transition-all duration-200">
+                    <a href="{{ screenshot.image.url }}" target="_blank">
+                        <img src="{{ screenshot.image.url }}" class="w-full h-48 object-cover cursor-pointer rounded-xl" alt="{{ screenshot.description }}" />
+                    </a>
+                    <div class="p-3">
+                        <p class="text-xs text-base-content/60 truncate">{{ screenshot.description|truncatechars:50 }}</p>
+                        <p class="text-xs text-base-content/60">{{ screenshot.captured_at|date:"M d, Y H:i" }}</p>
                     </div>
-                    {% endfor %}
                 </div>
-                {% else %}
-                <div class="text-center text-muted py-4">
-                    <i class="bi bi-images" style="font-size: 3rem;"></i>
-                    <p class="mb-0 mt-2">No screenshots captured yet</p>
-                    <small>Capture screenshots of the Zendesk ticket to include in evidence</small>
-                </div>
-                {% endif %}
+                {% endfor %}
             </div>
+            {% else %}
+            <div class="text-center py-8">
+                <i class="bi bi-images text-4xl text-base-content/30"></i>
+                <p class="text-base-content/60 mt-2 mb-0">No screenshots captured yet</p>
+                <span class="text-xs text-base-content/60">Capture screenshots of the Zendesk ticket to include in evidence</span>
+            </div>
+            {% endif %}
         </div>
 
         <!-- Documents Section -->
-        <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-file-earmark-text"></i> Documents</h5>
-                <div>
-                    <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" class="d-inline">
+        <div class="card-modern rounded-2xl overflow-hidden animate-fade-in">
+            <div class="p-6 pb-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 m-0">
+                        <i class="bi bi-file-earmark-text"></i> Documents
+                    </h3>
+                    <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" class="inline">
                         {% csrf_token %}
-                        <button type="submit" class="btn btn-sm btn-primary"
+                        <button type="submit" class="btn btn-sm btn-primary rounded-xl transition-all duration-200"
                                 {% if not dispute.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
                             <i class="bi bi-magic"></i> Generate Documents
                         </button>
                     </form>
                 </div>
             </div>
-            <div class="card-body p-0">
-                {% if documents %}
-                <table class="table table-hover mb-0">
-                    <thead class="table-light">
+            {% if documents %}
+            <div class="overflow-x-auto">
+                <table class="table-modern">
+                    <thead>
                         <tr>
                             <th>Type</th>
                             <th>Status</th>
@@ -201,36 +198,36 @@
                                 <strong>{{ doc.get_doc_type_display }}</strong>
                             </td>
                             <td>
-                                <span class="badge {% if doc.status == 'ACCEPTED' %}bg-success{% elif doc.status == 'SENT' %}bg-info{% elif doc.status == 'REVIEW' %}bg-warning{% else %}bg-secondary{% endif %}">
+                                <span class="{% if doc.status == 'ACCEPTED' %}badge-soft-success{% elif doc.status == 'SENT' %}badge-soft-info{% elif doc.status == 'REVIEW' %}badge-soft-warning{% else %}badge-soft-neutral{% endif %} rounded-full px-3 py-1 text-xs">
                                     {{ doc.get_status_display }}
                                 </span>
                             </td>
                             <td>v{{ doc.version }}</td>
-                            <td>{{ doc.get_generated_by_display }}</td>
-                            <td>{{ doc.created_at|date:"M d, Y H:i" }}</td>
+                            <td class="text-base-content/60">{{ doc.get_generated_by_display }}</td>
+                            <td class="text-base-content/60">{{ doc.created_at|date:"M d, Y H:i" }}</td>
                             <td>
-                                <div class="btn-group btn-group-sm">
+                                <div class="flex gap-1">
                                     {% if doc.file_path %}
-                                    <a href="{{ doc.file_path.url }}" class="btn btn-outline-primary" target="_blank" title="Download PDF">
+                                    <a href="{{ doc.file_path.url }}" class="btn btn-xs btn-outline btn-primary rounded-xl transition-all duration-200" target="_blank" title="Download PDF">
                                         <i class="bi bi-download"></i>
                                     </a>
                                     {% endif %}
                                     <a href="{% url 'disputes:dispute_edit_document' doc.id %}"
-                                       class="btn btn-outline-secondary" title="Edit">
+                                       class="btn btn-xs btn-outline rounded-xl transition-all duration-200" title="Edit">
                                         <i class="bi bi-pencil"></i>
                                     </a>
-                                    <form method="post" action="{% url 'disputes:dispute_accept_document' doc.id %}" class="d-inline">
+                                    <form method="post" action="{% url 'disputes:dispute_accept_document' doc.id %}" class="inline">
                                         {% csrf_token %}
-                                        <button type="submit" class="btn btn-outline-success"
+                                        <button type="submit" class="btn btn-xs btn-outline btn-success rounded-xl transition-all duration-200"
                                                 title="Accept Document"
                                                 {% if doc.status == 'ACCEPTED' or doc.status == 'SENT' %}disabled{% endif %}>
                                             <i class="bi bi-check-circle"></i>
                                         </button>
                                     </form>
-                                    <form method="post" action="{% url 'disputes:dispute_delete_document' doc.id %}" class="d-inline"
+                                    <form method="post" action="{% url 'disputes:dispute_delete_document' doc.id %}" class="inline"
                                           onsubmit="return confirm('Are you sure you want to delete this document?');">
                                         {% csrf_token %}
-                                        <button type="submit" class="btn btn-outline-danger"
+                                        <button type="submit" class="btn btn-xs btn-outline btn-error rounded-xl transition-all duration-200"
                                                 title="Delete Document"
                                                 {% if doc.status == 'SENT' %}disabled{% endif %}>
                                             <i class="bi bi-trash"></i>
@@ -242,166 +239,144 @@
                         {% endfor %}
                     </tbody>
                 </table>
-                {% else %}
-                <div class="text-center text-muted py-4">
-                    <i class="bi bi-file-earmark-text" style="font-size: 3rem;"></i>
-                    <p class="mb-0 mt-2">No documents generated yet</p>
-                    <small>Click "Generate Documents" to create response letter and evidence report</small>
-                </div>
-                {% endif %}
             </div>
+            {% else %}
+            <div class="text-center py-8 px-6">
+                <i class="bi bi-file-earmark-text text-4xl text-base-content/30"></i>
+                <p class="text-base-content/60 mt-2 mb-0">No documents generated yet</p>
+                <span class="text-xs text-base-content/60">Click "Generate Documents" to create response letter and evidence report</span>
+            </div>
+            {% endif %}
         </div>
 
         <!-- Activity Log -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-clock-history"></i> Activity Log</h5>
-            </div>
-            <div class="card-body">
-                {% if activity_log %}
-                <div class="timeline">
-                    {% for activity in activity_log %}
-                    <div class="timeline-item mb-3 ps-3 border-start border-primary">
-                        <div class="d-flex justify-content-between">
-                            <strong>{{ activity.get_action_display }}</strong>
-                            <small class="text-muted">{{ activity.performed_at|date:"M d, Y H:i" }}</small>
-                        </div>
-                        {% if activity.details %}
-                        <p class="text-muted mb-0 mt-1 small">{{ activity.details|linebreaks }}</p>
-                        {% endif %}
-                        {% if activity.performed_by %}
-                        <small class="text-muted">by {{ activity.performed_by.username }}</small>
-                        {% endif %}
+        <div class="card-modern p-6 animate-fade-in">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-4">
+                <i class="bi bi-clock-history"></i> Activity Log
+            </h3>
+            {% if activity_log %}
+            <div class="space-y-4">
+                {% for activity in activity_log %}
+                <div class="border-l-2 border-primary/30 pl-4 relative">
+                    <div class="absolute -left-[5px] top-1 w-2 h-2 rounded-full bg-primary"></div>
+                    <div class="flex justify-between items-start">
+                        <strong class="text-sm">{{ activity.get_action_display }}</strong>
+                        <span class="text-xs text-base-content/60">{{ activity.performed_at|date:"M d, Y H:i" }}</span>
                     </div>
-                    {% endfor %}
+                    {% if activity.details %}
+                    <p class="text-sm text-base-content/60 mt-1">{{ activity.details|linebreaks }}</p>
+                    {% endif %}
+                    {% if activity.performed_by %}
+                    <span class="text-xs text-base-content/60">by {{ activity.performed_by.username }}</span>
+                    {% endif %}
                 </div>
-                {% else %}
-                <div class="text-center text-muted py-3">
-                    <i class="bi bi-clock-history" style="font-size: 2rem;"></i>
-                    <p class="mb-0 mt-2">No activity logged yet</p>
-                </div>
-                {% endif %}
+                {% endfor %}
             </div>
+            {% else %}
+            <div class="text-center py-4">
+                <i class="bi bi-clock-history text-2xl text-base-content/30"></i>
+                <p class="text-base-content/60 mt-2 mb-0">No activity logged yet</p>
+            </div>
+            {% endif %}
         </div>
     </div>
 
     <!-- Right Column: Actions -->
-    <div class="col-lg-4">
+    <div class="lg:col-span-1 space-y-6">
         <!-- Quick Actions Card -->
-        <div class="card mb-4">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0"><i class="bi bi-lightning"></i> Quick Actions</h5>
-            </div>
-            <div class="card-body">
-                <!-- Generate Documents -->
-                <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" class="mb-3">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-primary w-100 mb-2"
-                            {% if not dispute.zd_ticket_id %}disabled{% endif %}>
-                        <i class="bi bi-magic"></i> Generate Documents
-                    </button>
-                    {% if not dispute.zd_ticket_id %}
-                    <small class="text-muted">Requires Zendesk ticket linkage</small>
-                    {% endif %}
-                </form>
+        <div class="card-modern p-6 animate-fade-in">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-4">
+                <i class="bi bi-lightning"></i> Quick Actions
+            </h3>
 
-                <!-- Capture Screenshots -->
-                <form method="post" action="{% url 'disputes:dispute_capture_screenshots' dispute.id %}" class="mb-3">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-success w-100 mb-2"
-                            {% if not dispute.zd_ticket_id %}disabled{% endif %}>
-                        <i class="bi bi-camera"></i> Capture Screenshots
-                    </button>
-                    {% if not dispute.zd_ticket_id %}
-                    <small class="text-muted">Requires Zendesk ticket linkage</small>
-                    {% endif %}
-                </form>
-
-                <hr>
-
-                <!-- Send Evidence -->
-                <form method="post" action="{% url 'disputes:dispute_send_evidence' dispute.id %}" class="mb-3">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-info w-100 mb-2 text-white"
-                            {% if dispute.status == 'EVIDENCE_SENT' or dispute.status == 'RESOLVED_WON' or dispute.status == 'RESOLVED_LOST' %}disabled{% endif %}>
-                        <i class="bi bi-send"></i> Send Evidence to PayPal
-                    </button>
-                    {% if dispute.status == 'EVIDENCE_SENT' %}
-                    <small class="text-muted">Evidence already sent</small>
-                    {% endif %}
-                </form>
-
-                <!-- Accept Claim -->
-                <form method="post" action="{% url 'disputes:dispute_accept_claim' dispute.id %}" class="mb-3"
-                      onsubmit="return confirm('Are you sure you want to accept this claim and issue a refund? This action cannot be undone.');">
-                    {% csrf_token %}
-                    <input type="hidden" name="note" value="Claim accepted via LORA system">
-                    <button type="submit" class="btn btn-warning w-100 mb-2"
-                            {% if dispute.status == 'ACCEPTED' or dispute.status == 'RESOLVED_WON' or dispute.status == 'RESOLVED_LOST' %}disabled{% endif %}>
-                        <i class="bi bi-hand-thumbs-up"></i> Accept Claim (Refund)
-                    </button>
-                    {% if dispute.status == 'ACCEPTED' %}
-                    <small class="text-muted">Claim already accepted</small>
-                    {% endif %}
-                </form>
-
-                <hr>
-
-                <!-- Link to Claim -->
-                {% if dispute.claim %}
-                <div class="mb-2">
-                    <strong>Linked Claim:</strong>
-                    <a href="{% url 'agent_claim_detail' dispute.claim.id %}" class="btn btn-outline-secondary w-100">
-                        <i class="bi bi-clipboard-data"></i> View Claim #{{ dispute.claim.id }}
-                    </a>
-                </div>
-                {% else %}
-                <div class="alert alert-warning small mb-0">
-                    <i class="bi bi-exclamation-triangle"></i>
-                    No claim linked to this dispute
-                </div>
+            <!-- Generate Documents -->
+            <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" class="mb-3">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary w-full rounded-xl transition-all duration-200 mb-2"
+                        {% if not dispute.zd_ticket_id %}disabled{% endif %}>
+                    <i class="bi bi-magic"></i> Generate Documents
+                </button>
+                {% if not dispute.zd_ticket_id %}
+                <span class="text-xs text-base-content/60">Requires Zendesk ticket linkage</span>
                 {% endif %}
+            </form>
+
+            <!-- Capture Screenshots -->
+            <form method="post" action="{% url 'disputes:dispute_capture_screenshots' dispute.id %}" class="mb-3">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-success w-full rounded-xl transition-all duration-200 mb-2"
+                        {% if not dispute.zd_ticket_id %}disabled{% endif %}>
+                    <i class="bi bi-camera"></i> Capture Screenshots
+                </button>
+                {% if not dispute.zd_ticket_id %}
+                <span class="text-xs text-base-content/60">Requires Zendesk ticket linkage</span>
+                {% endif %}
+            </form>
+
+            <div class="divider"></div>
+
+            <!-- Send Evidence -->
+            <form method="post" action="{% url 'disputes:dispute_send_evidence' dispute.id %}" class="mb-3">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-info w-full rounded-xl transition-all duration-200 mb-2 text-white"
+                        {% if dispute.status == 'EVIDENCE_SENT' or dispute.status == 'RESOLVED_WON' or dispute.status == 'RESOLVED_LOST' %}disabled{% endif %}>
+                    <i class="bi bi-send"></i> Send Evidence to PayPal
+                </button>
+                {% if dispute.status == 'EVIDENCE_SENT' %}
+                <span class="text-xs text-base-content/60">Evidence already sent</span>
+                {% endif %}
+            </form>
+
+            <!-- Accept Claim -->
+            <form method="post" action="{% url 'disputes:dispute_accept_claim' dispute.id %}" class="mb-3"
+                  onsubmit="return confirm('Are you sure you want to accept this claim and issue a refund? This action cannot be undone.');">
+                {% csrf_token %}
+                <input type="hidden" name="note" value="Claim accepted via LORA system">
+                <button type="submit" class="btn btn-warning w-full rounded-xl transition-all duration-200 mb-2"
+                        {% if dispute.status == 'ACCEPTED' or dispute.status == 'RESOLVED_WON' or dispute.status == 'RESOLVED_LOST' %}disabled{% endif %}>
+                    <i class="bi bi-hand-thumbs-up"></i> Accept Claim (Refund)
+                </button>
+                {% if dispute.status == 'ACCEPTED' %}
+                <span class="text-xs text-base-content/60">Claim already accepted</span>
+                {% endif %}
+            </form>
+
+            <div class="divider"></div>
+
+            <!-- Link to Claim -->
+            {% if dispute.claim %}
+            <div class="mb-2">
+                <strong>Linked Claim:</strong>
+                <a href="{% url 'agent_claim_detail' dispute.claim.id %}" class="btn btn-outline w-full mt-2 rounded-xl transition-all duration-200">
+                    <i class="bi bi-clipboard-data"></i> View Claim #{{ dispute.claim.id }}
+                </a>
             </div>
+            {% else %}
+            <div class="rounded-xl border-0 bg-warning/10 text-warning p-3 text-sm flex items-center gap-2">
+                <i class="bi bi-exclamation-triangle"></i>
+                No claim linked to this dispute
+            </div>
+            {% endif %}
         </div>
 
         <!-- Dispute Status Progress -->
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Status Progress</h5>
-            </div>
-            <div class="card-body">
-                <div class="progress-stacked" style="height: auto; background: transparent;">
-                    {% for status_code, status_label in dispute.STATUS_CHOICES %}
-                    <div class="progress {% if dispute.status == status_code %}border border-primary{% endif %}"
-                         style="height: 40px; margin-bottom: 4px;">
-                        <div class="progress-bar {% if dispute.status == status_code %}bg-primary{% elif dispute.status > forloop.counter0 %}bg-success{% else %}bg-light text-muted{% endif %}"
-                             role="progressbar"
+        <div class="card-modern p-6 animate-fade-in">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-4">
+                <i class="bi bi-diagram-3"></i> Status Progress
+            </h3>
+            <div class="space-y-2">
+                {% for status_code, status_label in dispute.STATUS_CHOICES %}
+                <div class="flex items-center gap-2">
+                    <div class="flex-1 h-8 rounded-full bg-base-200/60 overflow-hidden {% if dispute.status == status_code %}ring-2 ring-primary/30{% endif %}">
+                        <div class="h-full {% if dispute.status == status_code %}bg-primary{% elif dispute.status > forloop.counter0 %}bg-success{% else %}bg-base-200{% endif %} rounded-full flex items-center px-3 transition-all duration-300"
                              style="width: {% if dispute.status >= status_code %}100%{% else %}0%{% endif %}">
-                            <small>{{ status_label }}</small>
+                            <span class="text-xs {% if dispute.status >= status_code %}text-white{% else %}text-base-content/60{% endif %}">{{ status_label }}</span>
                         </div>
                     </div>
-                    {% endfor %}
                 </div>
+                {% endfor %}
             </div>
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block extra_css %}
-<style>
-    .timeline-item {
-        position: relative;
-    }
-    .timeline-item::before {
-        content: '';
-        position: absolute;
-        left: -6px;
-        top: 5px;
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        background: var(--lora-primary);
-    }
-</style>
 {% endblock %}

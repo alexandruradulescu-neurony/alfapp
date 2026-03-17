@@ -199,16 +199,22 @@ def extract_raw_headers(msg: email.message.Message) -> str:
 
 def call_qwen_ai(prompt: str, email_body: str, subject: str = '') -> Dict[str, Any]:
     """
-    Call Qwen AI API to analyze email content.
+    Call AI API to analyze email content.
     Returns parsed JSON with summary, sentiment, category, action_required, auto_resolvable.
 
     Security: Email content is passed in the 'user' role message, separate from
     system instructions, to prevent prompt injection from malicious email bodies.
     """
-    # Initialize OpenAI client with Qwen endpoint
+    # Get AI configuration from SystemSettings
+    settings_obj = SystemSettings.get_instance()
+    api_key = settings_obj.ai_api_key
+    api_base = settings_obj.ai_api_base
+    model = settings_obj.ai_api_model
+
+    # Initialize OpenAI client with AI endpoint
     client = OpenAI(
-        api_key=settings.QWEN_API_KEY,
-        base_url=settings.QWEN_API_BASE,
+        api_key=api_key,
+        base_url=api_base,
     )
 
     # System prompt contains ONLY instructions — no user content interpolated
@@ -232,7 +238,7 @@ def call_qwen_ai(prompt: str, email_body: str, subject: str = '') -> Dict[str, A
 
     try:
         response = client.chat.completions.create(
-            model=settings.QWEN_MODEL,
+            model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},

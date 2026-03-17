@@ -3,157 +3,150 @@
 {% block title %}Edit Document #{{ document.id }}{% endblock %}
 
 {% block content %}
-<div class="page-header d-flex justify-content-between align-items-center">
-    <h2><i class="bi bi-pencil"></i> Edit Document</h2>
-    <div>
-        <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> Back to Dispute
-        </a>
-    </div>
+<!-- Page Header -->
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+        <i class="bi bi-pencil"></i> Edit Document
+    </h2>
+    <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="btn btn-outline rounded-xl transition-all duration-200">
+        <i class="bi bi-arrow-left"></i> Back to Dispute
+    </a>
 </div>
 
-<div class="row">
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- Editor Column -->
-    <div class="col-lg-8">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
+    <div class="lg:col-span-2">
+        <div class="card-modern p-6 animate-fade-in">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
                 <div>
-                    <h5 class="mb-0">
+                    <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 m-0">
                         <i class="bi bi-file-earmark-text"></i>
                         {{ document.get_doc_type_display }} - Version {{ document.version }}
-                    </h5>
-                    <small class="text-muted">
+                    </h3>
+                    <span class="text-sm text-base-content/60">
                         Dispute #{{ dispute.id }} - {{ dispute.paypal_dispute_id }}
-                    </small>
+                    </span>
                 </div>
-                <span class="badge {% if document.status == 'ACCEPTED' %}bg-success{% elif document.status == 'SENT' %}bg-info{% elif document.status == 'REVIEW' %}bg-warning{% else %}bg-secondary{% endif %}">
+                <span class="{% if document.status == 'ACCEPTED' %}badge-soft-success{% elif document.status == 'SENT' %}badge-soft-info{% elif document.status == 'REVIEW' %}badge-soft-warning{% else %}badge-soft-neutral{% endif %} rounded-full px-3 py-1 text-xs">
                     {{ document.get_status_display }}
                 </span>
             </div>
-            <div class="card-body">
-                <form method="post" action="{% url 'disputes:dispute_edit_document' document.id %}">
-                    {% csrf_token %}
+            <form method="post" action="{% url 'disputes:dispute_edit_document' document.id %}">
+                {% csrf_token %}
 
-                    <div class="mb-3">
-                        <label for="content_html" class="form-label">
-                            <strong>Document Content</strong>
-                            <span class="text-muted small">(HTML supported)</span>
-                        </label>
-                        <textarea class="form-control" id="content_html" name="content_html"
-                                  rows="20" style="font-family: monospace; font-size: 13px;">{{ document.content_html }}</textarea>
-                        <div class="form-text">
-                            You can use HTML tags for formatting: &lt;p&gt;, &lt;strong&gt;, &lt;em&gt;, &lt;ul&gt;, &lt;li&gt;, etc.
-                        </div>
-                    </div>
+                <div class="form-control mb-4">
+                    <label class="label flex-col items-start">
+                        <span class="label-text font-semibold">Document Content</span>
+                        <span class="text-xs text-base-content/60">HTML supported</span>
+                    </label>
+                    <textarea class="rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full font-mono text-sm p-4" id="content_html" name="content_html"
+                              rows="20">{{ document.content_html }}</textarea>
+                    <span class="text-xs text-base-content/60 mt-2">
+                        You can use HTML tags for formatting: &lt;p&gt;, &lt;strong&gt;, &lt;em&gt;, &lt;ul&gt;, &lt;li&gt;, etc.
+                    </span>
+                </div>
 
-                    <div class="mb-3 form-check">
-                        <input type="checkbox" class="form-check-input" id="version_increment"
+                <div class="form-control mb-4">
+                    <label class="label cursor-pointer justify-start gap-3">
+                        <input type="checkbox" class="checkbox checkbox-primary rounded-lg" id="version_increment"
                                name="version_increment" checked>
-                        <label class="form-check-label" for="version_increment">
-                            Increment version number (current: v{{ document.version }})
-                        </label>
-                    </div>
+                        <span class="label-text">Increment version number (current: v{{ document.version }})</span>
+                    </label>
+                </div>
 
-                    <div class="d-flex gap-2">
-                        <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-save"></i> Save Changes
-                        </button>
-                        <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="btn btn-secondary">
-                            <i class="bi bi-x-circle"></i> Cancel
-                        </a>
-                    </div>
-                </form>
-            </div>
+                <div class="flex gap-2">
+                    <button type="submit" class="btn btn-primary rounded-xl transition-all duration-200">
+                        <i class="bi bi-save"></i> Save Changes
+                    </button>
+                    <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="btn btn-outline rounded-xl transition-all duration-200">
+                        <i class="bi bi-x-circle"></i> Cancel
+                    </a>
+                </div>
+            </form>
         </div>
     </div>
 
     <!-- Preview Column -->
-    <div class="col-lg-4">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-eye"></i> Quick Preview</h5>
-            </div>
-            <div class="card-body">
-                <div class="border rounded p-3" style="background: #f8f9fa; min-height: 400px; max-height: 600px; overflow-y: auto;">
-                    <div id="preview-pane">
-                        {{ document.content_html|safe }}
-                    </div>
+    <div class="lg:col-span-1">
+        <div class="card-modern p-6 mb-6 animate-fade-in">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-4">
+                <i class="bi bi-eye"></i> Quick Preview
+            </h3>
+            <div class="rounded-xl border border-base-200/50 bg-white p-4 min-h-[400px] max-h-[600px] overflow-y-auto">
+                <div id="preview-pane">
+                    {{ document.content_html|safe }}
                 </div>
-                <small class="text-muted">
-                    <i class="bi bi-info-circle"></i> This is a live preview of the HTML content.
-                </small>
             </div>
+            <span class="text-xs text-base-content/60 mt-2 block">
+                <i class="bi bi-info-circle"></i> This is a live preview of the HTML content.
+            </span>
         </div>
 
         <!-- Document Info Card -->
-        <div class="card mt-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-info-circle"></i> Document Info</h5>
-            </div>
-            <div class="card-body">
-                <table class="table table-sm table-borderless">
-                    <tr>
-                        <th class="text-muted">Type:</th>
-                        <td>{{ document.get_doc_type_display }}</td>
-                    </tr>
-                    <tr>
-                        <th class="text-muted">Status:</th>
-                        <td>
-                            <span class="badge {% if document.status == 'ACCEPTED' %}bg-success{% elif document.status == 'SENT' %}bg-info{% elif document.status == 'REVIEW' %}bg-warning{% else %}bg-secondary{% endif %}">
-                                {{ document.get_status_display }}
-                            </span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th class="text-muted">Version:</th>
-                        <td>{{ document.version }}</td>
-                    </tr>
-                    <tr>
-                        <th class="text-muted">Generated By:</th>
-                        <td>{{ document.get_generated_by_display }}</td>
-                    </tr>
-                    <tr>
-                        <th class="text-muted">Created:</th>
-                        <td>{{ document.created_at|date:"M d, Y H:i" }}</td>
-                    </tr>
-                    <tr>
-                        <th class="text-muted">Last Updated:</th>
-                        <td>{{ document.updated_at|date:"M d, Y H:i" }}</td>
-                    </tr>
-                    {% if document.accepted_at %}
-                    <tr>
-                        <th class="text-muted">Accepted:</th>
-                        <td>
-                            {{ document.accepted_at|date:"M d, Y H:i" }}
-                            {% if document.accepted_by %}
-                            <br><small class="text-muted">by {{ document.accepted_by.username }}</small>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endif %}
-                </table>
-
-                {% if document.file_path %}
-                <hr>
-                <a href="{{ document.file_path.url }}" class="btn btn-outline-primary w-100" target="_blank">
-                    <i class="bi bi-download"></i> Download PDF
-                </a>
+        <div class="card-modern p-6 mb-6 animate-fade-in">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-4">
+                <i class="bi bi-info-circle"></i> Document Info
+            </h3>
+            <div class="space-y-2">
+                <div class="flex justify-between">
+                    <span class="text-sm text-base-content/60">Type:</span>
+                    <span class="text-sm font-medium">{{ document.get_doc_type_display }}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-sm text-base-content/60">Status:</span>
+                    <span class="{% if document.status == 'ACCEPTED' %}badge-soft-success{% elif document.status == 'SENT' %}badge-soft-info{% elif document.status == 'REVIEW' %}badge-soft-warning{% else %}badge-soft-neutral{% endif %} rounded-full px-3 py-1 text-xs">
+                        {{ document.get_status_display }}
+                    </span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-sm text-base-content/60">Version:</span>
+                    <span class="text-sm font-medium">{{ document.version }}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-sm text-base-content/60">Generated By:</span>
+                    <span class="text-sm font-medium">{{ document.get_generated_by_display }}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-sm text-base-content/60">Created:</span>
+                    <span class="text-sm font-medium">{{ document.created_at|date:"M d, Y H:i" }}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-sm text-base-content/60">Last Updated:</span>
+                    <span class="text-sm font-medium">{{ document.updated_at|date:"M d, Y H:i" }}</span>
+                </div>
+                {% if document.accepted_at %}
+                <div class="flex justify-between">
+                    <span class="text-sm text-base-content/60">Accepted:</span>
+                    <span class="text-sm font-medium">
+                        {{ document.accepted_at|date:"M d, Y H:i" }}
+                        {% if document.accepted_by %}
+                        <br><span class="text-xs text-base-content/60">by {{ document.accepted_by.username }}</span>
+                        {% endif %}
+                    </span>
+                </div>
                 {% endif %}
             </div>
+
+            {% if document.file_path %}
+            <div class="divider"></div>
+            <a href="{{ document.file_path.url }}" class="btn btn-outline btn-primary w-full rounded-xl transition-all duration-200" target="_blank">
+                <i class="bi bi-download"></i> Download PDF
+            </a>
+            {% endif %}
         </div>
 
         <!-- Tips Card -->
-        <div class="card mt-4">
-            <div class="card-header bg-info text-white">
-                <h5 class="mb-0"><i class="bi bi-lightbulb"></i> Editing Tips</h5>
-            </div>
-            <div class="card-body">
-                <ul class="small mb-0">
-                    <li>Use <strong>&lt;p&gt;</strong> tags for paragraphs</li>
-                    <li>Use <strong>&lt;strong&gt;</strong> for bold text</li>
-                    <li>Use <strong>&lt;em&gt;</strong> for italic text</li>
-                    <li>Use <strong>&lt;ul&gt;&lt;li&gt;</strong> for bullet lists</li>
-                    <li>Use <strong>&lt;h3&gt;</strong> for section headings</li>
+        <div class="card-modern p-6 animate-fade-in">
+            <div class="bg-primary/5 rounded-xl p-4">
+                <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-2">
+                    <i class="bi bi-lightbulb"></i> Editing Tips
+                </h3>
+                <ul class="text-sm text-base-content/60 space-y-1">
+                    <li>Use <code>&lt;p&gt;</code> tags for paragraphs</li>
+                    <li>Use <code>&lt;strong&gt;</code> for bold text</li>
+                    <li>Use <code>&lt;em&gt;</code> for italic text</li>
+                    <li>Use <code>&lt;ul&gt;&lt;li&gt;</code> for bullet lists</li>
+                    <li>Use <code>&lt;h3&gt;</code> for section headings</li>
                     <li>Keep the tone professional and courteous</li>
                     <li>Include factual information only</li>
                 </ul>

@@ -1,19 +1,23 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full" data-theme="corporate">
+<html lang="en" class="h-full" data-theme="lora">
 <head>
     {% load static %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}LORA{% endblock %}</title>
-    
+
+    <!-- Inter Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- Tailwind CSS (compiled with DaisyUI) -->
     <link href="{% static 'css/tailwind.css' %}" rel="stylesheet">
-    <!-- Bootstrap Icons (keeping for icons) -->
+    <!-- Bootstrap Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
 
     {% block extra_css %}{% endblock %}
 </head>
-<body class="h-full">
+<body class="h-full mesh-bg font-[Inter]">
     {% block content %}{% endblock %}
 
     {% block extra_js %}{% endblock %}

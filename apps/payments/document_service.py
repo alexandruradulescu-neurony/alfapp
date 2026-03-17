@@ -47,14 +47,14 @@ def _get_weasyprint():
 
 def _call_qwen_ai(prompt: str, context_data: dict) -> str:
     """
-    Call Qwen AI API to generate dispute response letter content.
-    
+    Call AI API to generate dispute response letter content.
+
     Args:
         prompt: The prompt template from SystemSettings
         context_data: Dictionary of context variables to interpolate
-        
+
     Returns:
-        Generated text content from Qwen AI
+        Generated text content from AI
     """
     # Interpolate the prompt template with context data
     try:
@@ -63,16 +63,23 @@ def _call_qwen_ai(prompt: str, context_data: dict) -> str:
         logger.warning(f"Missing key in prompt template: {e}")
         # Fallback to simple prompt
         interpolated_prompt = f"Generate a professional dispute response letter based on this data:\n{context_data}"
-    
-    # Initialize OpenAI client with Qwen endpoint
+
+    # Get AI configuration from SystemSettings
+    from apps.config.models import SystemSettings
+    settings_obj = SystemSettings.get_instance()
+    api_key = settings_obj.ai_api_key
+    api_base = settings_obj.ai_api_base
+    model = settings_obj.ai_api_model
+
+    # Initialize OpenAI client with AI endpoint
     client = OpenAI(
-        api_key=settings.QWEN_API_KEY,
-        base_url=settings.QWEN_API_BASE,
+        api_key=api_key,
+        base_url=api_base,
     )
     
     try:
         response = client.chat.completions.create(
-            model=settings.QWEN_MODEL,
+            model=model,
             messages=[
                 {
                     "role": "system",
@@ -93,7 +100,7 @@ def _call_qwen_ai(prompt: str, context_data: dict) -> str:
         
         # Extract response text
         response_text = response.choices[0].message.content.strip()
-        logger.info(f"Qwen AI generated response letter for dispute ({len(response_text)} chars)")
+        logger.info(f"AI generated response letter for dispute ({len(response_text)} chars)")
 
         # Sanitize HTML to prevent XSS attacks
         sanitized_content = bleach.clean(
@@ -106,7 +113,7 @@ def _call_qwen_ai(prompt: str, context_data: dict) -> str:
         return sanitized_content
 
     except Exception as e:
-        logger.error(f"Error calling Qwen AI for dispute response: {e}")
+        logger.error(f"Error calling AI for dispute response: {e}")
         raise
 
 

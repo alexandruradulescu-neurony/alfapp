@@ -563,18 +563,6 @@ def manager_dashboard(request):
     recent_emails = EmailLog.objects.select_related('claim').order_by('-received_at')[:10]
     recent_disputes = Dispute.objects.select_related('claim').order_by('-created_at')[:5]
 
-    # Service statuses
-    from apps.config.models import ServiceStatus
-    service_statuses = {s.service: s for s in ServiceStatus.objects.all()}
-    
-    # Ensure all expected services exist
-    for service_key in ['AI', 'IMAP', 'ZENDESK', 'PAYPAL', 'SCHEDULER', 'SCREENSHOT']:
-        if service_key not in service_statuses:
-            service_statuses[service_key], _ = ServiceStatus.objects.get_or_create(
-                service=service_key,
-                defaults={'status': 'disconnected', 'is_enabled': True}
-            )
-
     context = {
         'total_claims': stats['total'],
         'received': stats['received'],
@@ -596,12 +584,6 @@ def manager_dashboard(request):
         'recent_claims': recent_claims,
         'recent_emails': recent_emails,
         'recent_disputes': recent_disputes,
-        'ai_status': service_statuses['AI'],
-        'imap_status': service_statuses['IMAP'],
-        'zd_status': service_statuses['ZENDESK'],
-        'paypal_status': service_statuses['PAYPAL'],
-        'scheduler_status': service_statuses['SCHEDULER'],
-        'screenshot_status': service_statuses['SCREENSHOT'],
     }
 
     return render(request, 'manager/dashboard.html', context)
@@ -657,8 +639,20 @@ def manager_claims(request):
 def manager_settings(request):
     """Manager system settings view with form validation."""
     from apps.config.forms import SystemSettingsForm
-    
+    from apps.config.models import ServiceStatus
+
     settings = SystemSettings.get_instance()
+
+    # Get or create service statuses
+    service_statuses = {}
+    for service_key in ['AI', 'IMAP', 'ZENDESK', 'PAYPAL', 'SCHEDULER', 'SCREENSHOT']:
+        service_statuses[service_key], _ = ServiceStatus.objects.get_or_create(
+            service=service_key,
+            defaults={'status': 'disconnected', 'is_enabled': True}
+        )
+    
+    # Sidebar doesn't have a separate service status, use AI status as proxy
+    sidebar_status = service_statuses['AI']
 
     if request.method == 'POST':
         form = SystemSettingsForm(request.POST, instance=settings)
@@ -686,6 +680,13 @@ def manager_settings(request):
     context = {
         'settings': settings,
         'form': form,
+        'ai_status': service_statuses['AI'],
+        'imap_status': service_statuses['IMAP'],
+        'zd_status': service_statuses['ZENDESK'],
+        'paypal_status': service_statuses['PAYPAL'],
+        'scheduler_status': service_statuses['SCHEDULER'],
+        'screenshot_status': service_statuses['SCREENSHOT'],
+        'sidebar_status': sidebar_status,
     }
 
     return render(request, 'manager/settings.html', context)

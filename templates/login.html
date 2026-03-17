@@ -4,81 +4,77 @@
 
 {% block content %}
 <div class="min-h-full flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-  <div class="max-w-md w-full">
+  <div class="w-full max-w-md animate-fade-in">
     <!-- Logo and Title -->
     <div class="text-center mb-8">
-      <div class="mx-auto h-16 w-16 bg-primary rounded-lg flex items-center justify-center">
-        <i class="bi bi-box-seam text-3xl text-white"></i>
+      <div class="mx-auto h-16 w-16 bg-primary/10 rounded-xl flex items-center justify-center">
+        <i class="bi bi-box-seam text-3xl text-primary"></i>
       </div>
-      <h2 class="mt-4 text-3xl font-bold text-base-content">LORA</h2>
-      <p class="mt-2 text-sm text-base-content/70">Lost Object Recovery Automation</p>
+      <h2 class="mt-5 text-3xl font-bold tracking-tight text-base-content">Lora</h2>
+      <p class="mt-2 text-sm text-base-content/60">Lost Object Recovery Automation</p>
     </div>
 
     <!-- Login Form Card -->
-    <div class="card bg-base-100 shadow-xl">
-      <form method="post" action="{% url 'login' %}" class="card-body">
+    <div class="glass-panel rounded-3xl p-8 sm:p-10">
+      <form method="post" action="{% url 'login' %}" class="space-y-6">
         {% csrf_token %}
-        
-        <!-- Username Field -->
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text font-medium">Username</span>
-          </label>
-          <div class="relative">
-            <i class="bi bi-person absolute left-3 top-1/2 -translate-y-1/2 text-base-content/50"></i>
-            <input 
-              type="text" 
-              name="username" 
-              placeholder="Enter your username" 
-              required
-              autocomplete="username"
-              autofocus
-              class="input input-bordered w-full pl-10 focus:input-primary"
-            />
-          </div>
-        </div>
-
-        <!-- Password Field -->
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text font-medium">Password</span>
-          </label>
-          <div class="relative">
-            <i class="bi bi-lock absolute left-3 top-1/2 -translate-y-1/2 text-base-content/50"></i>
-            <input 
-              type="password" 
-              name="password" 
-              placeholder="Enter your password" 
-              required
-              autocomplete="current-password"
-              class="input input-bordered w-full pl-10 focus:input-primary"
-            />
-          </div>
-        </div>
 
         <!-- Error Messages -->
         {% if messages %}
           {% for message in messages %}
-          <div class="alert alert-error">
-            <i class="bi bi-exclamation-circle"></i>
+          <div role="alert" class="flex items-center gap-3 rounded-xl bg-error/10 text-error px-4 py-3 text-sm">
+            <i class="bi bi-exclamation-circle text-lg shrink-0"></i>
             <span>{{ message }}</span>
           </div>
           {% endfor %}
         {% endif %}
 
+        <!-- Username Field -->
+        <div class="space-y-2">
+          <label class="text-sm font-medium text-base-content">Username</label>
+          <div class="relative">
+            <i class="bi bi-person absolute left-4 top-1/2 -translate-y-1/2 text-base-content/40"></i>
+            <input
+              type="text"
+              name="username"
+              placeholder="Enter your username"
+              required
+              autocomplete="username"
+              autofocus
+              class="input-modern w-full pl-11 rounded-xl"
+            />
+          </div>
+        </div>
+
+        <!-- Password Field -->
+        <div class="space-y-2">
+          <label class="text-sm font-medium text-base-content">Password</label>
+          <div class="relative">
+            <i class="bi bi-lock absolute left-4 top-1/2 -translate-y-1/2 text-base-content/40"></i>
+            <input
+              type="password"
+              name="password"
+              placeholder="Enter your password"
+              required
+              autocomplete="current-password"
+              class="input-modern w-full pl-11 rounded-xl"
+            />
+          </div>
+        </div>
+
         <!-- Submit Button -->
-        <div class="form-control mt-6">
-          <button type="submit" class="btn btn-primary">
+        <div class="pt-2">
+          <button type="submit" class="btn btn-primary w-full rounded-xl transition-all duration-200 hover:scale-[1.02]">
             <i class="bi bi-box-arrow-in-right mr-2"></i>
-            Sign In
+            Sign in
           </button>
         </div>
       </form>
     </div>
 
     <!-- Footer -->
-    <p class="mt-8 text-center text-xs text-base-content/50">
-      &copy; {% now "Y" %} LORA - Lost Object Recovery Automation
+    <p class="mt-8 text-center text-xs text-base-content/40">
+      &copy; {% now "Y" %} Lora — Lost Object Recovery Automation
     </p>
   </div>
 </div>

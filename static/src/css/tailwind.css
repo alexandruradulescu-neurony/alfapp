@@ -1,39 +1,282 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@plugin "daisyui" {
+  themes: lora --default;
+}
+@source "../../../templates";
+@source "../../../apps/**/templates";
 
-/* Custom LORA Theme Colors */
-@layer base {
-  :root {
-    --lora-primary: #0070d2;
-    --lora-primary-hover: #005fb3;
-    --lora-secondary: #6c757d;
-  }
+/* ── Custom LORA Theme ── */
+@plugin "daisyui/theme" {
+  name: "lora";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+
+  /* Primary - Refined indigo */
+  --color-primary: #6366f1;
+  --color-primary-content: #ffffff;
+
+  /* Secondary - Cool slate */
+  --color-secondary: #64748b;
+  --color-secondary-content: #ffffff;
+
+  /* Accent - Teal */
+  --color-accent: #14b8a6;
+  --color-accent-content: #ffffff;
+
+  /* Neutral - Deep slate */
+  --color-neutral: #1e293b;
+  --color-neutral-content: #f1f5f9;
+
+  /* Base - Soft, airy surfaces */
+  --color-base-100: #ffffff;
+  --color-base-200: #f8fafc;
+  --color-base-300: #f1f5f9;
+  --color-base-content: #0f172a;
+
+  /* Semantic - Modern, vibrant */
+  --color-info: #3b82f6;
+  --color-info-content: #ffffff;
+  --color-success: #10b981;
+  --color-success-content: #ffffff;
+  --color-warning: #f59e0b;
+  --color-warning-content: #ffffff;
+  --color-error: #ef4444;
+  --color-error-content: #ffffff;
+
+  /* Generous rounding */
+  --rounded-box: 1rem;
+  --rounded-btn: 0.75rem;
+  --rounded-badge: 1rem;
+  --tab-radius: 0.75rem;
+
+  /* Smooth interactions */
+  --animation-btn: 0.2s;
+  --animation-input: 0.2s;
+  --btn-focus-scale: 0.97;
+  --border-btn: 1px;
 }
 
-/* Custom component classes */
-@layer components {
-  .btn-primary {
-    @apply bg-[#0070d2] hover:bg-[#005fb3] text-white font-medium py-2 px-4 rounded transition-colors;
-  }
-  
-  .btn-secondary {
-    @apply bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded transition-colors;
-  }
-  
-  .btn-danger {
-    @apply bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded transition-colors;
-  }
-  
-  .card {
-    @apply bg-white rounded-lg shadow-md p-6;
-  }
-  
-  .input-field {
-    @apply w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#0070d2] focus:border-transparent;
-  }
-  
-  .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
-  }
+/* ── Inter font (loaded via <link> in base templates) ── */
+html {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
+
+/* ── Subtle mesh gradient background ── */
+body.mesh-bg {
+  background:
+    radial-gradient(ellipse at 20% 0%, oklch(0.85 0.06 270 / 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 100%, oklch(0.85 0.06 180 / 0.10) 0%, transparent 50%),
+    #f8fafc;
+}
+
+/* ── Glass morphism utility ── */
+.glass-panel {
+  background: oklch(1 0 0 / 0.65);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid oklch(0.9 0 0 / 0.5);
+}
+
+/* ── Sidebar active state ── */
+.sidebar-nav li > a.active,
+.sidebar-nav li > a[aria-current="page"] {
+  background: oklch(0.93 0.04 270) !important;
+  color: #6366f1 !important;
+  font-weight: 600;
+}
+
+/* ── Smooth card style ── */
+.card-modern {
+  background: white;
+  border-radius: 1rem;
+  border: 1px solid oklch(0.92 0.01 260);
+  box-shadow: 0 1px 3px oklch(0.5 0 0 / 0.04), 0 1px 2px oklch(0.5 0 0 / 0.02);
+  transition: box-shadow 0.2s ease;
+}
+.card-modern:hover {
+  box-shadow: 0 4px 12px oklch(0.5 0 0 / 0.06), 0 2px 4px oklch(0.5 0 0 / 0.03);
+}
+
+/* ── Stat card ── */
+.stat-modern {
+  background: white;
+  border-radius: 1rem;
+  border: 1px solid oklch(0.92 0.01 260);
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px oklch(0.5 0 0 / 0.04);
+}
+.stat-modern .stat-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: oklch(0.55 0.02 260);
+}
+.stat-modern .stat-value {
+  font-size: 1.875rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: oklch(0.15 0.02 260);
+  line-height: 1.2;
+  margin-top: 0.25rem;
+}
+.stat-modern .stat-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.625rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.125rem;
+}
+
+/* ── Modern table ── */
+.table-modern {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.table-modern thead th {
+  background: #f8fafc;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: oklch(0.5 0.02 260);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid oklch(0.92 0.01 260);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.table-modern tbody tr {
+  transition: background 0.15s ease;
+}
+.table-modern tbody tr:hover {
+  background: oklch(0.98 0.005 260);
+}
+.table-modern tbody td {
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  border-bottom: 1px solid oklch(0.95 0.005 260);
+  color: oklch(0.3 0.02 260);
+}
+
+/* ── Soft badge base (all badges get pill shape) ── */
+.badge,
+[class*="status-"],
+[class*="sentiment-"] {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem !important;
+  border-radius: 9999px !important;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  white-space: nowrap;
+  border: none !important;
+}
+
+/* ── Override DaisyUI badge variants to soft pastel style ── */
+.badge-success,
+.badge-soft-success {
+  background: oklch(0.95 0.05 160) !important;
+  color: oklch(0.35 0.1 160) !important;
+}
+.badge-warning,
+.badge-soft-warning {
+  background: oklch(0.95 0.05 85) !important;
+  color: oklch(0.4 0.12 70) !important;
+}
+.badge-error,
+.badge-soft-error {
+  background: oklch(0.95 0.04 25) !important;
+  color: oklch(0.45 0.15 25) !important;
+}
+.badge-info,
+.badge-soft-info {
+  background: oklch(0.95 0.04 260) !important;
+  color: oklch(0.4 0.12 260) !important;
+}
+.badge-neutral,
+.badge-soft-neutral {
+  background: oklch(0.94 0.01 260) !important;
+  color: oklch(0.4 0.02 260) !important;
+}
+.badge-primary,
+.badge-soft-primary {
+  background: oklch(0.93 0.05 270) !important;
+  color: #6366f1 !important;
+}
+.badge-secondary {
+  background: oklch(0.94 0.01 250) !important;
+  color: oklch(0.4 0.05 250) !important;
+}
+.badge-ghost {
+  background: oklch(0.96 0.005 260) !important;
+  color: oklch(0.5 0.02 260) !important;
+}
+
+/* ── Modern input styles ── */
+.input-modern {
+  background: oklch(0.97 0.005 260);
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+.input-modern:focus {
+  background: white;
+  border-color: oklch(0.75 0.1 270);
+  box-shadow: 0 0 0 3px oklch(0.75 0.1 270 / 0.15);
+  outline: none;
+}
+
+/* ── Animations ── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in-scale {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out both;
+}
+.animate-fade-in-scale {
+  animation: fade-in-scale 0.2s ease-out both;
+}
+
+/* ── Interactive hover ── */
+.hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px oklch(0.5 0 0 / 0.08);
+}
+
+/* ── Custom status colors for claims ── */
+.status-Received { background: oklch(0.94 0.01 260) !important; color: oklch(0.4 0.02 260) !important; }
+.status-Searching { background: oklch(0.95 0.04 260) !important; color: oklch(0.4 0.12 260) !important; }
+.status-Found { background: oklch(0.95 0.05 160) !important; color: oklch(0.35 0.1 160) !important; }
+.status-Shipped { background: oklch(0.93 0.05 270) !important; color: #6366f1 !important; }
+.status-Disputed { background: oklch(0.95 0.04 25) !important; color: oklch(0.45 0.15 25) !important; }
+
+/* ── Dispute status colors ── */
+.status-RECEIVED { background: oklch(0.94 0.01 260) !important; color: oklch(0.4 0.02 260) !important; }
+.status-MATCHED { background: oklch(0.95 0.04 260) !important; color: oklch(0.4 0.12 260) !important; }
+.status-GATHERING_DATA { background: oklch(0.95 0.05 85) !important; color: oklch(0.4 0.12 70) !important; }
+.status-DOCUMENTS_READY { background: oklch(0.95 0.05 160) !important; color: oklch(0.35 0.1 160) !important; }
+.status-UNDER_REVIEW { background: oklch(0.93 0.05 270) !important; color: #6366f1 !important; }
+.status-EVIDENCE_SENT { background: oklch(0.95 0.04 260) !important; color: oklch(0.4 0.12 260) !important; }
+.status-RESOLVED_WON { background: oklch(0.95 0.05 160) !important; color: oklch(0.35 0.1 160) !important; }
+.status-RESOLVED_LOST { background: oklch(0.95 0.04 25) !important; color: oklch(0.45 0.15 25) !important; }
+.status-ACCEPTED { background: oklch(0.95 0.05 85) !important; color: oklch(0.4 0.12 70) !important; }
+
+/* ── Sentiment badges ── */
+.sentiment-Positive { background: oklch(0.95 0.05 160) !important; color: oklch(0.35 0.1 160) !important; }
+.sentiment-Neutral { background: oklch(0.94 0.01 260) !important; color: oklch(0.45 0.02 260) !important; }
+.sentiment-Frustrated { background: oklch(0.95 0.05 85) !important; color: oklch(0.4 0.12 70) !important; }
+.sentiment-Urgent { background: oklch(0.95 0.04 25) !important; color: oklch(0.45 0.15 25) !important; }

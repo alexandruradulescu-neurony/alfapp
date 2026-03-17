@@ -4,13 +4,300 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Evidence Report - PayPal Dispute {{ dispute.paypal_dispute_id }}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #1f2937;
+            background: #fff;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        /* Cover Page */
+        .report-cover {
+            text-align: center;
+            padding: 60px 20px;
+            border-bottom: 3px solid #0070d2;
+            margin-bottom: 40px;
+        }
+
+        .report-cover h1 {
+            font-size: 32px;
+            color: #0070d2;
+            margin-bottom: 10px;
+        }
+
+        .report-cover p {
+            font-size: 16px;
+            color: #6b7280;
+        }
+
+        .report-cover .dispute-info {
+            background: #f3f4f6;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 30px 0;
+            text-align: left;
+        }
+
+        .report-cover .dispute-info p {
+            margin: 8px 0;
+            font-size: 14px;
+            color: #374151;
+        }
+
+        /* Sections */
+        .section {
+            margin-bottom: 40px;
+            page-break-inside: avoid;
+        }
+
+        .section h2 {
+            font-size: 20px;
+            color: #1f2937;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #0070d2;
+        }
+
+        .section h3 {
+            font-size: 16px;
+            color: #374151;
+            margin: 20px 0 12px;
+        }
+
+        /* Info Boxes */
+        .info-box {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .info-box h3 {
+            margin-top: 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #0070d2;
+        }
+
+        .info-box p {
+            margin: 8px 0;
+            font-size: 14px;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            font-size: 14px;
+        }
+
+        th, td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        th {
+            background: #f3f4f6;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        tr:hover {
+            background: #f9fafb;
+        }
+
+        /* Timeline Items */
+        .timeline-item {
+            border-left: 3px solid #0070d2;
+            padding-left: 15px;
+            margin-bottom: 20px;
+        }
+
+        .timeline-author {
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .timeline-public {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: normal;
+        }
+
+        .timeline-public.public {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .timeline-public.internal {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .timeline-date {
+            font-size: 12px;
+            color: #6b7280;
+            margin: 4px 0;
+        }
+
+        .comment-body {
+            font-size: 14px;
+            color: #374151;
+            background: #f9fafb;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 8px;
+        }
+
+        /* Screenshots */
+        .screenshot-item {
+            margin-bottom: 30px;
+            page-break-inside: avoid;
+        }
+
+        .screenshot-item img {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+
+        .screenshot-description {
+            font-size: 12px;
+            color: #6b7280;
+        }
+
+        /* Evidence */
+        .evidence-item {
+            margin-bottom: 30px;
+            page-break-inside: avoid;
+        }
+
+        .evidence-item img {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+
+        /* Email Items */
+        .email-item {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            background: #fff;
+        }
+
+        .email-subject {
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .email-sentiment {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: normal;
+        }
+
+        .email-sentiment.Positive { background: #d1fae5; color: #065f46; }
+        .email-sentiment.Neutral { background: #f3f4f6; color: #374151; }
+        .email-sentiment.Frustrated { background: #fef3c7; color: #92400e; }
+        .email-sentiment.Urgent { background: #fee2e2; color: #991b1b; }
+
+        .email-meta {
+            font-size: 12px;
+            color: #6b7280;
+            margin-bottom: 10px;
+        }
+
+        .email-item > div {
+            background: #f9fafb;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        /* No Data */
+        .no-data {
+            text-align: center;
+            color: #9ca3af;
+            padding: 30px;
+            font-style: italic;
+        }
+
+        /* Footer */
+        .footer {
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 2px solid #e5e7eb;
+            text-align: center;
+            font-size: 12px;
+            color: #6b7280;
+        }
+
+        .footer p {
+            margin: 5px 0;
+        }
+
+        /* Print Styles */
+        @media print {
+            body {
+                padding: 0;
+                max-width: none;
+            }
+
+            .section {
+                page-break-inside: avoid;
+            }
+
+            .info-box {
+                background: #fff;
+                border: 1px solid #ccc;
+            }
+
+            .screenshot-item,
+            .evidence-item {
+                page-break-inside: avoid;
+            }
+
+            a {
+                text-decoration: none;
+                color: #000;
+            }
+        }
+    </style>
 </head>
 <body>
     <!-- Cover Page -->
     <div class="report-cover">
         <h1>Evidence Report</h1>
         <p style="font-size: 14pt; color: #666;">PayPal Dispute Documentation</p>
-        
+
         <div class="dispute-info">
             <p><strong>PayPal Dispute ID:</strong> {{ dispute.paypal_dispute_id }}</p>
             <p><strong>PayPal Case ID:</strong> {{ dispute.paypal_case_id|default:"N/A" }}</p>
@@ -19,13 +306,13 @@
             <p><strong>Buyer:</strong> {{ dispute.buyer_name|default:"Not provided" }} ({{ dispute.buyer_email }})</p>
             <p><strong>Dispute Reason:</strong> {{ dispute.get_dispute_reason_display|default:dispute.dispute_reason }}</p>
         </div>
-        
+
         <div style="margin-top: 50px;">
             <p><strong>Report Generated:</strong> {{ generated_at }}</p>
             <p><strong>Zendesk Ticket:</strong> {{ dispute.zd_ticket_id|default:"Not linked" }}</p>
             <p><strong>Claim ID:</strong> {{ dispute.claim.id|default:"N/A" }}</p>
         </div>
-        
+
         <div style="margin-top: 80px; border-top: 2px solid #0070d2; padding-top: 20px;">
             <p style="color: #888; font-size: 10pt;">
                 This evidence report was automatically compiled by the LORA system.<br>
@@ -37,7 +324,7 @@
     <!-- Section 1: Dispute Overview -->
     <div class="section">
         <h2>Section 1: Dispute Overview</h2>
-        
+
         <div class="info-box">
             <h3>Dispute Information</h3>
             <table>
@@ -79,13 +366,13 @@
                 </tr>
             </table>
         </div>
-        
+
         <div class="info-box">
             <h3>Buyer Information</h3>
             <p><strong>Name:</strong> {{ dispute.buyer_name|default:"Not provided" }}</p>
             <p><strong>Email:</strong> {{ dispute.buyer_email }}</p>
         </div>
-        
+
         {% if dispute.claim %}
         <div class="info-box">
             <h3>Related Claim Information</h3>
@@ -101,7 +388,7 @@
     <!-- Section 2: Zendesk Ticket Timeline -->
     <div class="section">
         <h2>Section 2: Zendesk Ticket Timeline</h2>
-        
+
         {% if dispute.zd_ticket_id %}
             {% if ticket %}
             <div class="info-box">
@@ -118,9 +405,9 @@
                 {% endif %}
             </div>
             {% endif %}
-            
+
             <h3>Comment History ({{ comments|length }} comments)</h3>
-            
+
             {% if comments %}
                 {% for comment in comments %}
                 <div class="timeline-item">
@@ -134,9 +421,7 @@
                         </span>
                     </div>
                     <div class="timeline-date">{{ comment.created_at|date:"F d, Y H:i" }}</div>
-                    <div class="comment-body" style="margin-top: 8px;">
-                        {{ comment.body|escape|linebreaks }}
-                    </div>
+                    <div class="comment-body">{{ comment.body|escape|linebreaks }}</div>
                 </div>
                 {% endfor %}
             {% else %}
@@ -150,12 +435,12 @@
     <!-- Section 3: Screenshots Gallery -->
     <div class="section">
         <h2>Section 3: Screenshots Gallery</h2>
-        
+
         {% if screenshots %}
             <p style="color: #666; margin-bottom: 20px;">
                 The following screenshots were captured from the Zendesk ticket interface:
             </p>
-            
+
             {% for screenshot in screenshots %}
             <div class="screenshot-item">
                 <p><strong>Screenshot #{{ screenshot.id }}</strong> - Captured: {{ screenshot.captured_at|date:"F d, Y H:i" }}</p>
@@ -176,12 +461,12 @@
     <!-- Section 4: Claim Evidence -->
     <div class="section">
         <h2>Section 4: Claim Evidence</h2>
-        
+
         {% if claim_evidence %}
             <p style="color: #666; margin-bottom: 20px;">
                 Evidence images submitted by the claimant:
             </p>
-            
+
             {% for evidence in claim_evidence %}
             <div class="evidence-item">
                 <img src="{{ evidence.data_uri }}" alt="Evidence for Claim {{ dispute.claim.id }}">
@@ -197,22 +482,22 @@
     <!-- Section 5: Communication History -->
     <div class="section">
         <h2>Section 5: Communication History</h2>
-        
+
         {% if communication_history %}
             <p style="color: #666; margin-bottom: 20px;">
                 Email correspondence related to this dispute (showing up to 50 most recent):
             </p>
-            
+
             {% for email in communication_history %}
             <div class="email-item">
                 <p class="email-subject">
                     {{ email.subject }}
-                    <span class="email-sentiment sentiment-{{ email.sentiment|default:'Neutral' }}">
+                    <span class="email-sentiment {{ email.sentiment|default:'Neutral' }}">
                         {{ email.sentiment|default:'Neutral' }}
                     </span>
                 </p>
                 <p class="email-meta">
-                    <strong>From:</strong> {{ email.from_email }} | 
+                    <strong>From:</strong> {{ email.from_email }} |
                     <strong>Received:</strong> {{ email.received_at|date:"F d, Y H:i" }}
                     {% if email.category %}
                     | <strong>Category:</strong> {{ email.get_category_display }}
@@ -221,9 +506,7 @@
                     | <strong>Auto-Resolved:</strong> Yes
                     {% endif %}
                 </p>
-                <div style="margin-top: 10px; padding: 10px; background: #fff; border-radius: 5px;">
-                    {{ email.body|escape|linebreaks }}
-                </div>
+                <div>{{ email.body|escape|linebreaks }}</div>
                 {% if email.ai_summary %}
                 <p style="margin-top: 10px; font-size: 10pt; color: #666;">
                     <strong>AI Summary:</strong> {{ email.ai_summary }}
@@ -239,14 +522,14 @@
     <!-- Appendix: Reference Information -->
     <div class="section" style="page-break-before: always;">
         <h2>Appendix: Reference Information</h2>
-        
+
         <div class="info-box">
             <h3>Document Information</h3>
             <p><strong>Report Type:</strong> Evidence Report (Template-Generated)</p>
             <p><strong>Generated At:</strong> {{ generated_at }}</p>
             <p><strong>System:</strong> LORA (Lost Object Recovery Automation)</p>
         </div>
-        
+
         <div class="info-box">
             <h3>Dispute Status Reference</h3>
             <table>
@@ -292,7 +575,7 @@
                 </tr>
             </table>
         </div>
-        
+
         <div class="info-box">
             <h3>Dispute Reason Reference</h3>
             <table>
@@ -330,7 +613,7 @@
                 </tr>
             </table>
         </div>
-        
+
         <div class="info-box">
             <h3>Notes</h3>
             {% if dispute.notes %}

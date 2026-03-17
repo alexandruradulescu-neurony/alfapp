@@ -1,238 +1,232 @@
 {% extends 'base.html' %}
+{% load ui_filters %}
 
 {% block title %}Agent Dashboard{% endblock %}
 
 {% block content %}
+<div class="animate-fade-in">
 <!-- Page Header -->
 <div class="flex justify-between items-center mb-6">
-    <h2 class="text-2xl font-bold flex items-center gap-2">
+    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
         <i class="bi bi-speedometer2"></i> Agent Dashboard
     </h2>
 </div>
 
 <!-- Stats Grid -->
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
     <!-- Total Claims -->
-    <div class="stats shadow">
-        <div class="stat">
-            <div class="stat-figure text-primary">
-                <i class="bi bi-clipboard-data text-3xl"></i>
-            </div>
-            <div class="stat-title">Total Claims</div>
-            <div class="stat-value text-primary">{{ total_claims }}</div>
+    <div class="stat-modern">
+        <div class="stat-label">Total Claims</div>
+        <div class="stat-value text-primary">{{ total_claims }}</div>
+        <div class="stat-icon bg-primary/10">
+            <i class="bi bi-clipboard-data text-2xl text-primary"></i>
         </div>
     </div>
 
     <!-- Active Cases -->
-    <div class="stats shadow">
-        <div class="stat">
-            <div class="stat-figure text-secondary">
-                <i class="bi bi-folder-check text-3xl"></i>
-            </div>
-            <div class="stat-title">Active Cases</div>
-            <div class="stat-value text-secondary">{{ my_claims }}</div>
+    <div class="stat-modern">
+        <div class="stat-label">Active Cases</div>
+        <div class="stat-value text-secondary">{{ my_claims }}</div>
+        <div class="stat-icon bg-secondary/10">
+            <i class="bi bi-folder-check text-2xl text-secondary"></i>
         </div>
     </div>
 
     <!-- Urgent Emails -->
-    <div class="stats shadow">
-        <div class="stat">
-            <div class="stat-figure text-error">
-                <i class="bi bi-envelope-exclamation text-3xl"></i>
-            </div>
-            <div class="stat-title">Urgent Emails</div>
-            <div class="stat-value text-error">{{ urgent_emails }}</div>
+    <div class="stat-modern">
+        <div class="stat-label">Urgent Emails</div>
+        <div class="stat-value text-error">{{ urgent_emails }}</div>
+        <div class="stat-icon bg-error/10">
+            <i class="bi bi-envelope-exclamation text-2xl text-error"></i>
         </div>
     </div>
 
     <!-- Disputed -->
-    <div class="stats shadow">
-        <div class="stat">
-            <div class="stat-figure text-warning">
-                <i class="bi bi-exclamation-triangle text-3xl"></i>
-            </div>
-            <div class="stat-title">Disputed</div>
-            <div class="stat-value text-warning">{{ disputed }}</div>
+    <div class="stat-modern">
+        <div class="stat-label">Disputed</div>
+        <div class="stat-value text-warning">{{ disputed }}</div>
+        <div class="stat-icon bg-warning/10">
+            <i class="bi bi-exclamation-triangle text-2xl text-warning"></i>
         </div>
     </div>
 </div>
 
 <!-- Email Overview Card -->
-<div class="card bg-base-100 shadow-xl mb-6">
-    <div class="card-body">
-        <div class="flex justify-between items-center mb-4">
-            <h3 class="card-title">
-                <i class="bi bi-envelope"></i> Email Overview
-            </h3>
-            <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-primary">
-                View All Emails <i class="bi bi-arrow-right"></i>
-            </a>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div class="text-center">
-                <div class="text-sm text-base-content/70">Total Emails</div>
-                <div class="text-2xl font-bold">{{ total_emails|default:0 }}</div>
-            </div>
-            <div class="text-center">
-                <div class="text-sm text-base-content/70">Requiring Attention</div>
-                <div class="text-2xl font-bold text-error">{{ emails_requiring_attention|default:0 }}</div>
-            </div>
-            <div class="text-center">
-                <div class="text-sm text-base-content/70">Auto-Resolved</div>
-                <div class="text-2xl font-bold text-success">{{ auto_resolved_emails|default:0 }}</div>
-            </div>
-            <div class="text-center">
-                <div class="text-sm text-base-content/70">Urgent</div>
-                <div class="text-2xl font-bold text-error">{{ urgent_emails|default:0 }}</div>
-            </div>
-        </div>
-
-        <!-- Category Breakdown -->
-        {% if email_category_stats %}
-        <div class="divider"></div>
-        <div>
-            <div class="text-sm text-base-content/70 mb-2">Category Breakdown:</div>
-            <div class="flex flex-wrap gap-2">
-                {% for stat in email_category_stats %}
-                <div class="badge badge-lg gap-1">
-                    {{ stat.category }}: {{ stat.count }}
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
+<div class="card-modern p-6 mb-6">
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+        <h3 class="text-lg font-semibold flex items-center gap-2">
+            <i class="bi bi-envelope"></i> Email Overview
+        </h3>
+        <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-primary rounded-xl transition-all duration-200">
+            View All Emails <i class="bi bi-arrow-right"></i>
+        </a>
     </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div class="text-center p-4 bg-base-200/50 rounded-2xl">
+            <div class="text-sm text-base-content/60 mb-1">Total Emails</div>
+            <div class="text-2xl font-semibold">{{ total_emails|default:0 }}</div>
+        </div>
+        <div class="text-center p-4 bg-base-200/50 rounded-2xl">
+            <div class="text-sm text-base-content/60 mb-1">Requiring Attention</div>
+            <div class="text-2xl font-semibold text-error">{{ emails_requiring_attention|default:0 }}</div>
+        </div>
+        <div class="text-center p-4 bg-base-200/50 rounded-2xl">
+            <div class="text-sm text-base-content/60 mb-1">Auto-Resolved</div>
+            <div class="text-2xl font-semibold text-success">{{ auto_resolved_emails|default:0 }}</div>
+        </div>
+        <div class="text-center p-4 bg-base-200/50 rounded-2xl">
+            <div class="text-sm text-base-content/60 mb-1">Urgent</div>
+            <div class="text-2xl font-semibold text-error">{{ urgent_emails|default:0 }}</div>
+        </div>
+    </div>
+
+    <!-- Category Breakdown -->
+    {% if email_category_stats %}
+    <div class="mt-6 pt-6 border-t border-base-200/60">
+        <div class="text-sm text-base-content/60 mb-3">Category Breakdown</div>
+        <div class="flex flex-wrap gap-2">
+            {% for stat in email_category_stats %}
+            <span class="badge badge-neutral">{{ stat.category|humanize_label }}: {{ stat.count }}</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
 </div>
 
 <!-- Recent Emails Table -->
-<div class="card bg-base-100 shadow-xl mb-6">
-    <div class="card-body">
-        <div class="flex justify-between items-center mb-4">
-            <h3 class="card-title">
+<div class="card-modern rounded-2xl overflow-hidden mb-6">
+    <div class="p-6 pb-0">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
                 <i class="bi bi-envelope"></i> Recent Emails
             </h3>
-            <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-outline">View All</a>
+            <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-outline rounded-xl transition-all duration-200">View All</a>
         </div>
+    </div>
 
-        <div class="overflow-x-auto">
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Subject</th>
-                        <th>From</th>
-                        <th>Category</th>
-                        <th>Sentiment</th>
-                        <th>Claim</th>
-                        <th>Received</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for email in recent_emails %}
-                    <tr class="{% if email.auto_resolved %}hover{% endif %}">
-                        <td class="font-mono text-sm">#{{ email.id }}</td>
-                        <td>
-                            <div class="max-w-xs truncate" title="{{ email.subject }}">
-                                {{ email.subject }}
-                            </div>
-                        </td>
-                        <td class="text-sm">{{ email.from_email }}</td>
-                        <td>
-                            <div class="badge gap-1">
-                                {{ email.get_category_display }}
-                                {% if email.action_required %}
-                                <div class="badge badge-error badge-xs">!</div>
-                                {% endif %}
-                            </div>
-                        </td>
-                        <td>
-                            <div class="badge {% if email.sentiment == 'Positive' %}badge-success{% elif email.sentiment == 'Frustrated' %}badge-warning{% elif email.sentiment == 'Urgent' %}badge-error{% else %}badge-ghost{% endif %}">
-                                {{ email.sentiment|default:'Neutral' }}
-                            </div>
-                        </td>
-                        <td>
-                            {% if email.claim %}
-                            <a href="{% url 'agent_claim_detail' email.claim.id %}" class="btn btn-xs btn-outline">
-                                #{{ email.claim.id }}
-                            </a>
-                            {% else %}
-                            <span class="text-base-content/50">-</span>
+    <div class="overflow-x-auto">
+        <table class="table-modern">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Subject</th>
+                    <th>From</th>
+                    <th>Category</th>
+                    <th>Sentiment</th>
+                    <th>Claim</th>
+                    <th>Received</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for email in recent_emails %}
+                <tr>
+                    <td class="font-mono text-sm">#{{ email.id }}</td>
+                    <td>
+                        <div class="max-w-xs truncate" title="{{ email.subject }}">
+                            {{ email.subject }}
+                        </div>
+                    </td>
+                    <td class="text-sm text-base-content/60">{{ email.from_email }}</td>
+                    <td>
+                        <div class="badge gap-1">
+                            {{ email.get_category_display }}
+                            {% if email.action_required %}
+                            <div class="badge badge-error badge-xs">!</div>
                             {% endif %}
-                        </td>
-                        <td class="text-sm">{{ email.received_at|date:"M d, H:i" }}</td>
-                        <td>
-                            <a href="{% url 'agent_email_detail' email.id %}" class="btn btn-xs btn-ghost">
-                                <i class="bi bi-eye"></i>
-                            </a>
-                        </td>
-                    </tr>
-                    {% empty %}
-                    <tr>
-                        <td colspan="8" class="text-center py-8">
-                            <i class="bi bi-inbox text-4xl text-base-content/30"></i>
-                            <p class="text-base-content/50 mt-2">No emails found</p>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="badge {% if email.sentiment == 'Positive' %}badge-success{% elif email.sentiment == 'Frustrated' %}badge-warning{% elif email.sentiment == 'Urgent' %}badge-error{% else %}badge-ghost{% endif %}">
+                            {{ email.sentiment|default:'Neutral' }}
+                        </div>
+                    </td>
+                    <td>
+                        {% if email.claim %}
+                        <a href="{% url 'agent_claim_detail' email.claim.id %}" class="btn btn-xs btn-outline rounded-xl transition-all duration-200">
+                            #{{ email.claim.id }}
+                        </a>
+                        {% else %}
+                        <span class="text-base-content/40">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-sm text-base-content/60">{{ email.received_at|date:"M d, H:i" }}</td>
+                    <td>
+                        <a href="{% url 'agent_email_detail' email.id %}" class="btn btn-xs btn-ghost rounded-xl transition-all duration-200">
+                            <i class="bi bi-eye"></i>
+                        </a>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="8" class="text-center py-12">
+                        <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
+                            <i class="bi bi-inbox text-3xl text-base-content/40"></i>
+                        </div>
+                        <p class="text-base-content/60 mt-2 mb-0">No emails found</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 </div>
 
 <!-- Recent Claims Table -->
-<div class="card bg-base-100 shadow-xl">
-    <div class="card-body">
-        <div class="flex justify-between items-center mb-4">
-            <h3 class="card-title">
+<div class="card-modern rounded-2xl overflow-hidden">
+    <div class="p-6 pb-0">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
                 <i class="bi bi-clock-history"></i> Recent Claims
             </h3>
-            <a href="{% url 'agent_claims' %}" class="btn btn-sm btn-outline">View All</a>
-        </div>
-
-        <div class="overflow-x-auto">
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Customer Email</th>
-                        <th>Status</th>
-                        <th>ZD Ticket</th>
-                        <th>Created</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for claim in recent_claims %}
-                    <tr>
-                        <td class="font-mono">#{{ claim.id }}</td>
-                        <td>{{ claim.client_email }}</td>
-                        <td>
-                            <div class="badge {% if claim.status == 'Received' %}badge-neutral{% elif claim.status == 'Searching' %}badge-info{% elif claim.status == 'Found' %}badge-success{% elif claim.status == 'Shipped' %}badge-primary{% elif claim.status == 'Disputed' %}badge-error{% endif %}">
-                                {{ claim.status }}
-                            </div>
-                        </td>
-                        <td>{{ claim.zd_ticket_id|default:"-" }}</td>
-                        <td>{{ claim.created_at|date:"M d, Y" }}</td>
-                        <td>
-                            <a href="{% url 'agent_claim_detail' claim.id %}" class="btn btn-xs btn-ghost">
-                                <i class="bi bi-eye"></i> View
-                            </a>
-                        </td>
-                    </tr>
-                    {% empty %}
-                    <tr>
-                        <td colspan="6" class="text-center py-8">
-                            <i class="bi bi-inbox text-4xl text-base-content/30"></i>
-                            <p class="text-base-content/50 mt-2">No claims found</p>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <a href="{% url 'agent_claims' %}" class="btn btn-sm btn-outline rounded-xl transition-all duration-200">View All</a>
         </div>
     </div>
+
+    <div class="overflow-x-auto">
+        <table class="table-modern">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Customer Email</th>
+                    <th>Status</th>
+                    <th>ZD Ticket</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for claim in recent_claims %}
+                <tr>
+                    <td class="font-mono">#{{ claim.id }}</td>
+                    <td>{{ claim.client_email }}</td>
+                    <td>
+                        <div class="badge {% if claim.status == 'Received' %}badge-neutral{% elif claim.status == 'Searching' %}badge-info{% elif claim.status == 'Found' %}badge-success{% elif claim.status == 'Shipped' %}badge-primary{% elif claim.status == 'Disputed' %}badge-error{% endif %}">
+                            {{ claim.status }}
+                        </div>
+                    </td>
+                    <td class="text-base-content/60">{{ claim.zd_ticket_id|default:"-" }}</td>
+                    <td class="text-base-content/60">{{ claim.created_at|date:"M d, Y" }}</td>
+                    <td>
+                        <a href="{% url 'agent_claim_detail' claim.id %}" class="btn btn-xs btn-ghost rounded-xl transition-all duration-200">
+                            <i class="bi bi-eye"></i> View
+                        </a>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6" class="text-center py-12">
+                        <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
+                            <i class="bi bi-inbox text-3xl text-base-content/40"></i>
+                        </div>
+                        <p class="text-base-content/60 mt-2 mb-0">No claims found</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
 </div>
 {% endblock %}

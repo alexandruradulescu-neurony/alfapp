@@ -3,187 +3,207 @@
 {% block title %}Claim #{{ claim.id }}{% endblock %}
 
 {% block content %}
-<div class="page-header d-flex justify-content-between align-items-center">
-    <h2><i class="bi bi-file-earmark-text"></i> Claim #{{ claim.id }}</h2>
-    <div>
-        <a href="{% url 'agent_claims' %}" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> Back to Claims
-        </a>
-    </div>
+<div class="animate-fade-in">
+<!-- Page Header -->
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+        <i class="bi bi-file-earmark-text"></i> Claim #{{ claim.id }}
+    </h2>
+    <a href="{% url 'agent_claims' %}" class="btn btn-outline rounded-xl transition-all duration-200">
+        <i class="bi bi-arrow-left"></i> Back to Claims
+    </a>
 </div>
 
-<div class="row">
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- Claim Details -->
-    <div class="col-md-4">
-        <div class="card mb-4">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0"><i class="bi bi-info-circle"></i> Claim Information</h5>
+    <div class="lg:col-span-1 space-y-6">
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-6">
+                <i class="bi bi-info-circle"></i> Claim Information
+            </h3>
+            <div class="space-y-4">
+                <div>
+                    <span class="text-sm text-base-content/60">Customer Email</span>
+                    <p class="font-medium mt-0.5">{{ claim.client_email }}</p>
+                </div>
+                <div>
+                    <span class="text-sm text-base-content/60">Status</span>
+                    <div class="mt-1">
+                        <span class="badge status-{{ claim.status }}">
+                            {{ claim.status }}
+                        </span>
+                    </div>
+                </div>
+                <div>
+                    <span class="text-sm text-base-content/60">Zendesk Ticket</span>
+                    <div class="mt-0.5">
+                        {% if claim.zd_ticket_id %}
+                            <a href="https://{{ settings.zd_subdomain }}.zendesk.com/agent/tickets/{{ claim.zd_ticket_id }}"
+                               target="_blank" class="text-primary hover:text-primary/80 transition-colors font-medium">#{{ claim.zd_ticket_id }}</a>
+                        {% else %}
+                            <span class="text-base-content/40">Not linked</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div>
+                    <span class="text-sm text-base-content/60">Created</span>
+                    <p class="font-medium mt-0.5">{{ claim.created_at|date:"M d, Y H:i" }}</p>
+                </div>
+                <div>
+                    <span class="text-sm text-base-content/60">Last Updated</span>
+                    <p class="font-medium mt-0.5">{{ claim.updated_at|date:"M d, Y H:i" }}</p>
+                </div>
             </div>
-            <div class="card-body">
-                <p><strong>Customer Email:</strong><br>{{ claim.client_email }}</p>
-                <p><strong>Status:</strong><br>
-                    <span class="badge status-badge status-{{ claim.status }} fs-6">
-                        {{ claim.status }}
-                    </span>
-                </p>
-                <p><strong>Zendesk Ticket:</strong><br>
-                    {% if claim.zd_ticket_id %}
-                        <a href="https://{{ settings.zd_subdomain }}.zendesk.com/agent/tickets/{{ claim.zd_ticket_id }}" 
-                           target="_blank">#{{ claim.zd_ticket_id }}</a>
-                    {% else %}
-                        <span class="text-muted">Not linked</span>
-                    {% endif %}
-                </p>
-                <p><strong>Created:</strong><br>{{ claim.created_at|date:"M d, Y H:i" }}</p>
-                <p><strong>Last Updated:</strong><br>{{ claim.updated_at|date:"M d, Y H:i" }}</p>
-                
-                <!-- Update Status Form -->
-                <hr>
+
+            <!-- Update Status Form -->
+            <div class="mt-6 pt-6 border-t border-base-200/60">
                 <form method="post" action="{% url 'agent_update_status' claim.id %}">
                     {% csrf_token %}
-                    <label class="form-label"><strong>Update Status:</strong></label>
-                    <div class="input-group">
-                        <select class="form-select" name="status">
+                    <label class="label">
+                        <span class="text-sm text-base-content/60">Update Status</span>
+                    </label>
+                    <div class="flex gap-2">
+                        <select class="select rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 flex-1" name="status">
                             {% for value, label in status_choices %}
                             <option value="{{ value }}" {% if claim.status == value %}selected{% endif %}>
                                 {{ label }}
                             </option>
                             {% endfor %}
                         </select>
-                        <button type="submit" class="btn btn-primary">Update</button>
+                        <button type="submit" class="btn btn-primary rounded-xl transition-all duration-200">Update</button>
                     </div>
                 </form>
             </div>
         </div>
-        
+
         <!-- Flight Details -->
-        <div class="card mb-4">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-airplane"></i> Flight Details</h5>
-            </div>
-            <div class="card-body">
-                {% if claim.flight_details %}
-                    <p class="mb-0">{{ claim.flight_details|linebreaks }}</p>
-                {% else %}
-                    <p class="text-muted mb-0">No flight details provided.</p>
-                {% endif %}
-            </div>
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-4">
+                <i class="bi bi-airplane"></i> Flight Details
+            </h3>
+            {% if claim.flight_details %}
+                <p class="text-sm mb-0">{{ claim.flight_details|linebreaks }}</p>
+            {% else %}
+                <p class="text-base-content/40 text-sm mb-0">No flight details provided.</p>
+            {% endif %}
         </div>
     </div>
-    
+
     <!-- Email Log -->
-    <div class="col-md-8">
-        <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-envelope"></i> Email Log ({{ claim.emails.count }})</h5>
+    <div class="lg:col-span-2 space-y-6">
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-6">
+                <i class="bi bi-envelope"></i> Email Log ({{ claim.emails.count }})
+            </h3>
+            {% for email in claim.emails.all %}
+            <div class="rounded-2xl p-4 mb-3 border {% if email.action_required %}border-error/30 bg-error/5{% else %}border-base-200/60{% endif %} transition-all duration-200">
+                <div class="flex flex-col sm:flex-row justify-between items-start gap-2 mb-2">
+                    <h4 class="font-medium m-0">{{ email.subject }}</h4>
+                    <div class="flex gap-1 flex-wrap">
+                        <span class="badge sentiment-{{ email.sentiment }}">
+                            {{ email.sentiment|default:"Neutral" }}
+                        </span>
+                        {% if email.action_required %}
+                            <span class="badge badge-error">Action Required</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <p class="text-xs text-base-content/40 mb-2">
+                    <i class="bi bi-clock"></i> {{ email.received_at|date:"M d, Y H:i" }}
+                </p>
+                {% if email.ai_summary %}
+                <div class="rounded-xl bg-info/10 p-3 mb-2 flex items-start gap-2">
+                    <i class="bi bi-robot text-info mt-0.5"></i>
+                    <span class="text-sm">{{ email.ai_summary }}</span>
+                </div>
+                {% endif %}
+                <details class="mt-2">
+                    <summary class="cursor-pointer text-primary hover:text-primary/80 transition-colors text-sm">View original email</summary>
+                    <div class="mt-2 rounded-xl bg-base-200/50 p-4">
+                        <pre class="text-sm whitespace-pre-wrap">{{ email.body|escape }}</pre>
+                    </div>
+                </details>
             </div>
-            <div class="card-body">
-                {% for email in claim.emails.all %}
-                <div class="border rounded p-3 mb-3 {% if email.action_required %}border-danger bg-danger-subtle{% endif %}">
-                    <div class="d-flex justify-content-between mb-2">
-                        <h6 class="mb-0">{{ email.subject }}</h6>
-                        <div>
-                            <span class="badge sentiment-{{ email.sentiment }} me-1">
-                                {{ email.sentiment|default:"Neutral" }}
-                            </span>
-                            {% if email.action_required %}
-                                <span class="badge bg-danger">Action Required</span>
-                            {% endif %}
-                        </div>
+            {% empty %}
+            <div class="text-center py-12">
+                <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
+                    <i class="bi bi-inbox text-3xl text-base-content/40"></i>
+                </div>
+                <p class="text-base-content/60 mt-2 mb-0">No emails processed for this claim.</p>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Evidence Gallery -->
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-6">
+                <i class="bi bi-images"></i> Evidence ({{ claim.evidence.count }})
+            </h3>
+
+            <!-- Upload Form -->
+            <form method="post" action="{% url 'agent_upload_evidence' claim.id %}"
+                  enctype="multipart/form-data" class="mb-6">
+                {% csrf_token %}
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                    <div class="sm:col-span-6">
+                        <input type="file" class="file-input file-input-bordered rounded-xl w-full" name="image" accept="image/*" required>
                     </div>
-                    <p class="text-muted small mb-2">
-                        <i class="bi bi-clock"></i> {{ email.received_at|date:"M d, Y H:i" }}
-                    </p>
-                    {% if email.ai_summary %}
-                    <div class="alert alert-info mb-2">
-                        <strong><i class="bi bi-robot"></i> AI Summary:</strong>
-                        <p class="mb-0">{{ email.ai_summary }}</p>
+                    <div class="sm:col-span-4">
+                        <input type="text" class="input-modern w-full" name="description"
+                               placeholder="Description (optional)">
                     </div>
-                    {% endif %}
-                    <details>
-                        <summary class="cursor-pointer text-primary">View original email</summary>
-                        <div class="mt-2 p-2 bg-light rounded">
-                            <pre class="mb-0" style="white-space: pre-wrap;">{{ email.body|escape }}</pre>
+                    <div class="sm:col-span-2">
+                        <button type="submit" class="btn btn-success rounded-xl transition-all duration-200 w-full">
+                            <i class="bi bi-upload"></i> Upload
+                        </button>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Evidence Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {% for evidence in claim.evidence.all %}
+                <div class="card-modern overflow-hidden hover-lift">
+                    <figure class="px-4 pt-4">
+                        <img src="{{ evidence.image.url }}" class="rounded-xl h-40 w-full object-cover cursor-pointer"
+                             alt="{{ evidence.description }}" onclick="document.getElementById('imageModal{{ evidence.id }}').showModal()" />
+                    </figure>
+                    <div class="p-4">
+                        <p class="text-xs font-medium mb-1">{{ evidence.description|default:"No description"|truncatechars:50 }}</p>
+                        <p class="text-xs text-base-content/40 mb-0">
+                            {{ evidence.uploaded_at|date:"M d, Y" }}
+                        </p>
+                    </div>
+
+                    <!-- Image Modal -->
+                    <dialog id="imageModal{{ evidence.id }}" class="modal">
+                        <div class="modal-box max-w-4xl rounded-2xl">
+                            <h3 class="font-semibold text-lg mb-4">{{ evidence.description|default:"Evidence Image" }}</h3>
+                            <div class="text-center">
+                                <img src="{{ evidence.image.url }}" class="max-w-full max-h-[70vh] rounded-xl" alt="{{ evidence.description }}" />
+                            </div>
+                            <div class="modal-action">
+                                <form method="dialog">
+                                    <button class="btn btn-outline rounded-xl transition-all duration-200">Close</button>
+                                </form>
+                            </div>
                         </div>
-                    </details>
+                        <form method="dialog" class="modal-backdrop backdrop-blur">
+                            <button>close</button>
+                        </form>
+                    </dialog>
                 </div>
                 {% empty %}
-                <p class="text-muted text-center py-4">
-                    <i class="bi bi-inbox" style="font-size: 2rem;"></i>
-                    <br>No emails processed for this claim.
-                </p>
+                <div class="col-span-full text-center py-12">
+                    <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
+                        <i class="bi bi-images text-3xl text-base-content/40"></i>
+                    </div>
+                    <p class="text-base-content/60 mt-2 mb-0">No evidence uploaded yet.</p>
+                </div>
                 {% endfor %}
             </div>
         </div>
-        
-        <!-- Evidence Gallery -->
-        <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-images"></i> Evidence ({{ claim.evidence.count }})</h5>
-            </div>
-            <div class="card-body">
-                <!-- Upload Form -->
-                <form method="post" action="{% url 'agent_upload_evidence' claim.id %}" 
-                      enctype="multipart/form-data" class="mb-4">
-                    {% csrf_token %}
-                    <div class="row g-2">
-                        <div class="col-md-6">
-                            <input type="file" class="form-control" name="image" accept="image/*" required>
-                        </div>
-                        <div class="col-md-4">
-                            <input type="text" class="form-control" name="description" 
-                                   placeholder="Description (optional)">
-                        </div>
-                        <div class="col-md-2">
-                            <button type="submit" class="btn btn-success w-100">
-                                <i class="bi bi-upload"></i> Upload
-                            </button>
-                        </div>
-                    </div>
-                </form>
-                
-                <!-- Evidence Grid -->
-                <div class="row g-3">
-                    {% for evidence in claim.evidence.all %}
-                    <div class="col-md-4">
-                        <div class="card">
-                            <img src="{{ evidence.image.url }}" class="card-img-top evidence-thumbnail" 
-                                 alt="{{ evidence.description }}" data-bs-toggle="modal" 
-                                 data-bs-target="#imageModal{{ evidence.id }}">
-                            <div class="card-body p-2">
-                                <p class="card-text small mb-1">{{ evidence.description|default:"No description" }}</p>
-                                <p class="card-text small text-muted">
-                                    {{ evidence.uploaded_at|date:"M d, Y" }}
-                                </p>
-                            </div>
-                        </div>
-                        
-                        <!-- Image Modal -->
-                        <div class="modal fade" id="imageModal{{ evidence.id }}" tabindex="-1">
-                            <div class="modal-dialog modal-lg">
-                                <div class="modal-content">
-                                    <div class="modal-header">
-                                        <h5 class="modal-title">{{ evidence.description|default:"Evidence Image" }}</h5>
-                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                    </div>
-                                    <div class="modal-body text-center">
-                                        <img src="{{ evidence.image.url }}" class="img-fluid" alt="{{ evidence.description }}">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    {% empty %}
-                    <div class="col-12">
-                        <p class="text-muted text-center py-4">
-                            <i class="bi bi-images" style="font-size: 2rem;"></i>
-                            <br>No evidence uploaded yet.
-                        </p>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-        </div>
     </div>
+</div>
 </div>
 {% endblock %}

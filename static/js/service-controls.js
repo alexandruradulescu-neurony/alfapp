@@ -121,6 +121,12 @@ async function testService(service) {
 
 // Toggle service enabled state
 async function toggleService(service, enabled) {
+    // Sidebar is a special case - it doesn't have a real backend service
+    if (service === 'SIDEBAR') {
+        showToast('Sidebar authentication enabled/disabled', 'success');
+        return;
+    }
+    
     const url = `/api/services/${service}/toggle/`;
     
     try {

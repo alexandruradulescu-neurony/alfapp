@@ -9,16 +9,29 @@ from apps.config.models import SystemSettings
 class SystemSettingsForm(forms.ModelForm):
     """
     ModelForm for SystemSettings.
-    
+
     Sensitive fields (passwords, tokens) are handled specially:
     - They are NOT pre-filled in the form (security)
     - They are only updated if a new value is provided
+    
+    All fields are optional to allow partial configuration updates.
     """
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Make all fields optional to allow partial saves
+        for field in self.fields.values():
+            field.required = False
 
     class Meta:
         model = SystemSettings
         fields = [
-            # AI/Qwen Configuration
+            # AI Configuration
+            'ai_provider',
+            'ai_api_base',
+            'ai_api_key',
+            'ai_api_model',
+            # AI Prompt Templates
             'ai_prompt_template',
             # IMAP Configuration
             'imap_host',
@@ -45,6 +58,11 @@ class SystemSettingsForm(forms.ModelForm):
             'email_analysis_prompt',
         ]
         widgets = {
+            # AI Configuration
+            'ai_provider': forms.TextInput(attrs={'class': 'form-control'}),
+            'ai_api_base': forms.TextInput(attrs={'class': 'form-control'}),
+            'ai_api_key': forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'off', 'placeholder': '••••••••••••'}),
+            'ai_api_model': forms.TextInput(attrs={'class': 'form-control'}),
             # Text areas for prompts
             'ai_prompt_template': forms.Textarea(attrs={'rows': 10, 'class': 'form-control'}),
             'dispute_response_prompt': forms.Textarea(attrs={'rows': 10, 'class': 'form-control'}),

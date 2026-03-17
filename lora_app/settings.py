@@ -174,7 +174,15 @@ APSCHEDULER_DATETIME_FORMAT = env('APSCHEDULER_DATETIME_FORMAT', default='N j, Y
 APSCHEDULER_RUN_NOW_TIMEOUT = env.int('APSCHEDULER_RUN_NOW_TIMEOUT', default=25)
 APSCHEDULER_DEFAULT_TIMEZONE = env('TIME_ZONE', default='UTC')
 
-# Qwen/OpenAI API Configuration
+# AI API Configuration (DeepSeek, Qwen, or other OpenAI-compatible providers)
+# Note: Runtime configuration is done via SystemSettings model
+# These env vars serve as defaults/fallbacks
+AI_PROVIDER = env('AI_PROVIDER', default='DeepSeek')
+AI_API_BASE = env('AI_API_BASE', default='https://api.deepseek.com/v1')
+AI_API_KEY = env('AI_API_KEY', default='')
+AI_API_MODEL = env('AI_API_MODEL', default='deepseek-chat')
+
+# Legacy Qwen settings (for backward compatibility)
 QWEN_API_BASE = env('QWEN_API_BASE', default='https://dashscope.aliyuncs.com/compatible-mode/v1')
 QWEN_API_KEY = env('QWEN_API_KEY', default='')
 QWEN_MODEL = env('QWEN_MODEL', default='qwen-plus')

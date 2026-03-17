@@ -4,6 +4,196 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dispute Response Letter - PayPal Dispute {{ dispute.paypal_dispute_id }}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #1f2937;
+            background: #fff;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        .letter-header {
+            border-bottom: 3px solid #0070d2;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+
+        .letter-header h1 {
+            font-size: 24px;
+            color: #0070d2;
+            margin-bottom: 15px;
+        }
+
+        .letter-meta {
+            background: #f3f4f6;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .letter-meta p {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+
+        .customer-info,
+        .transaction-info,
+        .info-box {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .customer-info h3,
+        .transaction-info h3,
+        .info-box h3 {
+            font-size: 16px;
+            color: #374151;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #0070d2;
+        }
+
+        .customer-info p,
+        .transaction-info p,
+        .info-box p {
+            margin: 8px 0;
+            font-size: 14px;
+        }
+
+        .response-body {
+            background: #fff;
+            padding: 30px;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            min-height: 300px;
+        }
+
+        .response-body p {
+            margin-bottom: 15px;
+        }
+
+        .letter-footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .letter-footer p {
+            margin: 10px 0;
+        }
+
+        .signature {
+            margin-top: 40px;
+        }
+
+        .signature-line {
+            width: 250px;
+            height: 1px;
+            background: #374151;
+            margin-top: 50px;
+        }
+
+        .timeline-item {
+            border-left: 3px solid #0070d2;
+            padding-left: 15px;
+            margin-bottom: 20px;
+        }
+
+        .timeline-author {
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .timeline-public {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: normal;
+        }
+
+        .timeline-public.public {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .timeline-public.internal {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .timeline-date {
+            font-size: 12px;
+            color: #6b7280;
+            margin: 4px 0;
+        }
+
+        .comment-body {
+            font-size: 14px;
+            color: #374151;
+        }
+
+        .section {
+            margin-top: 40px;
+        }
+
+        .section h2 {
+            font-size: 18px;
+            color: #1f2937;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #0070d2;
+        }
+
+        .footer {
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 2px solid #e5e7eb;
+            text-align: center;
+            font-size: 12px;
+            color: #6b7280;
+        }
+
+        .footer p {
+            margin: 5px 0;
+        }
+
+        @media print {
+            body {
+                padding: 0;
+                max-width: none;
+            }
+
+            .letter-header {
+                border-bottom-color: #000;
+            }
+
+            .customer-info,
+            .transaction-info,
+            .info-box {
+                background: #fff;
+                border: 1px solid #ccc;
+            }
+
+            .response-body {
+                border: none;
+            }
+        }
+    </style>
 </head>
 <body>
     <!-- Letter Header -->
@@ -57,7 +247,7 @@
     <div class="letter-footer">
         <p>We appreciate your business and are committed to resolving this matter fairly and promptly.</p>
         <p>If you have any questions or require additional information, please do not hesitate to contact us.</p>
-        
+
         <div class="signature">
             <p>Sincerely,</p>
             <p><strong>Lost Object Recovery Team</strong></p>
@@ -68,12 +258,12 @@
 
     <!-- Additional Notes Section (if comments exist) -->
     {% if comments %}
-    <div class="section" style="margin-top: 40px; page-break-before: always;">
+    <div class="section" style="margin-top: 40px;">
         <h2>Reference: Zendesk Ticket Communication History</h2>
-        <p style="color: #666; font-size: 10pt; margin-bottom: 20px;">
+        <p style="color: #666; font-size: 12px; margin-bottom: 20px;">
             The following comments from Zendesk ticket #{{ dispute.zd_ticket_id }} were considered in generating this response:
         </p>
-        
+
         {% for comment in comments %}
         <div class="timeline-item">
             <div class="timeline-author">

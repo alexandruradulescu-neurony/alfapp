@@ -1,166 +1,444 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}System Settings{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <h2><i class="bi bi-gear"></i> System Settings</h2>
+<!-- Page Header -->
+<div class="flex justify-between items-center mb-6">
+    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+        <i class="bi bi-gear"></i> System Settings
+    </h2>
 </div>
+
+<!-- Hidden CSRF token for JavaScript -->
+<input type="hidden" id="csrf_token" value="{{ csrf_token }}">
 
 <form method="post">
     {% csrf_token %}
-    
+
     <!-- AI Configuration -->
-    <div class="card mb-4">
-        <div class="card-header bg-primary text-white">
-            <h5 class="mb-0"><i class="bi bi-robot"></i> AI Configuration</h5>
-        </div>
-        <div class="card-body">
-            <div class="mb-3">
-                <label for="ai_prompt_template" class="form-label">
-                    <strong>AI Prompt Template</strong>
-                    <small class="text-muted d-block">
-                        Use {'{'}variable{'}'} placeholders for dynamic content.
-                    </small>
+    <div class="card-modern p-6 lg:p-8 mb-6 animate-fade-in">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <i class="bi bi-robot"></i> AI Configuration
+            </h3>
+            <div class="flex items-center gap-2">
+                <div class="badge badge-{{ ai_status.get_status_color }} gap-1">
+                    <i class="bi bi-circle-fill text-[0.4rem]"></i>
+                    {{ ai_status.get_status_display }}
+                </div>
+                <label class="label cursor-pointer ml-2">
+                    <span class="label-text text-xs mr-2">Enabled</span>
+                    <input type="checkbox" 
+                           id="ai-enabled" 
+                           data-service="AI"
+                           class="toggle toggle-sm toggle-primary"
+                           {% if ai_status.is_enabled %}checked{% endif %}
+                           onchange="toggleService('AI', this.checked)" />
                 </label>
-                <textarea class="form-control" id="ai_prompt_template" name="ai_prompt_template" 
-                          rows="12">{{ settings.ai_prompt_template }}</textarea>
+                <button type="button" class="btn btn-sm btn-outline btn-primary" onclick="testService('AI')">
+                    <i class="bi bi-activity"></i> Test
+                </button>
             </div>
         </div>
+        {% if ai_status.last_error %}
+        <div class="alert alert-error mb-4 py-2 text-xs">
+            <i class="bi bi-exclamation-triangle"></i>
+            {{ ai_status.last_error|truncatechars:100 }}
+        </div>
+        {% endif %}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text font-semibold">AI Provider</span>
+                </label>
+                <input type="text" class="input-modern w-full" id="ai_provider" name="ai_provider"
+                       value="{{ settings.ai_provider }}" placeholder="DeepSeek">
+            </div>
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text font-semibold">AI Model</span>
+                </label>
+                <input type="text" class="input-modern w-full" id="ai_api_model" name="ai_api_model"
+                       value="{{ settings.ai_api_model }}" placeholder="deepseek-chat">
+            </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div class="form-control md:col-span-2">
+                <label class="label">
+                    <span class="label-text font-semibold">AI API Base URL</span>
+                </label>
+                <input type="text" class="input-modern w-full" id="ai_api_base" name="ai_api_base"
+                       value="{{ settings.ai_api_base }}" placeholder="https://api.deepseek.com/v1">
+            </div>
+        </div>
+        <div class="form-control mb-4">
+            <label class="label flex-col items-start">
+                <span class="label-text font-semibold">AI API Key</span>
+                <span class="text-xs text-base-content/50">Leave blank to keep current</span>
+            </label>
+            <input type="password" class="input-modern w-full" id="ai_api_key" name="ai_api_key"
+                   placeholder="{% if settings.ai_api_key %}••••••••••••{% endif %}" autocomplete="off">
+            {% if settings.ai_api_key %}
+                <span class="text-xs text-base-content/50 mt-1">Current API key is set. Enter new value to change.</span>
+            {% endif %}
+        </div>
+        <div class="form-control">
+            <label class="label flex-col items-start">
+                <span class="label-text font-semibold">AI Prompt Template</span>
+                <span class="text-xs text-base-content/50">
+                    Use {'{'}variable{'}'} placeholders for dynamic content.
+                </span>
+            </label>
+            <textarea class="rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full font-mono text-sm p-4" id="ai_prompt_template" name="ai_prompt_template"
+                      rows="12">{{ settings.ai_prompt_template }}</textarea>
+        </div>
     </div>
-    
+
     <!-- IMAP Configuration -->
-    <div class="card mb-4">
-        <div class="card-header bg-info text-white">
-            <h5 class="mb-0"><i class="bi bi-envelope"></i> IMAP Configuration</h5>
+    <div class="card-modern p-6 lg:p-8 mb-6 animate-fade-in">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <i class="bi bi-envelope"></i> IMAP Configuration
+            </h3>
+            <div class="flex items-center gap-2">
+                <div class="badge badge-{{ imap_status.get_status_color }} gap-1">
+                    <i class="bi bi-circle-fill text-[0.4rem]"></i>
+                    {{ imap_status.get_status_display }}
+                </div>
+                <label class="label cursor-pointer ml-2">
+                    <span class="label-text text-xs mr-2">Enabled</span>
+                    <input type="checkbox" 
+                           id="imap-enabled" 
+                           data-service="IMAP"
+                           class="toggle toggle-sm toggle-success"
+                           {% if imap_status.is_enabled %}checked{% endif %}
+                           onchange="toggleService('IMAP', this.checked)" />
+                </label>
+                <button type="button" class="btn btn-sm btn-outline btn-success" onclick="testService('IMAP')">
+                    <i class="bi bi-activity"></i> Test
+                </button>
+            </div>
         </div>
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-4 mb-3">
-                    <label for="imap_host" class="form-label">IMAP Host</label>
-                    <input type="text" class="form-control" id="imap_host" name="imap_host" 
-                           value="{{ settings.imap_host }}">
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label for="imap_user" class="form-label">IMAP Username</label>
-                    <input type="text" class="form-control" id="imap_user" name="imap_user" 
-                           value="{{ settings.imap_user }}">
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label for="imap_pass" class="form-label">
-                        IMAP Password
-                        <small class="text-muted">Leave blank to keep current</small>
-                    </label>
-                    <input type="password" class="form-control" id="imap_pass" name="imap_pass" 
-                           placeholder="{% if settings.imap_pass %}••••••••••••{% endif %}" autocomplete="off">
-                    {% if settings.imap_pass %}
-                        <div class="form-text">Current password is set. Enter new value to change.</div>
-                    {% endif %}
-                </div>
+        {% if imap_status.last_error %}
+        <div class="alert alert-error mb-4 py-2 text-xs">
+            <i class="bi bi-exclamation-triangle"></i>
+            {{ imap_status.last_error|truncatechars:100 }}
+        </div>
+        {% endif %}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text font-semibold">IMAP Host</span>
+                </label>
+                <input type="text" class="input-modern w-full" id="imap_host" name="imap_host"
+                       value="{{ settings.imap_host }}">
+            </div>
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text font-semibold">IMAP Username</span>
+                </label>
+                <input type="text" class="input-modern w-full" id="imap_user" name="imap_user"
+                       value="{{ settings.imap_user }}">
+            </div>
+            <div class="form-control">
+                <label class="label flex-col items-start">
+                    <span class="label-text font-semibold">IMAP Password</span>
+                    <span class="text-xs text-base-content/50">Leave blank to keep current</span>
+                </label>
+                <input type="password" class="input-modern w-full" id="imap_pass" name="imap_pass"
+                       placeholder="{% if settings.imap_pass %}••••••••••••{% endif %}" autocomplete="off">
+                {% if settings.imap_pass %}
+                    <span class="text-xs text-base-content/50 mt-1">Current password is set. Enter new value to change.</span>
+                {% endif %}
             </div>
         </div>
     </div>
-    
+
     <!-- Zendesk Configuration -->
-    <div class="card mb-4">
-        <div class="card-header bg-success text-white">
-            <h5 class="mb-0"><i class="bi bi-ticket"></i> Zendesk Configuration</h5>
+    <div class="card-modern p-6 lg:p-8 mb-6 animate-fade-in">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <i class="bi bi-ticket"></i> Zendesk Configuration
+            </h3>
+            <div class="flex items-center gap-2">
+                <div class="badge badge-{{ zd_status.get_status_color }} gap-1">
+                    <i class="bi bi-circle-fill text-[0.4rem]"></i>
+                    {{ zd_status.get_status_display }}
+                </div>
+                <label class="label cursor-pointer ml-2">
+                    <span class="label-text text-xs mr-2">Enabled</span>
+                    <input type="checkbox" 
+                           id="zendesk-enabled" 
+                           data-service="ZENDESK"
+                           class="toggle toggle-sm toggle-info"
+                           {% if zd_status.is_enabled %}checked{% endif %}
+                           onchange="toggleService('ZENDESK', this.checked)" />
+                </label>
+                <button type="button" class="btn btn-sm btn-outline btn-info" onclick="testService('ZENDESK')">
+                    <i class="bi bi-activity"></i> Test
+                </button>
+            </div>
         </div>
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-4 mb-3">
-                    <label for="zd_subdomain" class="form-label">Zendesk Subdomain</label>
-                    <input type="text" class="form-control" id="zd_subdomain" name="zd_subdomain" 
-                           value="{{ settings.zd_subdomain }}" placeholder="your-company">
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label for="zd_email" class="form-label">Zendesk Email</label>
-                    <input type="email" class="form-control" id="zd_email" name="zd_email" 
-                           value="{{ settings.zd_email }}">
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label for="zd_token" class="form-label">
-                        Zendesk API Token
-                        <small class="text-muted">Leave blank to keep current</small>
-                    </label>
-                    <input type="password" class="form-control" id="zd_token" name="zd_token" 
-                           placeholder="{% if settings.zd_token %}••••••••••••{% endif %}" autocomplete="off">
-                    {% if settings.zd_token %}
-                        <div class="form-text">Current token is set. Enter new value to change.</div>
-                    {% endif %}
-                </div>
+        {% if zd_status.last_error %}
+        <div class="alert alert-error mb-4 py-2 text-xs">
+            <i class="bi bi-exclamation-triangle"></i>
+            {{ zd_status.last_error|truncatechars:100 }}
+        </div>
+        {% endif %}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text font-semibold">Zendesk Subdomain</span>
+                </label>
+                <input type="text" class="input-modern w-full" id="zd_subdomain" name="zd_subdomain"
+                       value="{{ settings.zd_subdomain }}" placeholder="your-company">
+            </div>
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text font-semibold">Zendesk Email</span>
+                </label>
+                <input type="email" class="input-modern w-full" id="zd_email" name="zd_email"
+                       value="{{ settings.zd_email }}">
+            </div>
+            <div class="form-control">
+                <label class="label flex-col items-start">
+                    <span class="label-text font-semibold">Zendesk API Token</span>
+                    <span class="text-xs text-base-content/50">Leave blank to keep current</span>
+                </label>
+                <input type="password" class="input-modern w-full" id="zd_token" name="zd_token"
+                       placeholder="{% if settings.zd_token %}••••••••••••{% endif %}" autocomplete="off">
+                {% if settings.zd_token %}
+                    <span class="text-xs text-base-content/50 mt-1">Current token is set. Enter new value to change.</span>
+                {% endif %}
             </div>
         </div>
     </div>
-    
+
     <!-- PayPal Configuration -->
-    <div class="card mb-4">
-        <div class="card-header bg-warning text-dark">
-            <h5 class="mb-0"><i class="bi bi-currency-dollar"></i> PayPal Configuration</h5>
+    <div class="card-modern p-6 lg:p-8 mb-6 animate-fade-in">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <i class="bi bi-currency-dollar"></i> PayPal Configuration
+            </h3>
+            <div class="flex items-center gap-2">
+                <div class="badge badge-{{ paypal_status.get_status_color }} gap-1">
+                    <i class="bi bi-circle-fill text-[0.4rem]"></i>
+                    {{ paypal_status.get_status_display }}
+                </div>
+                <label class="label cursor-pointer ml-2">
+                    <span class="label-text text-xs mr-2">Enabled</span>
+                    <input type="checkbox" 
+                           id="paypal-enabled" 
+                           data-service="PAYPAL"
+                           class="toggle toggle-sm toggle-warning"
+                           {% if paypal_status.is_enabled %}checked{% endif %}
+                           onchange="toggleService('PAYPAL', this.checked)" />
+                </label>
+                <button type="button" class="btn btn-sm btn-outline btn-warning" onclick="testService('PAYPAL')">
+                    <i class="bi bi-activity"></i> Test
+                </button>
+            </div>
         </div>
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-4 mb-3">
-                    <label for="paypal_client_id" class="form-label">PayPal Client ID</label>
-                    <input type="text" class="form-control" id="paypal_client_id" name="paypal_client_id" 
-                           value="{{ settings.paypal_client_id }}">
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label for="paypal_secret" class="form-label">
-                        PayPal Secret
-                        <small class="text-muted">Leave blank to keep current</small>
-                    </label>
-                    <input type="password" class="form-control" id="paypal_secret" name="paypal_secret" 
-                           placeholder="{% if settings.paypal_secret %}••••••••••••{% endif %}" autocomplete="off">
-                    {% if settings.paypal_secret %}
-                        <div class="form-text">Current secret is set. Enter new value to change.</div>
-                    {% endif %}
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label for="paypal_webhook_id" class="form-label">PayPal Webhook ID</label>
-                    <input type="text" class="form-control" id="paypal_webhook_id" name="paypal_webhook_id" 
-                           value="{{ settings.paypal_webhook_id }}">
-                </div>
+        {% if paypal_status.last_error %}
+        <div class="alert alert-error mb-4 py-2 text-xs">
+            <i class="bi bi-exclamation-triangle"></i>
+            {{ paypal_status.last_error|truncatechars:100 }}
+        </div>
+        {% endif %}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text font-semibold">PayPal Client ID</span>
+                </label>
+                <input type="text" class="input-modern w-full" id="paypal_client_id" name="paypal_client_id"
+                       value="{{ settings.paypal_client_id }}">
+            </div>
+            <div class="form-control">
+                <label class="label flex-col items-start">
+                    <span class="label-text font-semibold">PayPal Secret</span>
+                    <span class="text-xs text-base-content/50">Leave blank to keep current</span>
+                </label>
+                <input type="password" class="input-modern w-full" id="paypal_secret" name="paypal_secret"
+                       placeholder="{% if settings.paypal_secret %}••••••••••••{% endif %}" autocomplete="off">
+                {% if settings.paypal_secret %}
+                    <span class="text-xs text-base-content/50 mt-1">Current secret is set. Enter new value to change.</span>
+                {% endif %}
+            </div>
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text font-semibold">PayPal Webhook ID</span>
+                </label>
+                <input type="text" class="input-modern w-full" id="paypal_webhook_id" name="paypal_webhook_id"
+                       value="{{ settings.paypal_webhook_id }}">
             </div>
         </div>
     </div>
-    
+
     <!-- Sidebar Authentication -->
-    <div class="card mb-4">
-        <div class="card-header bg-danger text-white">
-            <h5 class="mb-0"><i class="bi bi-shield-lock"></i> Sidebar Authentication</h5>
-        </div>
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-6 mb-3">
-                    <label for="sidebar_secret_token" class="form-label">
-                        Sidebar Secret Token
-                        <small class="text-muted">Leave blank to keep current</small>
-                    </label>
-                    <input type="password" class="form-control" id="sidebar_secret_token" name="sidebar_secret_token" 
-                           placeholder="{% if settings.sidebar_secret_token %}••••••••••••{% endif %}" autocomplete="off">
-                    {% if settings.sidebar_secret_token %}
-                        <div class="form-text">Current token is set. Enter new value to change.</div>
-                    {% endif %}
-                    <small class="text-muted">Used to authenticate Zendesk sidebar widget requests.</small>
+    <div class="card-modern p-6 lg:p-8 mb-6 animate-fade-in">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <i class="bi bi-shield-lock"></i> Sidebar Authentication
+            </h3>
+            <div class="flex items-center gap-2">
+                <div class="badge badge-{{ sidebar_status.get_status_color }} gap-1">
+                    <i class="bi bi-circle-fill text-[0.4rem]"></i>
+                    {{ sidebar_status.get_status_display }}
                 </div>
+                <label class="label cursor-pointer ml-2">
+                    <span class="label-text text-xs mr-2">Enabled</span>
+                    <input type="checkbox" 
+                           id="sidebar-enabled" 
+                           data-service="SIDEBAR"
+                           class="toggle toggle-sm toggle-neutral"
+                           {% if sidebar_status.is_enabled %}checked{% endif %}
+                           onchange="toggleService('SIDEBAR', this.checked)" />
+                </label>
+            </div>
+        </div>
+        {% if sidebar_status.last_error %}
+        <div class="alert alert-error mb-4 py-2 text-xs">
+            <i class="bi bi-exclamation-triangle"></i>
+            {{ sidebar_status.last_error|truncatechars:100 }}
+        </div>
+        {% endif %}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="form-control">
+                <label class="label flex-col items-start">
+                    <span class="label-text font-semibold">Sidebar Secret Token</span>
+                    <span class="text-xs text-base-content/50">Leave blank to keep current</span>
+                </label>
+                <input type="password" class="input-modern w-full" id="sidebar_secret_token" name="sidebar_secret_token"
+                       placeholder="{% if settings.sidebar_secret_token %}••••••••••••{% endif %}" autocomplete="off">
+                {% if settings.sidebar_secret_token %}
+                    <span class="text-xs text-base-content/50 mt-1">Current token is set. Enter new value to change.</span>
+                {% endif %}
+                <span class="text-xs text-base-content/50 mt-1">Used to authenticate Zendesk sidebar widget requests.</span>
             </div>
         </div>
     </div>
-    
+
+    <!-- Email Scheduler -->
+    <div class="card-modern p-6 lg:p-8 mb-6 animate-fade-in">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <i class="bi bi-clock-history"></i> Email Scheduler
+            </h3>
+            <div class="flex items-center gap-2">
+                <div class="badge badge-{{ scheduler_status.get_status_color }} gap-1">
+                    <i class="bi bi-circle-fill text-[0.4rem]"></i>
+                    {{ scheduler_status.get_status_display }}
+                </div>
+                <label class="label cursor-pointer ml-2">
+                    <span class="label-text text-xs mr-2">Enabled</span>
+                    <input type="checkbox" 
+                           id="scheduler-enabled" 
+                           data-service="SCHEDULER"
+                           class="toggle toggle-sm toggle-error"
+                           {% if scheduler_status.is_enabled %}checked{% endif %}
+                           onchange="toggleSchedulerEnabled(this.checked)" />
+                </label>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-xs btn-success" onclick="controlScheduler('start')" title="Start">
+                        <i class="bi bi-play-fill"></i>
+                    </button>
+                    <button type="button" class="btn btn-xs btn-error" onclick="controlScheduler('stop')" title="Stop">
+                        <i class="bi bi-stop-fill"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% if scheduler_status.last_error %}
+        <div class="alert alert-error mb-4 py-2 text-xs">
+            <i class="bi bi-exclamation-triangle"></i>
+            {{ scheduler_status.last_error|truncatechars:100 }}
+        </div>
+        {% endif %}
+        <p class="text-sm text-base-content/70">
+            <i class="bi bi-info-circle"></i>
+            Automatically processes incoming emails every 3 minutes when running.
+        </p>
+    </div>
+
+    <!-- Screenshot Service -->
+    <div class="card-modern p-6 lg:p-8 mb-6 animate-fade-in">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <i class="bi bi-camera"></i> Screenshot Service
+            </h3>
+            <div class="flex items-center gap-2">
+                <div class="badge badge-{{ screenshot_status.get_status_color }} gap-1">
+                    <i class="bi bi-circle-fill text-[0.4rem]"></i>
+                    {{ screenshot_status.get_status_display }}
+                </div>
+                <label class="label cursor-pointer ml-2">
+                    <span class="label-text text-xs mr-2">Enabled</span>
+                    <input type="checkbox" 
+                           id="screenshot-enabled" 
+                           data-service="SCREENSHOT"
+                           class="toggle toggle-sm toggle-secondary"
+                           {% if screenshot_status.is_enabled %}checked{% endif %}
+                           onchange="toggleService('SCREENSHOT', this.checked)" />
+                </label>
+                <button type="button" class="btn btn-sm btn-outline btn-secondary" onclick="testService('SCREENSHOT')">
+                    <i class="bi bi-activity"></i> Test
+                </button>
+            </div>
+        </div>
+        {% if screenshot_status.last_error %}
+        <div class="alert alert-error mb-4 py-2 text-xs">
+            <i class="bi bi-exclamation-triangle"></i>
+            {{ screenshot_status.last_error|truncatechars:100 }}
+        </div>
+        {% endif %}
+        <p class="text-sm text-base-content/70">
+            <i class="bi bi-info-circle"></i>
+            Captures Zendesk ticket screenshots using Playwright browser automation.
+        </p>
+    </div>
+
     <!-- Save Button -->
-    <div class="d-flex justify-content-end">
-        <button type="submit" class="btn btn-primary btn-lg">
+    <div class="flex justify-end">
+        <button type="submit" class="btn btn-primary btn-lg rounded-xl transition-all duration-200 hover:scale-[1.02]">
             <i class="bi bi-check-circle"></i> Save Settings
         </button>
     </div>
 </form>
 
 <!-- Security Notice -->
-<div class="alert alert-info mt-3">
-    <i class="bi bi-shield-check"></i> 
-    <strong>Security Notice:</strong> All sensitive credentials (passwords, tokens, secrets) are 
-    encrypted at rest in the database. Password fields are never pre-filled - enter a new value 
-    only when you want to change them.
+<div class="rounded-xl border-0 bg-info/10 text-info p-4 flex items-start gap-3 mt-6">
+    <i class="bi bi-shield-check text-lg mt-0.5"></i>
+    <div>
+        <span class="font-semibold">Security Notice:</span> All sensitive credentials (passwords, tokens, secrets) are
+        encrypted at rest in the database. Password fields are never pre-filled - enter a new value
+        only when you want to change them.
+    </div>
 </div>
+
+<!-- Status Legend -->
+<div class="card bg-base-100 shadow-md p-4 mt-6">
+    <h4 class="text-sm font-semibold mb-3">Status Legend:</h4>
+    <div class="flex flex-wrap gap-2">
+        <div class="badge badge-success gap-1"><i class="bi bi-circle-fill text-[0.4rem]"></i>Connected</div>
+        <div class="badge badge-neutral gap-1"><i class="bi bi-circle-fill text-[0.4rem]"></i>Disconnected</div>
+        <div class="badge badge-error gap-1"><i class="bi bi-circle-fill text-[0.4rem]"></i>Error</div>
+        <div class="badge badge-primary gap-1"><i class="bi bi-circle-fill text-[0.4rem]"></i>Running</div>
+        <div class="badge badge-warning gap-1"><i class="bi bi-circle-fill text-[0.4rem]"></i>Stopped</div>
+    </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast toast-end z-50">
+    <div id="serviceToast" class="alert alert-hidden opacity-0 transition-all duration-300">
+        <i class="bi bi-bell"></i>
+        <span id="toastMessage"></span>
+        <button class="btn btn-sm btn-circle btn-ghost" onclick="hideToast()">
+            <i class="bi bi-x"></i>
+        </button>
+    </div>
+</div>
+
+<script src="{% static 'js/service-controls.js' %}"></script>
 {% endblock %}
