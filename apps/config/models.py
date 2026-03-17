@@ -1,17 +1,136 @@
 from django.db import models
+from django.utils import timezone
 
 from apps.config.encrypted_fields import EncryptedCharField, EncryptedTextField
+
+__all__ = ['SystemSettings', 'ServiceStatus']
+
+
+class ServiceStatus(models.Model):
+    """Track status of external service connections and background services."""
+    
+    SERVICE_CHOICES = [
+        ('AI', 'AI Provider'),
+        ('IMAP', 'IMAP Email'),
+        ('ZENDESK', 'Zendesk'),
+        ('PAYPAL', 'PayPal'),
+        ('SCHEDULER', 'Email Scheduler'),
+        ('SCREENSHOT', 'Screenshot Service'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('connected', 'Connected'),
+        ('disconnected', 'Disconnected'),
+        ('error', 'Error'),
+        ('running', 'Running'),
+        ('stopped', 'Stopped'),
+    ]
+    
+    service = models.CharField(
+        max_length=20,
+        choices=SERVICE_CHOICES,
+        unique=True,
+        help_text='The service this status entry represents'
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='disconnected',
+        help_text='Current connection/operational status'
+    )
+    is_enabled = models.BooleanField(
+        default=True,
+        help_text='Whether this service is enabled (toggle control)'
+    )
+    last_checked = models.DateTimeField(
+        auto_now_add=True,
+        help_text='Last time the connection was tested'
+    )
+    last_error = models.TextField(
+        blank=True,
+        default='',
+        help_text='Last error message if status is error'
+    )
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Additional service-specific metadata'
+    )
+    
+    class Meta:
+        ordering = ['service']
+        verbose_name = 'Service Status'
+        verbose_name_plural = 'Service Statuses'
+    
+    def __str__(self):
+        service_name = dict(self.SERVICE_CHOICES).get(self.service, self.service)
+        return f'{service_name} - {self.get_status_display()}'
+    
+    def mark_connected(self):
+        """Mark service as connected."""
+        self.status = 'connected'
+        self.last_checked = timezone.now()
+        self.last_error = ''
+        self.save()
+    
+    def mark_disconnected(self):
+        """Mark service as disconnected."""
+        self.status = 'disconnected'
+        self.last_checked = timezone.now()
+        self.last_error = ''
+        self.save()
+    
+    def mark_error(self, error_message):
+        """Mark service as having an error."""
+        self.status = 'error'
+        self.last_checked = timezone.now()
+        self.last_error = error_message
+        self.save()
+    
+    def get_status_color(self):
+        """Return DaisyUI status color class."""
+        color_map = {
+            'connected': 'success',
+            'disconnected': 'neutral',
+            'error': 'error',
+            'running': 'primary',
+            'stopped': 'warning',
+        }
+        return color_map.get(self.status, 'neutral')
 
 
 class SystemSettings(models.Model):
     """
     Singleton model for system-wide configuration.
     Only one instance should exist (pk=1).
-    
+
     Sensitive fields are encrypted at rest using EncryptedCharField/EncryptedTextField.
     """
 
-    # AI/Qwen Configuration (not sensitive)
+    # AI Configuration
+    ai_provider = models.CharField(
+        max_length=50,
+        default='DeepSeek',
+        help_text='AI provider name (e.g., DeepSeek, Qwen)'
+    )
+    ai_api_base = models.CharField(
+        max_length=255,
+        default='https://api.deepseek.com/v1',
+        help_text='AI API base URL (e.g., https://api.deepseek.com/v1)'
+    )
+    ai_api_key = EncryptedCharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='AI API key (encrypted at rest)'
+    )
+    ai_api_model = models.CharField(
+        max_length=100,
+        default='deepseek-chat',
+        help_text='AI model name (e.g., deepseek-chat, qwen-plus)'
+    )
+
+    # AI Prompt Templates
     ai_prompt_template = models.TextField(
         default="""You are an assistant for the Lost Object Recovery Automation (LORA) system.
 Your task is to analyze lost object claims and help determine the appropriate action.

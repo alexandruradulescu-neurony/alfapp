@@ -563,6 +563,18 @@ def manager_dashboard(request):
     recent_emails = EmailLog.objects.select_related('claim').order_by('-received_at')[:10]
     recent_disputes = Dispute.objects.select_related('claim').order_by('-created_at')[:5]
 
+    # Service statuses
+    from apps.config.models import ServiceStatus
+    service_statuses = {s.service: s for s in ServiceStatus.objects.all()}
+    
+    # Ensure all expected services exist
+    for service_key in ['AI', 'IMAP', 'ZENDESK', 'PAYPAL', 'SCHEDULER', 'SCREENSHOT']:
+        if service_key not in service_statuses:
+            service_statuses[service_key], _ = ServiceStatus.objects.get_or_create(
+                service=service_key,
+                defaults={'status': 'disconnected', 'is_enabled': True}
+            )
+
     context = {
         'total_claims': stats['total'],
         'received': stats['received'],
@@ -584,6 +596,12 @@ def manager_dashboard(request):
         'recent_claims': recent_claims,
         'recent_emails': recent_emails,
         'recent_disputes': recent_disputes,
+        'ai_status': service_statuses['AI'],
+        'imap_status': service_statuses['IMAP'],
+        'zd_status': service_statuses['ZENDESK'],
+        'paypal_status': service_statuses['PAYPAL'],
+        'scheduler_status': service_statuses['SCHEDULER'],
+        'screenshot_status': service_statuses['SCREENSHOT'],
     }
 
     return render(request, 'manager/dashboard.html', context)
@@ -647,14 +665,14 @@ def manager_settings(request):
         if form.is_valid():
             # Save non-sensitive fields from the form
             form.save()
-            
+
             # Handle sensitive fields - only update if provided
-            sensitive_fields = ['imap_pass', 'zd_token', 'paypal_secret', 'sidebar_secret_token', 'zd_agent_password']
+            sensitive_fields = ['imap_pass', 'zd_token', 'paypal_secret', 'sidebar_secret_token', 'zd_agent_password', 'ai_api_key']
             for field_name in sensitive_fields:
                 value = form.cleaned_data.get(field_name)
                 if value:
                     setattr(settings, field_name, value)
-            
+
             settings.save()
             messages.success(request, 'Settings saved successfully.')
         else:
@@ -683,6 +701,64 @@ def manager_users(request):
     from django.db import transaction
     from django.contrib.auth.password_validation import validate_password
     from django.core.exceptions import ValidationError
+
+
+@manager_required
+def test_ai(request):
+    """Test AI connection and configuration.
+    
+    Sends a simple test prompt to the configured AI provider
+    and displays the response for debugging.
+    """
+    from apps.config.models import SystemSettings
+    from openai import OpenAI
+    
+    settings_obj = SystemSettings.get_instance()
+    result = {
+        'success': False,
+        'message': '',
+        'response': '',
+        'config': {
+            'provider': settings_obj.ai_provider,
+            'api_base': settings_obj.ai_api_base,
+            'api_model': settings_obj.ai_api_model,
+            'api_key_configured': bool(settings_obj.ai_api_key),
+        }
+    }
+    
+    # Check if API key is configured
+    if not settings_obj.ai_api_key:
+        result['message'] = 'AI API Key is not configured. Please add your API key in System Settings.'
+        return render(request, 'manager/test_ai.html', result)
+    
+    if request.method == 'POST':
+        test_prompt = request.POST.get('test_prompt', 'Say hello')
+        
+        try:
+            client = OpenAI(
+                api_key=settings_obj.ai_api_key,
+                base_url=settings_obj.ai_api_base,
+            )
+            
+            response = client.chat.completions.create(
+                model=settings_obj.ai_api_model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": test_prompt},
+                ],
+                temperature=0.7,
+                max_tokens=200,
+            )
+            
+            result['success'] = True
+            result['message'] = 'AI connection successful!'
+            result['response'] = response.choices[0].message.content
+            result['tokens_used'] = response.usage.total_tokens
+        except Exception as e:
+            result['message'] = f'AI connection failed: {str(e)}'
+            result['error'] = str(e)
+    
+    return render(request, 'manager/test_ai.html', result)
 
     users = User.objects.order_by('-date_joined')
 

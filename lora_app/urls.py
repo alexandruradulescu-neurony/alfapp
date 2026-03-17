@@ -20,6 +20,7 @@ urlpatterns = [
     path('api/communications/', include('apps.communications.urls')),
     path('api/integrations/', include('apps.integrations.urls')),
     path('api/payments/', include('apps.payments.urls')),
+    path('api/services/', include(('apps.config.api.urls', 'api'), namespace='services')),
 ]
 
 # Serve static files in development
