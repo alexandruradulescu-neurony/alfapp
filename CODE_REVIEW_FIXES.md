@@ -1,9 +1,83 @@
-# Code Review Fixes Summary
+# Code Review Fixes & Recent Changes
 
-**Date:** March 17, 2026
-**Status:** ✅ COMPLETE - All 25 issues fixed
+**Date:** March 17, 2026  
+**Version:** 1.1.0
 
 ---
+
+## Recent Major Changes (v1.1.0)
+
+### 🎨 Frontend Migration: Bootstrap → Tailwind/DaisyUI
+
+**Completed:** March 17, 2026
+
+**Changes:**
+- Migrated entire UI from Bootstrap 5 to Tailwind CSS 4 + DaisyUI 5
+- Created custom `lora` theme with indigo/slate color palette
+- Implemented new utility classes:
+  - `.glass-panel` - Backdrop blur sidebar
+  - `.card-modern` - Elevated cards with hover effects
+  - `.stat-modern` - Statistics cards
+  - `.table-modern` - Sticky header tables
+  - `.input-modern` - Styled form inputs
+- Added mesh gradient background
+- Integrated Inter font from Google Fonts
+- Custom status badge colors for claims and disputes
+- Smooth animations (fade-in, hover-lift)
+
+**Files Changed:**
+- `static/src/css/tailwind.css` - New Tailwind config with custom theme
+- All template files - Updated class names
+- `package.json` - Added Tailwind/DaisyUI dependencies
+- Removed: `tailwind.config.js` (using inline config in Tailwind v4)
+
+### 🔍 Service Monitoring System
+
+**Completed:** March 17, 2026
+
+**New Features:**
+- **ServiceStatus model** - Track connection status for 6 services
+- **ConnectionTester service** - Test connectivity (AI, IMAP, Zendesk, PayPal)
+- **SchedulerController service** - Control email scheduler (start/stop)
+- **API endpoints** for service control
+- **UI components** in Manager → Configuration:
+  - Status indicator badges (color-coded)
+  - Enable/disable toggle switches
+  - Test buttons for each service
+  - Start/Stop buttons for scheduler
+  - Auto-refresh every 2 minutes
+  - Toast notifications
+
+**New Files:**
+- `apps/config/models.py` - ServiceStatus model (added)
+- `apps/config/services/connection_tester.py` - New file
+- `apps/config/services/scheduler_controller.py` - New file
+- `apps/config/api/views.py` - New file
+- `apps/config/api/serializers.py` - New file
+- `apps/config/api/urls.py` - New file
+- `templates/config/services_dashboard.html` - New file
+- `static/js/service-controls.js` - New file
+
+**Files Modified:**
+- `templates/manager/settings.html` - Integrated service status into each section
+- `templates/manager/dashboard.html` - Removed services widget
+- `apps/users/views.py` - Added service status context
+
+### 📚 Documentation Overhaul
+
+**Completed:** March 17, 2026
+
+**New Documentation:**
+- `README.md` - Complete rewrite with comprehensive guide
+- `docs/DEVELOPMENT.md` - Development workflows and best practices
+- `docs/SERVICE_MONITORING.md` - Service monitoring system documentation
+- `CHANGELOG.md` - Version history and migration guide
+
+---
+
+## Code Review Fixes (v1.0.0)
+
+**Status:** ✅ COMPLETE - All 25 issues fixed
 
 ## Batch 1: CRITICAL Security (7/7) ✅
 
