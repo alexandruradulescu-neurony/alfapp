@@ -484,12 +484,12 @@ def process_single_email(
 
         # Extract alias from headers (To, Delivered-To, etc.)
         alias = extract_alias_from_headers(msg)
-        
+
         # Initialize matching variables
         zd_ticket_id = ''
         claim = None
         matched_via = 'none'
-        
+
         # Step 1: Try alias-based matching via Zendesk custom field
         if alias:
             logger.info(f"Attempting to match alias {alias} to Zendesk ticket")
@@ -498,14 +498,20 @@ def process_single_email(
             if ticket_data:
                 zd_ticket_id = str(ticket_data.get('id', ''))
                 matched_via = 'alias'
-                logger.info(f"Matched alias {alias} to Zendesk ticket {zd_ticket_id}")
+                logger.info(f"✓ Matched alias {alias} to Zendesk ticket {zd_ticket_id}")
 
                 # Try to find associated claim
                 claim = Claim.objects.filter(zd_ticket_id=zd_ticket_id).first()
             else:
-                logger.info(f"No Zendesk ticket found for alias {alias}")
+                logger.warning(f"✗ No Zendesk ticket found for alias {alias}")
         else:
-            logger.info(f"No alias found in email headers")
+            logger.warning(f"✗ No alias found in email headers")
+
+        # Log matching result
+        if zd_ticket_id:
+            logger.info(f"Email will be posted to Zendesk ticket {zd_ticket_id}")
+        else:
+            logger.warning(f"Email will NOT be posted to Zendesk (no ticket match)")
         
         # Extract email body
         body = extract_email_body(msg)
@@ -576,7 +582,8 @@ def process_single_email(
         # Post full email + AI summary to Zendesk — only if matched via alias
         # (from_email fallback is unreliable and could post to wrong ticket)
         if zd_ticket_id and matched_via == 'alias':
-            post_ai_summary_to_zendesk(
+            logger.info(f"Posting email to Zendesk ticket {zd_ticket_id}...")
+            success = post_ai_summary_to_zendesk(
                 zd_ticket_id=zd_ticket_id,
                 parsed=parsed,
                 subject=subject,
@@ -584,11 +591,17 @@ def process_single_email(
                 email_body=body,
                 alias=alias or '',
             )
+            if success:
+                logger.info(f"✓ Successfully posted email to Zendesk ticket {zd_ticket_id}")
+            else:
+                logger.error(f"✗ Failed to post email to Zendesk ticket {zd_ticket_id}")
         elif zd_ticket_id and matched_via != 'alias':
             logger.info(
                 f"Skipping Zendesk posting for ticket {zd_ticket_id} — "
                 f"matched via {matched_via}, not alias (risk of wrong ticket)"
             )
+        else:
+            logger.warning(f"Skipping Zendesk posting — no ticket ID or match")
 
         # Mark email as SEEN only if auto-resolved
         if should_mark_as_seen:
