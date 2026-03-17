@@ -206,7 +206,7 @@
             Process Refund
         </h3>
         
-        <form id="refundForm" method="POST" action="{% url 'api:refund-list' %}">
+        <form id="refundForm" method="POST" action="/api/payments/refunds/process/">
             {% csrf_token %}
             
             <div class="form-control mb-4">
