@@ -364,38 +364,38 @@ def agent_upload_evidence(request, claim_id):
                     
                     # Validate file content using filetype as secondary check
                     try:
-                            with tempfile.NamedTemporaryFile(delete=False) as tmp:
-                                for chunk in image.chunks():
-                                    tmp.write(chunk)
-                                tmp_path = tmp.name
+                        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                            for chunk in image.chunks():
+                                tmp.write(chunk)
+                            tmp_path = tmp.name
 
-                            # Use filetype to detect actual file type (secondary validation)
-                            kind = filetype.guess(tmp_path)
+                        # Use filetype to detect actual file type (secondary validation)
+                        kind = filetype.guess(tmp_path)
 
-                            if kind is None or kind.mime not in allowed_mime_types:
-                                os.unlink(tmp_path)
-                                messages.error(
-                                    request,
-                                    f'Invalid file content. File does not appear to be a valid image.'
-                                )
-                                return redirect('agent_claim_detail', claim_id=claim_id)
-
-                            # File is valid, clean up temp file and save
+                        if kind is None or kind.mime not in allowed_mime_types:
                             os.unlink(tmp_path)
-                            
-                            # Sanitize filename to prevent path traversal
-                            image.name = get_valid_filename(image.name)
-                            
-                            ClaimEvidence.objects.create(
-                                claim=claim,
-                                image=image,
-                                description=description
+                            messages.error(
+                                request,
+                                f'Invalid file content. File does not appear to be a valid image.'
                             )
-                            messages.success(request, 'Evidence uploaded successfully.')
-                            
-                        except Exception as e:
-                            logger.error(f"Error processing file upload: {e}")
-                            messages.error(request, 'Error processing file. Please try again.')
+                            return redirect('agent_claim_detail', claim_id=claim_id)
+
+                        # File is valid, clean up temp file and save
+                        os.unlink(tmp_path)
+
+                        # Sanitize filename to prevent path traversal
+                        image.name = get_valid_filename(image.name)
+
+                        ClaimEvidence.objects.create(
+                            claim=claim,
+                            image=image,
+                            description=description
+                        )
+                        messages.success(request, 'Evidence uploaded successfully.')
+
+                    except Exception as e:
+                        logger.error(f"Error processing file upload: {e}")
+                        messages.error(request, 'Error processing file. Please try again.')
         else:
             messages.error(request, 'Please select an image file.')
 
