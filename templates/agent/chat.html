@@ -1,0 +1,269 @@
+{% extends 'base.html' %}
+
+{% block title %}AI Agent Chat{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto">
+    <!-- Page Header -->
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <i class="bi bi-robot"></i> AI Agent Chat
+        </h2>
+        <button type="button" class="btn btn-sm btn-outline" onclick="clearChat()" title="Clear conversation">
+            <i class="bi bi-trash"></i> Clear
+        </button>
+    </div>
+
+    <!-- Chat Container -->
+    <div class="card-modern rounded-2xl overflow-hidden flex flex-col" style="height: calc(100vh - 200px);">
+        <!-- Messages Area -->
+        <div id="chatMessages" class="flex-1 overflow-y-auto p-6 space-y-4">
+            <!-- Welcome Message -->
+            <div class="flex gap-3">
+                <div class="w-8 h-8 rounded-full bg-primary text-primary-content flex items-center justify-center flex-shrink-0">
+                    <i class="bi bi-robot text-sm"></i>
+                </div>
+                <div class="flex-1">
+                    <div class="rounded-2xl bg-base-200/60 p-4">
+                        <p class="text-sm">Hello! I'm your AI assistant for LORA. I can help you find information about claims.</p>
+                        <p class="text-sm mt-2">Try asking me things like:</p>
+                        <ul class="text-sm mt-1 list-disc list-inside text-base-content/70">
+                            <li>"What's the status of ALF1234567?"</li>
+                            <li>"Show me emails for ALF-7654321"</li>
+                            <li>"Has ALF1234567 been refunded?"</li>
+                            <li>"What's in the Zendesk ticket for ALF1234567?"</li>
+                        </ul>
+                    </div>
+                    <div class="text-xs text-base-content/40 mt-1 ml-2">Just now</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="border-t border-base-200/60 p-4">
+            <form id="chatForm" class="flex gap-2">
+                <input 
+                    type="text" 
+                    id="messageInput"
+                    class="input-modern flex-1" 
+                    placeholder="Type your question about a claim..."
+                    autocomplete="off"
+                >
+                <button type="submit" class="btn btn-primary rounded-xl" id="sendBtn">
+                    <i class="bi bi-send"></i> Send
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Markdown Parser -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<script>
+// Chat state
+let isProcessing = false;
+
+// DOM elements
+const chatMessages = document.getElementById('chatMessages');
+const chatForm = document.getElementById('chatForm');
+const messageInput = document.getElementById('messageInput');
+const sendBtn = document.getElementById('sendBtn');
+
+// Detect claim IDs in text
+function detectClaimIds(text) {
+    const pattern = /ALF[-_]?\d{7}/gi;
+    return text.match(pattern) || [];
+}
+
+// Format claim IDs as badges
+function formatClaimIds(text) {
+    const claimIds = detectClaimIds(text);
+    let formatted = text;
+    
+    claimIds.forEach(claimId => {
+        const badge = `<span class="badge badge-primary cursor-pointer" onclick="copyClaimId('${claimId}')">${claimId}</span>`;
+        formatted = formatted.replace(new RegExp(claimId, 'gi'), badge);
+    });
+    
+    return formatted;
+}
+
+// Add message to chat
+function addMessage(role, content, timestamp = new Date()) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `flex gap-3 ${role === 'user' ? 'flex-row-reverse' : ''}`;
+    
+    const avatar = role === 'user' 
+        ? '<div class="w-8 h-8 rounded-full bg-base-300 flex items-center justify-center flex-shrink-0"><i class="bi bi-person text-sm"></i></div>'
+        : '<div class="w-8 h-8 rounded-full bg-primary text-primary-content flex items-center justify-center flex-shrink-0"><i class="bi bi-robot text-sm"></i></div>';
+    
+    const bubbleClass = role === 'user'
+        ? 'bg-primary text-primary-content'
+        : 'bg-base-200/60';
+    
+    const timeStr = timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    // Parse markdown for assistant messages
+    const formattedContent = role === 'assistant' ? marked.parse(content) : content;
+    
+    messageDiv.innerHTML = `
+        ${avatar}
+        <div class="flex-1 ${role === 'user' ? 'text-right' : ''}">
+            <div class="rounded-2xl p-4 ${bubbleClass} inline-block max-w-[80%] text-left">
+                ${role === 'assistant' ? formattedContent : formatClaimIds(content)}
+            </div>
+            <div class="text-xs text-base-content/40 mt-1 ${role === 'user' ? 'mr-2' : 'ml-2'}">${timeStr}</div>
+        </div>
+    `;
+    
+    chatMessages.appendChild(messageDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// Show loading indicator
+function showLoading() {
+    const loadingDiv = document.createElement('div');
+    loadingDiv.id = 'loadingIndicator';
+    loadingDiv.className = 'flex gap-3';
+    loadingDiv.innerHTML = `
+        <div class="w-8 h-8 rounded-full bg-primary text-primary-content flex items-center justify-center flex-shrink-0">
+            <i class="bi bi-robot text-sm"></i>
+        </div>
+        <div class="flex-1">
+            <div class="rounded-2xl bg-base-200/60 p-4 inline-block">
+                <div class="flex gap-1">
+                    <div class="w-2 h-2 rounded-full bg-base-content/40 animate-bounce" style="animation-delay: 0ms"></div>
+                    <div class="w-2 h-2 rounded-full bg-base-content/40 animate-bounce" style="animation-delay: 150ms"></div>
+                    <div class="w-2 h-2 rounded-full bg-base-content/40 animate-bounce" style="animation-delay: 300ms"></div>
+                </div>
+            </div>
+        </div>
+    `;
+    chatMessages.appendChild(loadingDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// Remove loading indicator
+function removeLoading() {
+    const loading = document.getElementById('loadingIndicator');
+    if (loading) loading.remove();
+}
+
+// Send message
+async function sendMessage(message) {
+    if (!message.trim()) return;
+    
+    // Add user message
+    addMessage('user', message);
+    messageInput.value = '';
+    
+    // Show loading
+    isProcessing = true;
+    sendBtn.disabled = true;
+    showLoading();
+    
+    try {
+        const response = await fetch('/api/agent/chat/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken(),
+            },
+            body: JSON.stringify({ message }),
+        });
+        
+        const data = await response.json();
+        
+        removeLoading();
+        
+        if (response.ok && data.success) {
+            addMessage('assistant', data.answer);
+        } else {
+            addMessage('assistant', `❌ Error: ${data.error || 'Failed to process message'}`);
+        }
+    } catch (error) {
+        removeLoading();
+        addMessage('assistant', `❌ Error: ${error.message}`);
+    } finally {
+        isProcessing = false;
+        sendBtn.disabled = false;
+        messageInput.focus();
+    }
+}
+
+// Get CSRF token
+function getCsrfToken() {
+    const cookieValue = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('csrftoken='))
+        ?.split('=')[1];
+    return cookieValue || '';
+}
+
+// Copy claim ID to clipboard
+function copyClaimId(claimId) {
+    navigator.clipboard.writeText(claimId);
+    showToast('Claim ID copied!', 'info');
+}
+
+// Show toast notification
+function showToast(title, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-end z-50`;
+    toast.innerHTML = `
+        <div class="alert alert-${type} text-white">
+            <span>${title}</span>
+        </div>
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+
+// Clear chat
+function clearChat() {
+    chatMessages.innerHTML = `
+        <div class="flex gap-3">
+            <div class="w-8 h-8 rounded-full bg-primary text-primary-content flex items-center justify-center flex-shrink-0">
+                <i class="bi bi-robot text-sm"></i>
+            </div>
+            <div class="flex-1">
+                <div class="rounded-2xl bg-base-200/60 p-4">
+                    <p class="text-sm">Hello! I'm your AI assistant for LORA. I can help you find information about claims.</p>
+                    <p class="text-sm mt-2">Try asking me things like:</p>
+                    <ul class="text-sm mt-1 list-disc list-inside text-base-content/70">
+                        <li>"What's the status of ALF1234567?"</li>
+                        <li>"Show me emails for ALF-7654321"</li>
+                        <li>"Has ALF1234567 been refunded?"</li>
+                        <li>"What's in the Zendesk ticket for ALF1234567?"</li>
+                    </ul>
+                </div>
+                <div class="text-xs text-base-content/40 mt-1 ml-2">Just now</div>
+            </div>
+        </div>
+    `;
+    showToast('Chat cleared', 'info');
+}
+
+// Event listeners
+chatForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!isProcessing) {
+        sendMessage(messageInput.value);
+    }
+});
+
+// Enter to send
+messageInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (!isProcessing) {
+            sendMessage(messageInput.value);
+        }
+    }
+});
+
+// Focus input on load
+messageInput.focus();
+</script>
+{% endblock %}

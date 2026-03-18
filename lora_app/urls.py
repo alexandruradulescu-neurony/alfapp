@@ -15,11 +15,13 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     # Frontend views
     path('', include('apps.users.urls')),
+    path('agent/', include('apps.agent.urls')),
     # API endpoints
     path('api/claims/', include('apps.claims.urls')),
     path('api/communications/', include('apps.communications.urls')),
     path('api/integrations/', include('apps.integrations.urls')),
     path('api/payments/', include('apps.payments.urls')),
+    path('api/agent/', include('apps.agent.api_urls')),
     path('api/services/', include(('apps.config.api.urls', 'api'), namespace='services')),
 ]
 

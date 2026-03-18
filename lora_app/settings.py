@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'apps.integrations',
     'apps.config',
     'apps.core',
+    'apps.agent',
 ]
 
 MIDDLEWARE = [
