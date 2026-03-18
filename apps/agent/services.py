@@ -286,13 +286,45 @@ Zendesk Tickets:
             LLM-generated answer
         """
         from apps.communications.services import call_qwen_ai
+        from apps.config.models import SystemSettings
+        
+        # Check if AI is configured
+        try:
+            settings = SystemSettings.get_instance()
+            if not settings.ai_api_key:
+                return """⚠️ **AI Not Configured**
+
+The AI API key is not configured in SystemSettings.
+
+To enable AI chat:
+1. Go to **Manager → Configuration**
+2. Set the **AI API Key** field
+3. Save settings
+
+Once configured, I'll be able to provide intelligent answers about your claims."""
+        except Exception as e:
+            logger.error(f"Error checking AI configuration: {e}")
         
         try:
             result = call_qwen_ai(prompt, '', 'Agent Chat Query')
-            return result.get('raw_response', 'I apologize, but I encountered an error generating a response.')
+            raw_response = result.get('raw_response', '')
+            
+            if not raw_response or 'error' in raw_response.lower():
+                return "I apologize, but the AI service returned an error. Please check the system logs and try again."
+            
+            return raw_response
+            
         except Exception as e:
             logger.error(f"LLM call failed: {e}")
-            return "I apologize, but I encountered an error processing your request. Please try again."
+            return f"""⚠️ **AI Service Error**
+
+I encountered an error while processing your request:
+
+```
+{str(e)}
+```
+
+Please try again or contact your system administrator if the issue persists."""
     
     def _handle_no_claim_detected(self, message: str) -> ChatResponse:
         """

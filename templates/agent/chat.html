@@ -180,7 +180,10 @@ async function sendMessage(message) {
         if (response.ok && data.success) {
             addMessage('assistant', data.answer);
         } else {
-            addMessage('assistant', `❌ Error: ${data.error || 'Failed to process message'}`);
+            const errorMsg = data.details 
+                ? `**Error:** ${data.message || data.error}\n\n**Details:**\n\`\`\`\n${data.details}\n\`\`\``
+                : `❌ Error: ${data.error || 'Failed to process message'}`;
+            addMessage('assistant', errorMsg);
         }
     } catch (error) {
         removeLoading();

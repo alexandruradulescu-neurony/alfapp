@@ -55,7 +55,11 @@ class AgentChatAPIView(APIView):
         except Exception as e:
             logger.error(f"Error in agent chat: {e}", exc_info=True)
             return Response(
-                {'error': 'Failed to process message', 'details': str(e)},
+                {
+                    'error': 'Failed to process message',
+                    'details': str(e),
+                    'message': 'An unexpected error occurred. Please check the server logs and try again.',
+                },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
