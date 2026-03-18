@@ -1,10 +1,10 @@
 # LORA - Lost Object Recovery Automation
 
-**Version:** 1.5.0  
-**Framework:** Django 5.2.11 | Python 3.10+  
+**Version:** 1.6.0
+**Framework:** Django 5.2.11 | Python 3.10+
 **UI:** Tailwind CSS 4 + DaisyUI 5
 
-A comprehensive platform for automating lost object recovery claims, dispute management, customer communications, refund management, and Zendesk integration.
+A comprehensive platform for automating lost object recovery claims, dispute management, customer communications, refund management, Zendesk integration, and AI-powered claim assistance.
 
 ---
 
@@ -16,6 +16,7 @@ A comprehensive platform for automating lost object recovery claims, dispute man
 - [Installation](#-installation)
 - [Configuration](#-configuration)
 - [Usage](#-usage)
+- [AI Agent Chat](#-ai-agent-chat)
 - [API Reference](#-api-reference)
 - [Service Monitoring](#-service-monitoring)
 - [Security](#-security)
@@ -91,6 +92,16 @@ A comprehensive platform for automating lost object recovery claims, dispute man
 - **Health Checks**: Test connectivity to AI, IMAP, Zendesk, PayPal
 - **Scheduler Control**: Start/stop email processing scheduler
 - **Enable/Disable**: Toggle individual services without configuration changes
+
+### AI Agent Chat ✅
+- **Natural Conversation**: ChatGPT-like interface for querying claim information
+- **Claim Detection**: Auto-detect ALF claim IDs (ALF1234567 format) from messages
+- **Customer Search**: Find claims by customer name or email address
+- **Context Persistence**: Maintain conversation history across multiple questions
+- **Multi-Source Data**: Access claim details, email history, refunds, Zendesk tickets
+- **LLM-Powered Responses**: DeepSeek AI generates natural language answers
+- **Hallucination Prevention**: Uses ONLY provided database data, never invents information
+- **Email Body Inclusion**: Full email content available for context
 
 ---
 
@@ -703,6 +714,183 @@ Each timeline entry shows:
 - Update type icon
 - Summary of changes
 - LLM-generated explanation
+
+---
+
+## 🤖 AI Agent Chat
+
+The AI Agent Chat feature provides a ChatGPT-like interface for querying claim information using natural language. It automatically detects claim IDs, searches by customer name or email, and maintains conversation context across multiple questions.
+
+### Accessing AI Agent Chat
+
+1. **Navigate to the chat interface**:
+   - Log in as Agent or Manager
+   - Open the sidebar navigation
+   - Click **AI Agent** (or navigate to `/agent/chat`)
+
+2. **Start a conversation**:
+   - Type your question in natural language
+   - The AI will detect claim IDs automatically
+   - Follow up with additional questions about the same claim
+
+### Example Conversations
+
+**Example 1: Query by Claim ID**
+```
+You: What's the status of ALF1234567?
+AI: Claim ALF1234567 is currently in "Found" status. The item was located on March 15, 2026. 
+    Customer: emma.williamson@example.com
+    Flight: BA2492 from London to New York on March 10, 2026
+    Object: Black Samsonite carry-on suitcase with red ribbon
+    
+    The claim has 3 email exchanges and 1 refund record.
+
+You: Show me the email history
+AI: Here are the emails for ALF1234567:
+
+    1. March 12, 2026 - "Lost Item Claim"
+       Summary: Customer reporting lost black Samsonite suitcase on flight BA2492
+       Category: OBJECT_NOT_FOUND | Action Required: Yes
+       
+    2. March 13, 2026 - "Re: Lost Item Claim"
+       Summary: Follow-up asking for update on search progress
+       Category: GENERAL_CORRESPONDENCE | Action Required: No
+       
+    3. March 15, 2026 - "Great news!"
+       Summary: Customer notified that item was found
+       Category: OBJECT_FOUND | Action Required: No
+
+You: Has it been refunded?
+AI: Yes, ALF1234567 has 1 refund record:
+    
+    Amount: USD 50.00 (FULL)
+    Status: COMPLETED
+    Reason: Customer request - item found damaged
+    Processed: March 16, 2026
+```
+
+**Example 2: Query by Customer Name**
+```
+You: Find claims for emma williamson
+AI: I found 1 claim matching "emma williamson":
+    
+    - **ALF1234567** - emma.williamson@example.com (Status: Found)
+    
+    What would you like to know about this claim?
+
+You: What's the Zendesk ticket status?
+AI: Zendesk ticket #12345 for ALF1234567:
+    
+    Status: Solved
+    Subject: Lost Item - ALF1234567 - Black Samsonite Suitcase
+    Requester ID: 987654321
+    
+    Recent comments:
+    - Agent Sarah: "Item located in baggage claim area"
+    - Customer: "Thank you so much!"
+```
+
+**Example 3: Query by Email Address**
+```
+You: Search for john.doe@company.com
+AI: I found 2 claims matching "john.doe@company.com":
+    
+    - **ALF7654321** - john.doe@company.com (Status: Searching)
+    - **ALF9876543** - john.doe@company.com (Status: Shipped)
+    
+    Please specify which claim you'd like to know more about.
+
+You: Show me ALF7654321
+AI: Claim ALF7654321 details:
+    
+    Email: john.doe@company.com | Phone: +1-555-123-4567
+    Status: Searching
+    Zendesk: #54321
+    Flight: AF1234 from Paris to Tokyo on March 8, 2026
+    Object: Blue North Face backpack containing laptop and documents
+    Created: March 9, 2026
+    
+    AI Summary: Customer reported lost backpack containing valuable work items. 
+    Search in progress across multiple airport locations.
+```
+
+### Configuration Requirements
+
+The AI Agent Chat requires the following configuration:
+
+| Setting | Description | Where to Configure |
+|---------|-------------|-------------------|
+| **AI API Key** | DeepSeek or compatible API key | Manager → Configuration |
+| **AI API Base** | API endpoint URL | Manager → Configuration |
+| **AI API Model** | Model name (e.g., `deepseek-chat`) | Manager → Configuration |
+
+**Environment Variables (.env):**
+```bash
+# AI Provider Configuration
+AI_PROVIDER=DeepSeek
+AI_API_BASE=https://api.deepseek.com/v1
+AI_API_KEY=your-api-key-here
+AI_API_MODEL=deepseek-chat
+```
+
+**System Settings (Database):**
+Configure via Django admin (`/admin/`) or Manager → Configuration page:
+
+| Setting | Description | Example |
+|---------|-------------|---------|
+| `ai_api_key` | AI API key (encrypted at rest) | Your DeepSeek API key |
+| `ai_api_base` | AI API endpoint URL | `https://api.deepseek.com/v1` |
+| `ai_api_model` | Model name to use | `deepseek-chat` |
+
+### Supported Query Types
+
+The AI Agent Chat understands various query types:
+
+| Query Type | Examples |
+|------------|----------|
+| **Status Inquiry** | "What's the status of ALF1234567?" |
+| **Email History** | "Show me emails for ALF1234567" |
+| **Refund Status** | "Has ALF1234567 been refunded?" |
+| **Customer Search** | "Find claims for emma williamson" |
+| **Email Search** | "Search for john@example.com" |
+| **Zendesk Info** | "What's in the Zendesk ticket for ALF1234567?" |
+| **Timeline** | "Show me the timeline for ALF1234567" |
+| **Follow-up** | "When was it found?" (after asking about a claim) |
+
+### Features
+
+**Claim Detection:**
+- Auto-detects ALF claim IDs in format: `ALF1234567`, `ALF-1234567`, `ALF_1234567`
+- Searches by customer name (e.g., "emma williamson")
+- Searches by email address
+- Maintains claim context across conversation turns
+
+**Data Sources:**
+- Complete claim details from LORA database
+- Email history with full body content (last 10 emails)
+- Refund history and status
+- Zendesk update timeline
+- Zendesk ticket data and comments (up to 5 recent)
+
+**Conversation Context:**
+- Remembers last 10 messages in conversation
+- Maintains claim context for follow-up questions
+- Automatically re-detects claims from conversation history
+
+**Safety Features:**
+- **Hallucination Prevention**: Uses ONLY provided database data
+- **No JSON Output**: Responds in natural language only
+- **Error Handling**: Graceful fallbacks when AI service unavailable
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| "AI Not Configured" message | Go to Manager → Configuration and set AI API Key |
+| No claims detected | Ensure claim ID format is correct (ALF + 7 digits) |
+| Generic responses | Provide more specific questions with claim IDs |
+| AI returns JSON | This is a bug - the system should catch it; try rephrasing |
+| Slow responses | Check AI API connectivity in Service Monitoring |
 
 ---
 

@@ -7,6 +7,230 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.0] - 2026-03-18
+
+### 🎉 Added
+
+#### AI Agent Chat Feature
+
+**New Django App: `apps/agent/`**
+- Complete chat interface for natural language claim queries
+- Integration with DeepSeek AI API for response generation
+- Conversation history tracking and context persistence
+
+**AgentChatService Class**
+- `process_message(message, claim_ids, conversation_history)` - Main entry point for chat
+- `detect_claim_ids(message)` - Extract ALF claim IDs using regex patterns
+- `detect_name_or_email(message)` - Detect customer names and email addresses
+- `search_claims_by_name_or_email(search_term)` - Search claims by customer info
+- `fetch_context(claim_ids)` - Fetch comprehensive claim data from multiple sources
+- `build_prompt(message, context, conversation_history)` - Build LLM prompt with context
+- `_call_llm(prompt)` - Call DeepSeek AI API for response generation
+- `_handle_multiple_claims(message, context)` - Handle ambiguous customer searches
+- `_handle_no_claim_detected(message)` - Provide guidance when no claim found
+
+**Claim Detection Capabilities**
+- **ALF ID Pattern Matching**: Detects `ALF1234567`, `ALF-1234567`, `ALF_1234567`
+- **Email Detection**: Extracts email addresses from user messages
+- **Name Detection**: Identifies customer names using pattern matching
+- **Context Persistence**: Maintains claim context across conversation turns
+- **Conversation History**: Tracks last 10 messages for contextual follow-ups
+
+**Data Source Integration**
+- **Claim Details**: Complete claim information from database
+- **Email History**: Last 10 emails with full body content
+- **Refund Records**: All refund history with status and amounts
+- **Timeline Updates**: Zendesk update timeline entries
+- **Zendesk Tickets**: Ticket data and recent comments (up to 5)
+
+**LLM Integration**
+- **DeepSeek API**: OpenAI-compatible API integration
+- **Conversational System Prompt**: Designed for natural language responses
+- **Hallucination Prevention**: Instructed to use ONLY provided data
+- **JSON Prevention**: Explicitly instructed to avoid structured output
+- **Error Handling**: Graceful fallbacks for API failures
+
+**ChatResponse Dataclass**
+- `answer` - AI-generated natural language response
+- `sources` - List of data sources used (LORA, EmailLog, Refund, Zendesk, Timeline)
+- `claims` - List of claim data dictionaries referenced in response
+
+**Views and URLs**
+- `AgentChatAPIView` - POST /api/agent/chat/ endpoint
+- `agent_chat_view` - GET /agent/chat/ page view
+- URL routing in `apps/agent/urls.py`
+
+**Frontend UI**
+- `templates/agent/chat.html` - ChatGPT-like interface
+- Message bubbles for user and AI responses
+- Loading states and error handling
+- Conversation history display
+- Claim context indicators
+
+**Navigation Updates**
+- Added "AI Agent" menu item to sidebar navigation
+- Accessible to MANAGER and AGENT roles
+- Icon: chat bubble or robot
+
+#### API Endpoints
+
+**New Endpoints:**
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/agent/chat/` | GET | Render AI agent chat page |
+| `/api/agent/chat/` | POST | Process chat message and return AI response |
+
+**Request Format:**
+```json
+{
+  "message": "What's the status of ALF1234567?",
+  "conversationHistory": [
+    {"role": "user", "content": "Previous message"},
+    {"role": "assistant", "content": "Previous response"}
+  ]
+}
+```
+
+**Response Format:**
+```json
+{
+  "answer": "Claim ALF1234567 is currently in 'Found' status...",
+  "sources": ["LORA", "EmailLog", "Refund", "Zendesk"],
+  "claims": [
+    {
+      "id": 123,
+      "alf_claim_id": "ALF1234567",
+      "client_email": "customer@example.com",
+      "status": "Found",
+      ...
+    }
+  ],
+  "success": true
+}
+```
+
+#### Configuration
+
+**New System Settings:**
+- `ai_api_key` - DeepSeek API key (encrypted at rest)
+- `ai_api_base` - AI API endpoint URL
+- `ai_api_model` - Model name to use
+
+**Environment Variables:**
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `AI_PROVIDER` | AI provider name | Yes |
+| `AI_API_BASE` | AI API endpoint URL | Yes |
+| `AI_API_KEY` | AI API key (encrypted) | Yes |
+| `AI_API_MODEL` | Model name (e.g., deepseek-chat) | Yes |
+
+### 🔧 Changed
+
+#### Navigation
+- Added "AI Agent" menu item to sidebar (MANAGER and AGENT roles)
+- Positioned between existing menu items for easy access
+
+#### Template Updates
+- Updated `templates/base.html` to include AI Agent navigation link
+- Added chat-specific CSS and JavaScript
+
+### 📦 Dependencies
+
+**Existing Dependencies Used:**
+- `openai` - OpenAI SDK (DeepSeek API compatible)
+- `django` - Django framework
+- `djangorestframework` - API framework
+
+### ⚠️ Database Changes
+
+No new database models created. Uses existing models:
+- `claims.Claim` - Claim data
+- `communications.EmailLog` - Email history
+- `payments.Refund` - Refund records
+- `claims.ClaimUpdateTimeline` - Timeline updates
+
+### 🚀 Migrations
+
+No migrations required. Feature uses existing models and adds new app.
+
+```bash
+# No migrations needed
+python manage.py migrate
+```
+
+### 📝 Configuration Requirements
+
+**1. Configure AI Provider:**
+
+Go to Manager → Configuration and set:
+- **AI API Key**: Your DeepSeek API key
+- **AI API Base**: `https://api.deepseek.com/v1`
+- **AI API Model**: `deepseek-chat`
+
+**2. Environment Variables (.env):**
+
+```bash
+# AI Provider Configuration
+AI_PROVIDER=DeepSeek
+AI_API_BASE=https://api.deepseek.com/v1
+AI_API_KEY=sk-your-api-key-here
+AI_API_MODEL=deepseek-chat
+```
+
+**3. Access the Feature:**
+
+- Navigate to `/agent/chat` or click "AI Agent" in sidebar
+- Start chatting with natural language queries
+
+### 🧪 Testing
+
+**Manual Testing:**
+1. Navigate to AI Agent chat page
+2. Test claim ID detection: "What's the status of ALF1234567?"
+3. Test customer search: "Find claims for emma williamson"
+4. Test email search: "Search for john@example.com"
+5. Test conversation context: Ask follow-up questions without claim ID
+6. Test error handling: Disconnect AI API and verify graceful fallback
+
+**Test Cases:**
+- Claim ID detection with various formats (ALF1234567, ALF-1234567, ALF_1234567)
+- Customer name detection and search
+- Email address detection and search
+- Multiple claims found handling
+- No claims detected handling
+- Conversation history persistence
+- AI API error handling
+- Unconfigured AI API handling
+
+### 📊 Feature Comparison
+
+| Feature | Before v1.6.0 | After v1.6.0 |
+|---------|---------------|--------------|
+| **Claim Queries** | Manual database lookup | Natural language chat |
+| **Claim Detection** | Manual entry | Auto-detect from message |
+| **Customer Search** | Manual filter | Name/email detection |
+| **Context** | None | Conversation history |
+| **Data Sources** | Single view | Multi-source aggregation |
+| **Response Format** | Raw data | Natural language summary |
+
+### 🐛 Known Limitations
+
+- **AI API Dependency**: Requires active DeepSeek API connection
+- **Claim Context**: Limited to detected claims (manual ID required if detection fails)
+- **Conversation Length**: Only last 10 messages retained for context
+- **Data Freshness**: Uses database state at time of query (no real-time updates)
+
+### 📈 Future Enhancements
+
+- Voice input support
+- Multi-language support
+- Advanced filters (date ranges, status filters)
+- Export conversation history
+- Suggested questions based on claim state
+- Integration with Zendesk AI
+
+---
+
 ## [1.4.0] - 2026-03-18
 
 ### 🎉 Added
@@ -724,6 +948,7 @@ This will update status choices for existing models.
 
 | Version | Release Date | Key Changes |
 |---------|-------------|-------------|
+| 1.6.0 | 2026-03-18 | AI Agent Chat, natural language queries |
 | 1.4.0 | 2026-03-18 | Zendesk-first claims, LLM extraction |
 | 1.3.0 | 2026-03-17 | Email system improvements, simplification |
 | 1.2.0 | 2026-03-17 | Refund management system |
