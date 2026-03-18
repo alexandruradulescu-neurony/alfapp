@@ -38,13 +38,14 @@ class AgentChatService:
         # Pattern to detect potential names (2+ words, case insensitive)
         self.name_pattern = re.compile(r'\b[a-z]+\s+[a-z]+\b', re.IGNORECASE)
     
-    def process_message(self, message: str, claim_ids: Optional[List[int]] = None) -> ChatResponse:
+    def process_message(self, message: str, claim_ids: Optional[List[int]] = None, conversation_history: Optional[List[Dict]] = None) -> ChatResponse:
         """
         Process user message and generate AI response.
         
         Args:
             message: User's chat message
             claim_ids: Optional list of claim IDs to include in context
+            conversation_history: Optional list of previous messages for context
         
         Returns:
             ChatResponse with answer, sources, and claim data
@@ -58,33 +59,24 @@ class AgentChatService:
             if name_or_email:
                 claims = self.search_claims_by_name_or_email(name_or_email)
                 if claims:
-                    # Found claims by name/email, use first one
+                    # Found claims by name/email
                     detected_ids = [c.alf_claim_id for c in claims[:1]]
-                    if len(claims) > 1:
-                        # Multiple claims found, mention this in response
-                        context = {'claims': claims, 'count': len(claims)}
-                        return self._handle_multiple_claims(message, context)
         
         # Combine with provided claim IDs
         all_claim_ids = list(set(detected_ids))
         if claim_ids:
-            # Convert numeric IDs to ALF format if needed
             all_claim_ids.extend([str(cid) for cid in claim_ids])
         
-        if not all_claim_ids:
-            # No claim IDs detected, provide general help
-            return self._handle_no_claim_detected(message)
+        # Step 2: Fetch context for detected claims
+        context = self.fetch_context(all_claim_ids) if all_claim_ids else {'claims': [], 'emails': {}, 'refunds': {}, 'timeline': {}, 'zendesk': {}, 'sources': []}
         
-        # Step 2-4: Fetch context
-        context = self.fetch_context(all_claim_ids)
+        # Step 3: Build prompt with context + conversation history
+        prompt = self.build_prompt(message, context, conversation_history)
         
-        # Step 5: Build prompt
-        prompt = self.build_prompt(message, context)
-        
-        # Step 6: Call LLM
+        # Step 4: Call LLM
         llm_answer = self._call_llm(prompt)
         
-        # Step 7: Return response
+        # Step 5: Return response
         return ChatResponse(
             answer=llm_answer,
             sources=context['sources'],
@@ -318,63 +310,72 @@ class AgentChatService:
         
         return context
     
-    def build_prompt(self, message: str, context: Dict[str, Any]) -> str:
+    def build_prompt(self, message: str, context: Dict[str, Any], conversation_history: Optional[List[Dict]] = None) -> str:
         """
-        Build LLM prompt with context.
+        Build LLM prompt with context and conversation history.
         
         Args:
             message: User's question
             context: Fetched claim data
+            conversation_history: Previous messages in conversation
         
         Returns:
             Formatted prompt for LLM
         """
-        # Build comprehensive context
+        # Build context string
         context_parts = []
         
-        # Add all claim data
-        for claim in context['claims']:
+        # Add claim data if available
+        for claim in context.get('claims', []):
             if 'error' not in claim:
-                context_parts.append(f"""CLAIM DATA:
-ID: {claim['alf_claim_id']}
-Email: {claim['client_email']}
-Phone: {claim['phone']}
-Fulfillment Status: {claim['fulfillment_status']}
-Financial Status: {claim['financial_status']}
-Dispute Status: {claim['dispute_status']}
-Zendesk: {claim['zd_ticket_id']}
+                context_parts.append(f"""CLAIM: {claim['alf_claim_id']}
+Email: {claim['client_email']} | Phone: {claim['phone']}
+Status: {claim['fulfillment_status']} | Financial: {claim['financial_status']} | Dispute: {claim['dispute_status']}
+Zendesk: {claim['zd_ticket_id'] or 'None'}
 Flight: {claim['flight_details']}
 Object: {claim['object_description']}
-Created: {claim['created_at']}
-Summary: {claim['ai_summary']}""")
+Created: {claim['created_at']}""")
         
         # Add emails
-        for claim_id, emails in context['emails'].items():
+        for claim_id, emails in context.get('emails', {}).items():
             for email in emails:
-                context_parts.append(f"EMAIL: {email['subject']} - {email['received_at']} - {email['ai_summary']}")
+                context_parts.append(f"EMAIL [{email['received_at']}]: {email['subject']} - {email['ai_summary']}")
         
         # Add refunds
-        for claim_id, refunds in context['refunds'].items():
+        for claim_id, refunds in context.get('refunds', {}).items():
             for refund in refunds:
-                context_parts.append(f"REFUND: {refund['amount']} - {refund['status']} - {refund['reason']}")
+                context_parts.append(f"REFUND: {refund['amount']} ({refund['status']}) - {refund['reason']}")
         
         # Add Zendesk
-        for claim_id, ticket in context['zendesk'].items():
+        for claim_id, ticket in context.get('zendesk', {}).items():
             if 'error' not in ticket:
-                context_parts.append(f"ZENDESK: #{ticket['ticket_id']} - {ticket['status']} - {ticket['subject']}")
+                context_parts.append(f"ZENDESK #{ticket['ticket_id']}: {ticket['status']} - {ticket['subject']}")
                 for comment in ticket.get('recent_comments', []):
-                    context_parts.append(f"  Comment: {comment['author']}: {comment['body']}")
+                    context_parts.append(f"  {comment['author']}: {comment['body']}")
         
-        all_context = "\n".join(context_parts) if context_parts else "No data available"
+        claim_context = "\n".join(context_parts) if context_parts else ""
         
-        return f"""You are a helpful assistant for LORA, a lost luggage recovery service.
+        # Build conversation history
+        history_text = ""
+        if conversation_history:
+            history_parts = []
+            for msg in conversation_history[-10:]:  # Last 10 messages
+                role = "User" if msg['role'] == 'user' else "Assistant"
+                history_parts.append(f"{role}: {msg['content']}")
+            history_text = "\n".join(history_parts)
+        
+        return f"""You are a helpful AI assistant for LORA, a lost luggage recovery service.
 
-Below is ALL available information about a claim. Use this context to answer the user's question naturally.
+You help agents by answering questions about claims. You have access to claim data from the database and Zendesk.
 
-=== CLAIM CONTEXT ===
-{all_context}
-=== END CONTEXT ===
+IMPORTANT:
+- Answer naturally in conversational English
+- If claim data is provided below, use it to answer questions
+- If no claim data, ask clarifying questions to help the user find the right claim
+- Be helpful and friendly
+- Keep responses concise but informative
 
+{f"CONVERSATION HISTORY:\n{history_text}\n" if history_text else ""}{f"CLAIM DATA AVAILABLE:\n{claim_context}\n" if claim_context else ""}
 User: {message}
 
 Assistant:"""
