@@ -11,6 +11,7 @@ from django.contrib.auth.decorators import login_required
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.authentication import SessionAuthentication
 
 from apps.users.permissions import IsAgentOrManager
 from apps.agent.services import AgentChatService
@@ -28,9 +29,7 @@ class AgentChatAPIView(APIView):
         "claimIds": [123]  // optional
     }
     """
-    authentication_classes = [
-        'rest_framework.authentication.SessionAuthentication',
-    ]
+    authentication_classes = [SessionAuthentication]
     permission_classes = [permissions.IsAuthenticated, IsAgentOrManager]
     
     def post(self, request):
