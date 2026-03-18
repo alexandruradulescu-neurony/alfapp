@@ -35,8 +35,8 @@ class AgentChatService:
         self.claim_id_pattern = re.compile(r'ALF[-_]?\d{7}', re.IGNORECASE)
         # Pattern to detect email addresses
         self.email_pattern = re.compile(r'[\w\.-]+@[\w\.-]+\.\w+')
-        # Pattern to detect potential names (2+ words with capital letters)
-        self.name_pattern = re.compile(r'\b[A-Z][a-z]+\s+[A-Z][a-z]+\b')
+        # Pattern to detect potential names (2+ words, case insensitive)
+        self.name_pattern = re.compile(r'\b[a-z]+\s+[a-z]+\b', re.IGNORECASE)
     
     def process_message(self, message: str, claim_ids: Optional[List[int]] = None) -> ChatResponse:
         """
@@ -132,8 +132,11 @@ class AgentChatService:
         
         for keyword in keywords:
             if keyword in message_lower:
-                # Find names after keyword
-                names = self.name_pattern.findall(message)
+                # Find the part after the keyword
+                idx = message_lower.find(keyword)
+                after_keyword = message[idx + len(keyword):].strip()
+                # Try to extract name (2+ words) from this part
+                names = self.name_pattern.findall(after_keyword)
                 if names:
                     return names[0]
         
@@ -143,6 +146,14 @@ class AgentChatService:
             names = self.name_pattern.findall(message)
             if names:
                 return names[0]
+        
+        # Try to find any 2-word name in the message
+        names = self.name_pattern.findall(message)
+        if names:
+            # Filter out common non-name phrases
+            filtered = [n for n in names if n.lower() not in ['claim id', 'ticket for', 'show me']]
+            if filtered:
+                return filtered[0]
         
         return None
     
