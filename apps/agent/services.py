@@ -318,146 +318,55 @@ class AgentChatService:
         Returns:
             Formatted prompt for LLM
         """
-        # Build a comprehensive, human-readable context
-        context_text = []
+        # Build comprehensive context
+        context_parts = []
         
-        # Claims section
-        if context['claims']:
-            context_text.append("## CLAIM INFORMATION")
-            for claim in context['claims']:
-                if 'error' in claim:
-                    context_text.append(f"\nClaim {claim['alf_claim_id']}: {claim['error']}")
-                else:
-                    context_text.append(f"""
-Claim: {claim['alf_claim_id']}
-Customer Email: {claim['client_email']}
+        # Add all claim data
+        for claim in context['claims']:
+            if 'error' not in claim:
+                context_parts.append(f"""CLAIM DATA:
+ID: {claim['alf_claim_id']}
+Email: {claim['client_email']}
 Phone: {claim['phone']}
-Alternate Email: {claim['alternate_email']}
 Fulfillment Status: {claim['fulfillment_status']}
 Financial Status: {claim['financial_status']}
 Dispute Status: {claim['dispute_status']}
-Zendesk Ticket: {claim['zd_ticket_id'] or 'Not linked'}
-Flight Details: {claim['flight_details']}
-Object Description: {claim['object_description']}
+Zendesk: {claim['zd_ticket_id']}
+Flight: {claim['flight_details']}
+Object: {claim['object_description']}
 Created: {claim['created_at']}
-AI Summary: {claim['ai_summary']}
-""")
+Summary: {claim['ai_summary']}""")
         
-        # Emails section
-        if context['emails']:
-            context_text.append("\n## EMAIL HISTORY")
-            for claim_id, emails in context['emails'].items():
-                if emails:
-                    context_text.append(f"\nEmails for {claim_id}:")
-                    for i, email in enumerate(emails, 1):
-                        context_text.append(f"""
-{i}. Subject: {email['subject']}
-   Received: {email['received_at']}
-   Category: {email['category']}
-   Summary: {email['ai_summary']}
-   Action Required: {email['action_required']}
-""")
+        # Add emails
+        for claim_id, emails in context['emails'].items():
+            for email in emails:
+                context_parts.append(f"EMAIL: {email['subject']} - {email['received_at']} - {email['ai_summary']}")
         
-        # Refunds section
-        if context['refunds']:
-            context_text.append("\n## REFUND HISTORY")
-            for claim_id, refunds in context['refunds'].items():
-                if refunds:
-                    context_text.append(f"\nRefunds for {claim_id}:")
-                    for refund in refunds:
-                        context_text.append(f"""
-- Amount: {refund['amount']}
-  Status: {refund['status']}
-  Type: {refund['refund_type']}
-  Source: {refund['external_source']}
-  Date: {refund['created_at']}
-  Reason: {refund['reason']}
-""")
+        # Add refunds
+        for claim_id, refunds in context['refunds'].items():
+            for refund in refunds:
+                context_parts.append(f"REFUND: {refund['amount']} - {refund['status']} - {refund['reason']}")
         
-        # Timeline section
-        if context['timeline']:
-            context_text.append("\n## UPDATE TIMELINE")
-            for claim_id, updates in context['timeline'].items():
-                if updates:
-                    context_text.append(f"\nTimeline for {claim_id}:")
-                    for update in updates:
-                        context_text.append(f"""
-- {update['created_at']}: {update['update_type']}
-  {update['llm_summary']}
-""")
+        # Add Zendesk
+        for claim_id, ticket in context['zendesk'].items():
+            if 'error' not in ticket:
+                context_parts.append(f"ZENDESK: #{ticket['ticket_id']} - {ticket['status']} - {ticket['subject']}")
+                for comment in ticket.get('recent_comments', []):
+                    context_parts.append(f"  Comment: {comment['author']}: {comment['body']}")
         
-        # Zendesk section
-        if context['zendesk']:
-            context_text.append("\n## ZENDESK TICKET INFORMATION")
-            for claim_id, ticket in context['zendesk'].items():
-                if 'error' in ticket:
-                    context_text.append(f"\nZendesk for {claim_id}: {ticket['error']}")
-                else:
-                    context_text.append(f"""
-Zendesk Ticket: {ticket['ticket_id']}
-Status: {ticket['status']}
-Subject: {ticket['subject']}
-Requester ID: {ticket['requester_id']}
-
-Recent Comments:
-""")
-                    for comment in ticket.get('recent_comments', []):
-                        context_text.append(f"""
-- {comment['author']} ({comment['created_at']}):
-  {comment['body']}
-""")
+        all_context = "\n".join(context_parts) if context_parts else "No data available"
         
-        # Build the final prompt
-        full_context = "\n".join(context_text) if context_text else "No claim data available."
-        
-        return f"""You are a helpful AI assistant for LORA (Lost Object Recovery Automation).
-You have access to complete claim information.
+        return f"""You are a helpful assistant for LORA, a lost luggage recovery service.
 
-## YOUR TASK
+Below is ALL available information about a claim. Use this context to answer the user's question naturally.
 
-Answer the user's question about their claim(s) using the data below.
+=== CLAIM CONTEXT ===
+{all_context}
+=== END CONTEXT ===
 
-## IMPORTANT RULES
+User: {message}
 
-1. **DO NOT output JSON** - Respond in natural, conversational English
-2. **DO NOT output structured data** - Use regular sentences and paragraphs
-3. **Be helpful and specific** - Cite actual values from the data
-4. **Use markdown formatting** - Bold for important values, bullets for lists
-
-## AVAILABLE DATA
-
-{full_context}
-
-## RESPONSE FORMAT
-
-Write your response like a helpful customer service agent:
-- Start with a direct answer to the question
-- Provide relevant details from the data
-- Use **bold** for claim IDs, statuses, dates, and important values
-- Use bullet points for lists
-- End with 1-2 suggested follow-up questions
-
-## EXAMPLE GOOD RESPONSE
-
-"I found the claim **ALF1234567** for customer john@example.com.
-
-**Current Status:** Found
-**Item:** Black leather wallet
-**Flight:** AA123 from JFK to LAX
-
-The item was found on March 15, 2026 and is awaiting shipment. There are 3 emails in the history and the Zendesk ticket shows the item was located at gate B12.
-
-Would you like to:
-- See the email history?
-- Check if a refund was issued?
-- View the complete timeline?"
-
-## USER QUESTION
-
-{message}
-
-## YOUR RESPONSE (in natural English, NOT JSON):
-"""
+Assistant:"""
     
     def _call_llm(self, prompt: str) -> str:
         """
