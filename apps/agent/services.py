@@ -242,6 +242,7 @@ class AgentChatService:
                         'ai_summary': e.ai_summary or 'No summary',
                         'category': e.get_category_display(),
                         'action_required': 'Yes' if e.action_required else 'No',
+                        'body': e.body or '',  # Include full email body
                     }
                     for e in emails
                 ]
@@ -346,7 +347,11 @@ Created: {claim['created_at']}""")
         # Add emails
         for claim_id, emails in context.get('emails', {}).items():
             for email in emails:
-                context_parts.append(f"EMAIL [{email['received_at']}]: {email['subject']} - {email['ai_summary']}")
+                body_preview = email['body'][:300] + '...' if len(email['body']) > 300 else email['body']
+                context_parts.append(f"""EMAIL [{email['received_at']}]: {email['subject']}
+  Summary: {email['ai_summary']}
+  Category: {email['category']} | Action Required: {email['action_required']}
+  Body: {body_preview if body_preview else 'No body content'}""")
         
         # Add refunds
         for claim_id, refunds in context.get('refunds', {}).items():
