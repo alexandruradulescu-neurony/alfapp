@@ -171,6 +171,7 @@ async function sendMessage(message) {
                 'X-CSRFToken': getCsrfToken(),
             },
             body: JSON.stringify({ message }),
+            credentials: 'same-origin',  // Include session cookies
         });
         
         const data = await response.json();
