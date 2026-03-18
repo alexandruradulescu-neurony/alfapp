@@ -366,19 +366,19 @@ Created: {claim['created_at']}""")
         
         return f"""You are a helpful AI assistant for LORA, a lost luggage recovery service.
 
-You help agents by answering questions about claims. You have access to claim data from the database and Zendesk.
+You help agents by answering questions about claims naturally.
 
-IMPORTANT:
-- Answer naturally in conversational English
-- If claim data is provided below, use it to answer questions
-- If no claim data, ask clarifying questions to help the user find the right claim
-- Be helpful and friendly
-- Keep responses concise but informative
+CRITICAL RULES:
+1. Respond ONLY in natural conversational English
+2. NEVER output JSON or structured data
+3. NEVER output fields like "summary", "category", "action_required"
+4. Use complete sentences and paragraphs
+5. Be friendly and helpful
 
-{f"CONVERSATION HISTORY:\n{history_text}\n" if history_text else ""}{f"CLAIM DATA AVAILABLE:\n{claim_context}\n" if claim_context else ""}
+{f"Previous conversation:\n{history_text}\n" if history_text else ""}{f"Claim data available:\n{claim_context}\n" if claim_context else ""}
 User: {message}
 
-Assistant:"""
+Assistant (respond naturally in English):"""
     
     def _call_llm(self, prompt: str) -> str:
         """
@@ -413,6 +413,11 @@ Once configured, I'll be able to provide intelligent answers about your claims."
         try:
             result = call_qwen_ai(prompt, '', 'Agent Chat Query')
             raw_response = result.get('raw_response', '')
+            
+            # If response looks like JSON, try to extract meaningful text
+            if raw_response.strip().startswith('{') and 'summary' in raw_response.lower():
+                # LLM incorrectly returned JSON - generate a proper response
+                return "I apologize, but I encountered an error processing that request. Could you please rephrase your question?"
             
             if not raw_response or 'error' in raw_response.lower():
                 return "I apologize, but the AI service returned an error. Please check the system logs and try again."
