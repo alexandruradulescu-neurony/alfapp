@@ -411,37 +411,52 @@ Recent Comments:
         full_context = "\n".join(context_text) if context_text else "No claim data available."
         
         return f"""You are a helpful AI assistant for LORA (Lost Object Recovery Automation).
-You have access to complete claim information including:
-- Claim details (status, customer info, flight details, object description)
-- Email history with AI summaries
-- Refund history
-- Update timeline from Zendesk sync
-- Zendesk ticket data and comments
+You have access to complete claim information.
 
-Your task is to answer questions about claims based on the data provided below.
+## YOUR TASK
+
+Answer the user's question about their claim(s) using the data below.
+
+## IMPORTANT RULES
+
+1. **DO NOT output JSON** - Respond in natural, conversational English
+2. **DO NOT output structured data** - Use regular sentences and paragraphs
+3. **Be helpful and specific** - Cite actual values from the data
+4. **Use markdown formatting** - Bold for important values, bullets for lists
 
 ## AVAILABLE DATA
 
 {full_context}
 
-## INSTRUCTIONS
+## RESPONSE FORMAT
 
-1. Answer the user's question based on the data above.
-2. Be specific and cite actual values from the data.
-3. If information is missing, clearly state what you couldn't find.
-4. Use natural, conversational language.
-5. Format your response with markdown for readability:
-   - Use **bold** for important values (claim IDs, statuses, dates)
-   - Use bullet points for lists
-   - Use numbered lists for sequences
-6. If multiple claims are in the context, make it clear which claim you're referring to.
-7. Suggest 1-2 related follow-up questions at the end.
+Write your response like a helpful customer service agent:
+- Start with a direct answer to the question
+- Provide relevant details from the data
+- Use **bold** for claim IDs, statuses, dates, and important values
+- Use bullet points for lists
+- End with 1-2 suggested follow-up questions
+
+## EXAMPLE GOOD RESPONSE
+
+"I found the claim **ALF1234567** for customer john@example.com.
+
+**Current Status:** Found
+**Item:** Black leather wallet
+**Flight:** AA123 from JFK to LAX
+
+The item was found on March 15, 2026 and is awaiting shipment. There are 3 emails in the history and the Zendesk ticket shows the item was located at gate B12.
+
+Would you like to:
+- See the email history?
+- Check if a refund was issued?
+- View the complete timeline?"
 
 ## USER QUESTION
 
 {message}
 
-## YOUR RESPONSE
+## YOUR RESPONSE (in natural English, NOT JSON):
 """
     
     def _call_llm(self, prompt: str) -> str:
