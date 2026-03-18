@@ -4,8 +4,8 @@
 
 **LORA (Lost Object Recovery Automation)** is a comprehensive Django-based platform for automating lost object recovery claims, dispute management, customer communications, and refund management.
 
-**Version:** 1.3.0  
-**Framework:** Django 5.2.11 | Python 3.10+  
+**Version:** 1.6.0
+**Framework:** Django 5.2.11 | Python 3.14
 **UI:** Tailwind CSS 4 + DaisyUI 5
 
 ### Core Features
@@ -16,6 +16,7 @@
 4. **Service Monitoring** - Real-time status monitoring for all external services (AI, IMAP, Zendesk, PayPal)
 5. **Refund Management** - Complete refund workflow with PayPal API integration and Zendesk sync
 6. **Zendesk Integration** - Ticket management, comment posting, and browser automation for screenshots
+7. **AI Agent Chat** ⭐ NEW - ChatGPT-like interface for natural language claim queries with conversation context
 
 ## Tech Stack
 
@@ -50,6 +51,7 @@
 ```
 alf-app/
 ├── apps/                          # Django applications
+│   ├── agent/                     # ⭐ NEW: AI Agent Chat
 │   ├── claims/                    # Claims management
 │   ├── communications/            # Email processing and logging
 │   ├── config/                    # System configuration and service monitoring
@@ -64,7 +66,7 @@ alf-app/
 ├── static/                        # Static files (CSS, JS, images)
 ├── scripts/                       # Utility scripts
 ├── deploy/                        # Deployment configurations
-└── docs/                          # Documentation
+└── docs/                          # Documentation (AGENT_CHAT.md, API.md)
 ```
 
 ## Building and Running
@@ -151,9 +153,9 @@ python manage.py test
 - `PAYPAL_MODE` - `sandbox` or `live`
 
 **AI Provider:**
-- `AI_API_BASE` - AI API endpoint
-- `AI_API_KEY` - AI API key
-- `AI_API_MODEL` - Model name
+- `AI_API_BASE` - AI API endpoint (e.g., `https://api.deepseek.com/v1`)
+- `AI_API_KEY` - AI API key (DeepSeek, Qwen, etc.)
+- `AI_API_MODEL` - Model name (e.g., `deepseek-chat`)
 
 ### SystemSettings (Database)
 
@@ -238,6 +240,42 @@ POST   /api/integrations/zd/refund-webhook/   # Refund notifications
 POST   /api/integrations/zd/status-webhook/   # Zendesk status changes
 ```
 
+### AI Agent Chat ⭐ NEW
+
+```
+GET    /agent/chat/                     # Chat page
+POST   /api/agent/chat/                 # Chat API
+```
+
+**Request:**
+```json
+{
+    "message": "any ticket for emma williamson?",
+    "conversationHistory": [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "Hello! How can I help?"}
+    ]
+}
+```
+
+**Response:**
+```json
+{
+    "answer": "Yes, we have a claim for Emma Williams (ALF1000004)...",
+    "sources": ["LORA", "EmailLog", "Refund"],
+    "claims": [{"alf_claim_id": "ALF1000004", "status": "Refunded"}],
+    "success": true
+}
+```
+
+**Features:**
+- Auto-detect claim IDs (ALF1234567 format)
+- Search by customer name or email
+- Conversation context persistence (last 10 messages)
+- Fetches claim data, emails, refunds, timeline, Zendesk tickets
+- LLM-powered natural language responses
+- Hallucination prevention (uses ONLY provided data)
+
 ## Development Conventions
 
 ### Code Style
@@ -319,7 +357,66 @@ POST   /api/integrations/zd/status-webhook/   # Zendesk status changes
 - Check AI provider endpoint is accessible
 - Review logs for API errors
 
-## Recent Changes (v1.3.0)
+## Recent Changes
+
+### v1.6.0 (Latest) - AI Agent Chat
+
+**New Feature: AI Agent Chat**
+- ChatGPT-like interface at `/agent/chat`
+- Natural language claim queries
+- Conversation context persistence
+- Multi-source data integration
+
+**Claim Detection:**
+- Auto-detect ALF claim IDs from messages
+- Search by customer name (e.g., "emma williamson")
+- Search by email address
+- Context maintained across follow-up questions
+
+**Data Sources:**
+- Complete claim details from database
+- Email history with full body content
+- Refund history and status
+- Timeline updates from Zendesk sync
+- Zendesk ticket data and comments
+
+**LLM Integration:**
+- Uses DeepSeek AI API
+- Conversational system prompt
+- Hallucination prevention (uses ONLY provided data)
+- JSON output prevention (natural language only)
+
+**Files Created:**
+- `apps/agent/` - New Django app
+- `apps/agent/services.py` - AgentChatService
+- `apps/agent/views.py` - API and page views
+- `templates/agent/chat.html` - Chat UI
+- `docs/AGENT_CHAT.md` - Complete documentation
+- `docs/API.md` - API reference
+
+**Documentation:**
+- Updated README.md with AI Agent Chat section
+- Updated CHANGELOG.md with v1.6.0 release notes
+- Created comprehensive agent chat documentation
+- Created API documentation
+
+### v1.5.0 - Status Separation & Refund UI
+
+- Separated fulfillment_status, financial_status, dispute_status
+- Added grant refund functionality to claim page
+- Enhanced claim detail UI with prominent status display
+- Refund history section on claim pages
+- All 101 tests passing
+
+### v1.4.0 - Zendesk-First Claims Flow
+
+- Claims created from Zendesk webhooks
+- LLM extraction of claim data
+- ALF claim ID parsing from subject
+- Idempotency protection
+- Email system simplification (removed sentiment analysis)
+
+### v1.3.0 - Refund Management
 
 - **Removed sentiment analysis** from email processing (not needed for B2B emails)
 - **Simplified Zendesk matching** to use only custom field `13606076120860`
@@ -332,5 +429,6 @@ POST   /api/integrations/zd/status-webhook/   # Zendesk status changes
 
 - **Full README**: See `README.md` for comprehensive documentation
 - **Changelog**: See `CHANGELOG.md` for version history
+- **AI Agent Chat Docs**: See `docs/AGENT_CHAT.md` for detailed chat documentation
+- **API Documentation**: See `docs/API.md` for complete API reference
 - **Deployment**: See `deploy/` directory for deployment configurations
-- **API Documentation**: Available at `/api/` when server is running
