@@ -237,21 +237,21 @@ def agent_claims(request):
 def agent_claim_detail(request, claim_id):
     """Agent claim detail view."""
     claim = get_object_or_404(
-        Claim.objects.prefetch_related('evidence', 'emails').select_related('assigned_to'),
+        Claim.objects.prefetch_related('evidence', 'emails', 'refunds').select_related('assigned_to'),
         id=claim_id,
     )
-    
+
     # Check if agent has permission to view this claim
     if request.user.role == 'AGENT':
         if claim.assigned_to and claim.assigned_to != request.user:
             messages.error(request, 'You are not assigned to this claim.')
             return redirect('agent_claims')
-    
+
     context = {
         'claim': claim,
         'status_choices': Claim.STATUS_CHOICES,
     }
-    
+
     return render(request, 'agent/claim_detail.html', context)
 
 

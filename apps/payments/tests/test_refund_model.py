@@ -33,14 +33,14 @@ class RefundModelTest(TestCase):
             reason='Customer request',
             created_by=self.user
         )
-        
-        self.assertEqual(refund.status, 'PENDING')
+
+        self.assertEqual(refund.status, 'REQUESTED')
         self.assertEqual(refund.external_source, 'LORA')
         self.assertEqual(refund.currency, 'USD')
         # Note: Decimal formatting may vary
         self.assertIn('Refund', str(refund))
         self.assertIn('50', str(refund))
-        self.assertIn('PENDING', str(refund))
+        self.assertIn('REQUESTED', str(refund))
     
     def test_unique_paypal_refund_id(self):
         """Test that paypal_refund_id is unique."""
@@ -202,7 +202,7 @@ class RefundModelTest(TestCase):
         
         latest = self.claim.latest_refund
         self.assertEqual(latest.paypal_refund_id, 'REFUND-124')
-        self.assertEqual(latest.status, 'PENDING')
+        self.assertEqual(latest.status, 'REQUESTED')
     
     def test_refund_without_claim(self):
         """Test creating refund without claim (null allowed)."""

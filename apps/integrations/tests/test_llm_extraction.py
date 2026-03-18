@@ -18,7 +18,7 @@ from apps.integrations.services import (
 class TestAnalyzeZendeskTicketForClaim:
     """Test cases for analyze_zendesk_ticket_for_claim function."""
 
-    @patch('apps.integrations.services.call_qwen_ai')
+    @patch('apps.communications.services.call_qwen_ai')
     def test_analyze_ticket_extracts_email(self, mock_call_ai):
         """Client email extracted correctly."""
         ticket_data = {
@@ -41,7 +41,7 @@ class TestAnalyzeZendeskTicketForClaim:
         assert result['phone'] == ''
         assert result['alternate_email'] == ''
 
-    @patch('apps.integrations.services.call_qwen_ai')
+    @patch('apps.communications.services.call_qwen_ai')
     def test_analyze_ticket_extracts_flight(self, mock_call_ai):
         """Flight details extracted correctly."""
         ticket_data = {
@@ -60,7 +60,7 @@ class TestAnalyzeZendeskTicketForClaim:
         assert result['flight_details'] == 'Flight AA123 from JFK to LAX on March 15, 2026'
         assert result['client_email'] == ''
 
-    @patch('apps.integrations.services.call_qwen_ai')
+    @patch('apps.communications.services.call_qwen_ai')
     def test_analyze_ticket_extracts_object(self, mock_call_ai):
         """Object description extracted correctly."""
         ticket_data = {
@@ -78,7 +78,7 @@ class TestAnalyzeZendeskTicketForClaim:
 
         assert result['object_description'] == 'Black MacBook Pro laptop, 15-inch'
 
-    @patch('apps.integrations.services.call_qwen_ai')
+    @patch('apps.communications.services.call_qwen_ai')
     def test_analyze_ticket_extracts_phone(self, mock_call_ai):
         """Phone number extracted correctly."""
         ticket_data = {
@@ -96,7 +96,7 @@ class TestAnalyzeZendeskTicketForClaim:
 
         assert result['phone'] == '+1-555-123-4567'
 
-    @patch('apps.integrations.services.call_qwen_ai')
+    @patch('apps.communications.services.call_qwen_ai')
     def test_analyze_ticket_extracts_alternate_email(self, mock_call_ai):
         """Alternate email extracted correctly."""
         ticket_data = {
@@ -115,7 +115,7 @@ class TestAnalyzeZendeskTicketForClaim:
         assert result['client_email'] == 'primary@example.com'
         assert result['alternate_email'] == 'backup@gmail.com'
 
-    @patch('apps.integrations.services.call_qwen_ai')
+    @patch('apps.communications.services.call_qwen_ai')
     def test_analyze_ticket_extracts_all_fields(self, mock_call_ai):
         """All fields extracted in single call."""
         ticket_data = {
@@ -143,7 +143,7 @@ class TestAnalyzeZendeskTicketForClaim:
         assert result['phone'] == '+1-555-123-4567'
         assert result['alternate_email'] == 'backup@gmail.com'
 
-    @patch('apps.integrations.services.call_qwen_ai')
+    @patch('apps.communications.services.call_qwen_ai')
     def test_analyze_ticket_handles_empty(self, mock_call_ai):
         """Empty ticket returns empty strings."""
         ticket_data = {
@@ -167,7 +167,7 @@ class TestAnalyzeZendeskTicketForClaim:
             'alternate_email': '',
         }
 
-    @patch('apps.integrations.services.call_qwen_ai')
+    @patch('apps.communications.services.call_qwen_ai')
     def test_analyze_ticket_llm_returns_empty_response(self, mock_call_ai):
         """Handles LLM returning empty response."""
         ticket_data = {
@@ -185,7 +185,7 @@ class TestAnalyzeZendeskTicketForClaim:
         assert result['client_email'] == ''
         assert result['flight_details'] == ''
 
-    @patch('apps.integrations.services.call_qwen_ai')
+    @patch('apps.communications.services.call_qwen_ai')
     def test_analyze_ticket_llm_returns_invalid_json(self, mock_call_ai):
         """Handles LLM returning invalid JSON."""
         ticket_data = {
@@ -205,7 +205,7 @@ class TestAnalyzeZendeskTicketForClaim:
         assert result['client_email'] == ''
         assert result['flight_details'] == ''
 
-    @patch('apps.integrations.services.call_qwen_ai')
+    @patch('apps.communications.services.call_qwen_ai')
     def test_analyze_ticket_llm_returns_partial_json(self, mock_call_ai):
         """Handles LLM returning partial JSON with some fields."""
         ticket_data = {
@@ -226,7 +226,7 @@ class TestAnalyzeZendeskTicketForClaim:
         assert result['flight_details'] == ''  # Default empty
         assert result['object_description'] == ''  # Default empty
 
-    @patch('apps.integrations.services.call_qwen_ai')
+    @patch('apps.communications.services.call_qwen_ai')
     def test_analyze_ticket_llm_exception(self, mock_call_ai):
         """Handles LLM API exception gracefully."""
         ticket_data = {
@@ -249,7 +249,7 @@ class TestAnalyzeZendeskTicketForClaim:
             'alternate_email': '',
         }
 
-    @patch('apps.integrations.services.call_qwen_ai')
+    @patch('apps.communications.services.call_qwen_ai')
     def test_analyze_ticket_with_comments(self, mock_call_ai):
         """Ticket with comments is processed correctly."""
         ticket_data = {
@@ -285,7 +285,7 @@ class TestAnalyzeZendeskTicketForClaim:
         # Verify LLM was called
         mock_call_ai.assert_called_once()
 
-    @patch('apps.integrations.services.call_qwen_ai')
+    @patch('apps.communications.services.call_qwen_ai')
     def test_analyze_ticket_json_with_markdown(self, mock_call_ai):
         """Handles JSON wrapped in markdown code blocks."""
         ticket_data = {
@@ -314,7 +314,7 @@ class TestAnalyzeZendeskTicketForClaim:
         assert result['flight_details'] == 'Flight AA123'
         assert result['object_description'] == 'Black bag'
 
-    @patch('apps.integrations.services.call_qwen_ai')
+    @patch('apps.communications.services.call_qwen_ai')
     def test_analyze_ticket_alternate_field_names(self, mock_call_ai):
         """Handles alternate field names in LLM response."""
         ticket_data = {
@@ -337,7 +337,7 @@ class TestAnalyzeZendeskTicketForClaim:
         assert result['phone'] == '+1-555-123-4567'
         assert result['alternate_email'] == 'backup@gmail.com'
 
-    @patch('apps.integrations.services.call_qwen_ai')
+    @patch('apps.communications.services.call_qwen_ai')
     def test_analyze_ticket_missing_ticket_data(self, mock_call_ai):
         """Handles missing ticket data fields."""
         ticket_data = {}  # Empty ticket data

@@ -43,6 +43,7 @@ class Claim(models.Model):
     phone = models.CharField(
         max_length=50,
         blank=True,
+        null=True,
         help_text='Client phone number'
     )
     alternate_email = models.EmailField(

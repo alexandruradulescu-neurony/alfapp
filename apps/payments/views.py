@@ -24,7 +24,7 @@ from apps.payments.serializers import (
     RefundStatusUpdateSerializer,
 )
 from apps.payments.refund_service import RefundService
-from apps.users.permissions import IsManager
+from apps.users.permissions import IsManager, IsAgentOrManager
 
 logger = logging.getLogger(__name__)
 
@@ -65,19 +65,22 @@ class PayPalWebhookView(APIView):
 class RefundViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing refunds.
-    
+
     list: GET /api/payments/refunds/
     create: POST /api/payments/refunds/
     retrieve: GET /api/payments/refunds/{id}/
     update: PUT /api/payments/refunds/{id}/
     partial_update: PATCH /api/payments/refunds/{id}/
     destroy: DELETE /api/payments/refunds/{id}/
-    
+
     Actions:
     - process: POST /api/payments/refunds/process/
     - stats: GET /api/payments/refunds/stats/
-    """
     
+    Note: The 'process' action allows AGENTs to initiate refunds from claim detail page.
+    Other operations (list, create, update, delete) require MANAGER role.
+    """
+
     queryset = Refund.objects.all().select_related('claim', 'created_by')
     permission_classes = [IsAuthenticated, IsManager]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -85,6 +88,15 @@ class RefundViewSet(viewsets.ModelViewSet):
     search_fields = ['paypal_refund_id', 'claim__client_email', 'reason']
     ordering_fields = ['created_at', 'amount', 'processed_at']
     ordering = ['-created_at']
+
+    def get_permissions(self):
+        """
+        Allow AGENTs to process refunds from claim detail page.
+        Other operations require MANAGER role.
+        """
+        if self.action == 'process':
+            return [IsAuthenticated(), IsAgentOrManager()]
+        return super().get_permissions()
     
     def get_serializer_class(self):
         """Return appropriate serializer based on action."""

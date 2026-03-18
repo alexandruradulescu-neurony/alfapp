@@ -11,35 +11,215 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🎉 Added
 
-#### Zendesk-First Claims Flow
-- **Webhook-Driven Claim Creation**: Claims automatically created from Zendesk tickets
-- **LLM-Powered Ticket Analysis**: Qwen AI extracts claim data from ticket content and comments
-- **ALF Claim ID Parsing**: Automatic extraction from subject line (format: `ALF1234567`)
-- **Idempotency Protection**: Duplicate webhooks for same ticket are skipped
+#### Phase 1: Refund Management System
 
-#### New Claim Model Fields
-- **`alf_claim_id`**: ALF claim ID parsed from Zendesk ticket subject
-- **`zd_ticket_id`**: Zendesk ticket ID for cross-referencing
-- **`phone`**: Client phone number extracted by LLM
-- **`alternate_email`**: Alternate contact email extracted by LLM
-- **`object_description`**: Description of lost item extracted by LLM
-- **`llm_extraction_failed`**: Boolean flag for manual review when LLM extraction fails
+**New Model: `payments.Refund`**
+- `id` - Auto-increment primary key
+- `claim` - ForeignKey to claims.Claim (required)
+- `amount` - Decimal (max_digits=10, decimal_places=2)
+- `currency` - CharField (default: "USD")
+- `refund_type` - CharField: FULL, PARTIAL
+- `reason` - TextField
+- `status` - CharField: REQUESTED, PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED
+- `source` - CharField: LORA, WOOCOMMERCE, MANUAL
+- `paypal_transaction_id` - CharField (nullable, unique)
+- `processed_by` - ForeignKey to users.User (nullable)
+- `processed_at` - DateTimeField (nullable)
+- `created_at` - DateTimeField (auto_now_add)
+- `updated_at` - DateTimeField (auto_now)
+- `metadata` - JSONField (nullable, for storing API responses)
 
-#### Webhook Endpoint
-- **`POST /api/integrations/zd/claim-webhook/`**: Zendesk claim creation webhook
-- **Webhook Secret Verification**: Uses `SIDEBAR_SECRET_TOKEN` for authentication
-- **Comprehensive Error Handling**: Returns detailed error messages for debugging
+**Claim Model Updates**
+- Added status choices: `REFUND_REQUESTED`, `REFUNDED`, `PARTIALLY_REFUNDED`
+- Added `refund` reverse relation for accessing associated refunds
 
-#### Zendesk Integration
-- **Trigger Configuration**: Step-by-step setup for Zendesk trigger
-- **Automatic Data Extraction**: Fetches ticket data and comments for LLM analysis
-- **Fallback Email Handling**: Uses requester email if LLM fails to extract
+**Admin Interface**
+- RefundAdmin with list_display, list_filter, search_fields
+- Read-only fields for processed_at, processed_by
+- Inline display of refunds on Claim admin page
+
+**Model Tests (11 tests)**
+- Refund model creation and validation
+- Status transition tests
+- Unique constraint on paypal_transaction_id
+- ForeignKey relationships
+- Default values
+- Field type validation
+
+#### Phase 2: Refund Service Layer
+
+**RefundService Class**
+- `process_refund(refund_id)` - Process refund via PayPal API
+- `_create_paypal_payout(refund)` - Create PayPal payout item
+- `_handle_paypal_response(response, refund)` - Process API response
+- `_validate_refund_for_processing(refund)` - Pre-processing validation
+- Idempotency protection via unique paypal_transaction_id
+
+**Zendesk Integration Functions**
+- `tag_zendesk_ticket_as_refunded(ticket_id, refund)` - Add 'refunded' tag
+- `add_refund_comment_to_zendesk(ticket_id, refund)` - Post refund details as comment
+- Automatic status sync from Zendesk to LORA
+
+**Webhook Handlers**
+- `ZendeskRefundWebhookView` - Handle PayPal/WooCommerce refund notifications
+- `ZendeskStatusWebhookView` - Handle Zendesk ticket status changes
+- Webhook secret verification using `SIDEBAR_SECRET_TOKEN`
+- Idempotency checks to prevent duplicate processing
+
+**Logging**
+- Comprehensive logging for all refund operations
+- Success/failure tracking
+- API request/response logging (sanitized)
+
+#### Phase 3: Refund UI and API
+
+**DRF ViewSet: `RefundViewSet`**
+- `GET /api/payments/refunds/` - List all refunds (filterable)
+- `POST /api/payments/refunds/` - Create manual refund
+- `GET /api/payments/refunds/{id}/` - Get refund details
+- `PUT /api/payments/refunds/{id}/` - Update refund
+- `PATCH /api/payments/refunds/{id}/` - Partial update
+- `DELETE /api/payments/refunds/{id}/` - Delete refund
+- `POST /api/payments/refunds/process/` - Process refund via PayPal
+- `GET /api/payments/refunds/stats/` - Get refund statistics
+- `POST /api/payments/refunds/{id}/update_status/` - Update status
+
+**Refund List Page**
+- URL: `/manager/refunds/`
+- Filter by status, source, refund_type
+- Search by claim ID, PayPal transaction ID
+- Statistics cards (total refunds, total amount, by status)
+- Responsive table with sorting
+
+**Process Refund Modal**
+- Create new refund from UI
+- Select claim (searchable dropdown)
+- Enter amount, type, reason
+- Process directly via PayPal or save as pending
+
+**Sidebar Navigation Update**
+- Added "Refunds" menu item for MANAGER role
+- Icon: currency-dollar
+- Position: Between "Disputes" and "Configuration"
+
+#### Phase 4: Email System Simplification
+
+**Removed Features**
+- Sentiment analysis from email processing pipeline
+- `EmailLog.sentiment` field and database index
+- `SENTIMENT_CHOICES` from model
+- Sentiment filter from email list template
+- Sentiment display from email detail template
+- `from_email` fallback matching logic
+
+**Simplified Zendesk Matching**
+- Uses ONLY custom field `13606076120860` (hardcoded)
+- Removed configurable field ID setting
+- Direct alias matching without fallbacks
+
+**Full Email Posting**
+- Posts complete email body to Zendesk (not just AI summary)
+- Format: Headers → Full Body → AI Analysis
+- Preserves original formatting and attachments references
+
+**Enhanced Logging**
+- Success/failure icons for Zendesk posting visibility
+- Explicit match logging (why emails will/won't be posted)
+- Step-by-step debugging of email matching process
+- Detailed error messages for failed operations
+
+#### Phase 5: Zendesk-First Claims Flow
+
+**Webhook-Driven Claim Creation**
+- Claims automatically created from Zendesk tickets
+- Endpoint: `POST /api/integrations/zd/claim-webhook/`
+- Webhook secret verification using `SIDEBAR_SECRET_TOKEN`
+- Comprehensive error handling with detailed messages
+
+**LLM-Powered Ticket Analysis**
+- Qwen AI extracts claim data from ticket content and comments
+- Fetches up to 5 comments for context
+- Structured extraction prompt for consistent output
+- Fallback to requester email if LLM extraction fails
+
+**ALF Claim ID Parsing**
+- Automatic extraction from subject line using regex `ALF(\d{7})`
+- Example: "Lost Item - ALF1234567" → `ALF1234567`
+- Generates placeholder `ALF{ticket_id}` if not found
+
+**Idempotency Protection**
+- Check for existing claim with same `zd_ticket_id` before creation
+- Returns existing claim ID if duplicate detected
+- Safe for multiple webhook deliveries and manual re-plays
+
+**New Claim Model Fields**
+- `alf_claim_id` - CharField (unique, indexed, max_length=20)
+- `zd_ticket_id` - CharField (indexed, max_length=20)
+- `phone` - CharField (max_length=50, nullable)
+- `alternate_email` - EmailField (nullable)
+- `object_description` - TextField (nullable)
+- `llm_extraction_failed` - BooleanField (default=False)
+
+**Extracted Data Fields**
+- `client_email` - Primary customer email
+- `flight_details` - Flight number, date, and route
+- `object_description` - Description of lost item
+- `phone` - Phone number (if available)
+- `alternate_email` - Alternate contact email (if available)
+
+#### Phase 6: Claim Detail Enhancement
+
+**ALF ID Prominent Display**
+- Large badge in claim header
+- Copy-to-clipboard functionality
+- Visible in list views and detail pages
+
+**AI Summary Section**
+- Displays LLM-extracted claim data
+- Shows extraction confidence/failure status
+- Manual edit capability for corrected data
+
+**Zendesk Update Timeline**
+- Shows ticket status changes over time
+- Links to Zendesk ticket
+- Displays webhook receipt timestamps
+
+**Update from Zendesk Feature**
+- Manual sync button to refresh claim data from Zendesk
+- Fetches latest ticket status and comments
+- Updates claim fields if changed
 
 ### 🔧 Changed
 
-- **Claims Origin**: Claims now originate from Zendesk tickets (not external forms)
-- **Claim Creation Flow**: Fully automated via webhook (no manual entry required)
-- **Data Extraction**: LLM-powered instead of manual data entry
+#### Claim Creation Flow
+- **Before**: Manual entry via form or external submission
+- **After**: Automatic creation from Zendesk webhook with LLM extraction
+
+#### Data Extraction
+- **Before**: Manual data entry by agents
+- **After**: LLM-powered automatic extraction from ticket content
+
+#### Email Processing
+- **Before**: Sentiment analysis + configurable field matching + summary-only posting
+- **After**: No sentiment + hardcoded field matching + full email posting
+
+#### Claim Statuses
+- Added: `REFUND_REQUESTED`, `REFUNDED`, `PARTIALLY_REFUNDED`
+- Integrated with refund workflow
+
+#### Claim Origin
+- **Before**: External forms, manual entry
+- **After**: Zendesk tickets (webhook-driven)
+
+### 🗑️ Removed
+
+- `EmailLog.sentiment` field and database index
+- `SENTIMENT_CHOICES` from EmailLog model
+- Sentiment extraction from AI parsing pipeline
+- Sentiment filter from email list UI
+- Sentiment display from email detail UI
+- `from_email` fallback matching in email processing
+- Configurable Zendesk custom field ID (now hardcoded)
 
 ### 📦 Dependencies
 
@@ -47,40 +227,194 @@ No new dependencies added.
 
 ### ⚠️ Database Changes
 
-- **claims.Claim**: Added `alf_claim_id` field (unique, indexed)
-- **claims.Claim**: Added `zd_ticket_id` field (indexed)
-- **claims.Claim**: Added `phone` field
-- **claims.Claim**: Added `alternate_email` field
-- **claims.Claim**: Added `object_description` field
-- **claims.Claim**: Added `llm_extraction_failed` field
+#### payments.Refund (New Table)
+| Field | Type | Constraints |
+|-------|------|-------------|
+| id | AutoField | Primary Key |
+| claim | ForeignKey | claims.Claim, NOT NULL |
+| amount | DecimalField | max_digits=10, decimal_places=2 |
+| currency | CharField | max_length=3, default="USD" |
+| refund_type | CharField | FULL, PARTIAL |
+| reason | TextField | |
+| status | CharField | REQUESTED, PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED |
+| source | CharField | LORA, WOOCOMMERCE, MANUAL |
+| paypal_transaction_id | CharField | max_length=100, unique, nullable |
+| processed_by | ForeignKey | users.User, nullable |
+| processed_at | DateTimeField | nullable |
+| created_at | DateTimeField | auto_now_add |
+| updated_at | DateTimeField | auto_now |
+| metadata | JSONField | nullable |
 
-### 🚀 Migration
+#### claims.Claim (Modified)
+| Field | Type | Constraints |
+|-------|------|-------------|
+| alf_claim_id | CharField | max_length=20, unique, indexed |
+| zd_ticket_id | CharField | max_length=20, indexed |
+| phone | CharField | max_length=50, nullable |
+| alternate_email | EmailField | nullable |
+| object_description | TextField | nullable |
+| llm_extraction_failed | BooleanField | default=False |
+
+#### claims.Claim (Status Choices)
+- Added: `REFUND_REQUESTED`, `REFUNDED`, `PARTIALLY_REFUNDED`
+
+#### communications.EmailLog (Removed)
+- Removed: `sentiment` field
+- Removed: `sentiment` database index
+
+### 🚀 Migrations
 
 ```bash
+# Apply all migrations
 python manage.py migrate
+
+# Expected migrations:
+# - payments.0004_refund_initial (creates Refund model)
+# - claims.0010_claim_alf_claim_id_claim_alternate_email_and_more (claim fields)
+# - communications.0008_remove_emaillog_sentiment (remove sentiment)
 ```
 
-This will apply migration `0010_claim_alf_claim_id_claim_alternate_email_and_more`.
+### 📝 Configuration Requirements
 
-### 📝 Zendesk Setup
+#### Environment Variables (.env)
 
-1. **Create trigger**: Admin → Triggers → Add trigger
-2. **Conditions**: `Status` is `Investigation Initiated`
-3. **Action**: Notify webhook → `https://your-lora.com/api/integrations/zd/claim-webhook/`
-4. **Payload**:
-```json
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `PAYPAL_CLIENT_ID` | PayPal API client ID | Yes (for refunds) |
+| `PAYPAL_SECRET` | PayPal API secret | Yes (for refunds) |
+| `PAYPAL_WEBHOOK_ID` | PayPal webhook identifier | Yes (for webhooks) |
+| `PAYPAL_MODE` | sandbox or live | Yes |
+| `SIDEBAR_SECRET_TOKEN` | Webhook authentication token | Yes (for Zendesk webhooks) |
+| `ZENDESK_SUBDOMAIN` | Zendesk subdomain | Yes |
+| `ZENDESK_TOKEN` | Zendesk API token | Yes |
+| `ZENDESK_EMAIL` | Zendesk admin email | Yes |
+| `AI_API_KEY` | Qwen/DeepSeek API key | Yes (for LLM extraction) |
+| `AI_API_BASE` | AI API endpoint URL | Yes |
+| `AI_API_MODEL` | Model name (e.g., qwen-plus) | Yes |
+
+#### Zendesk Setup
+
+**1. Create Custom Field for Email Aliases**
+- Type: Text field
+- Field ID: `13606076120860` (hardcoded in code)
+- Purpose: Store email alias for matching (e.g., `client-123@yourdomain.com`)
+
+**2. Create Trigger for Claim Creation**
+- **Name**: `LORA - Create Claim on Investigation`
+- **Conditions**:
+  - `Status` is `Investigation Initiated`
+  - `Type` is `Ticket`
+- **Actions**:
+  - Notify webhook: `https://your-lora.com/api/integrations/zd/claim-webhook/`
+  - Headers:
+    - `X-Webhook-Secret`: `your-sidebar-secret-token`
+    - `Content-Type`: `application/json`
+  - Payload:
+  ```json
+  {
+    "ticket_id": "{{ticket.id}}",
+    "subject": "{{ticket.title}}",
+    "requester": {
+      "email": "{{ticket.requester.email}}"
+    },
+    "status": "{{ticket.status}}"
+  }
+  ```
+
+**3. Create Trigger for Refund Status Sync**
+- **Name**: `LORA - Sync Refund Status`
+- **Conditions**:
+  - `Status` is `Refund Requested`
+- **Actions**:
+  - Notify webhook: `https://your-lora.com/api/integrations/zd/status-webhook/`
+  - Headers:
+    - `X-Webhook-Secret`: `your-sidebar-secret-token`
+    - `Content-Type`: `application/json`
+  - Payload:
+  ```json
+  {
+    "ticket_id": "{{ticket.id}}",
+    "status": "refund_requested",
+    "claim_id": "{{ticket.custom_fields.claim_id}}"
+  }
+  ```
+
+### ⚠️ Breaking Changes
+
+#### Email System
+- **Sentiment field removed**: Any code referencing `EmailLog.sentiment` will fail
+- **Custom field ID hardcoded**: If using a different Zendesk field for alias matching, update code or migrate data
+- **Full email posting**: Zendesk tickets will now contain full email bodies (more content than before)
+
+#### Claim Creation
+- **Claims originate from Zendesk**: Manual claim creation still possible but primary flow is now webhook-driven
+- **New required fields**: `alf_claim_id` is unique and indexed - ensure no duplicates during migration
+- **LLM dependency**: Claim creation now requires AI provider connectivity
+
+#### Refund System
+- **New table**: `payments.Refund` must be migrated before use
+- **PayPal credentials required**: Refund processing requires valid PayPal API credentials
+- **Status workflow**: Claims with refund-related statuses need migration logic if existing data uses different statuses
+
+### 🧪 Testing
+
+**Run All Tests**
+```bash
+pytest apps/payments/tests/test_refund_model.py -v
+pytest apps/payments/tests/test_refund_service.py -v
+pytest apps/integrations/tests/test_webhooks.py -v
+pytest apps/claims/tests/test_claim_webhook.py -v
+```
+
+**Test Coverage**
+- Refund model: 11 tests
+- RefundService: Integration tests for PayPal API
+- Webhook handlers: Request validation, idempotency, error handling
+- LLM extraction: Prompt validation, fallback behavior
+
+### 📊 API Changes Summary
+
+#### New Endpoints
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/payments/refunds/` | GET, POST | List/Create refunds |
+| `/api/payments/refunds/{id}/` | GET, PUT, PATCH, DELETE | CRUD single refund |
+| `/api/payments/refunds/process/` | POST | Process refund via PayPal |
+| `/api/payments/refunds/stats/` | GET | Get refund statistics |
+| `/api/payments/refunds/{id}/update_status/` | POST | Update refund status |
+| `/api/integrations/zd/claim-webhook/` | POST | Zendesk claim creation |
+| `/api/integrations/zd/refund-webhook/` | POST | Refund notifications |
+| `/api/integrations/zd/status-webhook/` | POST | Status change notifications |
+
+### 📈 Statistics Endpoints
+
+**Refund Statistics**
+```bash
+GET /api/payments/refunds/stats/
+
+Response:
 {
-  "ticket_id": "{{ticket.id}}",
-  "subject": "{{ticket.title}}",
-  "requester": {
-    "email": "{{ticket.requester.email}}"
-  },
-  "status": "{{ticket.status}}"
+    "total_refunds": 25,
+    "total_amount": 1250.00,
+    "by_status": {
+        "REQUESTED": 5,
+        "PENDING": 3,
+        "COMPLETED": 15,
+        "FAILED": 2
+    },
+    "by_type": {
+        "FULL": 20,
+        "PARTIAL": 5
+    },
+    "by_source": {
+        "LORA": 10,
+        "WOOCOMMERCE": 10,
+        "MANUAL": 5
+    }
 }
 ```
-5. **Headers**:
-   - `X-Webhook-Secret`: `your-sidebar-secret-token`
-   - `Content-Type`: `application/json`
+
+---
 
 ---
 

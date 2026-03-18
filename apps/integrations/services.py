@@ -816,22 +816,23 @@ def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, s
 def parse_alf_claim_id_from_subject(subject: str) -> Optional[str]:
     """
     Parse ALF claim ID from Zendesk ticket subject.
-    
+
     Expected format: ALF followed by 7 digits (e.g., ALF1234567)
-    
+    Also handles formats with hyphens/underscores: ALF-1234567, ALF_1234567
+
     Args:
         subject: Zendesk ticket subject line
-    
+
     Returns:
         ALF claim ID if found, None otherwise
     """
     import re
-    
+
     if not subject:
         return None
 
-    # Pattern: ALF followed by exactly 7 digits
-    match = re.search(r'ALF(\d{7})', subject, re.IGNORECASE)
+    # Pattern: ALF followed by optional hyphens/underscores, then exactly 7 digits
+    match = re.search(r'ALF[-_]?(\d{7})', subject, re.IGNORECASE)
     if match:
         return f"ALF{match.group(1)}"
 

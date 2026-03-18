@@ -8,7 +8,7 @@
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
     <div>
         <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <i class="bi bi-file-earmark-text"></i> 
+            <i class="bi bi-file-earmark-text"></i>
             Claim #<span class="text-primary font-mono">{{ claim.alf_claim_id|default:claim.id }}</span>
         </h2>
         <span class="text-xs text-base-content/40">(Internal ID: {{ claim.id }})</span>
@@ -28,6 +28,161 @@
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- Claim Details -->
     <div class="lg:col-span-1 space-y-6">
+        <!-- Enhanced Status Card -->
+        <div class="card-modern p-6 mb-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-4">
+                <i class="bi bi-shield-check"></i> Claim Status
+            </h3>
+            
+            <!-- Primary Status Badge - Large and Prominent -->
+            <div class="status-card-large status-{{ claim.status }} mb-4">
+                <div class="status-icon">
+                    {% if claim.status == 'Received' %}
+                        <i class="bi bi-inbox"></i>
+                    {% elif claim.status == 'Searching' %}
+                        <i class="bi bi-search"></i>
+                    {% elif claim.status == 'Found' %}
+                        <i class="bi bi-check-circle"></i>
+                    {% elif claim.status == 'Shipped' %}
+                        <i class="bi bi-box-seam"></i>
+                    {% elif claim.status == 'Disputed' %}
+                        <i class="bi bi-exclamation-triangle"></i>
+                    {% elif claim.status == 'REFUND_REQUESTED' %}
+                        <i class="bi bi-currency-exchange"></i>
+                    {% elif claim.status == 'REFUNDED' %}
+                        <i class="bi bi-check-circle-fill"></i>
+                    {% elif claim.status == 'PARTIALLY_REFUNDED' %}
+                        <i class="bi bi-arrow-return-left"></i>
+                    {% else %}
+                        <i class="bi bi-question-circle"></i>
+                    {% endif %}
+                </div>
+                <div class="status-text">
+                    <span class="status-label">{{ claim.status }}</span>
+                </div>
+            </div>
+
+            <!-- Active Statuses Overview -->
+            <div class="space-y-2">
+                <span class="text-xs text-base-content/60 font-semibold uppercase tracking-wider">Status Overview</span>
+                
+                <!-- Fulfillment Status -->
+                <div class="flex items-center justify-between p-2 rounded-lg bg-base-200/50">
+                    <span class="text-sm flex items-center gap-2">
+                        <i class="bi bi-box-seam text-base-content/60"></i> Fulfillment
+                    </span>
+                    <span class="badge badge-sm {% if claim.status in 'Received,Searching,Found,Shipped' %}badge-success{% else %}badge-neutral{% endif %}">
+                        {% if claim.status in 'Received,Searching,Found,Shipped' %}Active{% else %}{{ claim.status }}{% endif %}
+                    </span>
+                </div>
+                
+                <!-- Financial Status -->
+                <div class="flex items-center justify-between p-2 rounded-lg bg-base-200/50">
+                    <span class="text-sm flex items-center gap-2">
+                        <i class="bi bi-currency-dollar text-base-content/60"></i> Financial
+                    </span>
+                    <span class="badge badge-sm {% if claim.status == 'REFUNDED' or claim.status == 'PARTIALLY_REFUNDED' %}badge-success{% elif claim.status == 'REFUND_REQUESTED' %}badge-warning{% else %}badge-neutral{% endif %}">
+                        {% if claim.status == 'REFUNDED' %}Refunded{% elif claim.status == 'PARTIALLY_REFUNDED' %}Partial Refund{% elif claim.status == 'REFUND_REQUESTED' %}Requested{% else %}No Action{% endif %}
+                    </span>
+                </div>
+                
+                <!-- Dispute Status -->
+                <div class="flex items-center justify-between p-2 rounded-lg bg-base-200/50">
+                    <span class="text-sm flex items-center gap-2">
+                        <i class="bi bi-exclamation-triangle text-base-content/60"></i> Dispute
+                    </span>
+                    <span class="badge badge-sm {% if claim.status == 'Disputed' %}badge-error{% else %}badge-neutral{% endif %}">
+                        {% if claim.status == 'Disputed' %}Active Dispute{% else %}No Dispute{% endif %}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Refund Action Button -->
+            {% if claim.status != 'REFUNDED' %}
+            <div class="mt-4 pt-4 border-t border-base-200/60">
+                <button type="button" class="btn btn-warning rounded-xl w-full transition-all duration-200" onclick="openGrantRefundModal()">
+                    <i class="bi bi-currency-exchange"></i> Grant Refund
+                </button>
+            </div>
+            {% endif %}
+
+            <!-- Update Status Form -->
+            <div class="mt-4 pt-4 border-t border-base-200/60">
+                <form method="post" action="{% url 'agent_update_status' claim.id %}">
+                    {% csrf_token %}
+                    <label class="label">
+                        <span class="text-sm text-base-content/60">Update Status</span>
+                    </label>
+                    <div class="flex gap-2">
+                        <select class="select rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 flex-1" name="status">
+                            {% for value, label in status_choices %}
+                            <option value="{{ value }}" {% if claim.status == value %}selected{% endif %}>
+                                {{ label }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-primary rounded-xl transition-all duration-200">Update</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Refund History Card -->
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-4">
+                <i class="bi bi-currency-exchange"></i> Refund History
+            </h3>
+            
+            {% if claim.refunds.exists %}
+                <!-- Total Refunded -->
+                <div class="bg-success/10 rounded-xl p-4 mb-4">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-base-content/60">Total Refunded</span>
+                        <span class="text-2xl font-bold text-success">${{ claim.refund_total|floatformat:2 }}</span>
+                    </div>
+                </div>
+
+                <!-- Refund List -->
+                <div class="space-y-3">
+                    {% for refund in claim.refunds.all %}
+                    <div class="border border-base-200/60 rounded-xl p-3 hover:bg-base-200/30 transition-all">
+                        <div class="flex justify-between items-start mb-2">
+                            <div>
+                                <span class="badge badge-sm {% if refund.refund_type == 'FULL' %}badge-success{% else %}badge-warning{% endif %}">
+                                    {{ refund.get_refund_type_display }}
+                                </span>
+                                <span class="text-xs text-base-content/40 ml-2">{{ refund.created_at|date:"M d, Y" }}</span>
+                            </div>
+                            <span class="font-semibold">{{ refund.currency }} {{ refund.amount }}</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="badge badge-sm {% if refund.status == 'COMPLETED' %}badge-success{% elif refund.status == 'REQUESTED' %}badge-info{% elif refund.status == 'PENDING' %}badge-warning{% elif refund.status == 'FAILED' %}badge-error{% elif refund.status == 'PROCESSING' %}badge-primary{% else %}badge-neutral{% endif %}">
+                                {{ refund.get_status_display }}
+                            </span>
+                            <span class="text-xs text-base-content/40">{{ refund.paypal_refund_id|truncatechars:15 }}</span>
+                        </div>
+                        {% if refund.reason %}
+                        <p class="text-xs text-base-content/60 mt-2 italic">"{{ refund.reason|truncatechars:80 }}"</p>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="text-center py-8">
+                    <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
+                        <i class="bi bi-currency-exchange text-3xl text-base-content/40"></i>
+                    </div>
+                    <p class="text-base-content/60 text-sm mb-3">No refunds issued for this claim.</p>
+                    {% if claim.status != 'REFUNDED' %}
+                    <button type="button" class="btn btn-sm btn-warning" onclick="openGrantRefundModal()">
+                        <i class="bi bi-plus-circle"></i> Grant First Refund
+                    </button>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Claim Information Card -->
         <div class="card-modern p-6">
             <h3 class="text-lg font-semibold flex items-center gap-2 mb-6">
                 <i class="bi bi-info-circle"></i> Claim Information
@@ -36,14 +191,6 @@
                 <div>
                     <span class="text-sm text-base-content/60">Customer Email</span>
                     <p class="font-medium mt-0.5">{{ claim.client_email }}</p>
-                </div>
-                <div>
-                    <span class="text-sm text-base-content/60">Status</span>
-                    <div class="mt-1">
-                        <span class="badge status-{{ claim.status }}">
-                            {{ claim.status }}
-                        </span>
-                    </div>
                 </div>
                 <div>
                     <span class="text-sm text-base-content/60">Zendesk Ticket</span>
@@ -64,26 +211,6 @@
                     <span class="text-sm text-base-content/60">Last Updated</span>
                     <p class="font-medium mt-0.5">{{ claim.updated_at|date:"M d, Y H:i" }}</p>
                 </div>
-            </div>
-
-            <!-- Update Status Form -->
-            <div class="mt-6 pt-6 border-t border-base-200/60">
-                <form method="post" action="{% url 'agent_update_status' claim.id %}">
-                    {% csrf_token %}
-                    <label class="label">
-                        <span class="text-sm text-base-content/60">Update Status</span>
-                    </label>
-                    <div class="flex gap-2">
-                        <select class="select rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 flex-1" name="status">
-                            {% for value, label in status_choices %}
-                            <option value="{{ value }}" {% if claim.status == value %}selected{% endif %}>
-                                {{ label }}
-                            </option>
-                            {% endfor %}
-                        </select>
-                        <button type="submit" class="btn btn-primary rounded-xl transition-all duration-200">Update</button>
-                    </div>
-                </form>
             </div>
         </div>
 
@@ -268,16 +395,205 @@
 </div>
 </div>
 
+<!-- Grant Refund Modal -->
+<dialog id="grant_refund_modal" class="modal">
+    <div class="modal-box max-w-2xl">
+        <form method="dialog">
+            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+        </form>
+        <h3 class="font-bold text-lg mb-4 flex items-center gap-2">
+            <i class="bi bi-currency-exchange text-warning"></i>
+            Grant Refund for Claim #{{ claim.alf_claim_id|default:claim.id }}
+        </h3>
+
+        <form id="grantRefundForm" method="POST" action="/api/payments/refunds/process/">
+            {% csrf_token %}
+            
+            <!-- Hidden claim ID -->
+            <input type="hidden" name="claim_id" value="{{ claim.id }}" />
+
+            <!-- Refund Type Selector -->
+            <div class="form-control mb-4">
+                <label class="label">
+                    <span class="label-text font-semibold">Refund Type</span>
+                </label>
+                <div class="flex gap-2">
+                    <label class="flex-1 cursor-pointer">
+                        <input type="radio" name="refund_type" value="FULL" class="radio radio-checked radio-warning" checked onchange="toggleRefundType()" />
+                        <span class="label-text ml-2">Full Refund</span>
+                    </label>
+                    <label class="flex-1 cursor-pointer">
+                        <input type="radio" name="refund_type" value="PARTIAL" class="radio radio-warning" onchange="toggleRefundType()" />
+                        <span class="label-text ml-2">Partial Refund</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Amount Input -->
+            <div class="form-control mb-4">
+                <label class="label">
+                    <span class="label-text font-semibold">Refund Amount (USD)</span>
+                </label>
+                <div class="relative">
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-base-content/60">$</span>
+                    <input type="number" step="0.01" name="amount" id="refund_amount" required
+                           class="input input-bordered w-full pl-8"
+                           placeholder="0.00" value="0.00" />
+                </div>
+                <label class="label">
+                    <span class="label-text-alt text-base-content/60">
+                        <i class="bi bi-info-circle"></i> 
+                        Full refund amount will be auto-filled. Edit for partial refund.
+                    </span>
+                </label>
+            </div>
+
+            <!-- Reason Textarea -->
+            <div class="form-control mb-4">
+                <label class="label">
+                    <span class="label-text font-semibold">Reason <span class="text-error">*</span></span>
+                </label>
+                <textarea name="reason" id="refund_reason" required rows="4"
+                          class="textarea textarea-bordered w-full"
+                          placeholder="Explain the reason for this refund (e.g., Customer request, Item not found, Service failure, etc.)"></textarea>
+                <label class="label">
+                    <span class="label-text-alt text-base-content/60">
+                        This reason will be recorded in the refund history.
+                    </span>
+                </label>
+            </div>
+
+            <!-- Confirmation Warning -->
+            <div class="alert alert-warning bg-warning/10 mb-4">
+                <i class="bi bi-exclamation-triangle"></i>
+                <span>
+                    <strong>Warning:</strong> This action will initiate a refund via PayPal. 
+                    Ensure all verification steps have been completed.
+                </span>
+            </div>
+
+            <div class="modal-action">
+                <button type="button" class="btn" onclick="grant_refund_modal.close()">Cancel</button>
+                <button type="submit" class="btn btn-warning">
+                    <i class="bi bi-check-circle"></i> Confirm & Process Refund
+                </button>
+            </div>
+        </form>
+    </div>
+    <form method="dialog" class="modal-backdrop backdrop-blur">
+        <button>close</button>
+    </form>
+</dialog>
+
+<style>
+/* Enhanced Status Card Styles */
+.status-card-large {
+    @apply relative overflow-hidden rounded-2xl p-6 transition-all duration-300;
+    @apply flex items-center gap-4;
+}
+
+.status-card-large .status-icon {
+    @apply flex items-center justify-center w-16 h-16 rounded-full;
+    @apply text-3xl font-bold;
+}
+
+.status-card-large .status-text {
+    @apply flex-1;
+}
+
+.status-card-large .status-label {
+    @apply text-xl font-bold uppercase tracking-wide;
+}
+
+/* Status color variants */
+.status-card-large.status-Received {
+    @apply bg-base-200/60 border-2 border-base-300;
+}
+.status-card-large.status-Received .status-icon {
+    @apply bg-base-300 text-base-content;
+}
+
+.status-card-large.status-Searching {
+    @apply bg-info/10 border-2 border-info/30;
+}
+.status-card-large.status-Searching .status-icon {
+    @apply bg-info text-info-content;
+}
+.status-card-large.status-Searching .status-label {
+    @apply text-info;
+}
+
+.status-card-large.status-Found {
+    @apply bg-success/10 border-2 border-success/30;
+}
+.status-card-large.status-Found .status-icon {
+    @apply bg-success text-success-content;
+}
+.status-card-large.status-Found .status-label {
+    @apply text-success;
+}
+
+.status-card-large.status-Shipped {
+    @apply bg-primary/10 border-2 border-primary/30;
+}
+.status-card-large.status-Shipped .status-icon {
+    @apply bg-primary text-primary-content;
+}
+.status-card-large.status-Shipped .status-label {
+    @apply text-primary;
+}
+
+.status-card-large.status-Disputed {
+    @apply bg-error/10 border-2 border-error/30;
+}
+.status-card-large.status-Disputed .status-icon {
+    @apply bg-error text-error-content;
+}
+.status-card-large.status-Disputed .status-label {
+    @apply text-error;
+}
+
+.status-card-large.status-REFUND_REQUESTED {
+    @apply bg-warning/10 border-2 border-warning/30;
+}
+.status-card-large.status-REFUND_REQUESTED .status-icon {
+    @apply bg-warning text-warning-content;
+}
+.status-card-large.status-REFUND_REQUESTED .status-label {
+    @apply text-warning;
+}
+
+.status-card-large.status-REFUNDED {
+    @apply bg-success/10 border-2 border-success/30;
+}
+.status-card-large.status-REFUNDED .status-icon {
+    @apply bg-success text-success-content;
+}
+.status-card-large.status-REFUNDED .status-label {
+    @apply text-success;
+}
+
+.status-card-large.status-PARTIALLY_REFUNDED {
+    @apply bg-info/10 border-2 border-info/30;
+}
+.status-card-large.status-PARTIALLY_REFUNDED .status-icon {
+    @apply bg-info text-info-content;
+}
+.status-card-large.status-PARTIALLY_REFUNDED .status-label {
+    @apply text-info;
+}
+</style>
+
 <script>
 function updateFromZendesk(claimId) {
     const button = event.target.closest('button');
     const originalHTML = button.innerHTML;
     const originalDisabled = button.disabled;
-    
+
     // Show loading state
     button.disabled = true;
     button.innerHTML = '<i class="bi bi-hourglass-split"></i> Updating...';
-    
+
     fetch(`/api/claims/${claimId}/update-from-zendesk/`, {
         method: 'POST',
         headers: {
@@ -306,6 +622,31 @@ function updateFromZendesk(claimId) {
     });
 }
 
+function openGrantRefundModal() {
+    const modal = document.getElementById('grant_refund_modal');
+    const amountInput = document.getElementById('refund_amount');
+    
+    // TODO: Fetch claim data to auto-fill amount if needed
+    // For now, set a default or fetch from backend
+    amountInput.value = '0.00';
+    
+    modal.showModal();
+}
+
+function toggleRefundType() {
+    const refundType = document.querySelector('input[name="refund_type"]:checked').value;
+    const amountInput = document.getElementById('refund_amount');
+    
+    if (refundType === 'FULL') {
+        // TODO: Auto-fill with actual claim amount if available
+        amountInput.value = '0.00';
+        amountInput.readOnly = false;
+    } else {
+        amountInput.readOnly = false;
+        amountInput.focus();
+    }
+}
+
 function getCsrfToken() {
     const cookieValue = document.cookie
         .split('; ')
@@ -323,14 +664,62 @@ function showToast(title, message, type = 'info') {
             <span><strong>${title}:</strong> ${message}</span>
         </div>
     `;
-    
+
     // Add to body
     document.body.appendChild(toast);
-    
+
     // Remove after 3 seconds
     setTimeout(() => {
         toast.remove();
     }, 3000);
 }
+
+// Handle refund form submission
+document.getElementById('grantRefundForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    const formData = new FormData(this);
+    const data = Object.fromEntries(formData);
+    
+    // Convert amount to number
+    data.amount = parseFloat(data.amount);
+    data.claim_id = parseInt(data.claim_id);
+
+    const submitButton = this.querySelector('button[type="submit"]');
+    const originalHTML = submitButton.innerHTML;
+    
+    // Show loading state
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<i class="bi bi-hourglass-split"></i> Processing...';
+
+    try {
+        const response = await fetch('/api/payments/refunds/process/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+            showToast('Success', result.message || 'Refund processed successfully!', 'success');
+            document.getElementById('grant_refund_modal').close();
+            // Reload page to show updated refund history
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showToast('Error', result.error || 'Failed to process refund', 'error');
+            submitButton.disabled = false;
+            submitButton.innerHTML = originalHTML;
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        showToast('Error', 'Failed to process refund', 'error');
+        submitButton.disabled = false;
+        submitButton.innerHTML = originalHTML;
+    }
+});
 </script>
 {% endblock %}
