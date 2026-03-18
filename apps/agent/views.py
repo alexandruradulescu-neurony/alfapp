@@ -34,7 +34,9 @@ class AgentChatAPIView(APIView):
     
     def post(self, request):
         # Debug logging
-        logger.info(f"Agent chat request from user: {request.user}, authenticated: {request.user.is_authenticated}, role: {getattr(request.user, 'role', 'NO ROLE')}")
+        logger.info(f"Agent chat request - User: {request.user}, Authenticated: {request.user.is_authenticated}, Role: {getattr(request.user, 'role', 'NO ROLE')}")
+        logger.info(f"Request headers: {dict(request.headers)}")
+        logger.info(f"Request session: {request.session.session_key if request.session.session_key else 'No session key'}")
         
         message = request.data.get('message')
         claim_ids = request.data.get('claimIds', [])
