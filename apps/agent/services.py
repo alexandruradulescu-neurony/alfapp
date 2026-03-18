@@ -6,7 +6,6 @@ Fetches data from LORA database and Zendesk API, generates responses via LLM.
 """
 
 import re
-import json
 import logging
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
@@ -319,44 +318,130 @@ class AgentChatService:
         Returns:
             Formatted prompt for LLM
         """
+        # Build a comprehensive, human-readable context
+        context_text = []
+        
+        # Claims section
+        if context['claims']:
+            context_text.append("## CLAIM INFORMATION")
+            for claim in context['claims']:
+                if 'error' in claim:
+                    context_text.append(f"\nClaim {claim['alf_claim_id']}: {claim['error']}")
+                else:
+                    context_text.append(f"""
+Claim: {claim['alf_claim_id']}
+Customer Email: {claim['client_email']}
+Phone: {claim['phone']}
+Alternate Email: {claim['alternate_email']}
+Fulfillment Status: {claim['fulfillment_status']}
+Financial Status: {claim['financial_status']}
+Dispute Status: {claim['dispute_status']}
+Zendesk Ticket: {claim['zd_ticket_id'] or 'Not linked'}
+Flight Details: {claim['flight_details']}
+Object Description: {claim['object_description']}
+Created: {claim['created_at']}
+AI Summary: {claim['ai_summary']}
+""")
+        
+        # Emails section
+        if context['emails']:
+            context_text.append("\n## EMAIL HISTORY")
+            for claim_id, emails in context['emails'].items():
+                if emails:
+                    context_text.append(f"\nEmails for {claim_id}:")
+                    for i, email in enumerate(emails, 1):
+                        context_text.append(f"""
+{i}. Subject: {email['subject']}
+   Received: {email['received_at']}
+   Category: {email['category']}
+   Summary: {email['ai_summary']}
+   Action Required: {email['action_required']}
+""")
+        
+        # Refunds section
+        if context['refunds']:
+            context_text.append("\n## REFUND HISTORY")
+            for claim_id, refunds in context['refunds'].items():
+                if refunds:
+                    context_text.append(f"\nRefunds for {claim_id}:")
+                    for refund in refunds:
+                        context_text.append(f"""
+- Amount: {refund['amount']}
+  Status: {refund['status']}
+  Type: {refund['refund_type']}
+  Source: {refund['external_source']}
+  Date: {refund['created_at']}
+  Reason: {refund['reason']}
+""")
+        
+        # Timeline section
+        if context['timeline']:
+            context_text.append("\n## UPDATE TIMELINE")
+            for claim_id, updates in context['timeline'].items():
+                if updates:
+                    context_text.append(f"\nTimeline for {claim_id}:")
+                    for update in updates:
+                        context_text.append(f"""
+- {update['created_at']}: {update['update_type']}
+  {update['llm_summary']}
+""")
+        
+        # Zendesk section
+        if context['zendesk']:
+            context_text.append("\n## ZENDESK TICKET INFORMATION")
+            for claim_id, ticket in context['zendesk'].items():
+                if 'error' in ticket:
+                    context_text.append(f"\nZendesk for {claim_id}: {ticket['error']}")
+                else:
+                    context_text.append(f"""
+Zendesk Ticket: {ticket['ticket_id']}
+Status: {ticket['status']}
+Subject: {ticket['subject']}
+Requester ID: {ticket['requester_id']}
+
+Recent Comments:
+""")
+                    for comment in ticket.get('recent_comments', []):
+                        context_text.append(f"""
+- {comment['author']} ({comment['created_at']}):
+  {comment['body']}
+""")
+        
+        # Build the final prompt
+        full_context = "\n".join(context_text) if context_text else "No claim data available."
+        
         return f"""You are a helpful AI assistant for LORA (Lost Object Recovery Automation).
-You help agents find information about claims quickly and accurately.
+You have access to complete claim information including:
+- Claim details (status, customer info, flight details, object description)
+- Email history with AI summaries
+- Refund history
+- Update timeline from Zendesk sync
+- Zendesk ticket data and comments
 
-## Available Data
+Your task is to answer questions about claims based on the data provided below.
 
-Claims:
-{json.dumps(context['claims'], indent=2)}
+## AVAILABLE DATA
 
-Emails (last 10 per claim):
-{json.dumps(context['emails'], indent=2)}
+{full_context}
 
-Refunds:
-{json.dumps(context['refunds'], indent=2)}
+## INSTRUCTIONS
 
-Timeline Updates:
-{json.dumps(context['timeline'], indent=2)}
-
-Zendesk Tickets:
-{json.dumps(context['zendesk'], indent=2)}
-
-## Instructions
-
-1. Answer the user's question based ONLY on the available data above.
-2. If information is missing, clearly state what you couldn't find.
-3. Use markdown formatting for clarity:
-   - Use **bold** for claim IDs, statuses, and important information
+1. Answer the user's question based on the data above.
+2. Be specific and cite actual values from the data.
+3. If information is missing, clearly state what you couldn't find.
+4. Use natural, conversational language.
+5. Format your response with markdown for readability:
+   - Use **bold** for important values (claim IDs, statuses, dates)
    - Use bullet points for lists
    - Use numbered lists for sequences
-4. Keep responses concise but informative (2-5 paragraphs max).
-5. If multiple claims are mentioned, organize answer by claim.
-6. Suggest 2-3 related follow-up questions at the end.
-7. Be professional and helpful in tone.
+6. If multiple claims are in the context, make it clear which claim you're referring to.
+7. Suggest 1-2 related follow-up questions at the end.
 
-## User Question
+## USER QUESTION
 
 {message}
 
-## Your Response
+## YOUR RESPONSE
 """
     
     def _call_llm(self, prompt: str) -> str:
