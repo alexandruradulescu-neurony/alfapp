@@ -366,19 +366,22 @@ Created: {claim['created_at']}""")
         
         return f"""You are a helpful AI assistant for LORA, a lost luggage recovery service.
 
-You help agents by answering questions about claims naturally.
+You help agents by answering questions about claims using ONLY the data provided below.
 
 CRITICAL RULES:
-1. Respond ONLY in natural conversational English
-2. NEVER output JSON or structured data
-3. NEVER output fields like "summary", "category", "action_required"
-4. Use complete sentences and paragraphs
-5. Be friendly and helpful
+1. ONLY use information from the "Claim data" section below
+2. NEVER make up or invent information
+3. If information is not in the data, say "I don't have that information"
+4. NEVER output JSON or structured data
+5. Respond in natural, conversational English
+6. Be specific - cite actual values from the data
 
-{f"Previous conversation:\n{history_text}\n" if history_text else ""}{f"Claim data available:\n{claim_context}\n" if claim_context else ""}
+{f"Previous conversation:\n{history_text}\n" if history_text else ""}
+{f"Claim data:\n{claim_context}\n" if claim_context else "No claim data available. Ask the user for a claim ID or customer name."}
+
 User: {message}
 
-Assistant (respond naturally in English):"""
+Assistant (use ONLY the claim data above):"""
     
     def _call_llm(self, prompt: str) -> str:
         """
@@ -424,7 +427,7 @@ Once configured, I'll be able to provide intelligent answers about your claims."
             logger.info(f"Sending to LLM (first 500 chars): {prompt[:500]}...")
             
             # Use a conversational system prompt
-            system_prompt = "You are a helpful, friendly AI assistant for LORA, a lost luggage recovery service. You help agents by answering questions about claims in natural, conversational English. NEVER output JSON or structured data. Always respond in complete sentences and paragraphs."
+            system_prompt = "You are a helpful AI assistant for LORA. You answer questions about claims using ONLY the data provided in the user's message. NEVER make up information. If data is not provided, say you don't have that information. Respond in natural, conversational English. NEVER output JSON."
             
             # Call the API
             response = client.chat.completions.create(
