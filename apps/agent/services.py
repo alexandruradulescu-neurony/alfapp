@@ -212,9 +212,7 @@ class AgentChatService:
                     'id': claim.id,
                     'alf_claim_id': claim.alf_claim_id,
                     'client_email': claim.client_email,
-                    'fulfillment_status': claim.get_fulfillment_status_display(),
-                    'financial_status': claim.get_financial_status_display(),
-                    'dispute_status': claim.get_dispute_status_display(),
+                    'status': claim.get_status_display(),
                     'zd_ticket_id': claim.zd_ticket_id,
                     'flight_details': claim.flight_details or 'Not provided',
                     'object_description': claim.object_description or 'Not provided',
@@ -330,7 +328,7 @@ class AgentChatService:
             if 'error' not in claim:
                 context_parts.append(f"""CLAIM: {claim['alf_claim_id']}
 Email: {claim['client_email']} | Phone: {claim['phone']}
-Status: {claim['fulfillment_status']} | Financial: {claim['financial_status']} | Dispute: {claim['dispute_status']}
+Status: {claim['status']}
 Zendesk: {claim['zd_ticket_id'] or 'None'}
 Flight: {claim['flight_details']}
 Object: {claim['object_description']}
