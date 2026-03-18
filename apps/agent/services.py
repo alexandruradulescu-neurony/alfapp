@@ -12,6 +12,7 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
 from django.db.models import QuerySet
+from django.db.models import Q
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,10 @@ class AgentChatService:
     def __init__(self):
         # Pattern to match ALF claim IDs (e.g., ALF1234567, ALF-1234567, ALF_1234567)
         self.claim_id_pattern = re.compile(r'ALF[-_]?\d{7}', re.IGNORECASE)
+        # Pattern to detect email addresses
+        self.email_pattern = re.compile(r'[\w\.-]+@[\w\.-]+\.\w+')
+        # Pattern to detect potential names (2+ words with capital letters)
+        self.name_pattern = re.compile(r'\b[A-Z][a-z]+\s+[A-Z][a-z]+\b')
     
     def process_message(self, message: str, claim_ids: Optional[List[int]] = None) -> ChatResponse:
         """
@@ -47,6 +52,19 @@ class AgentChatService:
         """
         # Step 1: Detect claim IDs from message
         detected_ids = self.detect_claim_ids(message)
+        
+        # Step 1b: Try to detect customer name or email and find claims
+        if not detected_ids and not claim_ids:
+            name_or_email = self.detect_name_or_email(message)
+            if name_or_email:
+                claims = self.search_claims_by_name_or_email(name_or_email)
+                if claims:
+                    # Found claims by name/email, use first one
+                    detected_ids = [c.alf_claim_id for c in claims[:1]]
+                    if len(claims) > 1:
+                        # Multiple claims found, mention this in response
+                        context = {'claims': claims, 'count': len(claims)}
+                        return self._handle_multiple_claims(message, context)
         
         # Combine with provided claim IDs
         all_claim_ids = list(set(detected_ids))
@@ -93,6 +111,72 @@ class AgentChatService:
             if digits:
                 normalized.append(f"ALF{digits.group()}")
         return list(set(normalized))
+    
+    def detect_name_or_email(self, message: str) -> Optional[str]:
+        """
+        Detect email address or potential customer name in message.
+        
+        Args:
+            message: User's message
+        
+        Returns:
+            Email address or name if detected, None otherwise
+        """
+        # First try to find email
+        emails = self.email_pattern.findall(message)
+        if emails:
+            return emails[0]
+        
+        # Look for patterns like "for emma williamson", "ticket for john doe", etc.
+        keywords = ['for', 'about', 'regarding', 'customer', 'client', 'claim']
+        message_lower = message.lower()
+        
+        for keyword in keywords:
+            if keyword in message_lower:
+                # Find names after keyword
+                names = self.name_pattern.findall(message)
+                if names:
+                    return names[0]
+        
+        # If message looks like it's asking about a person (contains "who", "what", "find")
+        question_words = ['who', 'what', 'where', 'find', 'search', 'look']
+        if any(word in message_lower for word in question_words):
+            names = self.name_pattern.findall(message)
+            if names:
+                return names[0]
+        
+        return None
+    
+    def search_claims_by_name_or_email(self, search_term: str) -> List:
+        """
+        Search for claims by customer name or email.
+        
+        Args:
+            search_term: Email address or customer name
+        
+        Returns:
+            List of matching Claim objects
+        """
+        from apps.claims.models import Claim
+        from django.db.models import Q
+        
+        # If it's an email, search by email field
+        if '@' in search_term:
+            return list(Claim.objects.filter(
+                Q(client_email__icontains=search_term) |
+                Q(alternate_email__icontains=search_term)
+            ).order_by('-created_at')[:5])
+        
+        # If it's a name, search in email and descriptions
+        # Split name into parts and search for each part
+        name_parts = search_term.split()
+        query = Q()
+        for part in name_parts:
+            query |= Q(client_email__icontains=part)
+            query |= Q(alternate_email__icontains=part)
+            query |= Q(object_description__icontains=part)
+        
+        return list(Claim.objects.filter(query).order_by('-created_at')[:5])
     
     def fetch_context(self, claim_ids: List[str]) -> Dict[str, Any]:
         """
@@ -325,6 +409,44 @@ I encountered an error while processing your request:
 ```
 
 Please try again or contact your system administrator if the issue persists."""
+    
+    def _handle_multiple_claims(self, message: str, context: Dict) -> ChatResponse:
+        """
+        Handle case where multiple claims found by name/email.
+        
+        Args:
+            message: User's message
+            context: Dictionary with claims list and count
+        
+        Returns:
+            ChatResponse with list of matching claims
+        """
+        claims = context['claims']
+        count = context['count']
+        
+        claim_list = "\n".join([
+            f"- **{c.alf_claim_id}** - {c.client_email} (Status: {c.get_fulfillment_status_display()})"
+            for c in claims
+        ])
+        
+        return ChatResponse(
+            answer=f"""I found **{count} claims** matching your search:
+
+{claim_list}
+
+Please specify which claim you'd like to know more about by using the ALF claim ID.
+
+**Example:**
+- "Show me emails for {claims[0].alf_claim_id}"
+- "What's the status of {claims[0].alf_claim_id}?"
+""",
+            sources=['LORA'],
+            claims=[{
+                'alf_claim_id': c.alf_claim_id,
+                'client_email': c.client_email,
+                'status': c.get_fulfillment_status_display(),
+            } for c in claims],
+        )
     
     def _handle_no_claim_detected(self, message: str) -> ChatResponse:
         """
