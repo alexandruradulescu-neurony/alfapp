@@ -50,7 +50,7 @@ class AgentChatService:
         Returns:
             ChatResponse with answer, sources, and claim data
         """
-        # Step 1: Detect claim IDs from message
+        # Step 1: Detect claim IDs from current message
         detected_ids = self.detect_claim_ids(message)
         
         # Step 1b: Try to detect customer name or email and find claims
@@ -59,8 +59,17 @@ class AgentChatService:
             if name_or_email:
                 claims = self.search_claims_by_name_or_email(name_or_email)
                 if claims:
-                    # Found claims by name/email
                     detected_ids = [c.alf_claim_id for c in claims[:1]]
+        
+        # Step 1c: If no claim detected in current message, check conversation history
+        if not detected_ids and conversation_history:
+            # Look for claim IDs in recent messages
+            for msg in reversed(conversation_history[-6:]):
+                if msg['role'] == 'assistant' and 'ALF' in msg['content']:
+                    found = self.detect_claim_ids(msg['content'])
+                    if found:
+                        detected_ids = found
+                        break
         
         # Combine with provided claim IDs
         all_claim_ids = list(set(detected_ids))
@@ -420,10 +429,10 @@ Once configured, I'll be able to provide intelligent answers about your claims."
         try:
             # Initialize OpenAI client
             client = OpenAI(api_key=api_key, base_url=api_base)
-            
-            # Log the prompt being sent
-            logger.info(f"Sending to LLM (first 500 chars): {prompt[:500]}...")
-            
+
+            # Log the full prompt for debugging
+            logger.info(f"=== LLM PROMPT ===\n{prompt}\n=== END PROMPT ===")
+
             # Use a conversational system prompt
             system_prompt = "You are a helpful AI assistant for LORA. You answer questions about claims using ONLY the data provided in the user's message. NEVER make up information. If data is not provided, say you don't have that information. Respond in natural, conversational English. NEVER output JSON."
             
