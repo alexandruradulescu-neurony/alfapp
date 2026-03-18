@@ -382,15 +382,16 @@ Assistant (respond naturally in English):"""
     
     def _call_llm(self, prompt: str) -> str:
         """
-        Call LLM API to generate response.
+        Call LLM API to generate response for chat.
+        Uses a conversational system prompt, NOT the JSON email analysis prompt.
         
         Args:
-            prompt: Formatted prompt
+            prompt: Formatted prompt with conversation context
         
         Returns:
             LLM-generated answer
         """
-        from apps.communications.services import call_qwen_ai
+        from openai import OpenAI
         from apps.config.models import SystemSettings
         
         # Check if AI is configured
@@ -407,34 +408,55 @@ To enable AI chat:
 3. Save settings
 
 Once configured, I'll be able to provide intelligent answers about your claims."""
+            
+            api_key = settings.ai_api_key
+            api_base = settings.ai_api_base
+            model = settings.ai_api_model
         except Exception as e:
             logger.error(f"Error checking AI configuration: {e}")
+            return "I apologize, but I encountered an error accessing the AI service."
         
         try:
-            result = call_qwen_ai(prompt, '', 'Agent Chat Query')
-            raw_response = result.get('raw_response', '')
+            # Initialize OpenAI client
+            client = OpenAI(api_key=api_key, base_url=api_base)
             
-            # If response looks like JSON, try to extract meaningful text
+            # Log the prompt being sent
+            logger.info(f"Sending to LLM (first 500 chars): {prompt[:500]}...")
+            
+            # Use a conversational system prompt
+            system_prompt = "You are a helpful, friendly AI assistant for LORA, a lost luggage recovery service. You help agents by answering questions about claims in natural, conversational English. NEVER output JSON or structured data. Always respond in complete sentences and paragraphs."
+            
+            # Call the API
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.7,
+                max_tokens=1000,
+            )
+            
+            raw_response = response.choices[0].message.content.strip()
+            
+            # Log the response
+            logger.info(f"LLM response (first 500 chars): {raw_response[:500]}...")
+            
+            # If response looks like JSON, catch it
             if raw_response.strip().startswith('{') and 'summary' in raw_response.lower():
-                # LLM incorrectly returned JSON - generate a proper response
+                logger.warning(f"LLM returned JSON instead of natural language: {raw_response[:200]}")
                 return "I apologize, but I encountered an error processing that request. Could you please rephrase your question?"
             
             if not raw_response or 'error' in raw_response.lower():
-                return "I apologize, but the AI service returned an error. Please check the system logs and try again."
+                return "I apologize, but the AI service returned an error. Please try again."
             
             return raw_response
             
         except Exception as e:
-            logger.error(f"LLM call failed: {e}")
+            logger.error(f"LLM call failed: {e}", exc_info=True)
             return f"""⚠️ **AI Service Error**
 
-I encountered an error while processing your request:
-
-```
-{str(e)}
-```
-
-Please try again or contact your system administrator if the issue persists."""
+I encountered an error while processing your request. Please try again."""
     
     def _handle_multiple_claims(self, message: str, context: Dict) -> ChatResponse:
         """
