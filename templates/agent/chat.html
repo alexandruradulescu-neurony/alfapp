@@ -66,6 +66,7 @@
 <script>
 // Chat state
 let isProcessing = false;
+let conversationHistory = [];  // Track conversation for context
 
 // DOM elements
 const chatMessages = document.getElementById('chatMessages');
@@ -157,8 +158,9 @@ function removeLoading() {
 async function sendMessage(message) {
     if (!message.trim()) return;
     
-    // Add user message
+    // Add user message to chat and history
     addMessage('user', message);
+    conversationHistory.push({ role: 'user', content: message });
     messageInput.value = '';
     
     // Show loading
@@ -173,8 +175,11 @@ async function sendMessage(message) {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': getCsrfToken(),
             },
-            body: JSON.stringify({ message }),
-            credentials: 'same-origin',  // Include session cookies
+            body: JSON.stringify({ 
+                message,
+                conversationHistory: conversationHistory.slice(-10)  // Last 10 messages
+            }),
+            credentials: 'same-origin',
         });
         
         const data = await response.json();
@@ -183,6 +188,7 @@ async function sendMessage(message) {
         
         if (response.ok && data.success) {
             addMessage('assistant', data.answer);
+            conversationHistory.push({ role: 'assistant', content: data.answer });
         } else {
             const errorMsg = data.details 
                 ? `**Error:** ${data.message || data.error}\n\n**Details:**\n\`\`\`\n${data.details}\n\`\`\``

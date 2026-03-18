@@ -39,7 +39,7 @@ class AgentChatAPIView(APIView):
         logger.info(f"Request session: {request.session.session_key if request.session.session_key else 'No session key'}")
         
         message = request.data.get('message')
-        claim_ids = request.data.get('claimIds', [])
+        conversation_history = request.data.get('conversationHistory', [])
         
         if not message:
             return Response(
@@ -49,7 +49,7 @@ class AgentChatAPIView(APIView):
         
         try:
             service = AgentChatService()
-            response = service.process_message(message, claim_ids)
+            response = service.process_message(message, conversation_history=conversation_history)
             
             return Response({
                 'answer': response.answer,
