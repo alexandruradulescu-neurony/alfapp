@@ -132,7 +132,11 @@ def agent_dashboard(request):
     my_claims = Claim.objects.filter(
         assigned_to=request.user, status__in=['Received', 'Searching']
     ).count()
-    urgent_emails = EmailLog.objects.filter(sentiment='Urgent', action_required=True).count()
+    # Filter by action_required and category that indicates urgency
+    urgent_emails = EmailLog.objects.filter(
+        action_required=True,
+        category__in=['RESUBMISSION_REQUIRED', 'OBJECT_NOT_FOUND']
+    ).count()
     disputed = Claim.objects.filter(status='Disputed').count()
 
     # Consolidate email stats into single aggregate query
@@ -759,64 +763,6 @@ def manager_users(request):
     from django.contrib.auth.password_validation import validate_password
     from django.core.exceptions import ValidationError
 
-
-@manager_required
-def test_ai(request):
-    """Test AI connection and configuration.
-    
-    Sends a simple test prompt to the configured AI provider
-    and displays the response for debugging.
-    """
-    from apps.config.models import SystemSettings
-    from openai import OpenAI
-    
-    settings_obj = SystemSettings.get_instance()
-    result = {
-        'success': False,
-        'message': '',
-        'response': '',
-        'config': {
-            'provider': settings_obj.ai_provider,
-            'api_base': settings_obj.ai_api_base,
-            'api_model': settings_obj.ai_api_model,
-            'api_key_configured': bool(settings_obj.ai_api_key),
-        }
-    }
-    
-    # Check if API key is configured
-    if not settings_obj.ai_api_key:
-        result['message'] = 'AI API Key is not configured. Please add your API key in System Settings.'
-        return render(request, 'manager/test_ai.html', result)
-    
-    if request.method == 'POST':
-        test_prompt = request.POST.get('test_prompt', 'Say hello')
-        
-        try:
-            client = OpenAI(
-                api_key=settings_obj.ai_api_key,
-                base_url=settings_obj.ai_api_base,
-            )
-            
-            response = client.chat.completions.create(
-                model=settings_obj.ai_api_model,
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": test_prompt},
-                ],
-                temperature=0.7,
-                max_tokens=200,
-            )
-            
-            result['success'] = True
-            result['message'] = 'AI connection successful!'
-            result['response'] = response.choices[0].message.content
-            result['tokens_used'] = response.usage.total_tokens
-        except Exception as e:
-            result['message'] = f'AI connection failed: {str(e)}'
-            result['error'] = str(e)
-    
-    return render(request, 'manager/test_ai.html', result)
-
     users = User.objects.order_by('-date_joined')
 
     if request.method == 'POST':
@@ -865,3 +811,61 @@ def test_ai(request):
     }
 
     return render(request, 'manager/users.html', context)
+
+
+@manager_required
+def test_ai(request):
+    """Test AI connection and configuration.
+
+    Sends a simple test prompt to the configured AI provider
+    and displays the response for debugging.
+    """
+    from apps.config.models import SystemSettings
+    from openai import OpenAI
+
+    settings_obj = SystemSettings.get_instance()
+    result = {
+        'success': False,
+        'message': '',
+        'response': '',
+        'config': {
+            'provider': settings_obj.ai_provider,
+            'api_base': settings_obj.ai_api_base,
+            'api_model': settings_obj.ai_api_model,
+            'api_key_configured': bool(settings_obj.ai_api_key),
+        }
+    }
+
+    # Check if API key is configured
+    if not settings_obj.ai_api_key:
+        result['message'] = 'AI API Key is not configured. Please add your API key in System Settings.'
+        return render(request, 'manager/test_ai.html', result)
+
+    if request.method == 'POST':
+        test_prompt = request.POST.get('test_prompt', 'Say hello')
+
+        try:
+            client = OpenAI(
+                api_key=settings_obj.ai_api_key,
+                base_url=settings_obj.ai_api_base,
+            )
+
+            response = client.chat.completions.create(
+                model=settings_obj.ai_api_model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": test_prompt},
+                ],
+                temperature=0.7,
+                max_tokens=200,
+            )
+
+            result['success'] = True
+            result['message'] = 'AI connection successful!'
+            result['response'] = response.choices[0].message.content
+            result['tokens_used'] = response.usage.total_tokens
+        except Exception as e:
+            result['message'] = f'AI connection failed: {str(e)}'
+            result['error'] = str(e)
+
+    return render(request, 'manager/test_ai.html', result)

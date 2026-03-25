@@ -486,12 +486,12 @@ I encountered an error while processing your request. Please try again."""
         """
         claims = context['claims']
         count = context['count']
-        
+
         claim_list = "\n".join([
-            f"- **{c.alf_claim_id}** - {c.client_email} (Status: {c.get_fulfillment_status_display()})"
+            f"- **{c.alf_claim_id}** - {c.client_email} (Status: {c.get_status_display()})"
             for c in claims
         ])
-        
+
         return ChatResponse(
             answer=f"""I found **{count} claims** matching your search:
 
@@ -507,7 +507,7 @@ Please specify which claim you'd like to know more about by using the ALF claim 
             claims=[{
                 'alf_claim_id': c.alf_claim_id,
                 'client_email': c.client_email,
-                'status': c.get_fulfillment_status_display(),
+                'status': c.get_status_display(),
             } for c in claims],
         )
     

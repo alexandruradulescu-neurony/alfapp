@@ -1,0 +1,1230 @@
+"""
+Comprehensive tests for Zendesk integration services.
+
+Tests all functions in apps/integrations/services.py including:
+- Authentication and base URL helpers
+- Ticket operations (fetch, create, update, search)
+- Comment operations (post, fetch)
+- Alias matching
+- Dispute-related search
+- Tagging and refund comments
+- LLM extraction
+- ALF claim ID parsing
+
+All external API calls are mocked using unittest.mock.
+"""
+
+import pytest
+import json
+import base64
+from unittest.mock import patch, MagicMock, Mock
+from urllib.error import HTTPError, URLError
+from io import BytesIO
+
+from django.conf import settings
+
+from apps.config.models import SystemSettings
+from apps.integrations import services
+
+
+# =============================================================================
+# Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def mock_system_settings():
+    """
+    Creates SystemSettings with Zendesk credentials.
+    
+    Note: We use get_or_create and then update fields to avoid
+    encryption issues during test setup. The encrypted fields will
+    use SECRET_KEY as fallback if ENCRYPTION_KEY is not set.
+    """
+    # Use get_or_create since SystemSettings is a singleton (pk=1)
+    settings_obj, created = SystemSettings.objects.get_or_create(
+        pk=1,
+        defaults={
+            'zd_subdomain': 'testcompany',
+            'zd_token': 'test_zendesk_token_12345',
+            'zd_email': 'test@testcompany.com',
+            'ai_api_key': 'test_ai_key',
+            'ai_api_base': 'https://api.example.com/v1',
+            'ai_api_model': 'qwen-turbo',
+            'sidebar_secret_token': 'test_secret',
+        }
+    )
+    
+    # If it already existed, update the fields to ensure correct values
+    if not created:
+        settings_obj.zd_subdomain = 'testcompany'
+        settings_obj.zd_token = 'test_zendesk_token_12345'
+        settings_obj.zd_email = 'test@testcompany.com'
+        settings_obj.save()
+    
+    return settings_obj
+
+
+@pytest.fixture
+def mock_urlopen_response():
+    """Creates a mock urlopen context manager response."""
+    mock_response = MagicMock()
+    mock_response.__enter__ = Mock(return_value=mock_response)
+    mock_response.__exit__ = Mock(return_value=False)
+    return mock_response
+
+
+# =============================================================================
+# Test _get_zendesk_auth_headers
+# =============================================================================
+
+
+@pytest.mark.django_db
+class TestGetZendeskAuthHeaders:
+    """Tests for _get_zendesk_auth_headers helper function."""
+
+    def test_returns_correct_auth_headers(self, mock_system_settings):
+        """Auth headers generated correctly from credentials."""
+        headers = services._get_zendesk_auth_headers()
+
+        expected_credentials = f"test@testcompany.com/token:test_zendesk_token_12345"
+        expected_encoded = base64.b64encode(expected_credentials.encode('utf-8')).decode('utf-8')
+
+        assert headers['Authorization'] == f'Basic {expected_encoded}'
+        assert headers['Content-Type'] == 'application/json'
+
+    def test_raises_when_credentials_missing(self):
+        """ValueError raised when Zendesk credentials not configured."""
+        # Delete existing settings
+        SystemSettings.objects.all().delete()
+
+        with pytest.raises(ValueError, match="Zendesk credentials not configured"):
+            services._get_zendesk_auth_headers()
+
+    def test_raises_when_subdomain_missing(self, mock_system_settings):
+        """ValueError raised when subdomain is empty."""
+        mock_system_settings.zd_subdomain = ''
+        mock_system_settings.save()
+
+        with pytest.raises(ValueError, match="Zendesk credentials not configured"):
+            services._get_zendesk_auth_headers()
+
+    def test_raises_when_token_missing(self, mock_system_settings):
+        """ValueError raised when token is empty."""
+        mock_system_settings.zd_token = ''
+        mock_system_settings.save()
+
+        with pytest.raises(ValueError, match="Zendesk credentials not configured"):
+            services._get_zendesk_auth_headers()
+
+    def test_raises_when_email_missing(self, mock_system_settings):
+        """ValueError raised when email is empty."""
+        mock_system_settings.zd_email = ''
+        mock_system_settings.save()
+
+        with pytest.raises(ValueError, match="Zendesk credentials not configured"):
+            services._get_zendesk_auth_headers()
+
+
+# =============================================================================
+# Test _get_zendesk_base_url
+# =============================================================================
+
+
+@pytest.mark.django_db
+class TestGetZendeskBaseUrl:
+    """Tests for _get_zendesk_base_url helper function."""
+
+    def test_returns_correct_base_url(self, mock_system_settings):
+        """Base URL constructed correctly from subdomain."""
+        url = services._get_zendesk_base_url()
+        assert url == 'https://testcompany.zendesk.com/api/v2'
+
+    def test_raises_when_subdomain_missing(self):
+        """ValueError raised when subdomain not configured."""
+        SystemSettings.objects.all().delete()
+
+        with pytest.raises(ValueError, match="Zendesk subdomain not configured"):
+            services._get_zendesk_base_url()
+
+    def test_raises_when_subdomain_empty(self, mock_system_settings):
+        """ValueError raised when subdomain is empty string."""
+        mock_system_settings.zd_subdomain = ''
+        mock_system_settings.save()
+
+        with pytest.raises(ValueError, match="Zendesk subdomain not configured"):
+            services._get_zendesk_base_url()
+
+
+# =============================================================================
+# Test post_zendesk_comment
+# =============================================================================
+
+
+@pytest.mark.django_db
+class TestPostZendeskComment:
+    """Tests for post_zendesk_comment function."""
+
+    def test_posts_comment_successfully(self, mock_system_settings, mock_urlopen_response):
+        """Comment posted successfully to Zendesk."""
+        mock_urlopen_response.read.return_value = json.dumps({
+            'ticket': {'id': '12345', 'status': 'open'}
+        }).encode('utf-8')
+
+        with patch('urllib.request.urlopen', return_value=mock_urlopen_response) as mock_urlopen:
+            result = services.post_zendesk_comment('12345', 'Test comment body', is_internal=True)
+
+        assert result is not None
+        assert result['ticket']['id'] == '12345'
+
+        # Verify request was made correctly
+        mock_urlopen.assert_called_once()
+        call_args = mock_urlopen.call_args[0][0]
+        assert call_args.method == 'PUT'
+        assert 'tickets/12345.json' in call_args.full_url
+
+        # Verify payload
+        payload = json.loads(call_args.data.decode('utf-8'))
+        assert payload['ticket']['comment']['body'] == 'Test comment body'
+        assert payload['ticket']['comment']['public'] is False  # Internal note
+
+    def test_posts_public_comment(self, mock_system_settings, mock_urlopen_response):
+        """Public comment posted when is_internal=False."""
+        mock_urlopen_response.read.return_value = json.dumps({
+            'ticket': {'id': '12345'}
+        }).encode('utf-8')
+
+        with patch('urllib.request.urlopen', return_value=mock_urlopen_response) as mock_urlopen:
+            services.post_zendesk_comment('12345', 'Public comment', is_internal=False)
+
+        call_args = mock_urlopen.call_args[0][0]
+        payload = json.loads(call_args.data.decode('utf-8'))
+        assert payload['ticket']['comment']['public'] is True
+
+    def test_returns_none_on_http_error(self, mock_system_settings):
+        """Returns None when HTTP error occurs."""
+        mock_response = MagicMock()
+        mock_response.fp = None
+
+        with patch('urllib.request.urlopen', side_effect=HTTPError(
+            url='https://test.zendesk.com',
+            code=404,
+            msg='Not Found',
+            hdrs={},
+            fp=mock_response
+        )):
+            result = services.post_zendesk_comment('12345', 'Test comment')
+
+        assert result is None
+
+    def test_returns_none_on_url_error(self, mock_system_settings):
+        """Returns None when URL error occurs."""
+        with patch('urllib.request.urlopen', side_effect=URLError('Connection refused')):
+            result = services.post_zendesk_comment('12345', 'Test comment')
+
+        assert result is None
+
+    def test_returns_none_on_value_error(self):
+        """Returns None when configuration error occurs."""
+        SystemSettings.objects.all().delete()
+
+        result = services.post_zendesk_comment('12345', 'Test comment')
+        assert result is None
+
+    def test_returns_none_on_generic_exception(self, mock_system_settings):
+        """Returns None when unexpected exception occurs."""
+        with patch('urllib.request.urlopen', side_effect=Exception('Unexpected error')):
+            result = services.post_zendesk_comment('12345', 'Test comment')
+
+        assert result is None
+
+    def test_uses_configurable_timeout(self, mock_system_settings, mock_urlopen_response):
+        """Uses ZENDESK_TIMEOUT setting if available."""
+        mock_urlopen_response.read.return_value = json.dumps({'ticket': {}}).encode('utf-8')
+
+        with patch('urllib.request.urlopen', return_value=mock_urlopen_response) as mock_urlopen:
+            services.post_zendesk_comment('12345', 'Test comment')
+
+        # Verify timeout was passed (default 30)
+        call_kwargs = mock_urlopen.call_args[1]
+        assert call_kwargs['timeout'] == 30
+
+    def test_logs_success_message(self, mock_system_settings, mock_urlopen_response, caplog):
+        """Success message logged when comment posted."""
+        mock_urlopen_response.read.return_value = json.dumps({'ticket': {}}).encode('utf-8')
+
+        with patch('urllib.request.urlopen', return_value=mock_urlopen_response):
+            services.post_zendesk_comment('12345', 'Test comment')
+
+        assert 'Successfully posted comment to ticket 12345' in caplog.text
+
+
+# =============================================================================
+# Test fetch_zendesk_comments
+# =============================================================================
+
+
+@pytest.mark.django_db
+class TestFetchZendeskComments:
+    """Tests for fetch_zendesk_comments function."""
+
+    def test_fetches_comments_successfully(self, mock_system_settings, mock_urlopen_response):
+        """Comments fetched and transformed correctly."""
+        mock_urlopen_response.read.return_value = json.dumps({
+            'comments': [
+                {
+                    'id': 1,
+                    'author': {'id': 100, 'name': 'John Doe', 'email': 'john@example.com'},
+                    'body': 'First comment',
+                    'public': True,
+                    'created_at': '2026-03-15T10:00:00Z',
+                },
+                {
+                    'id': 2,
+                    'author': {'id': 101, 'name': 'Jane Smith', 'email': 'jane@example.com'},
+                    'body': 'Second comment',
+                    'public': False,
+                    'created_at': '2026-03-15T11:00:00Z',
+                },
+            ]
+        }).encode('utf-8')
+
+        with patch('urllib.request.urlopen', return_value=mock_urlopen_response):
+            comments = services.fetch_zendesk_comments('12345')
+
+        assert len(comments) == 2
+        assert comments[0]['id'] == 1
+        assert comments[0]['author']['name'] == 'John Doe'
+        assert comments[0]['body'] == 'First comment'
+        assert comments[0]['public'] is True
+        assert comments[1]['public'] is False
+
+    def test_returns_empty_list_on_http_error(self, mock_system_settings):
+        """Returns empty list when HTTP error occurs."""
+        mock_response = MagicMock()
+        mock_response.fp = None
+
+        with patch('urllib.request.urlopen', side_effect=HTTPError(
+            url='https://test.zendesk.com',
+            code=404,
+            msg='Not Found',
+            hdrs={},
+            fp=mock_response
+        )):
+            comments = services.fetch_zendesk_comments('12345')
+
+        assert comments == []
+
+    def test_returns_empty_list_on_url_error(self, mock_system_settings):
+        """Returns empty list when URL error occurs."""
+        with patch('urllib.request.urlopen', side_effect=URLError('Connection refused')):
+            comments = services.fetch_zendesk_comments('12345')
+
+        assert comments == []
+
+    def test_returns_empty_list_on_value_error(self):
+        """Returns empty list when configuration error occurs."""
+        SystemSettings.objects.all().delete()
+
+        comments = services.fetch_zendesk_comments('12345')
+        assert comments == []
+
+    def test_returns_empty_list_on_generic_exception(self, mock_system_settings):
+        """Returns empty list when unexpected exception occurs."""
+        with patch('urllib.request.urlopen', side_effect=Exception('Unexpected error')):
+            comments = services.fetch_zendesk_comments('12345')
+
+        assert comments == []
+
+    def test_handles_missing_author_fields(self, mock_system_settings, mock_urlopen_response):
+        """Handles comments with missing author fields gracefully."""
+        mock_urlopen_response.read.return_value = json.dumps({
+            'comments': [
+                {
+                    'id': 1,
+                    'author': {},  # Empty author
+                    'body': 'Comment without author',
+                    'public': True,
+                    'created_at': '2026-03-15T10:00:00Z',
+                }
+            ]
+        }).encode('utf-8')
+
+        with patch('urllib.request.urlopen', return_value=mock_urlopen_response):
+            comments = services.fetch_zendesk_comments('12345')
+
+        assert len(comments) == 1
+        assert comments[0]['author']['name'] == 'Unknown'
+        assert comments[0]['author']['email'] == ''
+
+    def test_handles_empty_comments_response(self, mock_system_settings, mock_urlopen_response):
+        """Handles response with no comments."""
+        mock_urlopen_response.read.return_value = json.dumps({
+            'comments': []
+        }).encode('utf-8')
+
+        with patch('urllib.request.urlopen', return_value=mock_urlopen_response):
+            comments = services.fetch_zendesk_comments('12345')
+
+        assert comments == []
+
+
+# =============================================================================
+# Test fetch_zendesk_ticket
+# =============================================================================
+
+
+@pytest.mark.django_db
+class TestFetchZendeskTicket:
+    """Tests for fetch_zendesk_ticket function."""
+
+    def test_fetches_ticket_successfully(self, mock_system_settings, mock_urlopen_response):
+        """Ticket fetched and transformed correctly."""
+        mock_urlopen_response.read.return_value = json.dumps({
+            'ticket': {
+                'id': '12345',
+                'subject': 'Lost Item Report',
+                'status': 'open',
+                'priority': 'normal',
+                'requester_id': 98765,
+                'assignee_id': 11111,
+                'created_at': '2026-03-15T10:00:00Z',
+                'updated_at': '2026-03-15T12:00:00Z',
+            }
+        }).encode('utf-8')
+
+        with patch('urllib.request.urlopen', return_value=mock_urlopen_response):
+            ticket = services.fetch_zendesk_ticket('12345')
+
+        assert ticket is not None
+        assert ticket['id'] == '12345'
+        assert ticket['subject'] == 'Lost Item Report'
+        assert ticket['status'] == 'open'
+        assert ticket['priority'] == 'normal'
+        assert ticket['requester_id'] == 98765
+
+    def test_returns_none_on_http_error(self, mock_system_settings):
+        """Returns None when HTTP error occurs."""
+        mock_response = MagicMock()
+        mock_response.fp = None
+
+        with patch('urllib.request.urlopen', side_effect=HTTPError(
+            url='https://test.zendesk.com',
+            code=404,
+            msg='Not Found',
+            hdrs={},
+            fp=mock_response
+        )):
+            ticket = services.fetch_zendesk_ticket('12345')
+
+        assert ticket is None
+
+    def test_returns_none_on_url_error(self, mock_system_settings):
+        """Returns None when URL error occurs."""
+        with patch('urllib.request.urlopen', side_effect=URLError('Connection refused')):
+            ticket = services.fetch_zendesk_ticket('12345')
+
+        assert ticket is None
+
+    def test_returns_none_on_generic_exception(self, mock_system_settings):
+        """Returns None when unexpected exception occurs."""
+        with patch('urllib.request.urlopen', side_effect=Exception('Unexpected error')):
+            ticket = services.fetch_zendesk_ticket('12345')
+
+        assert ticket is None
+
+
+# =============================================================================
+# Test create_zendesk_ticket
+# =============================================================================
+
+
+@pytest.mark.django_db
+class TestCreateZendeskTicket:
+    """Tests for create_zendesk_ticket function."""
+
+    def test_creates_ticket_successfully(self, mock_system_settings, mock_urlopen_response):
+        """Ticket created successfully."""
+        mock_urlopen_response.read.return_value = json.dumps({
+            'ticket': {
+                'id': '12345',
+                'subject': 'New Ticket',
+                'status': 'open',
+                'url': 'https://testcompany.zendesk.com/api/v2/tickets/12345.json',
+            }
+        }).encode('utf-8')
+
+        with patch('urllib.request.urlopen', return_value=mock_urlopen_response) as mock_urlopen:
+            result = services.create_zendesk_ticket(
+                subject='New Ticket',
+                comment_body='Initial comment',
+                requester_email='customer@example.com',
+                tags=['lora', 'lost-object'],
+            )
+
+        assert result is not None
+        assert result['id'] == '12345'
+
+        # Verify POST method
+        call_args = mock_urlopen.call_args[0][0]
+        assert call_args.method == 'POST'
+
+        # Verify payload
+        payload = json.loads(call_args.data.decode('utf-8'))
+        assert payload['ticket']['subject'] == 'New Ticket'
+        assert payload['ticket']['comment']['body'] == 'Initial comment'
+        assert payload['ticket']['requester']['email'] == 'customer@example.com'
+        assert payload['ticket']['tags'] == ['lora', 'lost-object']
+
+    def test_creates_ticket_with_default_tags(self, mock_system_settings, mock_urlopen_response):
+        """Default tags used when none provided."""
+        mock_urlopen_response.read.return_value = json.dumps({
+            'ticket': {'id': '12345', 'tags': ['lora', 'lost-object']}
+        }).encode('utf-8')
+
+        with patch('urllib.request.urlopen', return_value=mock_urlopen_response) as mock_urlopen:
+            services.create_zendesk_ticket(
+                subject='New Ticket',
+                comment_body='Comment',
+                requester_email='customer@example.com',
+            )
+
+        call_args = mock_urlopen.call_args[0][0]
+        payload = json.loads(call_args.data.decode('utf-8'))
+        assert payload['ticket']['tags'] == ['lora', 'lost-object']
+
+    def test_returns_none_on_http_error(self, mock_system_settings):
+        """Returns None when HTTP error occurs."""
+        mock_response = MagicMock()
+        mock_response.fp = None
+
+        with patch('urllib.request.urlopen', side_effect=HTTPError(
+            url='https://test.zendesk.com',
+            code=400,
+            msg='Bad Request',
+            hdrs={},
+            fp=mock_response
+        )):
+            result = services.create_zendesk_ticket(
+                subject='Test',
+                comment_body='Test',
+                requester_email='test@example.com',
+            )
+
+        assert result is None
+
+    def test_returns_none_on_url_error(self, mock_system_settings):
+        """Returns None when URL error occurs."""
+        with patch('urllib.request.urlopen', side_effect=URLError('Connection refused')):
+            result = services.create_zendesk_ticket(
+                subject='Test',
+                comment_body='Test',
+                requester_email='test@example.com',
+            )
+
+        assert result is None
+
+    def test_returns_none_on_generic_exception(self, mock_system_settings):
+        """Returns None when unexpected exception occurs."""
+        with patch('urllib.request.urlopen', side_effect=Exception('Unexpected error')):
+            result = services.create_zendesk_ticket(
+                subject='Test',
+                comment_body='Test',
+                requester_email='test@example.com',
+            )
+
+        assert result is None
+
+
+# =============================================================================
+# Test update_zendesk_ticket_status
+# =============================================================================
+
+
+@pytest.mark.django_db
+class TestUpdateZendeskTicketStatus:
+    """Tests for update_zendesk_ticket_status function."""
+
+    def test_updates_status_successfully(self, mock_system_settings, mock_urlopen_response):
+        """Ticket status updated successfully."""
+        mock_urlopen_response.read.return_value = json.dumps({
+            'ticket': {'id': '12345', 'status': 'solved'}
+        }).encode('utf-8')
+
+        with patch('urllib.request.urlopen', return_value=mock_urlopen_response) as mock_urlopen:
+            result = services.update_zendesk_ticket_status('12345', 'solved')
+
+        assert result is not None
+        assert result['status'] == 'solved'
+
+        # Verify payload
+        call_args = mock_urlopen.call_args[0][0]
+        payload = json.loads(call_args.data.decode('utf-8'))
+        assert payload['ticket']['status'] == 'solved'
+
+    def test_returns_none_on_http_error(self, mock_system_settings):
+        """Returns None when HTTP error occurs."""
+        mock_response = MagicMock()
+        mock_response.fp = None
+
+        with patch('urllib.request.urlopen', side_effect=HTTPError(
+            url='https://test.zendesk.com',
+            code=404,
+            msg='Not Found',
+            hdrs={},
+            fp=mock_response
+        )):
+            result = services.update_zendesk_ticket_status('12345', 'solved')
+
+        assert result is None
+
+    def test_returns_none_on_url_error(self, mock_system_settings):
+        """Returns None when URL error occurs."""
+        with patch('urllib.request.urlopen', side_effect=URLError('Connection refused')):
+            result = services.update_zendesk_ticket_status('12345', 'solved')
+
+        assert result is None
+
+    def test_returns_none_on_generic_exception(self, mock_system_settings):
+        """Returns None when unexpected exception occurs."""
+        with patch('urllib.request.urlopen', side_effect=Exception('Unexpected error')):
+            result = services.update_zendesk_ticket_status('12345', 'solved')
+
+        assert result is None
+
+
+# =============================================================================
+# Test search_zendesk_tickets
+# =============================================================================
+
+
+@pytest.mark.django_db
+class TestSearchZendeskTickets:
+    """Tests for search_zendesk_tickets function."""
+
+    def test_searches_successfully(self, mock_system_settings, mock_urlopen_response):
+        """Search returns results."""
+        mock_urlopen_response.read.return_value = json.dumps({
+            'results': [
+                {'id': '12345', 'subject': 'Lost Item'},
+                {'id': '12346', 'subject': 'Another Item'},
+            ]
+        }).encode('utf-8')
+
+        with patch('urllib.request.urlopen', return_value=mock_urlopen_response) as mock_urlopen:
+            results = services.search_zendesk_tickets('requester:test@example.com')
+
+        assert len(results) == 2
+        assert results[0]['id'] == '12345'
+
+        # Verify URL encoding
+        call_args = mock_urlopen.call_args[0][0]
+        assert 'query=requester%3Atest%40example.com' in call_args.full_url
+        assert 'type=ticket' in call_args.full_url
+
+    def test_returns_empty_list_on_empty_query(self, mock_system_settings):
+        """Returns empty list when query is empty."""
+        results = services.search_zendesk_tickets('')
+        assert results == []
+
+    def test_returns_empty_list_on_whitespace_query(self, mock_system_settings):
+        """Returns empty list when query is only whitespace."""
+        results = services.search_zendesk_tickets('   ')
+        assert results == []
+
+    def test_truncates_long_query(self, mock_system_settings, mock_urlopen_response):
+        """Truncates query longer than 1000 characters."""
+        mock_urlopen_response.read.return_value = json.dumps({'results': []}).encode('utf-8')
+
+        long_query = 'a' * 1500
+
+        with patch('urllib.request.urlopen', return_value=mock_urlopen_response) as mock_urlopen:
+            services.search_zendesk_tickets(long_query)
+
+        call_args = mock_urlopen.call_args[0][0]
+        # Query should be truncated to 1000 chars
+        assert 'query=' + 'a' * 1000 in call_args.full_url
+
+    def test_returns_empty_list_on_http_error(self, mock_system_settings):
+        """Returns empty list when HTTP error occurs."""
+        mock_response = MagicMock()
+        mock_response.fp = None
+
+        with patch('urllib.request.urlopen', side_effect=HTTPError(
+            url='https://test.zendesk.com',
+            code=400,
+            msg='Bad Request',
+            hdrs={},
+            fp=mock_response
+        )):
+            results = services.search_zendesk_tickets('test')
+
+        assert results == []
+
+    def test_returns_empty_list_on_url_error(self, mock_system_settings):
+        """Returns empty list when URL error occurs."""
+        with patch('urllib.request.urlopen', side_effect=URLError('Connection refused')):
+            results = services.search_zendesk_tickets('test')
+
+        assert results == []
+
+    def test_returns_empty_list_on_generic_exception(self, mock_system_settings):
+        """Returns empty list when unexpected exception occurs."""
+        with patch('urllib.request.urlopen', side_effect=Exception('Unexpected error')):
+            results = services.search_zendesk_tickets('test')
+
+        assert results == []
+
+
+# =============================================================================
+# Test fetch_zendesk_ticket_full
+# =============================================================================
+
+
+@pytest.mark.django_db
+class TestFetchZendeskTicketFull:
+    """Tests for fetch_zendesk_ticket_full function."""
+
+    def test_fetches_full_ticket_successfully(self, mock_system_settings, mock_urlopen_response):
+        """Full ticket with custom fields fetched correctly."""
+        mock_urlopen_response.read.return_value = json.dumps({
+            'ticket': {
+                'id': '12345',
+                'subject': 'Lost Item',
+                'description': 'I lost my bag',
+                'status': 'open',
+                'priority': 'high',
+                'requester_id': 98765,
+                'assignee_id': 11111,
+                'custom_fields': [
+                    {'id': 13606076120860, 'value': 'client-123@example.com'},
+                ],
+                'tags': ['lora', 'lost-object'],
+                'created_at': '2026-03-15T10:00:00Z',
+                'updated_at': '2026-03-15T12:00:00Z',
+                'url': 'https://testcompany.zendesk.com/api/v2/tickets/12345.json',
+            }
+        }).encode('utf-8')
+
+        with patch('urllib.request.urlopen', return_value=mock_urlopen_response):
+            ticket = services.fetch_zendesk_ticket_full('12345')
+
+        assert ticket is not None
+        assert ticket['id'] == '12345'
+        assert ticket['description'] == 'I lost my bag'
+        assert len(ticket['custom_fields']) == 1
+        assert ticket['tags'] == ['lora', 'lost-object']
+
+    def test_returns_none_on_http_error(self, mock_system_settings):
+        """Returns None when HTTP error occurs."""
+        mock_response = MagicMock()
+        mock_response.fp = None
+
+        with patch('urllib.request.urlopen', side_effect=HTTPError(
+            url='https://test.zendesk.com',
+            code=404,
+            msg='Not Found',
+            hdrs={},
+            fp=mock_response
+        )):
+            ticket = services.fetch_zendesk_ticket_full('12345')
+
+        assert ticket is None
+
+    def test_returns_none_on_url_error(self, mock_system_settings):
+        """Returns None when URL error occurs."""
+        with patch('urllib.request.urlopen', side_effect=URLError('Connection refused')):
+            ticket = services.fetch_zendesk_ticket_full('12345')
+
+        assert ticket is None
+
+    def test_returns_none_on_generic_exception(self, mock_system_settings):
+        """Returns None when unexpected exception occurs."""
+        with patch('urllib.request.urlopen', side_effect=Exception('Unexpected error')):
+            ticket = services.fetch_zendesk_ticket_full('12345')
+
+        assert ticket is None
+
+
+# =============================================================================
+# Test search_zendesk_ticket_for_dispute
+# =============================================================================
+
+
+@pytest.mark.django_db
+class TestSearchZendeskTicketForDispute:
+    """Tests for search_zendesk_ticket_for_dispute function."""
+
+    def test_finds_by_email_search(self, mock_system_settings):
+        """Finds ticket by buyer email search."""
+        mock_search_result = [
+            {
+                'id': '12345',
+                'subject': 'Dispute Ticket',
+                'created_at': '2026-03-15T10:00:00Z',
+            }
+        ]
+
+        with patch('apps.integrations.services.search_zendesk_tickets', return_value=mock_search_result):
+            ticket = services.search_zendesk_ticket_for_dispute(
+                buyer_email='buyer@example.com',
+                buyer_name='John Doe',
+            )
+
+        assert ticket is not None
+        assert ticket['id'] == '12345'
+
+    def test_finds_by_transaction_id(self, mock_system_settings):
+        """Finds ticket by transaction ID when email search fails."""
+        mock_search_result = [
+            {'id': '12345', 'created_at': '2026-03-15T10:00:00Z'}
+        ]
+
+        with patch('apps.integrations.services.search_zendesk_tickets', side_effect=[
+            [],  # Email search fails
+            mock_search_result,  # Transaction ID search succeeds
+        ]):
+            ticket = services.search_zendesk_ticket_for_dispute(
+                buyer_email='buyer@example.com',
+                transaction_id='TXN-12345',
+            )
+
+        assert ticket is not None
+        assert ticket['id'] == '12345'
+
+    def test_finds_by_name_and_date(self, mock_system_settings):
+        """Finds ticket by name and date when other searches fail."""
+        mock_search_result = [
+            {'id': '12345', 'created_at': '2026-03-15T10:00:00Z'}
+        ]
+
+        with patch('apps.integrations.services.search_zendesk_tickets', side_effect=[
+            [],  # Email search fails
+            [],  # Transaction ID search fails
+            mock_search_result,  # Name+date search succeeds
+        ]):
+            ticket = services.search_zendesk_ticket_for_dispute(
+                buyer_email='buyer@example.com',
+                buyer_name='John Doe',
+                transaction_date='2026-03-15',
+            )
+
+        assert ticket is not None
+        assert ticket['id'] == '12345'
+
+    def test_finds_by_name_only(self, mock_system_settings):
+        """Finds ticket by name only when other searches fail."""
+        mock_search_result = [
+            {'id': '12345', 'created_at': '2026-03-15T10:00:00Z'}
+        ]
+
+        # When buyer_email is provided but returns empty, and no transaction_id,
+        # the function tries: 1) email search, 2) name+date (skipped - no date), 3) name only
+        # Note: buyer_email is provided so email search runs first
+        with patch('apps.integrations.services.search_zendesk_tickets', side_effect=[
+            [],  # Email search fails (buyer_email provided)
+            mock_search_result,  # Name only search succeeds (strategy 4)
+        ]):
+            ticket = services.search_zendesk_ticket_for_dispute(
+                buyer_email='buyer@example.com',
+                buyer_name='John Doe',
+            )
+
+        assert ticket is not None
+        assert ticket['id'] == '12345'
+
+    def test_returns_none_when_no_match(self, mock_system_settings):
+        """Returns None when no searches match."""
+        with patch('apps.integrations.services.search_zendesk_tickets', return_value=[]):
+            ticket = services.search_zendesk_ticket_for_dispute(
+                buyer_email='buyer@example.com',
+                buyer_name='John Doe',
+            )
+
+        assert ticket is None
+
+    def test_picks_most_recent_ticket(self, mock_system_settings):
+        """Picks most recent ticket when multiple results."""
+        mock_search_result = [
+            {'id': '12345', 'created_at': '2026-03-10T10:00:00Z'},
+            {'id': '12346', 'created_at': '2026-03-15T10:00:00Z'},  # Most recent
+            {'id': '12347', 'created_at': '2026-03-12T10:00:00Z'},
+        ]
+
+        with patch('apps.integrations.services.search_zendesk_tickets', return_value=mock_search_result):
+            ticket = services.search_zendesk_ticket_for_dispute(buyer_email='buyer@example.com')
+
+        assert ticket['id'] == '12346'  # Most recent
+
+    def test_handles_empty_email(self, mock_system_settings):
+        """Handles empty buyer email gracefully."""
+        with patch('apps.integrations.services.search_zendesk_tickets', return_value=[]):
+            ticket = services.search_zendesk_ticket_for_dispute(
+                buyer_email='',
+                buyer_name='John Doe',
+            )
+
+        assert ticket is None
+
+
+# =============================================================================
+# Test match_alias_to_zendesk_ticket
+# =============================================================================
+
+
+@pytest.mark.django_db
+class TestMatchAliasToZendeskTicket:
+    """Tests for match_alias_to_zendesk_ticket function."""
+
+    def test_matches_alias_successfully(self, mock_system_settings):
+        """Alias matched to ticket via custom field."""
+        mock_search_result = [
+            {
+                'id': '12345',
+                'subject': 'Ticket for client-123',
+            }
+        ]
+
+        with patch('apps.integrations.services.search_zendesk_tickets', return_value=mock_search_result):
+            ticket = services.match_alias_to_zendesk_ticket('client-123@mydomain.com')
+
+        assert ticket is not None
+        assert ticket['id'] == '12345'
+
+    def test_uses_correct_custom_field_id(self, mock_system_settings):
+        """Uses hard-coded custom field ID 13606076120860."""
+        with patch('apps.integrations.services.search_zendesk_tickets', return_value=[]) as mock_search:
+            services.match_alias_to_zendesk_ticket('client-123@mydomain.com')
+
+        # Verify search query uses correct custom field ID
+        mock_search.assert_called_once()
+        query = mock_search.call_args[0][0]
+        assert 'custom_fields_13606076120860:"client-123@mydomain.com"' == query
+
+    def test_returns_none_when_no_match(self, mock_system_settings):
+        """Returns None when no ticket matches alias."""
+        with patch('apps.integrations.services.search_zendesk_tickets', return_value=[]):
+            ticket = services.match_alias_to_zendesk_ticket('nonexistent@mydomain.com')
+
+        assert ticket is None
+
+    def test_returns_none_on_exception(self, mock_system_settings):
+        """Returns None when exception occurs."""
+        with patch('apps.integrations.services.search_zendesk_tickets', side_effect=Exception('Search error')):
+            ticket = services.match_alias_to_zendesk_ticket('client-123@mydomain.com')
+
+        assert ticket is None
+
+
+# =============================================================================
+# Test tag_zendesk_ticket_as_refunded
+# =============================================================================
+
+
+@pytest.mark.django_db
+class TestTagZendeskTicketAsRefunded:
+    """Tests for tag_zendesk_ticket_as_refunded function."""
+
+    def test_tags_ticket_successfully(self, mock_system_settings, mock_urlopen_response):
+        """Ticket tagged with 'refunded' tag."""
+        mock_urlopen_response.read.return_value = json.dumps({'ticket': {}}).encode('utf-8')
+
+        with patch('urllib.request.urlopen', return_value=mock_urlopen_response) as mock_urlopen:
+            result = services.tag_zendesk_ticket_as_refunded('12345')
+
+        assert result is True
+
+        # Verify payload
+        call_args = mock_urlopen.call_args[0][0]
+        payload = json.loads(call_args.data.decode('utf-8'))
+        assert payload['ticket']['tags'] == ['refunded']
+
+    def test_returns_false_on_exception(self, mock_system_settings):
+        """Returns False when exception occurs."""
+        with patch('urllib.request.urlopen', side_effect=Exception('Tag error')):
+            result = services.tag_zendesk_ticket_as_refunded('12345')
+
+        assert result is False
+
+
+# =============================================================================
+# Test add_refund_comment_to_zendesk
+# =============================================================================
+
+
+@pytest.mark.django_db
+class TestAddRefundCommentToZendesk:
+    """Tests for add_refund_comment_to_zendesk function."""
+
+    def test_adds_refund_comment_successfully(self, mock_system_settings):
+        """Refund comment added with correct format."""
+        mock_comment_result = {'ticket': {'id': '12345'}}
+
+        with patch('apps.integrations.services.post_zendesk_comment', return_value=mock_comment_result) as mock_post:
+            result = services.add_refund_comment_to_zendesk(
+                zd_ticket_id='12345',
+                refund_amount='$100.00 USD',
+                refund_id='REFUND-12345',
+                reason='Customer request',
+                is_internal=True,
+            )
+
+        assert result is not None
+        assert result['ticket']['id'] == '12345'
+
+        # Verify comment format
+        mock_post.assert_called_once()
+        comment_body = mock_post.call_args[0][1]
+        assert '💰 **Refund Processed**' in comment_body
+        assert '**Amount**: $100.00 USD' in comment_body
+        assert '**Refund ID**: REFUND-12345' in comment_body
+        assert '**Reason**: Customer request' in comment_body
+        assert 'processed via PayPal' in comment_body
+
+    def test_returns_none_on_exception(self, mock_system_settings):
+        """Returns None when exception occurs."""
+        with patch('apps.integrations.services.post_zendesk_comment', side_effect=Exception('Comment error')):
+            result = services.add_refund_comment_to_zendesk(
+                zd_ticket_id='12345',
+                refund_amount='$100.00',
+                refund_id='REFUND-12345',
+                reason='Test',
+            )
+
+        assert result is None
+
+
+# =============================================================================
+# Test analyze_zendesk_ticket_for_claim
+# =============================================================================
+
+
+@pytest.mark.django_db
+class TestAnalyzeZendeskTicketForClaim:
+    """Tests for analyze_zendesk_ticket_for_claim function."""
+
+    @patch('apps.communications.services.call_qwen_ai')
+    def test_extracts_fields_successfully(self, mock_call_qwen, mock_system_settings):
+        """LLM extracts all fields correctly."""
+        mock_ticket_data = {
+            'id': '12345',
+            'subject': 'Lost Item',
+            'description': 'I lost my bag',
+            'comments': [
+                {'author': {'name': 'Customer'}, 'body': 'Flight AA123 on March 15'}
+            ]
+        }
+
+        mock_call_qwen.return_value = {
+            'raw_response': json.dumps({
+                'client_email': 'customer@example.com',
+                'flight_details': 'Flight AA123 from JFK to LAX',
+                'object_description': 'Black suitcase',
+                'phone': '+1-555-123-4567',
+                'alternate_email': 'backup@example.com',
+            })
+        }
+
+        result = services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
+
+        assert result['client_email'] == 'customer@example.com'
+        assert result['flight_details'] == 'Flight AA123 from JFK to LAX'
+        assert result['object_description'] == 'Black suitcase'
+        assert result['phone'] == '+1-555-123-4567'
+        assert result['alternate_email'] == 'backup@example.com'
+
+    @patch('apps.communications.services.call_qwen_ai')
+    def test_handles_json_in_response(self, mock_call_qwen, mock_system_settings):
+        """Extracts JSON from response containing extra text."""
+        mock_ticket_data = {
+            'id': '12345',
+            'subject': 'Lost Item',
+            'description': 'Test',
+            'comments': [],
+        }
+
+        mock_call_qwen.return_value = {
+            'raw_response': 'Here is the extracted data:\n```json\n{"client_email": "test@example.com"}\n```'
+        }
+
+        result = services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
+
+        assert result['client_email'] == 'test@example.com'
+
+    @patch('apps.communications.services.call_qwen_ai')
+    def test_returns_empty_fields_on_parse_failure(self, mock_call_qwen, mock_system_settings):
+        """Returns empty fields when JSON parsing fails."""
+        mock_ticket_data = {
+            'id': '12345',
+            'subject': 'Lost Item',
+            'description': 'Test',
+            'comments': [],
+        }
+
+        mock_call_qwen.return_value = {
+            'raw_response': 'Invalid JSON response that cannot be parsed'
+        }
+
+        result = services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
+
+        assert result['client_email'] == ''
+        assert result['flight_details'] == ''
+        assert result['object_description'] == ''
+
+    @patch('apps.communications.services.call_qwen_ai')
+    def test_handles_alternative_field_names(self, mock_call_qwen, mock_system_settings):
+        """Handles alternative field names in LLM response."""
+        mock_ticket_data = {
+            'id': '12345',
+            'subject': 'Lost Item',
+            'description': 'Test',
+            'comments': [],
+        }
+
+        mock_call_qwen.return_value = {
+            'raw_response': json.dumps({
+                'email': 'test@example.com',  # Alternative name
+                'flight': 'Flight AA123',  # Alternative name
+                'description': 'Black bag',  # Alternative name
+                'phone_number': '+1-555-123',  # Alternative name
+                'alt_email': 'alt@example.com',  # Alternative name
+            })
+        }
+
+        result = services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
+
+        assert result['client_email'] == 'test@example.com'
+        assert result['flight_details'] == 'Flight AA123'
+        assert result['object_description'] == 'Black bag'
+        assert result['phone'] == '+1-555-123'
+        assert result['alternate_email'] == 'alt@example.com'
+
+    @patch('apps.communications.services.call_qwen_ai')
+    def test_returns_empty_fields_on_exception(self, mock_call_qwen, mock_system_settings):
+        """Returns empty fields when exception occurs."""
+        mock_ticket_data = {
+            'id': '12345',
+            'subject': 'Lost Item',
+            'description': 'Test',
+            'comments': [],
+        }
+
+        mock_call_qwen.side_effect = Exception('LLM error')
+
+        result = services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
+
+        assert result['client_email'] == ''
+        assert result['flight_details'] == ''
+        assert result['object_description'] == ''
+        assert result['phone'] == ''
+        assert result['alternate_email'] == ''
+
+    @patch('apps.communications.services.call_qwen_ai')
+    def test_handles_empty_comments(self, mock_call_qwen, mock_system_settings):
+        """Handles ticket with no comments."""
+        mock_ticket_data = {
+            'id': '12345',
+            'subject': 'Lost Item',
+            'description': 'Test description',
+            'comments': [],
+        }
+
+        mock_call_qwen.return_value = {
+            'raw_response': json.dumps({'client_email': 'test@example.com'})
+        }
+
+        result = services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
+
+        assert result['client_email'] == 'test@example.com'
+
+    @patch('apps.communications.services.call_qwen_ai')
+    def test_limits_comments_to_five(self, mock_call_qwen, mock_system_settings):
+        """Limits comments to first 5 for LLM context."""
+        mock_ticket_data = {
+            'id': '12345',
+            'subject': 'Lost Item',
+            'description': 'Test',
+            'comments': [{'body': f'Comment {i}'} for i in range(10)],  # 10 comments
+        }
+
+        mock_call_qwen.return_value = {
+            'raw_response': json.dumps({})
+        }
+
+        services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
+
+        # Verify call_qwen_ai was called
+        mock_call_qwen.assert_called_once()
+        # Get the context argument (second positional arg)
+        context = mock_call_qwen.call_args[0][1]
+        # Count how many "Comment X:" patterns appear in context (excluding header)
+        # The context has "Comments:\n" header + individual comments like "Unknown: Comment 0\n\n"
+        import re
+        comment_matches = re.findall(r'Comment \d+', context)
+        assert len(comment_matches) == 5  # Exactly 5 comments included
+
+
+# =============================================================================
+# Test parse_alf_claim_id_from_subject
+# =============================================================================
+
+
+class TestParseAlfClaimIdFromSubject:
+    """Tests for parse_alf_claim_id_from_subject function."""
+
+    def test_parses_standard_format(self):
+        """Parses ALF followed by 7 digits."""
+        result = services.parse_alf_claim_id_from_subject('Lost Item - ALF1234567')
+        assert result == 'ALF1234567'
+
+    def test_parses_with_hyphen(self):
+        """Parses ALF-1234567 format."""
+        result = services.parse_alf_claim_id_from_subject('ALF-1234567 - Lost Item')
+        assert result == 'ALF1234567'
+
+    def test_parses_with_underscore(self):
+        """Parses ALF_1234567 format."""
+        result = services.parse_alf_claim_id_from_subject('ALF_1234567 Lost Item')
+        assert result == 'ALF1234567'
+
+    def test_parses_case_insensitive(self):
+        """Parses alf in lowercase."""
+        result = services.parse_alf_claim_id_from_subject('alf1234567 - Lost Item')
+        assert result == 'ALF1234567'
+
+    def test_parses_from_middle_of_subject(self):
+        """Parses ALF ID from middle of subject."""
+        result = services.parse_alf_claim_id_from_subject('Re: Lost Item ALF1234567 Please Help')
+        assert result == 'ALF1234567'
+
+    def test_returns_none_when_no_alf_id(self):
+        """Returns None when no ALF ID in subject."""
+        result = services.parse_alf_claim_id_from_subject('Lost Item Report')
+        assert result is None
+
+    def test_returns_none_when_empty_subject(self):
+        """Returns None when subject is empty."""
+        result = services.parse_alf_claim_id_from_subject('')
+        assert result is None
+
+    def test_returns_none_when_none_subject(self):
+        """Returns None when subject is None."""
+        result = services.parse_alf_claim_id_from_subject(None)
+        assert result is None
+
+    def test_returns_none_when_fewer_digits(self):
+        """Returns None when ALF followed by fewer than 7 digits."""
+        result = services.parse_alf_claim_id_from_subject('ALF123456')  # Only 6 digits
+        assert result is None
+
+    def test_parses_exactly_seven_digits(self):
+        """Parses when exactly 7 digits follow ALF (even if more digits follow)."""
+        # The regex matches ALF followed by exactly 7 digits
+        # If there are 8 digits, it will match the first 7
+        result = services.parse_alf_claim_id_from_subject('ALF12345678')  # 8 digits
+        assert result == 'ALF1234567'  # Matches first 7
+
+    def test_parses_first_alf_id_in_subject(self):
+        """Parses first ALF ID when multiple present."""
+        result = services.parse_alf_claim_id_from_subject('ALF1111111 and ALF2222222')
+        assert result == 'ALF1111111'

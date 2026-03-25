@@ -1,1 +1,1 @@
-# Payments tests package
+# Tests for payments app

@@ -746,12 +746,9 @@ def process_incoming_emails() -> Dict[str, Any]:
 
         logger.info(f"Email processing complete. Stats: {stats}")
 
-    except imaplib.IMAP4.error as e:
-        logger.error(f"IMAP error: {e}")
-        stats['errors'] += 1
-
     except Exception as e:
-        logger.error(f"Unexpected error during email processing: {e}")
+        # Catch all exceptions including IMAP errors
+        logger.error(f"IMAP error during email processing: {e}")
         stats['errors'] += 1
 
     finally:
