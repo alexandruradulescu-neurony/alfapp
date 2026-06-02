@@ -29,7 +29,14 @@ class AgentChatService:
     Service for AI-powered claim chat interface.
     Fetches data from LORA and Zendesk, generates responses via LLM.
     """
-    
+
+    SYSTEM_PROMPT = (
+        "You are a helpful AI assistant for LORA managers. You answer questions "
+        "about claims using ONLY the data provided. Never invent information. "
+        "Return JSON of the form: {\"answer\": \"...\", \"sources\": [...]}. "
+        "Allowed source values: claim, email, refund, zendesk."
+    )
+
     def __init__(self):
         # Pattern to match ALF claim IDs (e.g., ALF1234567, ALF-1234567, ALF_1234567)
         self.claim_id_pattern = re.compile(r'ALF[-_]?\d{7}', re.IGNORECASE)
@@ -78,19 +85,102 @@ class AgentChatService:
         
         # Step 2: Fetch context for detected claims
         context = self.fetch_context(all_claim_ids) if all_claim_ids else {'claims': [], 'emails': {}, 'refunds': {}, 'timeline': {}, 'zendesk': {}, 'sources': []}
-        
-        # Step 3: Build prompt with context + conversation history
-        prompt = self.build_prompt(message, context, conversation_history)
-        
-        # Step 4: Call LLM
-        llm_answer = self._call_llm(prompt)
-        
-        # Step 5: Return response
-        return ChatResponse(
-            answer=llm_answer,
-            sources=context['sources'],
-            claims=context['claims'],
-        )
+
+        # Step 3: Build trusted and untrusted payloads for AIClient
+        trusted: Dict[str, str] = {
+            'agent_question': message,
+        }
+        if conversation_history:
+            history_parts = []
+            for msg in conversation_history[-10:]:
+                role = "User" if msg['role'] == 'user' else "Assistant"
+                history_parts.append(f"{role}: {msg['content']}")
+            trusted['conversation_history'] = "\n".join(history_parts)
+
+        # Structured claim summary is trusted (from LORA DB)
+        claim_summaries = []
+        for claim in context.get('claims', []):
+            if 'error' not in claim:
+                claim_summaries.append(
+                    f"Claim {claim['alf_claim_id']}: status={claim['status']}, "
+                    f"email={claim['client_email']}, flight={claim['flight_details']}, "
+                    f"object={claim['object_description']}, created={claim['created_at']}"
+                )
+        if claim_summaries:
+            trusted['claim_summary'] = "\n".join(claim_summaries)
+
+        for claim_id, refunds in context.get('refunds', {}).items():
+            refund_lines = [
+                f"Refund {r['amount']} {r['status']} ({r['refund_type']}): {r['reason']}"
+                for r in refunds
+            ]
+            if refund_lines:
+                trusted[f'refunds_{claim_id}'] = "\n".join(refund_lines)
+
+        # Untrusted: external data (email bodies, Zendesk comments)
+        untrusted: Dict[str, Any] = {}
+        email_bodies = []
+        for claim_id, emails in context.get('emails', {}).items():
+            for e in emails[:5]:
+                body = (e.get('body') or '')[:500]
+                if body:
+                    email_bodies.append(body)
+        if email_bodies:
+            untrusted['email_body'] = email_bodies
+
+        zd_comments = []
+        for claim_id, ticket in context.get('zendesk', {}).items():
+            if 'error' not in ticket:
+                for c in ticket.get('recent_comments', [])[:5]:
+                    body = (c.get('body') or '')[:500]
+                    if body:
+                        zd_comments.append(body)
+        if zd_comments:
+            untrusted['zendesk_comment'] = zd_comments
+
+        # Collect known PII aliases for the tokenizer
+        aliases = []
+        for claim in context.get('claims', []):
+            if 'error' not in claim:
+                email = claim.get('client_email', '')
+                if email:
+                    aliases.append(email)
+
+        # Step 4: Call LLM via AIClient with proper role separation
+        from apps.ai.client import AIClient
+        from apps.ai.schemas import ChatAnswer
+        from apps.ai.exceptions import AIResponseValidationError
+
+        try:
+            result = AIClient.complete(
+                system_prompt=self.SYSTEM_PROMPT,
+                trusted=trusted,
+                untrusted=untrusted,
+                known_pii={"aliases": aliases},
+                response_schema=ChatAnswer,
+                call_site="manager_chat",
+                temperature=0.7,
+                max_tokens=2000,
+            )
+            return ChatResponse(
+                answer=result.answer,
+                sources=result.sources,
+                claims=context['claims'],
+            )
+        except AIResponseValidationError:
+            logger.warning("manager_chat: AIResponseValidationError — returning fallback")
+            return ChatResponse(
+                answer="I couldn't produce a reliable answer. Please rephrase your question.",
+                sources=[],
+                claims=context.get('claims', []),
+            )
+        except Exception as e:
+            logger.error(f"manager_chat: unexpected error from AIClient: {e}", exc_info=True)
+            return ChatResponse(
+                answer="I apologize, but I encountered an error while processing your request. Please try again.",
+                sources=[],
+                claims=context.get('claims', []),
+            )
     
     def detect_claim_ids(self, message: str) -> List[str]:
         """

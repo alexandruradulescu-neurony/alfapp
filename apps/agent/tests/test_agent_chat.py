@@ -555,29 +555,34 @@ class TestProcessMessage:
     """Tests for main message processing."""
 
     @patch("apps.integrations.services.fetch_zendesk_ticket")
-    @patch("apps.config.models.SystemSettings")
-    @patch("openai.OpenAI")
+    @patch("apps.ai.client.OpenAI")
     def test_process_message_with_claim_id(
-        self, mock_openai, mock_settings, mock_zd_ticket, agent_chat_service
+        self, mock_openai, mock_zd_ticket, agent_chat_service
     ):
         """Test processing message with claim ID."""
+        from apps.config.models import SystemSettings
+        ss, _ = SystemSettings.objects.get_or_create(pk=1, defaults={
+            'ai_api_key': 'test_key',
+            'ai_api_base': 'https://api.test.com',
+            'ai_api_model': 'test',
+            'pii_tokenization_salt': 'test_salt_long_enough_for_real_use',
+        })
+        ss.ai_api_key = 'test_key'
+        ss.ai_api_base = 'https://api.test.com'
+        ss.ai_api_model = 'test'
+        ss.pii_tokenization_salt = 'test_salt_long_enough_for_real_use'
+        ss.save()
+
         claim = Claim.objects.create(
             alf_claim_id="ALF1111111",
             client_email="process@test.com",
         )
 
-        # Mock settings and OpenAI
-        mock_settings_instance = Mock()
-        mock_settings_instance.ai_api_key = "test_key"
-        mock_settings_instance.ai_api_base = "https://api.test.com"
-        mock_settings_instance.ai_api_model = "test"
-        mock_settings.get_instance.return_value = mock_settings_instance
-
         mock_client = Mock()
         mock_openai.return_value = mock_client
         mock_response = Mock()
         mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = "AI response for ALF1111111"
+        mock_response.choices[0].message.content = '{"answer":"AI response for ALF1111111","sources":["claim"]}'
         mock_client.chat.completions.create.return_value = mock_response
 
         mock_zd_ticket.return_value = None
@@ -585,33 +590,40 @@ class TestProcessMessage:
         response = agent_chat_service.process_message("Status of ALF1111111?")
 
         assert isinstance(response, ChatResponse)
-        assert response.answer == "AI response for ALF1111111"
-        assert "LORA" in response.sources
+        assert "AI response for ALF1111111" in response.answer
+        # sources now come from ChatAnswer schema (values: claim/email/refund/zendesk)
+        assert isinstance(response.sources, list)
         assert len(response.claims) == 1
 
     @patch("apps.integrations.services.fetch_zendesk_ticket")
-    @patch("apps.config.models.SystemSettings")
-    @patch("openai.OpenAI")
+    @patch("apps.ai.client.OpenAI")
     def test_process_message_with_email(
-        self, mock_openai, mock_settings, mock_zd_ticket, agent_chat_service
+        self, mock_openai, mock_zd_ticket, agent_chat_service
     ):
         """Test processing message with email address."""
+        from apps.config.models import SystemSettings
+        ss, _ = SystemSettings.objects.get_or_create(pk=1, defaults={
+            'ai_api_key': 'test_key',
+            'ai_api_base': 'https://api.test.com',
+            'ai_api_model': 'test',
+            'pii_tokenization_salt': 'test_salt_long_enough_for_real_use',
+        })
+        ss.ai_api_key = 'test_key'
+        ss.ai_api_base = 'https://api.test.com'
+        ss.ai_api_model = 'test'
+        ss.pii_tokenization_salt = 'test_salt_long_enough_for_real_use'
+        ss.save()
+
         claim = Claim.objects.create(
             alf_claim_id="ALF2222222",
             client_email="email-process@test.com",
         )
 
-        mock_settings_instance = Mock()
-        mock_settings_instance.ai_api_key = "test_key"
-        mock_settings_instance.ai_api_base = "https://api.test.com"
-        mock_settings_instance.ai_api_model = "test"
-        mock_settings.get_instance.return_value = mock_settings_instance
-
         mock_client = Mock()
         mock_openai.return_value = mock_client
         mock_response = Mock()
         mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = "AI response for email"
+        mock_response.choices[0].message.content = '{"answer":"AI response for email","sources":[]}'
         mock_client.chat.completions.create.return_value = mock_response
 
         mock_zd_ticket.return_value = None
@@ -622,29 +634,35 @@ class TestProcessMessage:
         assert len(response.claims) >= 1
 
     @patch("apps.integrations.services.fetch_zendesk_ticket")
-    @patch("apps.config.models.SystemSettings")
-    @patch("openai.OpenAI")
+    @patch("apps.ai.client.OpenAI")
     def test_process_message_with_name(
-        self, mock_openai, mock_settings, mock_zd_ticket, agent_chat_service
+        self, mock_openai, mock_zd_ticket, agent_chat_service
     ):
         """Test processing message with customer name."""
+        from apps.config.models import SystemSettings
+        ss, _ = SystemSettings.objects.get_or_create(pk=1, defaults={
+            'ai_api_key': 'test_key',
+            'ai_api_base': 'https://api.test.com',
+            'ai_api_model': 'test',
+            'pii_tokenization_salt': 'test_salt_long_enough_for_real_use',
+        })
+        ss.ai_api_key = 'test_key'
+        ss.ai_api_base = 'https://api.test.com'
+        ss.ai_api_model = 'test'
+        ss.pii_tokenization_salt = 'test_salt_long_enough_for_real_use'
+        ss.save()
+
         claim = Claim.objects.create(
             alf_claim_id="ALF3333333",
             client_email="john.doe@test.com",
             object_description="John's laptop",
         )
 
-        mock_settings_instance = Mock()
-        mock_settings_instance.ai_api_key = "test_key"
-        mock_settings_instance.ai_api_base = "https://api.test.com"
-        mock_settings_instance.ai_api_model = "test"
-        mock_settings.get_instance.return_value = mock_settings_instance
-
         mock_client = Mock()
         mock_openai.return_value = mock_client
         mock_response = Mock()
         mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = "AI response for John Doe"
+        mock_response.choices[0].message.content = '{"answer":"AI response for John Doe","sources":[]}'
         mock_client.chat.completions.create.return_value = mock_response
 
         mock_zd_ticket.return_value = None
@@ -653,23 +671,29 @@ class TestProcessMessage:
 
         assert isinstance(response, ChatResponse)
 
-    @patch("apps.config.models.SystemSettings")
-    @patch("openai.OpenAI")
+    @patch("apps.ai.client.OpenAI")
     def test_process_message_no_claim_detected(
-        self, mock_openai, mock_settings, agent_chat_service
+        self, mock_openai, agent_chat_service
     ):
         """Test processing message when no claim detected."""
-        mock_settings_instance = Mock()
-        mock_settings_instance.ai_api_key = "test_key"
-        mock_settings_instance.ai_api_base = "https://api.test.com"
-        mock_settings_instance.ai_api_model = "test"
-        mock_settings.get_instance.return_value = mock_settings_instance
+        from apps.config.models import SystemSettings
+        ss, _ = SystemSettings.objects.get_or_create(pk=1, defaults={
+            'ai_api_key': 'test_key',
+            'ai_api_base': 'https://api.test.com',
+            'ai_api_model': 'test',
+            'pii_tokenization_salt': 'test_salt_long_enough_for_real_use',
+        })
+        ss.ai_api_key = 'test_key'
+        ss.ai_api_base = 'https://api.test.com'
+        ss.ai_api_model = 'test'
+        ss.pii_tokenization_salt = 'test_salt_long_enough_for_real_use'
+        ss.save()
 
         mock_client = Mock()
         mock_openai.return_value = mock_client
         mock_response = Mock()
         mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = "No claim detected response"
+        mock_response.choices[0].message.content = '{"answer":"No claim detected response","sources":[]}'
         mock_client.chat.completions.create.return_value = mock_response
 
         response = agent_chat_service.process_message("Hello, how are you?")
@@ -678,28 +702,34 @@ class TestProcessMessage:
         assert response.answer is not None
 
     @patch("apps.integrations.services.fetch_zendesk_ticket")
-    @patch("apps.config.models.SystemSettings")
-    @patch("openai.OpenAI")
+    @patch("apps.ai.client.OpenAI")
     def test_process_message_with_conversation_history(
-        self, mock_openai, mock_settings, mock_zd_ticket, agent_chat_service
+        self, mock_openai, mock_zd_ticket, agent_chat_service
     ):
         """Test processing message with conversation history."""
+        from apps.config.models import SystemSettings
+        ss, _ = SystemSettings.objects.get_or_create(pk=1, defaults={
+            'ai_api_key': 'test_key',
+            'ai_api_base': 'https://api.test.com',
+            'ai_api_model': 'test',
+            'pii_tokenization_salt': 'test_salt_long_enough_for_real_use',
+        })
+        ss.ai_api_key = 'test_key'
+        ss.ai_api_base = 'https://api.test.com'
+        ss.ai_api_model = 'test'
+        ss.pii_tokenization_salt = 'test_salt_long_enough_for_real_use'
+        ss.save()
+
         claim = Claim.objects.create(
             alf_claim_id="ALF4444444",
             client_email="history@test.com",
         )
 
-        mock_settings_instance = Mock()
-        mock_settings_instance.ai_api_key = "test_key"
-        mock_settings_instance.ai_api_base = "https://api.test.com"
-        mock_settings_instance.ai_api_model = "test"
-        mock_settings.get_instance.return_value = mock_settings_instance
-
         mock_client = Mock()
         mock_openai.return_value = mock_client
         mock_response = Mock()
         mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = "Response with history"
+        mock_response.choices[0].message.content = '{"answer":"Response with history","sources":[]}'
         mock_client.chat.completions.create.return_value = mock_response
 
         mock_zd_ticket.return_value = None
