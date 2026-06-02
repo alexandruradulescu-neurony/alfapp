@@ -50,6 +50,8 @@ _EMAIL_PATTERN = re.compile(
     r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
 )
 
+_PLACEHOLDER_PATTERN = re.compile(r"<[A-Z_]+_[a-f0-9]{8}>")
+
 _ALF_ID_PATTERN = re.compile(r"\bALF\d{7}\b")
 _FLIGHT_PATTERN = re.compile(r"\b[A-Z]{2}\d{2,4}\b")
 
@@ -188,3 +190,13 @@ class RegexTokenizer:
             return placeholder
 
         return pattern.sub(sub, text)
+
+    def untokenize(self, text: str, mapping: dict[str, str]) -> str:
+        if not text:
+            return text
+
+        def sub(match: re.Match) -> str:
+            placeholder = match.group(0)
+            return mapping.get(placeholder, placeholder)  # unknown → leave as-is
+
+        return _PLACEHOLDER_PATTERN.sub(sub, text)

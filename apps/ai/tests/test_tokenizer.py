@@ -215,3 +215,47 @@ def test_tokenize_non_phone_digits_left_alone():
     # 1234567 is not a parseable phone in any region — leave as-is
     assert "1234567" in out
     assert "<PHONE_" not in out
+
+
+def test_untokenize_round_trip():
+    tok = make_tokenizer_with_phones()
+    mapping = {}
+    original = "Contact alice@example.com about claim ALF1234567"
+    tokenized = tok.tokenize(original, mapping)
+    assert tokenized != original
+    restored = tok.untokenize(tokenized, mapping)
+    # Note: untokenize restores normalized PII values (email lowercased, ALF ID
+    # uppercased) but non-PII surrounding text is left as-is.
+    assert "alice@example.com" in restored
+    assert "ALF1234567" in restored
+    assert "Contact" in restored
+    assert "about claim" in restored
+
+
+def test_untokenize_normalized_form_preserved():
+    """untokenize replaces placeholders with the NORMALIZED real value (per the mapping),
+    not the original pre-normalization text."""
+    tok = make_tokenizer_with_phones()
+    mapping = {}
+    tokenized = tok.tokenize("Alice@Example.com is the contact", mapping)
+    restored = tok.untokenize(tokenized, mapping)
+    assert restored == "alice@example.com is the contact"
+
+
+def test_untokenize_unknown_placeholder_left_as_is():
+    """If the LLM hallucinates a placeholder that isn't in our mapping,
+    leave it visible in the output rather than silently mapping to a wrong value."""
+    tok = make_tokenizer_with_phones()
+    mapping = {"<EMAIL_aaaaaaaa>": "real@example.com"}
+    out = tok.untokenize(
+        "Reply was sent to <EMAIL_aaaaaaaa> and CC'd to <EMAIL_deadbeef>.",
+        mapping,
+    )
+    assert "real@example.com" in out
+    assert "<EMAIL_deadbeef>" in out  # unknown — left as-is
+
+
+def test_untokenize_no_placeholders_unchanged():
+    tok = make_tokenizer_with_phones()
+    out = tok.untokenize("Plain text with nothing tokenized.", {})
+    assert out == "Plain text with nothing tokenized."
