@@ -51,3 +51,9 @@ bleach>=6.0.0
 
 # File type detection for secure uploads
 python-magic>=0.4.27
+
+# Output schema validation for LLM responses
+pydantic>=2.0,<3.0
+
+# International phone number parsing/normalization (Google libphonenumber port)
+phonenumbers>=8.13
