@@ -185,6 +185,17 @@ AI_API_BASE = env('AI_API_BASE', default='https://api.deepseek.com/v1')
 AI_API_KEY = env('AI_API_KEY', default='')
 AI_API_MODEL = env('AI_API_MODEL', default='deepseek-chat')
 
+# PII tokenization
+# Used as HMAC-SHA256 key for deterministic placeholder generation in apps.ai.
+# SystemSettings.pii_tokenization_salt overrides this if set (allows runtime rotation).
+PII_TOKENIZATION_SALT = env('PII_TOKENIZATION_SALT', default='')
+
+# AI client behavior
+AI_VALIDATION_STRICT = env.bool('AI_VALIDATION_STRICT', default=True)
+AI_TOKENIZER_BACKEND = env('AI_TOKENIZER_BACKEND', default='regex')
+AI_PHONE_DEFAULT_REGION = env('AI_PHONE_DEFAULT_REGION', default='US')
+AI_PHONE_FALLBACK_REGIONS = env.list('AI_PHONE_FALLBACK_REGIONS', default=['GB', 'FR', 'DE', 'IT', 'ES', 'JP'])
+
 # Legacy Qwen settings (for backward compatibility)
 QWEN_API_BASE = env('QWEN_API_BASE', default='https://dashscope.aliyuncs.com/compatible-mode/v1')
 QWEN_API_KEY = env('QWEN_API_KEY', default='')

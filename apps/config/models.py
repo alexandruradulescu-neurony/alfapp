@@ -129,6 +129,16 @@ class SystemSettings(models.Model):
         default='deepseek-chat',
         help_text='AI model name (e.g., deepseek-chat, qwen-plus)'
     )
+    pii_tokenization_salt = EncryptedCharField(
+        max_length=4580,
+        blank=True,
+        default='',
+        help_text=(
+            'HMAC-SHA256 key for deterministic PII placeholder generation. '
+            'If empty, falls back to the PII_TOKENIZATION_SALT env var. '
+            'Set a long random value (32+ bytes hex-encoded) for production.'
+        ),
+    )
 
     # AI Prompt Templates
     ai_prompt_template = models.TextField(
