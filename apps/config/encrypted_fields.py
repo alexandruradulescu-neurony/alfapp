@@ -42,13 +42,27 @@ class EncryptedCharField(models.CharField):
     """
     A CharField that encrypts data before saving to the database.
     """
-    
+
     def __init__(self, *args, **kwargs):
+        # Remember the user-supplied (logical) max_length so deconstruct() can
+        # return it verbatim. Without this, Django's migration framework reads
+        # back the INFLATED runtime value and re-applies the inflation on every
+        # replay — `(N*4+100)*4+100` and so on — bloating the DB column on
+        # every regeneration.
+        self._user_max_length = kwargs.get('max_length')
         # Increase max_length to accommodate encrypted data overhead
         if 'max_length' in kwargs:
             # Encrypted data is larger than plaintext
             kwargs['max_length'] = kwargs['max_length'] * 4 + 100
         super().__init__(*args, **kwargs)
+
+    def deconstruct(self):
+        name, path, args, kwargs = super().deconstruct()
+        # Return the user-supplied max_length, not the inflated runtime value,
+        # so migrations are stable across replays.
+        if self._user_max_length is not None and 'max_length' in kwargs:
+            kwargs['max_length'] = self._user_max_length
+        return name, path, args, kwargs
     
     def from_db_value(self, value, expression, connection):
         """Decrypt when loading from database."""
