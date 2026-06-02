@@ -20,6 +20,7 @@ from apps.claims.models import Claim
 from apps.config.models import SystemSettings
 from apps.communications.models import EmailLog
 from apps.integrations.services import match_alias_to_zendesk_ticket, post_zendesk_comment
+from apps.ai.exceptions import AIResponseValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -198,63 +199,41 @@ def extract_raw_headers(msg: email.message.Message) -> str:
 
 
 def call_qwen_ai(prompt: str, email_body: str, subject: str = '') -> Dict[str, Any]:
+    """Categorize an inbound email via the LLM.
+
+    Migrated to use apps.ai.AIClient for PII tokenization, prompt fencing,
+    and output validation. Returns a dict shaped for the existing parser
+    in parse_ai_response.
+
+    Signature kept identical to the original so all existing callers are unaffected.
     """
-    Call AI API to analyze email content.
-    Returns parsed JSON with summary, category, action_required, auto_resolvable.
-
-    Security: Email content is passed in the 'user' role message, separate from
-    system instructions, to prevent prompt injection from malicious email bodies.
-    """
-    # Get AI configuration from SystemSettings
-    settings_obj = SystemSettings.get_instance()
-    api_key = settings_obj.ai_api_key
-    api_base = settings_obj.ai_api_base
-    model = settings_obj.ai_api_model
-
-    # Initialize OpenAI client with AI endpoint
-    client = OpenAI(
-        api_key=api_key,
-        base_url=api_base,
-    )
-
-    # System prompt contains ONLY instructions — no user content interpolated
-    system_prompt = (
-        "You are an email analysis assistant for a lost luggage recovery service. "
-        "Analyze the email provided by the user and respond with ONLY valid JSON in this exact format:\n"
-        '{"summary": "brief summary", "category": "OBJECT_FOUND|OBJECT_NOT_FOUND|RESUBMISSION_REQUIRED|SUBMISSION_CONFIRMATION|GENERAL_CORRESPONDENCE|UNKNOWN", '
-        '"action_required": true/false, "auto_resolvable": true/false}\n\n'
-        "Categories:\n"
-        "- OBJECT_FOUND: The lost object has been located\n"
-        "- OBJECT_NOT_FOUND: Search completed, object not found\n"
-        "- RESUBMISSION_REQUIRED: Additional information or resubmission needed\n"
-        "- SUBMISSION_CONFIRMATION: Acknowledgment of form/claim submission\n"
-        "- GENERAL_CORRESPONDENCE: Other communication\n"
-        "- UNKNOWN: Cannot determine category"
-    )
-
-    # User content is strictly in the 'user' role — safe from prompt injection
-    user_content = f"Subject: {subject[:200]}\n\nBody:\n{email_body[:2000]}"
+    from apps.ai.client import AIClient
+    from apps.ai.schemas import EmailCategorization
 
     try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
+        result = AIClient.complete(
+            system_prompt=prompt,
+            trusted=None,
+            untrusted={
+                "email_subject": subject,
+                "email_body": email_body,
+            },
+            response_schema=EmailCategorization,
+            call_site="email_categorizer",
             temperature=0.3,
-            max_tokens=600,
+            max_tokens=500,
         )
+    except AIResponseValidationError as e:
+        # Surface to caller in the same shape the existing parser expects on failure.
+        return {"raw_response": e.raw_reply, "validation_failed": True}
 
-        # Extract response text
-        response_text = response.choices[0].message.content.strip()
-        logger.info(f"Qwen AI response: {response_text[:200]}...")
-
-        return {"raw_response": response_text}
-
-    except Exception as e:
-        logger.error(f"Error calling Qwen AI: {e}")
-        raise
+    # Convert the typed object to the dict shape the existing parser handles.
+    return {
+        "summary": result.summary,
+        "category": result.category,
+        "action_required": result.action_required,
+        "auto_resolvable": result.auto_resolvable,
+    }
 
 
 def parse_ai_response(raw_response: str) -> Dict[str, Any]:
@@ -543,7 +522,18 @@ def process_single_email(
 
         # Call Qwen AI for enhanced analysis
         ai_result = call_qwen_ai(ai_prompt, body, subject)
-        parsed = parse_ai_response(ai_result.get('raw_response', ''))
+        if ai_result.get('validation_failed'):
+            # Schema validation failed inside call_qwen_ai; fall back to old parser
+            # against the raw LLM output as a last-ditch effort
+            parsed = parse_ai_response(ai_result.get('raw_response', ''))
+        else:
+            # New AIClient path returned structured fields directly
+            parsed = {
+                'summary': ai_result.get('summary', ''),
+                'category': ai_result.get('category', 'UNKNOWN'),
+                'action_required': ai_result.get('action_required', False),
+                'auto_resolvable': ai_result.get('auto_resolvable', False),
+            }
 
         # Determine if email should be auto-resolved
         auto_resolved = False
@@ -611,8 +601,25 @@ def process_single_email(
 
         return email_log
 
+    except AIResponseValidationError as e:
+        # LLM output failed schema validation — flag for manual review
+        # using EmailLog's existing `action_required` field (the project
+        # does not have a separate llm_extraction_failed field on EmailLog;
+        # that flag lives on Claim only).
+        logger.warning(
+            f"AI extraction failed for email UID {uid}: {e}. Flagged for manual review."
+        )
+        email_log = EmailLog.objects.create(
+            subject=(subject if 'subject' in locals() else f'[Extraction failed UID {uid}]')[:500],
+            body=body if 'body' in locals() else '',
+            category='UNKNOWN',
+            action_required=True,  # signals manual review
+            auto_resolved=False,
+            # All other EmailLog fields have model-level defaults
+        )
+        return email_log
     except Exception as e:
-        logger.error(f"Error processing email UID {uid}: {e}")
+        logger.error(f"Error processing email UID {uid}: {e}", exc_info=True)
         # Don't re-raise - continue with next email
         return None
 
