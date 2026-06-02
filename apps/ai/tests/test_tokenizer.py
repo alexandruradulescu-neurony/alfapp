@@ -159,3 +159,59 @@ def test_tokenize_unknown_alias_not_replaced():
     assert "<ALIAS_" not in out
     # But IS tagged as EMAIL because it's email-shaped
     assert "<EMAIL_" in out
+
+
+def make_tokenizer_with_phones():
+    return RegexTokenizer(
+        salt=SALT,
+        known_aliases=[],
+        phone_default_region="US",
+        phone_fallback_regions=["GB", "FR", "DE", "IT", "ES", "JP"],
+    )
+
+
+def test_tokenize_us_phone_various_formats():
+    tok = make_tokenizer_with_phones()
+
+    formats = [
+        "Call (415) 555-1212 today",
+        "Call 415-555-1212 today",
+        "Call 415.555.1212 today",
+        "Call +1 415 555 1212 today",
+    ]
+    placeholders = []
+    for text in formats:
+        mapping = {}
+        out = tok.tokenize(text, mapping)
+        assert "555" not in out, f"failed to tokenize: {text}"
+        assert "<PHONE_" in out, f"no phone placeholder: {text}"
+        placeholders.append(next(iter(mapping)))
+
+    # All formats normalize to the same E.164 number → same placeholder
+    assert len(set(placeholders)) == 1, f"formats produced different placeholders: {placeholders}"
+
+
+def test_tokenize_uk_phone():
+    tok = make_tokenizer_with_phones()
+    mapping = {}
+    out = tok.tokenize("Call +44 20 7946 0958 anytime", mapping)
+    assert "7946" not in out
+    assert "<PHONE_" in out
+
+
+def test_tokenize_japanese_phone():
+    tok = make_tokenizer_with_phones()
+    mapping = {}
+    out = tok.tokenize("Call +81-3-1234-5678 please", mapping)
+    assert "1234" not in out
+    assert "<PHONE_" in out
+
+
+def test_tokenize_non_phone_digits_left_alone():
+    """Random number sequences that aren't phones should not be tokenized as phones."""
+    tok = make_tokenizer_with_phones()
+    mapping = {}
+    out = tok.tokenize("The order total was 1234567", mapping)
+    # 1234567 is not a parseable phone in any region — leave as-is
+    assert "1234567" in out
+    assert "<PHONE_" not in out
