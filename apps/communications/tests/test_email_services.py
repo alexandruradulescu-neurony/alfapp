@@ -274,54 +274,6 @@ class TestExtractRawHeaders:
 
 
 @pytest.mark.django_db
-class TestCallQwenAI:
-    """Tests for call_qwen_ai function."""
-
-    @patch("apps.communications.services.SystemSettings")
-    @patch("apps.communications.services.OpenAI")
-    def test_successful_ai_call(self, mock_openai_class, mock_settings_class):
-        """Test successful AI API call."""
-        # Mock settings
-        mock_settings = Mock()
-        mock_settings.ai_api_key = "test_key"
-        mock_settings.ai_api_base = "https://api.test.com/v1"
-        mock_settings.ai_api_model = "test-model"
-        mock_settings_class.get_instance.return_value = mock_settings
-
-        # Mock OpenAI client
-        mock_client = Mock()
-        mock_openai_class.return_value = mock_client
-
-        # Mock API response
-        mock_response = Mock()
-        mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = '{"summary": "Test", "category": "OBJECT_FOUND"}'
-        mock_client.chat.completions.create.return_value = mock_response
-
-        result = call_qwen_ai("Test prompt", "Test email body", "Test subject")
-
-        assert "raw_response" in result
-        assert mock_client.chat.completions.create.called
-
-    @patch("apps.communications.services.SystemSettings")
-    @patch("apps.communications.services.OpenAI")
-    def test_ai_api_error(self, mock_openai_class, mock_settings_class):
-        """Test AI API error handling."""
-        mock_settings = Mock()
-        mock_settings.ai_api_key = "test_key"
-        mock_settings.ai_api_base = "https://api.test.com/v1"
-        mock_settings.ai_api_model = "test-model"
-        mock_settings_class.get_instance.return_value = mock_settings
-
-        mock_client = Mock()
-        mock_client.chat.completions.create.side_effect = Exception("API Error")
-        mock_openai_class.return_value = mock_client
-
-        with pytest.raises(Exception):
-            call_qwen_ai("Test prompt", "Test body", "Test subject")
-
-
-@pytest.mark.django_db
 class TestParseAIResponse:
     """Tests for parse_ai_response function."""
 

@@ -15,8 +15,6 @@ import bleach
 from django.conf import settings
 from django.db import transaction
 from django.template.loader import render_to_string
-from openai import OpenAI
-
 from apps.payments.models import Dispute, DisputeDocument, DisputeScreenshot, DisputeActivityLog
 from apps.config.models import SystemSettings
 from apps.communications.models import EmailLog

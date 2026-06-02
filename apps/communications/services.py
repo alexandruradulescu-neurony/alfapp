@@ -14,8 +14,6 @@ from typing import Optional, Dict, Any, List, Tuple
 
 from django.conf import settings
 from django.db import transaction
-from openai import OpenAI
-
 from apps.claims.models import Claim
 from apps.config.models import SystemSettings
 from apps.communications.models import EmailLog
