@@ -1215,7 +1215,25 @@ The service status widget auto-refreshes every 2 minutes via JavaScript. Manual 
 
 - **File uploads**: MIME type, extension, size validation
 - **Path traversal protection**: Secure filename handling
-- **Prompt injection protection**: User content in user role, not system prompt
+
+### AI Security Layer (`apps/ai/`)
+
+All LORA→LLM calls flow through a single choke point at `apps/ai/AIClient.complete()` that enforces three protections:
+
+- **PII tokenization** — Emails, phone numbers, ALF claim IDs, per-case aliases, and flight numbers are deterministically replaced with placeholders (`<EMAIL_a3f9b2c1>`, etc.) before any text reaches the LLM provider. HMAC-SHA256 with a secret salt makes the mapping non-reversible by the provider. Substitution reverses on the response. See `apps/ai/tokenizer.py`.
+
+- **Prompt injection defense** — Untrusted text (email bodies, Zendesk ticket fields, customer comments) is wrapped in XML fence tags (`<email_body>...</email_body>`) and the system prompt carries a defense preamble instructing the model to treat fenced content as data only. The tokens `&`, `<`, `>` inside untrusted text are HTML-escaped to prevent fence breakout. See `apps/ai/prompt_fence.py`.
+
+- **Output validation** — Every LLM call validates its reply against a Pydantic schema. Misshapen replies raise `AIResponseValidationError`, which callers route to manual-review queues via existing `llm_extraction_failed` / `action_required` flags. See `apps/ai/schemas.py`.
+
+**Configuration:**
+
+- `PII_TOKENIZATION_SALT` — env var (initial) and `SystemSettings.pii_tokenization_salt` (runtime rotation). The latter overrides the former when set.
+- `AI_VALIDATION_STRICT` (default `True`) — raise on schema mismatch; set to `False` for log-only mode during rollouts.
+- `AI_TOKENIZER_BACKEND` (default `regex`) — interface ready to swap in a Presidio-backed detector for name/address coverage.
+- `AI_PHONE_DEFAULT_REGION` / `AI_PHONE_FALLBACK_REGIONS` — country list for `phonenumbers`-library phone detection.
+
+All five LLM call sites use the same client — email categorizer, Zendesk extractor, manager chat, dispute letter writer, and the AI diagnostic endpoint.
 
 ### Headers (Production)
 
