@@ -1399,9 +1399,9 @@ class TestTestAi:
         assert response.context['success'] is False
         assert 'AI API Key is not configured' in response.context['message']
 
-    @patch('openai.OpenAI')
+    @patch('apps.ai.client.OpenAI')
     def test_test_ai_success(self, mock_openai_class):
-        """Test successful AI connection test."""
+        """Test successful AI connection test via AIClient."""
         test_prefix = 'test_ai_success_'
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
@@ -1412,13 +1412,14 @@ class TestTestAi:
         settings.ai_api_key = 'test_key'
         settings.ai_api_base = 'https://api.test.com/v1'
         settings.ai_api_model = 'test-model'
+        settings.pii_tokenization_salt = 'test_salt_long_enough_for_real_use'
         settings.save()
 
-        # Mock OpenAI client
+        # Mock OpenAI client via AIClient's module
         mock_client = Mock()
         mock_openai_class.return_value = mock_client
         mock_response = Mock()
-        mock_response.choices = [Mock(message=Mock(content='Hello!'))]
+        mock_response.choices = [Mock(message=Mock(content='{"answer": "hello!", "sources": []}'))]
         mock_response.usage.total_tokens = 10
         mock_client.chat.completions.create.return_value = mock_response
 
@@ -1431,7 +1432,7 @@ class TestTestAi:
         assert response.context['success'] is True
         assert 'AI connection successful' in response.context['message']
 
-    @patch('openai.OpenAI')
+    @patch('apps.ai.client.OpenAI')
     def test_test_ai_api_error(self, mock_openai_class):
         """Test AI connection test with API error."""
         test_prefix = 'test_ai_error_'
@@ -1442,6 +1443,7 @@ class TestTestAi:
         )
         settings = SystemSettings.get_instance()
         settings.ai_api_key = 'test_key'
+        settings.pii_tokenization_salt = 'test_salt_long_enough_for_real_use'
         settings.save()
 
         # Mock OpenAI client to raise error
@@ -1457,3 +1459,37 @@ class TestTestAi:
 
         assert response.context['success'] is False
         assert 'AI connection failed' in response.context['message']
+
+    @patch('apps.ai.client.OpenAI')
+    def test_test_ai_uses_aiclient_defense_preamble(self, mock_openai_class):
+        """The AI diagnostic endpoint delegates to AIClient and includes the defense preamble."""
+        test_prefix = 'test_ai_preamble_'
+        manager = User.objects.create_user(
+            username=f'{test_prefix}manager',
+            password='testpass123',
+            role='MANAGER'
+        )
+        settings = SystemSettings.get_instance()
+        settings.ai_api_key = 'test_key'
+        settings.ai_api_base = 'https://api.example.com/v1'
+        settings.ai_api_model = 'test-model'
+        settings.pii_tokenization_salt = 'test_salt_long_enough_for_real_use'
+        settings.save()
+
+        mock_client = Mock()
+        mock_openai_class.return_value = mock_client
+        mock_response = Mock()
+        mock_response.choices = [Mock(message=Mock(content='{"answer": "hello!", "sources": []}'))]
+        mock_response.usage.total_tokens = 5
+        mock_client.chat.completions.create.return_value = mock_response
+
+        client = Client()
+        client.login(username=f'{test_prefix}manager', password='testpass123')
+        response = client.post('/manager/test-ai/', {'test_prompt': 'say hi'})
+
+        assert response.context['success'] is True
+        # Verify the call went through AIClient (OpenAI instantiated via apps.ai.client)
+        assert mock_openai_class.called
+        # Defense preamble must be present in the system message
+        sent_messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        assert any("SECURITY NOTE" in msg["content"] for msg in sent_messages)

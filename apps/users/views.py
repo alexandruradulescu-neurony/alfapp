@@ -821,7 +821,9 @@ def test_ai(request):
     and displays the response for debugging.
     """
     from apps.config.models import SystemSettings
-    from openai import OpenAI
+    from apps.ai.client import AIClient
+    from apps.ai.schemas import ChatAnswer
+    from apps.ai.exceptions import AIResponseValidationError, AIClientError
 
     settings_obj = SystemSettings.get_instance()
     result = {
@@ -845,26 +847,20 @@ def test_ai(request):
         test_prompt = request.POST.get('test_prompt', 'Say hello')
 
         try:
-            client = OpenAI(
-                api_key=settings_obj.ai_api_key,
-                base_url=settings_obj.ai_api_base,
+            ai_result = AIClient.complete(
+                system_prompt=(
+                    "You are a helpful assistant for AI connectivity testing. "
+                    'Reply briefly in JSON like {"answer": "...", "sources": []}.'
+                ),
+                trusted={'manager_prompt': test_prompt},
+                untrusted={},
+                response_schema=ChatAnswer,
+                call_site="ai_diagnostic",
             )
-
-            response = client.chat.completions.create(
-                model=settings_obj.ai_api_model,
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": test_prompt},
-                ],
-                temperature=0.7,
-                max_tokens=200,
-            )
-
             result['success'] = True
             result['message'] = 'AI connection successful!'
-            result['response'] = response.choices[0].message.content
-            result['tokens_used'] = response.usage.total_tokens
-        except Exception as e:
+            result['response'] = ai_result.answer
+        except (AIResponseValidationError, AIClientError) as e:
             result['message'] = f'AI connection failed: {str(e)}'
             result['error'] = str(e)
 
