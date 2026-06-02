@@ -48,6 +48,9 @@ _EMAIL_PATTERN = re.compile(
     r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
 )
 
+_ALF_ID_PATTERN = re.compile(r"\bALF\d{7}\b")
+_FLIGHT_PATTERN = re.compile(r"\b[A-Z]{2}\d{2,4}\b")
+
 
 class Tokenizer(Protocol):
     """Interface for PII tokenizers. RegexTokenizer is the v1 implementation;
@@ -90,11 +93,48 @@ class RegexTokenizer:
         if not text:
             return text
 
-        def email_sub(match: re.Match) -> str:
+        text = self._tokenize_aliases(text, mapping)
+        text = self._tokenize_pattern(
+            text, mapping, _EMAIL_PATTERN, kind="EMAIL", normalize=str.lower
+        )
+        text = self._tokenize_pattern(
+            text, mapping, _ALF_ID_PATTERN, kind="ALF_ID", normalize=str.upper
+        )
+        text = self._tokenize_pattern(
+            text, mapping, _FLIGHT_PATTERN, kind="FLIGHT",
+            normalize=lambda v: v.upper().replace(" ", ""),
+        )
+        return text
+
+    def _tokenize_aliases(self, text: str, mapping: dict[str, str]) -> str:
+        if not self._known_aliases:
+            return text
+        # Case-insensitive literal replacement of each known alias
+        for alias in self._known_aliases:
+            pattern = re.compile(re.escape(alias), re.IGNORECASE)
+
+            def sub(match: re.Match, *, _alias=alias) -> str:
+                placeholder = generate_placeholder("ALIAS", _alias, salt=self._salt)
+                mapping[placeholder] = _alias
+                return placeholder
+
+            text = pattern.sub(sub, text)
+        return text
+
+    def _tokenize_pattern(
+        self,
+        text: str,
+        mapping: dict[str, str],
+        pattern: re.Pattern,
+        *,
+        kind: str,
+        normalize,
+    ) -> str:
+        def sub(match: re.Match) -> str:
             value = match.group(0)
-            normalized = value.lower()
-            placeholder = generate_placeholder("EMAIL", normalized, salt=self._salt)
+            normalized = normalize(value)
+            placeholder = generate_placeholder(kind, normalized, salt=self._salt)
             mapping[placeholder] = normalized
             return placeholder
 
-        return _EMAIL_PATTERN.sub(email_sub, text)
+        return pattern.sub(sub, text)

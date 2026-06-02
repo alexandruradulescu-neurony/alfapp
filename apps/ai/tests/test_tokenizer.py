@@ -104,3 +104,58 @@ def test_tokenize_no_pii_leaves_text_unchanged():
     out = tok.tokenize("This text contains no personal data.", mapping)
     assert out == "This text contains no personal data."
     assert mapping == {}
+
+
+def test_tokenize_alf_id():
+    tok = make_tokenizer()
+    mapping = {}
+    out = tok.tokenize("See claim ALF1234567 for details", mapping)
+    assert "ALF1234567" not in out
+    assert "<ALF_ID_" in out
+
+
+def test_tokenize_flight_number():
+    tok = make_tokenizer()
+    mapping = {}
+    out = tok.tokenize("Lost on flight UA1234", mapping)
+    assert "UA1234" not in out
+    assert "<FLIGHT_" in out
+
+
+def test_tokenize_known_alias():
+    """Aliases are not pattern-detected; they're matched as known strings passed in by the caller."""
+    tok = RegexTokenizer(
+        salt=SALT,
+        known_aliases=["client-77@aliasdomain.example"],
+    )
+    mapping = {}
+    out = tok.tokenize(
+        "The reply was sent to client-77@aliasdomain.example yesterday.",
+        mapping,
+    )
+    assert "client-77@aliasdomain.example" not in out
+    assert "<ALIAS_" in out
+    # Specifically NOT tagged as EMAIL — aliases are a distinct kind
+    assert "<EMAIL_" not in out
+
+
+def test_tokenize_alias_case_insensitive():
+    tok = RegexTokenizer(
+        salt=SALT,
+        known_aliases=["Client-99@AliasDomain.example"],
+    )
+    mapping = {}
+    out = tok.tokenize("Reply went to CLIENT-99@aliasdomain.example", mapping)
+    assert "<ALIAS_" in out
+
+
+def test_tokenize_unknown_alias_not_replaced():
+    """An alias-shaped string the caller didn't declare is NOT replaced as an alias
+    (it'll fall through to the EMAIL pattern if it matches)."""
+    tok = RegexTokenizer(salt=SALT, known_aliases=[])
+    mapping = {}
+    out = tok.tokenize("client-42@otherdomain.com is in here", mapping)
+    # Not tagged as ALIAS because the caller didn't declare it
+    assert "<ALIAS_" not in out
+    # But IS tagged as EMAIL because it's email-shaped
+    assert "<EMAIL_" in out
