@@ -236,6 +236,41 @@ def call_qwen_ai(prompt: str, email_body: str, subject: str = '') -> Dict[str, A
     }
 
 
+def call_qwen_ai_for_ticket_extraction(
+    prompt: str,
+    ticket_context: str,
+    known_aliases: list[str] | None = None,
+) -> dict:
+    """Extract free-text claim fields from a Zendesk ticket description via LLM.
+
+    The structured custom fields (name, email, phone, flight) are read directly
+    from the ticket payload by the caller. The LLM is only responsible for
+    interpreting the free-text description.
+    """
+    from apps.ai.client import AIClient
+    from apps.ai.schemas import TicketExtraction
+    from apps.ai.exceptions import AIResponseValidationError
+
+    try:
+        result = AIClient.complete(
+            system_prompt=prompt,
+            trusted=None,
+            untrusted={"ticket_description": ticket_context},
+            known_pii={"aliases": known_aliases or []},
+            response_schema=TicketExtraction,
+            call_site="zendesk_extractor",
+            temperature=0.3,
+            max_tokens=600,
+        )
+    except AIResponseValidationError as e:
+        return {"raw_response": e.raw_reply, "validation_failed": True}
+
+    return {
+        "object_description": result.object_description or "",
+        "additional_context": result.additional_context or "",
+    }
+
+
 def parse_ai_response(raw_response: str) -> Dict[str, Any]:
     """
     Parse the AI response to extract summary, category, action_required, auto_resolvable.

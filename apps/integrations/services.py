@@ -17,6 +17,18 @@ from apps.config.models import SystemSettings
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Zendesk custom field IDs (populated by the marketing site for every new
+# ticket).  Only ZENDESK_FIELD_ALIAS_EMAIL is currently documented in the
+# README; the others need to be confirmed with the project owner or read from
+# Zendesk admin.  When a field ID is None, the extractor falls back to LLM
+# extraction for that field.
+# ---------------------------------------------------------------------------
+ZENDESK_FIELD_ALIAS_EMAIL: int = 13606076120860  # the per-case alias address
+ZENDESK_FIELD_CLIENT_EMAIL: int | None = None    # confirm with project owner
+ZENDESK_FIELD_PHONE: int | None = None           # confirm with project owner
+ZENDESK_FIELD_FLIGHT: int | None = None          # confirm with project owner
+
 
 def _get_zendesk_auth_headers() -> Dict[str, str]:
     """
@@ -692,118 +704,119 @@ def add_refund_comment_to_zendesk(
         return None
 
 
+def _get_custom_field_value(custom_fields: list, field_id: int | None) -> str:
+    """Return the string value of a Zendesk custom field, or '' if absent/None."""
+    if field_id is None:
+        return ''
+    for field in custom_fields:
+        if field.get('id') == field_id:
+            value = field.get('value')
+            return str(value) if value else ''
+    return ''
+
+
 def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, str]:
+    """Extract claim information from a Zendesk ticket payload.
+
+    Strategy (structured-fields-first):
+    1. Read structured Zendesk custom fields directly from the ticket payload
+       for any field whose ID is confirmed (non-None constant above).
+    2. Pass ONLY the free-text description to the LLM; the LLM fills in
+       object_description and additional_context.
+    3. Merge the two sources — structured fields win over LLM for the fields
+       they cover; LLM handles what structured fields cannot.
+
+    Returns a dict with keys:
+        client_email, flight_details, object_description, phone,
+        alternate_email
+    (Empty strings for fields not found — shape is identical to the old
+    implementation so all downstream callers are unaffected.)
     """
-    Use LLM to extract claim information from Zendesk ticket.
-    
-    Extracts:
-    - client_email: Customer's email address
-    - flight_details: Flight number, date, and route
-    - object_description: Description of lost item
-    - phone: Customer phone number (if available)
-    - alternate_email: Alternate email (if available)
-    
-    Args:
-        ticket_data: Zendesk ticket data including subject, description, comments
-    
-    Returns:
-        Dict with extracted fields (empty strings for fields not found)
-    """
-    from apps.communications.services import call_qwen_ai
-    
+    from apps.communications.services import call_qwen_ai_for_ticket_extraction
+
     try:
         subject = ticket_data.get('subject', '')
         description = ticket_data.get('description', '')
         comments = ticket_data.get('comments', [])
-        
-        # Build context from ticket data
+        custom_fields = ticket_data.get('custom_fields') or []
+
+        # ------------------------------------------------------------------
+        # Step 1: Read structured custom fields
+        # ------------------------------------------------------------------
+        alias_email = _get_custom_field_value(custom_fields, ZENDESK_FIELD_ALIAS_EMAIL)
+        client_email_structured = _get_custom_field_value(custom_fields, ZENDESK_FIELD_CLIENT_EMAIL)
+        phone_structured = _get_custom_field_value(custom_fields, ZENDESK_FIELD_PHONE)
+        flight_structured = _get_custom_field_value(custom_fields, ZENDESK_FIELD_FLIGHT)
+
+        # The alias is used as known_pii so the tokenizer tags it as ALIAS
+        # instead of EMAIL — preventing the LLM from treating it as the
+        # client's real address.
+        known_aliases = [alias_email] if alias_email else []
+
+        # ------------------------------------------------------------------
+        # Step 2: Build free-text context and call LLM for unstructured fields
+        # ------------------------------------------------------------------
         context = f"Ticket Subject: {subject}\n\n"
         context += f"Ticket Description:\n{description}\n\n"
-        
+
         if comments:
             context += "Comments:\n"
             for comment in comments[:5]:  # Limit to first 5 comments
                 author = comment.get('author', {}).get('name', 'Unknown')
                 body = comment.get('body', '')
                 context += f"{author}: {body}\n\n"
-        
-        # LLM prompt for extraction
+
         prompt = (
-            "Extract the following information from this Zendesk ticket about a lost object claim.\n\n"
-            "Return ONLY valid JSON in this exact format:\n"
-            '{\n'
-            '  "client_email": "customer email address",\n'
-            '  "flight_details": "flight number, date, and route",\n'
-            '  "object_description": "description of lost item",\n'
-            '  "phone": "phone number if available",\n'
-            '  "alternate_email": "alternate email if available"\n'
-            '}\n\n'
-            "Return empty strings for fields not found.\n\n"
+            "Extract the following information from this Zendesk ticket about a lost object claim. "
+            "The customer's name, email, phone, and flight details may already be available in "
+            "structured form — focus on the free-text description of the lost item and any "
+            "additional context that would help locate it.\n\n"
+            "Return a JSON object with:\n"
+            '  "object_description": "detailed description of the lost item",\n'
+            '  "additional_context": "any extra context about the loss event (optional)"\n\n'
+            "Return null for fields not found.\n\n"
             "Ticket Content:\n"
         )
-        
-        # Call LLM
-        ai_result = call_qwen_ai(prompt, context, subject)
-        raw_response = ai_result.get('raw_response', '')
-        
-        # Parse response
-        import json
-        import re
-        
+
+        llm_result = call_qwen_ai_for_ticket_extraction(
+            prompt=prompt,
+            ticket_context=context,
+            known_aliases=known_aliases,
+        )
+
+        logger.debug(
+            "LLM extraction result for ticket %s: %r",
+            ticket_data.get('id', 'unknown'),
+            llm_result,
+        )
+
+        # ------------------------------------------------------------------
+        # Step 3: Merge — structured fields take precedence where confirmed
+        # ------------------------------------------------------------------
         extracted = {
-            'client_email': '',
-            'flight_details': '',
-            'object_description': '',
-            'phone': '',
+            # email: structured field wins; fall back to LLM is not done here
+            # because TicketExtraction schema does not extract email — the
+            # caller (views.py) resolves email via requester_id fallback.
+            'client_email': client_email_structured,
+            'flight_details': flight_structured,
+            'object_description': llm_result.get('object_description', ''),
+            'phone': phone_structured,
             'alternate_email': '',
         }
-        
-        # Try to parse JSON from response
-        data = None
-        try:
-            data = json.loads(raw_response.strip())
-        except (json.JSONDecodeError, ValueError):
-            # Try to find JSON in response
-            json_match = re.search(r'\{(?:[^{}]|\{[^{}]*\})*\}', raw_response, re.DOTALL)
-            if json_match:
-                try:
-                    data = json.loads(json_match.group(0))
-                except (json.JSONDecodeError, ValueError):
-                    pass
-        
-        if data:
-            # Extract fields
-            for key in ['client_email', 'email']:
-                if key in data and data[key]:
-                    extracted['client_email'] = str(data[key])
-                    break
-            
-            for key in ['flight_details', 'flight']:
-                if key in data and data[key]:
-                    extracted['flight_details'] = str(data[key])
-                    break
-            
-            for key in ['object_description', 'description', 'item_description']:
-                if key in data and data[key]:
-                    extracted['object_description'] = str(data[key])
-                    break
-            
-            for key in ['phone', 'phone_number']:
-                if key in data and data[key]:
-                    extracted['phone'] = str(data[key])
-                    break
-            
-            for key in ['alternate_email', 'alt_email', 'secondary_email']:
-                if key in data and data[key]:
-                    extracted['alternate_email'] = str(data[key])
-                    break
-        
-        logger.info(f"LLM extraction completed for ticket {ticket_data.get('id', 'unknown')}")
+
+        logger.info(
+            "Extraction completed for ticket %s (structured email=%r, flight=%r, "
+            "phone=%r; LLM object_description=%r)",
+            ticket_data.get('id', 'unknown'),
+            bool(client_email_structured),
+            bool(flight_structured),
+            bool(phone_structured),
+            bool(extracted['object_description']),
+        )
         return extracted
-        
+
     except Exception as e:
-        logger.error(f"Error in LLM extraction for Zendesk ticket: {e}", exc_info=True)
-        # Return empty fields on error
+        logger.error(f"Error in extraction for Zendesk ticket: {e}", exc_info=True)
         return {
             'client_email': '',
             'flight_details': '',

@@ -1001,115 +1001,81 @@ class TestAddRefundCommentToZendesk:
 
 @pytest.mark.django_db
 class TestAnalyzeZendeskTicketForClaim:
-    """Tests for analyze_zendesk_ticket_for_claim function."""
+    """Tests for analyze_zendesk_ticket_for_claim function.
 
-    @patch('apps.communications.services.call_qwen_ai')
-    def test_extracts_fields_successfully(self, mock_call_qwen, mock_system_settings):
-        """LLM extracts all fields correctly."""
+    After the structured-fields-first migration:
+    - email, phone, flight are read from Zendesk custom fields (not LLM).
+    - LLM (call_qwen_ai_for_ticket_extraction) only extracts object_description
+      and additional_context from the free-text description.
+    - The alias custom field (13606076120860) is passed as known_aliases so the
+      tokenizer tags it as ALIAS rather than EMAIL.
+    """
+
+    @patch('apps.communications.services.call_qwen_ai_for_ticket_extraction')
+    def test_extracts_object_description_from_llm(self, mock_extract, mock_system_settings):
+        """LLM result populates object_description; structured fields stay empty when absent."""
         mock_ticket_data = {
             'id': '12345',
             'subject': 'Lost Item',
-            'description': 'I lost my bag',
-            'comments': [
-                {'author': {'name': 'Customer'}, 'body': 'Flight AA123 on March 15'}
-            ]
+            'description': 'I lost my black suitcase',
+            'comments': [],
+            'custom_fields': [],
         }
-
-        mock_call_qwen.return_value = {
-            'raw_response': json.dumps({
-                'client_email': 'customer@example.com',
-                'flight_details': 'Flight AA123 from JFK to LAX',
-                'object_description': 'Black suitcase',
-                'phone': '+1-555-123-4567',
-                'alternate_email': 'backup@example.com',
-            })
+        mock_extract.return_value = {
+            'object_description': 'Black suitcase',
+            'additional_context': '',
         }
 
         result = services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
 
-        assert result['client_email'] == 'customer@example.com'
-        assert result['flight_details'] == 'Flight AA123 from JFK to LAX'
         assert result['object_description'] == 'Black suitcase'
-        assert result['phone'] == '+1-555-123-4567'
-        assert result['alternate_email'] == 'backup@example.com'
-
-    @patch('apps.communications.services.call_qwen_ai')
-    def test_handles_json_in_response(self, mock_call_qwen, mock_system_settings):
-        """Extracts JSON from response containing extra text."""
-        mock_ticket_data = {
-            'id': '12345',
-            'subject': 'Lost Item',
-            'description': 'Test',
-            'comments': [],
-        }
-
-        mock_call_qwen.return_value = {
-            'raw_response': 'Here is the extracted data:\n```json\n{"client_email": "test@example.com"}\n```'
-        }
-
-        result = services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
-
-        assert result['client_email'] == 'test@example.com'
-
-    @patch('apps.communications.services.call_qwen_ai')
-    def test_returns_empty_fields_on_parse_failure(self, mock_call_qwen, mock_system_settings):
-        """Returns empty fields when JSON parsing fails."""
-        mock_ticket_data = {
-            'id': '12345',
-            'subject': 'Lost Item',
-            'description': 'Test',
-            'comments': [],
-        }
-
-        mock_call_qwen.return_value = {
-            'raw_response': 'Invalid JSON response that cannot be parsed'
-        }
-
-        result = services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
-
+        # Structured fields not present in custom_fields — all empty
         assert result['client_email'] == ''
         assert result['flight_details'] == ''
-        assert result['object_description'] == ''
+        assert result['phone'] == ''
+        assert result['alternate_email'] == ''
 
-    @patch('apps.communications.services.call_qwen_ai')
-    def test_handles_alternative_field_names(self, mock_call_qwen, mock_system_settings):
-        """Handles alternative field names in LLM response."""
+    @patch('apps.communications.services.call_qwen_ai_for_ticket_extraction')
+    def test_structured_fields_win_over_llm(self, mock_extract, mock_system_settings):
+        """Confirmed structured custom fields are used directly, not from LLM."""
+        from apps.integrations.services import (
+            ZENDESK_FIELD_CLIENT_EMAIL, ZENDESK_FIELD_PHONE, ZENDESK_FIELD_FLIGHT,
+        )
+        # Patch field IDs to known values for this test
+        with patch('apps.integrations.services.ZENDESK_FIELD_CLIENT_EMAIL', 9001), \
+             patch('apps.integrations.services.ZENDESK_FIELD_PHONE', 9002), \
+             patch('apps.integrations.services.ZENDESK_FIELD_FLIGHT', 9003):
+            mock_ticket_data = {
+                'id': '12345',
+                'subject': 'Lost Item',
+                'description': 'Test',
+                'comments': [],
+                'custom_fields': [
+                    {'id': 9001, 'value': 'structured@example.com'},
+                    {'id': 9002, 'value': '+1-555-000-1234'},
+                    {'id': 9003, 'value': 'AA123 JFK-LAX'},
+                ],
+            }
+            mock_extract.return_value = {'object_description': 'Red bag', 'additional_context': ''}
+
+            result = services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
+
+        assert result['client_email'] == 'structured@example.com'
+        assert result['phone'] == '+1-555-000-1234'
+        assert result['flight_details'] == 'AA123 JFK-LAX'
+        assert result['object_description'] == 'Red bag'
+
+    @patch('apps.communications.services.call_qwen_ai_for_ticket_extraction')
+    def test_returns_empty_fields_on_llm_exception(self, mock_extract, mock_system_settings):
+        """Returns empty fields when the LLM call raises."""
         mock_ticket_data = {
             'id': '12345',
             'subject': 'Lost Item',
             'description': 'Test',
             'comments': [],
+            'custom_fields': [],
         }
-
-        mock_call_qwen.return_value = {
-            'raw_response': json.dumps({
-                'email': 'test@example.com',  # Alternative name
-                'flight': 'Flight AA123',  # Alternative name
-                'description': 'Black bag',  # Alternative name
-                'phone_number': '+1-555-123',  # Alternative name
-                'alt_email': 'alt@example.com',  # Alternative name
-            })
-        }
-
-        result = services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
-
-        assert result['client_email'] == 'test@example.com'
-        assert result['flight_details'] == 'Flight AA123'
-        assert result['object_description'] == 'Black bag'
-        assert result['phone'] == '+1-555-123'
-        assert result['alternate_email'] == 'alt@example.com'
-
-    @patch('apps.communications.services.call_qwen_ai')
-    def test_returns_empty_fields_on_exception(self, mock_call_qwen, mock_system_settings):
-        """Returns empty fields when exception occurs."""
-        mock_ticket_data = {
-            'id': '12345',
-            'subject': 'Lost Item',
-            'description': 'Test',
-            'comments': [],
-        }
-
-        mock_call_qwen.side_effect = Exception('LLM error')
+        mock_extract.side_effect = Exception('LLM error')
 
         result = services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
 
@@ -1119,49 +1085,62 @@ class TestAnalyzeZendeskTicketForClaim:
         assert result['phone'] == ''
         assert result['alternate_email'] == ''
 
-    @patch('apps.communications.services.call_qwen_ai')
-    def test_handles_empty_comments(self, mock_call_qwen, mock_system_settings):
-        """Handles ticket with no comments."""
+    @patch('apps.communications.services.call_qwen_ai_for_ticket_extraction')
+    def test_alias_passed_as_known_aliases(self, mock_extract, mock_system_settings):
+        """Alias from custom field 13606076120860 is passed as known_aliases to LLM call."""
         mock_ticket_data = {
             'id': '12345',
             'subject': 'Lost Item',
-            'description': 'Test description',
+            'description': 'Test',
             'comments': [],
+            'custom_fields': [
+                {'id': 13606076120860, 'value': 'alias-99@example.com'},
+            ],
         }
+        mock_extract.return_value = {'object_description': 'Laptop', 'additional_context': ''}
 
-        mock_call_qwen.return_value = {
-            'raw_response': json.dumps({'client_email': 'test@example.com'})
-        }
+        services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
 
-        result = services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
+        mock_extract.assert_called_once()
+        call_kwargs = mock_extract.call_args.kwargs
+        assert call_kwargs.get('known_aliases') == ['alias-99@example.com']
 
-        assert result['client_email'] == 'test@example.com'
-
-    @patch('apps.communications.services.call_qwen_ai')
-    def test_limits_comments_to_five(self, mock_call_qwen, mock_system_settings):
+    @patch('apps.communications.services.call_qwen_ai_for_ticket_extraction')
+    def test_limits_comments_to_five(self, mock_extract, mock_system_settings):
         """Limits comments to first 5 for LLM context."""
         mock_ticket_data = {
             'id': '12345',
             'subject': 'Lost Item',
             'description': 'Test',
-            'comments': [{'body': f'Comment {i}'} for i in range(10)],  # 10 comments
+            'comments': [{'body': f'Comment {i}'} for i in range(10)],
+            'custom_fields': [],
         }
-
-        mock_call_qwen.return_value = {
-            'raw_response': json.dumps({})
-        }
+        mock_extract.return_value = {'object_description': '', 'additional_context': ''}
 
         services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
 
-        # Verify call_qwen_ai was called
-        mock_call_qwen.assert_called_once()
-        # Get the context argument (second positional arg)
-        context = mock_call_qwen.call_args[0][1]
-        # Count how many "Comment X:" patterns appear in context (excluding header)
-        # The context has "Comments:\n" header + individual comments like "Unknown: Comment 0\n\n"
+        mock_extract.assert_called_once()
+        context = mock_extract.call_args.kwargs['ticket_context']
         import re
         comment_matches = re.findall(r'Comment \d+', context)
         assert len(comment_matches) == 5  # Exactly 5 comments included
+
+    @patch('apps.communications.services.call_qwen_ai_for_ticket_extraction')
+    def test_handles_empty_comments(self, mock_extract, mock_system_settings):
+        """Handles ticket with no comments without error."""
+        mock_ticket_data = {
+            'id': '12345',
+            'subject': 'Lost Item',
+            'description': 'Test description',
+            'comments': [],
+            'custom_fields': [],
+        }
+        mock_extract.return_value = {'object_description': 'Bag', 'additional_context': ''}
+
+        result = services.analyze_zendesk_ticket_for_claim(mock_ticket_data)
+
+        assert result['object_description'] == 'Bag'
+        mock_extract.assert_called_once()
 
 
 # =============================================================================
@@ -1228,3 +1207,56 @@ class TestParseAlfClaimIdFromSubject:
         """Parses first ALF ID when multiple present."""
         result = services.parse_alf_claim_id_from_subject('ALF1111111 and ALF2222222')
         assert result == 'ALF1111111'
+
+
+# =============================================================================
+# Test structured-fields-first behaviour in analyze_zendesk_ticket_for_claim
+# =============================================================================
+
+
+@pytest.mark.django_db
+def test_analyze_ticket_reads_structured_alias_from_custom_field(db):
+    """The extractor reads the alias from custom field 13606076120860 and passes
+    it as known_aliases to the LLM call, so it gets ALIAS-tagged (not EMAIL-tagged)."""
+    from apps.integrations.services import analyze_zendesk_ticket_for_claim
+    from apps.config.models import SystemSettings
+
+    ss, _ = SystemSettings.objects.get_or_create(pk=1, defaults={
+        'ai_api_key': 'test',
+        'ai_api_base': 'https://api.example.com/v1',
+        'ai_api_model': 'test-model',
+        'pii_tokenization_salt': 'test_salt_long_enough_for_real_use',
+    })
+    ss.pii_tokenization_salt = 'test_salt_long_enough_for_real_use'
+    ss.ai_api_key = 'test'
+    ss.ai_api_base = 'https://api.example.com/v1'
+    ss.ai_api_model = 'test-model'
+    ss.save()
+
+    ticket_payload = {
+        'id': '88001',
+        'subject': 'Lost item - ALF8800001',
+        'description': 'I lost my black backpack at JFK terminal 4',
+        'custom_fields': [
+            {'id': 13606076120860, 'value': 'client-77@aliasdomain.example'},
+        ],
+        'comments': [],
+    }
+
+    with patch('apps.ai.client.OpenAI') as MockOpenAI:
+        MockOpenAI.return_value.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=(
+                '{"object_description": "black backpack", "additional_context": null}'
+            )))],
+        )
+        result = analyze_zendesk_ticket_for_claim(ticket_payload)
+
+    # Confirm the LLM was called and the alias was tokenized (not sent raw)
+    sent_messages = MockOpenAI.return_value.chat.completions.create.call_args.kwargs["messages"]
+    user_content = sent_messages[1]["content"]
+    assert "client-77@aliasdomain.example" not in user_content, (
+        "alias should be tokenized before reaching the LLM"
+    )
+
+    # Confirm structured extraction produced the right object_description
+    assert result.get('object_description') == "black backpack"
