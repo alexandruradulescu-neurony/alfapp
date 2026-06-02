@@ -4,6 +4,8 @@ into the system prompt so the LLM treats fenced regions as data, not instruction
 
 from __future__ import annotations
 
+import re
+
 
 ALLOWED_TAGS: frozenset[str] = frozenset({
     "email_body",
@@ -26,17 +28,41 @@ DEFENSE_PREAMBLE = (
 )
 
 
+# Pattern matching PII placeholders produced by RegexTokenizer, e.g. <EMAIL_a3f9b2c1>.
+# These must pass through escaping unchanged so the LLM sees the token and the
+# reverse-tokenization step can restore the real value from the mapping.
+_PLACEHOLDER_RE = re.compile(r"<[A-Z][A-Z0-9_]*_[a-f0-9]{8}>")
+
+
 def escape_for_fence(text: str) -> str:
     """Escape `&`, `<`, `>` so untrusted text cannot break out of its fence tag.
+
+    PII placeholder tokens produced by RegexTokenizer (e.g. ``<EMAIL_a3f9b2c1>``)
+    are exempted from escaping so they survive the round-trip intact.
+
     Order matters: escape `&` first, then `<` and `>`, otherwise the escape
-    sequences themselves would get re-escaped."""
+    sequences themselves would get re-escaped.
+    """
     if not text:
         return text
-    return (
-        text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-    )
+
+    # Split on placeholder tokens, escape the non-placeholder segments, then
+    # reassemble.  This preserves <KIND_hhhhhhhh> tokens verbatim.
+    parts = _PLACEHOLDER_RE.split(text)
+    placeholders = _PLACEHOLDER_RE.findall(text)
+
+    escaped_parts = []
+    for i, part in enumerate(parts):
+        escaped = (
+            part.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+        )
+        escaped_parts.append(escaped)
+        if i < len(placeholders):
+            escaped_parts.append(placeholders[i])  # placeholder passes through unchanged
+
+    return "".join(escaped_parts)
 
 
 def fence(tag: str, text: str) -> str:
