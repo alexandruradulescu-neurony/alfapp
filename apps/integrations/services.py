@@ -235,12 +235,17 @@ def fetch_zendesk_ticket(zd_ticket_id: str) -> Optional[Dict[str, Any]]:
             return {
                 'id': ticket.get('id'),
                 'subject': ticket.get('subject'),
+                'description': ticket.get('description'),  # Full ticket description
                 'status': ticket.get('status'),
                 'priority': ticket.get('priority'),
                 'requester_id': ticket.get('requester_id'),
                 'assignee_id': ticket.get('assignee_id'),
                 'created_at': ticket.get('created_at'),
                 'updated_at': ticket.get('updated_at'),
+                'type': ticket.get('type'),
+                'due_at': ticket.get('due_at'),
+                'tags': ticket.get('tags'),
+                'custom_fields': ticket.get('custom_fields'),
             }
             
     except urllib.error.HTTPError as e:
@@ -254,6 +259,55 @@ def fetch_zendesk_ticket(zd_ticket_id: str) -> Optional[Dict[str, Any]]:
         
     except Exception as e:
         logger.error(f"Unexpected error fetching Zendesk ticket {zd_ticket_id}: {e}")
+        return None
+
+
+def fetch_zendesk_user(user_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetch user details from Zendesk API.
+
+    Args:
+        user_id: Zendesk user ID
+
+    Returns:
+        User data dict with email, name, etc. on success, None on failure
+    """
+    try:
+        base_url = _get_zendesk_base_url()
+        headers = _get_zendesk_auth_headers()
+
+        url = f"{base_url}/users/{user_id}.json"
+
+        req = urllib.request.Request(
+            url,
+            headers=headers,
+            method='GET'
+        )
+
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            user = result.get('user', {})
+
+            logger.info(f"Fetched Zendesk user {user_id}: {user.get('email', 'no email')}")
+            return {
+                'id': user.get('id'),
+                'email': user.get('email'),
+                'name': user.get('name'),
+                'phone': user.get('phone'),
+            }
+
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ''
+        logger.error(f"HTTP error fetching Zendesk user {user_id}: {e.code} - {error_body}")
+        return None
+
+    except urllib.error.URLError as e:
+        logger.error(f"URL error fetching Zendesk user {user_id}: {e.reason}")
+        return None
+
+    except Exception as e:
+        logger.error(f"Unexpected error fetching Zendesk user {user_id}: {e}")
         return None
 
 

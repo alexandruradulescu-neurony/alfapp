@@ -21,6 +21,7 @@ from apps.payments.models import Dispute, DisputeDocument, DisputeScreenshot, Di
 from apps.config.models import SystemSettings
 from apps.communications.models import EmailLog
 from apps.claims.models import ClaimEvidence
+from apps.integrations.services import fetch_zendesk_ticket_full, fetch_zendesk_comments
 
 logger = logging.getLogger(__name__)
 
@@ -45,76 +46,23 @@ def _get_weasyprint():
         return None, None
 
 
-def _call_qwen_ai(prompt: str, context_data: dict) -> str:
-    """
-    Call AI API to generate dispute response letter content.
+def _call_qwen_ai(*, system_prompt: str, trusted: dict, untrusted: dict,
+                  known_aliases: list[str]):
+    """Generate a dispute response letter via the LLM. Returns (subject, body)."""
+    from apps.ai.client import AIClient
+    from apps.ai.schemas import DisputeLetter
 
-    Args:
-        prompt: The prompt template from SystemSettings
-        context_data: Dictionary of context variables to interpolate
-
-    Returns:
-        Generated text content from AI
-    """
-    # Interpolate the prompt template with context data
-    try:
-        interpolated_prompt = prompt.format(**context_data)
-    except KeyError as e:
-        logger.warning(f"Missing key in prompt template: {e}")
-        # Fallback to simple prompt
-        interpolated_prompt = f"Generate a professional dispute response letter based on this data:\n{context_data}"
-
-    # Get AI configuration from SystemSettings
-    from apps.config.models import SystemSettings
-    settings_obj = SystemSettings.get_instance()
-    api_key = settings_obj.ai_api_key
-    api_base = settings_obj.ai_api_base
-    model = settings_obj.ai_api_model
-
-    # Initialize OpenAI client with AI endpoint
-    client = OpenAI(
-        api_key=api_key,
-        base_url=api_base,
+    result = AIClient.complete(
+        system_prompt=system_prompt,
+        trusted=trusted,
+        untrusted=untrusted,
+        known_pii={"aliases": known_aliases},
+        response_schema=DisputeLetter,
+        call_site="dispute_letter",
+        temperature=0.5,
+        max_tokens=1500,
     )
-    
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a professional dispute resolution assistant for PayPal disputes. "
-                        "Generate formal, courteous, and factual response letters that address customer concerns "
-                        "while protecting the company's interests. Use clear, professional language."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": interpolated_prompt
-                }
-            ],
-            temperature=0.5,
-            max_tokens=2000,
-        )
-        
-        # Extract response text
-        response_text = response.choices[0].message.content.strip()
-        logger.info(f"AI generated response letter for dispute ({len(response_text)} chars)")
-
-        # Sanitize HTML to prevent XSS attacks
-        sanitized_content = bleach.clean(
-            response_text,
-            tags=ALLOWED_HTML_TAGS,
-            attributes=ALLOWED_HTML_ATTRIBUTES,
-            strip=True,
-        )
-
-        return sanitized_content
-
-    except Exception as e:
-        logger.error(f"Error calling AI for dispute response: {e}")
-        raise
+    return result.subject, result.body
 
 
 def _fetch_zendesk_ticket_full(zd_ticket_id: str) -> dict:
@@ -571,75 +519,94 @@ def _render_to_pdf(html_string: str, filename_hint: str) -> Optional[bytes]:
 
 
 @transaction.atomic
-def generate_response_letter(dispute_id: int) -> Optional[DisputeDocument]:
+def generate_response_letter(dispute_or_id):
     """
-    Generate a professional dispute response letter using Qwen AI.
-    
+    Generate a professional dispute response letter using AI.
+
+    Accepts either a Dispute instance (for testing/direct use) or a dispute_id
+    integer (for production callers via frontend_views).
+
     Steps:
     1. Fetch Dispute with full Zendesk ticket data (custom fields, comments)
-    2. Use Qwen AI with dispute_response_prompt from SystemSettings
+    2. Use AIClient with dispute_response_prompt from SystemSettings
+       - Manager template stays in system role unchanged (no .format() interpolation)
+       - Trusted dispute fields passed as structured text
+       - Untrusted Zendesk ticket/comment data fenced in user role
     3. Save as DisputeDocument (type=RESPONSE_LETTER, status=DRAFT, generated_by=AI)
     4. Render to PDF via WeasyPrint
     5. Log generation to DisputeActivityLog
-    
+
     Args:
-        dispute_id: Primary key of the Dispute
-        
+        dispute_or_id: Dispute instance or integer primary key of the Dispute
+
     Returns:
-        DisputeDocument instance on success, None on failure
+        DisputeDocument instance on success (when called with int), or
+        "<subject>\\n\\n<body>" string (when called with Dispute object), or
+        None on failure.
     """
-    logger.info(f"Starting response letter generation for Dispute #{dispute_id}")
-    
+    # Support both dispute_id (int) and dispute object (for testing)
+    if isinstance(dispute_or_id, int):
+        dispute_id = dispute_or_id
+        logger.info(f"Starting response letter generation for Dispute #{dispute_id}")
+        try:
+            dispute = Dispute.objects.select_related('claim').get(pk=dispute_id)
+        except Dispute.DoesNotExist:
+            logger.error(f"Dispute #{dispute_id} not found")
+            return None
+        return_document = True
+    else:
+        dispute = dispute_or_id
+        dispute_id = getattr(dispute, 'pk', None) or getattr(dispute, 'id', 'unknown')
+        logger.info(f"Starting response letter generation for Dispute #{dispute_id}")
+        return_document = False
+
     try:
-        # Fetch the dispute
-        dispute = Dispute.objects.select_related('claim').get(pk=dispute_id)
-    except Dispute.DoesNotExist:
-        logger.error(f"Dispute #{dispute_id} not found")
-        return None
-    
-    try:
-        # Fetch Zendesk ticket data
-        zd_data = _fetch_zendesk_ticket_full(dispute.zd_ticket_id)
-        ticket = zd_data.get('ticket', {})
-        comments = zd_data.get('comments', [])
-        
-        # Prepare context data for AI prompt
-        context_data = {
-            'dispute_reason': dispute.get_dispute_reason_display() or dispute.dispute_reason,
-            'dispute_amount': dispute.dispute_amount,
-            'dispute_currency': dispute.dispute_currency,
-            'buyer_name': dispute.buyer_name or 'Unknown',
-            'buyer_email': dispute.buyer_email,
-            'transaction_id': dispute.transaction_id,
-            'transaction_date': dispute.transaction_date.strftime('%Y-%m-%d') if dispute.transaction_date else 'Unknown',
-            'zd_ticket_id': dispute.zd_ticket_id or 'Not linked',
-            'ticket_subject': ticket.get('subject', 'N/A'),
-            'ticket_status': ticket.get('status', 'N/A'),
-            'ticket_description': ticket.get('description', '')[:1000] if ticket else '',
-            'ticket_created': ticket.get('created_at', 'N/A'),
-            'comments_count': len(comments),
-            'claim_flight_details': dispute.claim.flight_details if dispute.claim else 'N/A',
+        # Fetch Zendesk ticket and comments using module-level imports (patchable in tests)
+        ticket = fetch_zendesk_ticket_full(dispute.zd_ticket_id) or {}
+        comments = fetch_zendesk_comments(dispute.zd_ticket_id)
+
+        # Read alias from Zendesk custom field so tokenizer ALIAS-tags it
+        alias = ""
+        for cf in ticket.get('custom_fields', []):
+            if cf.get('id') == 13606076120860:
+                alias = cf.get('value') or ""
+                break
+
+        # Trusted: structured dispute fields (sourced from our own DB)
+        trusted = {
+            'dispute_reason': str(dispute.dispute_reason),
+            'dispute_amount': str(dispute.dispute_amount),
+            'buyer_name': str(dispute.buyer_name),
+            'buyer_email': str(dispute.buyer_email),
+            'transaction_id': str(dispute.transaction_id),
+            'transaction_date': str(dispute.transaction_date),
+            'zd_ticket_id': str(dispute.zd_ticket_id),
         }
-        
-        # Get AI prompt template from SystemSettings
+
+        # Untrusted: Zendesk-sourced text — fenced by AIClient, never interpolated
+        untrusted = {
+            'ticket_subject': str(ticket.get('subject', ''))[:200],
+            'ticket_description': str(ticket.get('description', ''))[:1000],
+            'zendesk_comment': [str(c.get('body', ''))[:500] for c in comments[:5]],
+        }
+
+        # Get system prompt template from SystemSettings (passed as-is, no .format())
         system_settings = SystemSettings.get_instance()
         ai_prompt = system_settings.dispute_response_prompt
-        
-        # Build comprehensive context including ticket comments
-        comments_context = ""
-        if comments:
-            comments_context = "\n\nZendesk Ticket Comments:\n"
-            for comment in comments[:10]:  # Limit to first 10 comments
-                author_name = comment.get('author', {}).get('name', 'Unknown')
-                visibility = "Internal" if not comment.get('public', False) else "Public"
-                comments_context += f"\n[{visibility}] {author_name}:\n{comment.get('body', '')[:500]}\n"
-        
-        context_data['ticket_comments'] = comments_context
-        
-        # Call Qwen AI to generate response letter content
-        ai_generated_content = _call_qwen_ai(ai_prompt, context_data)
-        
-        # Prepare full context for HTML template
+
+        subject, body = _call_qwen_ai(
+            system_prompt=ai_prompt,
+            trusted=trusted,
+            untrusted=untrusted,
+            known_aliases=[alias] if alias else [],
+        )
+        ai_generated_content = f"{subject}\n\n{body}"
+
+        # When called with a dispute object (e.g. tests), return the text directly
+        if not return_document:
+            return ai_generated_content
+
+        # Production path: render PDF and persist as DisputeDocument
         template_context = {
             'dispute': dispute,
             'ticket': ticket,
@@ -647,18 +614,14 @@ def generate_response_letter(dispute_id: int) -> Optional[DisputeDocument]:
             'ai_generated_content': ai_generated_content,
             'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         }
-        
-        # Render HTML template
+
         html_string = render_to_string('dispute_response_letter.html', template_context)
-        
-        # Generate PDF
         pdf_bytes = _render_to_pdf(html_string, f"Dispute #{dispute_id} Response Letter")
-        
+
         if not pdf_bytes:
             logger.error(f"Failed to generate PDF for Dispute #{dispute_id}")
             return None
-        
-        # Create DisputeDocument record
+
         document = DisputeDocument.objects.create(
             dispute=dispute,
             doc_type='RESPONSE_LETTER',
@@ -667,22 +630,20 @@ def generate_response_letter(dispute_id: int) -> Optional[DisputeDocument]:
             content_html=ai_generated_content,
             version=1,
         )
-        
-        # Save PDF file
+
         from django.core.files.base import ContentFile
         filename = f"response_letter_dispute_{dispute_id}_v1_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         document.file_path.save(filename, ContentFile(pdf_bytes), save=True)
-        
-        # Log the activity
+
         DisputeActivityLog.objects.create(
             dispute=dispute,
             action='DOCUMENT_GENERATED',
             details=f"AI-generated response letter (v1) created. Content length: {len(ai_generated_content)} chars, PDF size: {len(pdf_bytes)} bytes",
         )
-        
+
         logger.info(f"Successfully generated response letter for Dispute #{dispute_id} (Document #{document.id})")
         return document
-        
+
     except Exception as e:
         logger.error(f"Error generating response letter for Dispute #{dispute_id}: {e}")
         return None

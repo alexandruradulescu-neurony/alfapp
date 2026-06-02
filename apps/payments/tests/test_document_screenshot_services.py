@@ -76,26 +76,19 @@ def mock_weasyprint():
 
 @pytest.fixture
 def mock_openai_client():
-    """Mock OpenAI client for AI-generated content."""
+    """Mock OpenAI client for AI-generated content (patches via AIClient path)."""
     mock_response = Mock()
     mock_response.choices = [Mock()]
-    mock_response.choices[0].message.content = """
-    <p>Dear Valued Customer,</p>
-    <p>We are writing in response to your dispute regarding transaction TXN-12345.</p>
-    <p>We have investigated this matter thoroughly and would like to provide the following information:</p>
-    <ul>
-        <li>Your order was shipped on time</li>
-        <li>Tracking information was provided</li>
-        <li>Delivery was confirmed</li>
-    </ul>
-    <p>We believe this dispute should be resolved in our favor.</p>
-    <p>Sincerely,<br/>Customer Service Team</p>
-    """
+    mock_response.choices[0].message.content = (
+        '{"subject": "Re: Dispute TXN-12345", "body": "Dear Valued Customer, '
+        'We are writing in response to your dispute. We have investigated this '
+        'matter thoroughly. Sincerely, Customer Service Team"}'
+    )
 
     mock_client = Mock()
     mock_client.chat.completions.create.return_value = mock_response
 
-    with patch('apps.payments.document_service.OpenAI', return_value=mock_client):
+    with patch('apps.ai.client.OpenAI', return_value=mock_client):
         yield mock_client
 
 
@@ -141,7 +134,8 @@ def configured_system_settings():
     settings.zd_agent_password = "agent_password"
     settings.zd_email = "support@testcompany.com"
     settings.zd_token = "test_token"
-    settings.dispute_response_prompt = "Generate a response for dispute reason: {dispute_reason}, amount: {dispute_amount}"
+    settings.dispute_response_prompt = "You are a dispute resolution assistant. Generate a formal response."
+    settings.pii_tokenization_salt = "test_salt_long_enough_for_real_use"
     settings.save()
     return settings
 
@@ -239,31 +233,25 @@ class TestGetWeasyPrint:
 
 
 class TestCallQwenAI:
-    """Tests for _call_qwen_ai helper function."""
+    """Tests for _call_qwen_ai helper function (new AIClient-based signature)."""
 
     @pytest.mark.django_db
     def test_ai_call_success(self, configured_system_settings, mock_openai_client):
-        """Test successful AI API call."""
-        context_data = {
+        """Test successful AI API call returns (subject, body) tuple."""
+        trusted = {
             'dispute_reason': 'MERCHANDISE_NOT_RECEIVED',
             'dispute_amount': '100.00',
         }
 
-        result = _call_qwen_ai("Test prompt: {dispute_reason}", context_data)
+        subject, body = _call_qwen_ai(
+            system_prompt="You are a dispute writer.",
+            trusted=trusted,
+            untrusted={},
+            known_aliases=[],
+        )
 
-        assert result is not None
-        assert '<p>' in result
-        mock_openai_client.chat.completions.create.assert_called_once()
-
-    @pytest.mark.django_db
-    def test_ai_call_missing_template_key(self, configured_system_settings, mock_openai_client):
-        """Test AI call when prompt template has missing key."""
-        context_data = {'other_key': 'value'}
-
-        # Should not raise, should use fallback
-        result = _call_qwen_ai("Prompt with {missing_key}", context_data)
-
-        assert result is not None
+        assert subject is not None
+        assert body is not None
         mock_openai_client.chat.completions.create.assert_called_once()
 
     @pytest.mark.django_db
@@ -272,29 +260,34 @@ class TestCallQwenAI:
         mock_openai = Mock()
         mock_openai.chat.completions.create.side_effect = Exception("API Error")
 
-        context_data = {'dispute_reason': 'TEST'}
-
-        with patch('apps.payments.document_service.OpenAI', return_value=mock_openai):
-            with pytest.raises(Exception, match="API Error"):
-                _call_qwen_ai("Test prompt", context_data)
+        with patch('apps.ai.client.OpenAI', return_value=mock_openai):
+            with pytest.raises(Exception):
+                _call_qwen_ai(
+                    system_prompt="Test prompt",
+                    trusted={'dispute_reason': 'TEST'},
+                    untrusted={},
+                    known_aliases=[],
+                )
 
     @pytest.mark.django_db
-    def test_ai_call_sanitizes_html(self, configured_system_settings, mock_openai_client):
-        """Test that AI response is sanitized to prevent XSS."""
-        mock_response = Mock()
-        mock_response.choices = [Mock()]
-        # Malicious script tag should be stripped
-        mock_response.choices[0].message.content = "<p>Safe content</p><script>alert('xss')</script>"
+    def test_ai_call_untrusted_fields_fenced(self, configured_system_settings, mock_openai_client):
+        """Untrusted Zendesk data must appear in fenced user-role content, not system prompt."""
+        _call_qwen_ai(
+            system_prompt="You are a dispute writer.",
+            trusted={'dispute_reason': 'TEST'},
+            untrusted={'ticket_subject': 'Malicious subject', 'zendesk_comment': ['comment 1']},
+            known_aliases=[],
+        )
 
-        mock_openai_client.chat.completions.create.return_value = mock_response
+        call_kwargs = mock_openai_client.chat.completions.create.call_args.kwargs
+        messages = call_kwargs["messages"]
+        system_content = messages[0]["content"]
+        user_content = messages[1]["content"]
 
-        context_data = {'dispute_reason': 'TEST'}
-
-        with patch('apps.payments.document_service.OpenAI', return_value=mock_openai_client):
-            result = _call_qwen_ai("Test", context_data)
-
-            assert '<script>' not in result
-            assert 'Safe content' in result
+        # System prompt stays clean — no interpolation
+        assert "Malicious subject" not in system_content
+        # Untrusted data is fenced in user role
+        assert "<ticket_subject>" in user_content or "<zendesk_comment" in user_content
 
 
 # =============================================================================
@@ -624,10 +617,9 @@ class TestGenerateResponseLetter:
         """Test successful response letter generation."""
         dispute = complete_dispute_setup['dispute']
 
-        with patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={
-            'ticket': {'subject': 'Test Ticket', 'status': 'open'},
-            'comments': [],
-        }):
+        with patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={
+            'subject': 'Test Ticket', 'status': 'open', 'custom_fields': [],
+        }), patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
             result = generate_response_letter(dispute.id)
 
             assert result is not None
@@ -655,7 +647,9 @@ class TestGenerateResponseLetter:
         """Test when AI API fails."""
         dispute = complete_dispute_setup['dispute']
 
-        with patch('apps.payments.document_service._call_qwen_ai', side_effect=Exception("AI Error")):
+        with patch('apps.payments.document_service._call_qwen_ai', side_effect=Exception("AI Error")), \
+             patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
+             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
             result = generate_response_letter(dispute.id)
             assert result is None
 
@@ -664,7 +658,9 @@ class TestGenerateResponseLetter:
         """Test when PDF generation fails."""
         dispute = complete_dispute_setup['dispute']
 
-        with patch('apps.payments.document_service._render_to_pdf', return_value=None):
+        with patch('apps.payments.document_service._render_to_pdf', return_value=None), \
+             patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
+             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
             result = generate_response_letter(dispute.id)
             assert result is None
 
@@ -673,10 +669,8 @@ class TestGenerateResponseLetter:
         """Test generation when Zendesk ticket not found."""
         dispute = complete_dispute_setup['dispute']
 
-        with patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={
-            'ticket': {},
-            'comments': [],
-        }):
+        with patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
+             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
             result = generate_response_letter(dispute.id)
             # Should still succeed with default values
             assert result is not None
@@ -761,19 +755,15 @@ class TestRegenerateDocument:
         dispute = complete_dispute_setup['dispute']
 
         # First generate original document
-        with patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={
-            'ticket': {},
-            'comments': [],
-        }):
+        with patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
+             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
             original = generate_response_letter(dispute.id)
             assert original is not None
             assert original.version == 1
 
         # Regenerate
-        with patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={
-            'ticket': {},
-            'comments': [],
-        }):
+        with patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
+             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
             new_doc = regenerate_document(original.id)
 
             assert new_doc is not None
@@ -1282,20 +1272,19 @@ class TestEdgeCases:
         """Test document generation with special characters in AI response."""
         dispute = complete_dispute_setup['dispute']
 
-        # Mock AI response with special characters
+        # Mock AI response with special characters in the body field (valid JSON for DisputeLetter schema)
         mock_response = Mock()
         mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = "<p>Test with & special <characters> \"quotes\"</p>"
+        mock_response.choices[0].message.content = (
+            '{"subject": "Re: Dispute", "body": "Test with & special <characters> \\"quotes\\""}'
+        )
 
         mock_openai_client.chat.completions.create.return_value = mock_response
 
-        with patch('apps.payments.document_service.OpenAI', return_value=mock_openai_client):
-            with patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={
-                'ticket': {},
-                'comments': [],
-            }):
-                result = generate_response_letter(dispute.id)
-                assert result is not None
+        with patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
+             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
+            result = generate_response_letter(dispute.id)
+            assert result is not None
 
     @pytest.mark.django_db
     def test_screenshot_with_long_description(self, complete_dispute_setup, mock_playwright):
@@ -1318,10 +1307,9 @@ class TestEdgeCases:
         """Test concurrent document generation does not cause conflicts."""
         dispute = complete_dispute_setup['dispute']
 
-        with patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={
-            'ticket': {},
-            'comments': [],
-        }):
+        with patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
+             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]), \
+             patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={'ticket': {}, 'comments': []}):
             # Generate multiple documents
             doc1 = generate_response_letter(dispute.id)
             doc2 = generate_evidence_report(dispute.id)
@@ -1379,24 +1367,18 @@ class TestEdgeCases:
         """Test that document version increments correctly on regeneration."""
         dispute = complete_dispute_setup['dispute']
 
-        with patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={
-            'ticket': {},
-            'comments': [],
-        }):
+        with patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
+             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
             original = generate_response_letter(dispute.id)
             assert original.version == 1
 
-        with patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={
-            'ticket': {},
-            'comments': [],
-        }):
+        with patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
+             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
             regenerated = regenerate_document(original.id)
             assert regenerated.version == 2
 
-        with patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={
-            'ticket': {},
-            'comments': [],
-        }):
+        with patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
+             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
             regenerated_again = regenerate_document(regenerated.id)
             assert regenerated_again.version == 3
 
@@ -1414,10 +1396,8 @@ class TestActivityLogging:
         """Test that response letter generation logs activity."""
         dispute = complete_dispute_setup['dispute']
 
-        with patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={
-            'ticket': {},
-            'comments': [],
-        }):
+        with patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
+             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
             generate_response_letter(dispute.id)
 
             log = DisputeActivityLog.objects.filter(
@@ -1518,10 +1498,9 @@ class TestAdditionalCoverage:
             {'author': {'name': 'Agent'}, 'public': False, 'body': 'Internal note'},
         ]
 
-        with patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={
-            'ticket': {'subject': 'Test', 'status': 'open'},
-            'comments': comments,
-        }):
+        with patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={
+            'subject': 'Test', 'status': 'open', 'custom_fields': [],
+        }), patch('apps.payments.document_service.fetch_zendesk_comments', return_value=comments):
             result = generate_response_letter(dispute.id)
             assert result is not None
 
@@ -1531,14 +1510,12 @@ class TestAdditionalCoverage:
         dispute = complete_dispute_setup['dispute']
 
         # Mock _call_qwen_ai to raise exception (inside the main try block)
-        with patch('apps.payments.document_service._call_qwen_ai', side_effect=Exception("AI Error")):
-            with patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={
-                'ticket': {},
-                'comments': [],
-            }):
-                # The exception is caught and logged, returns None
-                result = generate_response_letter(dispute.id)
-                assert result is None
+        with patch('apps.payments.document_service._call_qwen_ai', side_effect=Exception("AI Error")), \
+             patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
+             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
+            # The exception is caught and logged, returns None
+            result = generate_response_letter(dispute.id)
+            assert result is None
 
     @pytest.mark.django_db
     def test_generate_evidence_report_exception(self, complete_dispute_setup, mock_weasyprint):
