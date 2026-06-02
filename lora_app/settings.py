@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'apps.config',
     'apps.core',
     'apps.agent',
+    'apps.ai',
 ]
 
 MIDDLEWARE = [
