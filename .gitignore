@@ -46,3 +46,6 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
+
+# Dev server output capture
+server_output.txt
