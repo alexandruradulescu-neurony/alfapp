@@ -31,6 +31,13 @@ DEBUG = env('DEBUG')
 
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
 
+# CSRF Trusted Origins for ngrok and other domains
+CSRF_TRUSTED_ORIGINS = [
+    'https://neurozen.ngrok.dev',
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+]
+
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
