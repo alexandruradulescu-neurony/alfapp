@@ -1,0 +1,52 @@
+# Exclude from Docker build context to keep the image small and the build fast.
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local dev artifacts
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+server_output.txt
+*.log
+
+# Local-only scripts (not needed in container)
+start-ngrok.sh
+test_zendesk_webhook.sh
+
+# Documentation and design artifacts (not needed at runtime)
+docs/
+CHANGELOG.md
+CODE_REVIEW_FIXES.md
+QWEN.md
+*.md
+!README.md
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.github/
+.gitignore
+
+# Claude Code
+.claude/
+
+# Environment files (NEVER ship secrets in image)
+.env
+.env.*
