@@ -196,7 +196,7 @@
                     <span class="text-sm text-base-content/60">Zendesk Ticket</span>
                     <div class="mt-0.5">
                         {% if claim.zd_ticket_id %}
-                            <a href="https://{{ settings.zd_subdomain }}.zendesk.com/agent/tickets/{{ claim.zd_ticket_id }}"
+                            <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ claim.zd_ticket_id }}"
                                target="_blank" class="text-primary hover:text-primary/80 transition-colors font-medium">#{{ claim.zd_ticket_id }}</a>
                         {% else %}
                             <span class="text-base-content/40">Not linked</span>
@@ -214,6 +214,21 @@
             </div>
         </div>
 
+        <!-- Flight Details -->
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-4">
+                <i class="bi bi-airplane"></i> Flight Details
+            </h3>
+            {% if claim.flight_details %}
+                <p class="text-sm mb-0">{{ claim.flight_details|linebreaks }}</p>
+            {% else %}
+                <p class="text-base-content/40 text-sm mb-0">No flight details provided.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Right Column: AI Summary, Update Timeline, Email Log, Evidence -->
+    <div class="lg:col-span-2 space-y-6">
         <!-- AI Summary -->
         <div class="card-modern p-6">
             <h3 class="text-lg font-semibold flex items-center gap-2 mb-4">
@@ -228,21 +243,43 @@
             {% endif %}
         </div>
 
-        <!-- Flight Details -->
+        <!-- Update Timeline -->
         <div class="card-modern p-6">
-            <h3 class="text-lg font-semibold flex items-center gap-2 mb-4">
-                <i class="bi bi-airplane"></i> Flight Details
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-6">
+                <i class="bi bi-clock-history"></i> Update Timeline
             </h3>
-            {% if claim.flight_details %}
-                <p class="text-sm mb-0">{{ claim.flight_details|linebreaks }}</p>
-            {% else %}
-                <p class="text-base-content/40 text-sm mb-0">No flight details provided.</p>
-            {% endif %}
+            {% for update in claim.updates.all %}
+            <div class="border-l-2 border-primary pl-4 pb-4 mb-4 relative">
+                <div class="absolute -left-1.5 top-0 w-3 h-3 bg-primary rounded-full"></div>
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="badge badge-sm">{{ update.get_update_type_display }}</span>
+                    <span class="text-xs text-base-content/40">{{ update.created_at|date:"M d, Y H:i" }}</span>
+                </div>
+                {% if update.llm_summary %}
+                <p class="text-sm">{{ update.llm_summary }}</p>
+                {% endif %}
+                {% if update.changes_summary %}
+                <details class="mt-2">
+                    <summary class="text-xs text-primary cursor-pointer">View details</summary>
+                    <pre class="text-xs mt-1 bg-base-200 p-2 rounded overflow-auto max-h-40">{{ update.changes_summary }}</pre>
+                </details>
+                {% endif %}
+            </div>
+            {% empty %}
+            <div class="text-center py-8">
+                <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
+                    <i class="bi bi-clock-history text-3xl text-base-content/40"></i>
+                </div>
+                <p class="text-base-content/60 mb-3">No updates yet.</p>
+                <button type="button" class="btn btn-sm btn-primary" onclick="updateFromZendesk({{ claim.id }})"
+                        {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
+                    <i class="bi bi-arrow-clockwise"></i> Update from Zendesk
+                </button>
+            </div>
+            {% endfor %}
         </div>
-    </div>
 
-    <!-- Email Log -->
-    <div class="lg:col-span-2 space-y-6">
+        <!-- Email Log -->
         <div class="card-modern p-6">
             <h3 class="text-lg font-semibold flex items-center gap-2 mb-6">
                 <i class="bi bi-envelope"></i> Email Log ({{ claim.emails.count }})
@@ -286,41 +323,6 @@
             {% endfor %}
         </div>
 
-        <!-- Update Timeline -->
-        <div class="card-modern p-6">
-            <h3 class="text-lg font-semibold flex items-center gap-2 mb-6">
-                <i class="bi bi-clock-history"></i> Update Timeline
-            </h3>
-            {% for update in claim.updates.all %}
-            <div class="border-l-2 border-primary pl-4 pb-4 mb-4 relative">
-                <div class="absolute -left-1.5 top-0 w-3 h-3 bg-primary rounded-full"></div>
-                <div class="flex items-center gap-2 mb-2">
-                    <span class="badge badge-sm">{{ update.get_update_type_display }}</span>
-                    <span class="text-xs text-base-content/40">{{ update.created_at|date:"M d, Y H:i" }}</span>
-                </div>
-                {% if update.llm_summary %}
-                <p class="text-sm">{{ update.llm_summary }}</p>
-                {% endif %}
-                {% if update.changes_summary %}
-                <details class="mt-2">
-                    <summary class="text-xs text-primary cursor-pointer">View details</summary>
-                    <pre class="text-xs mt-1 bg-base-200 p-2 rounded overflow-auto max-h-40">{{ update.changes_summary }}</pre>
-                </details>
-                {% endif %}
-            </div>
-            {% empty %}
-            <div class="text-center py-8">
-                <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
-                    <i class="bi bi-clock-history text-3xl text-base-content/40"></i>
-                </div>
-                <p class="text-base-content/60 mb-3">No updates yet.</p>
-                <button type="button" class="btn btn-sm btn-primary" onclick="updateFromZendesk({{ claim.id }})"
-                        {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
-                    <i class="bi bi-arrow-clockwise"></i> Update from Zendesk
-                </button>
-            </div>
-            {% endfor %}
-        </div>
 
         <!-- Evidence Gallery -->
         <div class="card-modern p-6">
@@ -391,6 +393,7 @@
                 {% endfor %}
             </div>
         </div>
+
     </div>
 </div>
 </div>

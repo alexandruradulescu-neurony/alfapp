@@ -23,36 +23,41 @@ class SystemSettingsForm(forms.ModelForm):
         for field in self.fields.values():
             field.required = False
 
+    # Sensitive fields that should NOT be in the form
+    # They are handled separately in the view to preserve values
+    SENSITIVE_FIELDS = [
+        'ai_api_key',
+        'imap_pass',
+        'zd_token',
+        'paypal_secret',
+        'sidebar_secret_token',
+        'zd_agent_password',
+    ]
+
     class Meta:
         model = SystemSettings
         fields = [
-            # AI Configuration
+            # AI Configuration (non-sensitive)
             'ai_provider',
             'ai_api_base',
-            'ai_api_key',
             'ai_api_model',
             # AI Prompt Templates
             'ai_prompt_template',
-            # IMAP Configuration
+            # IMAP Configuration (non-sensitive)
             'imap_host',
             'imap_user',
-            'imap_pass',
-            # Zendesk Configuration
+            # Zendesk Configuration (non-sensitive)
             'zd_subdomain',
-            'zd_token',
             'zd_email',
-            # PayPal Configuration
+            # PayPal Configuration (non-sensitive)
             'paypal_client_id',
-            'paypal_secret',
             'paypal_webhook_id',
-            # Zendesk Sidebar Authentication
-            'sidebar_secret_token',
+            # Zendesk Sidebar Authentication (non-sensitive)
             # Email Configuration
             'email_domain',
             'zd_alias_custom_field_id',
-            # Zendesk Browser Authentication
+            # Zendesk Browser Authentication (non-sensitive)
             'zd_agent_email',
-            'zd_agent_password',
             # AI Prompt Templates
             'dispute_response_prompt',
             'email_analysis_prompt',

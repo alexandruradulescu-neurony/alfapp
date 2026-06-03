@@ -15,11 +15,22 @@ class IsAgentOrManager(permissions.BasePermission):
     """
 
     def has_permission(self, request, view):
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"IsAgentOrManager check - User: {request.user}, Auth: {request.user.is_authenticated}, Role: {getattr(request.user, 'role', 'NO ROLE')}")
+
         if not request.user.is_authenticated:
+            logger.warning(f"Permission denied: User not authenticated")
             return False
         if not hasattr(request.user, 'role'):
+            logger.warning(f"Permission denied: User has no role attribute")
             return False
-        return request.user.role in ['AGENT', 'MANAGER']
+        has_perm = request.user.role in ['AGENT', 'MANAGER']
+        if not has_perm:
+            logger.warning(f"Permission denied: Role '{request.user.role}' not in ['AGENT', 'MANAGER']")
+        else:
+            logger.info(f"Permission granted for role: {request.user.role}")
+        return has_perm
 
     def has_object_permission(self, request, view, obj):
         if not request.user.is_authenticated:

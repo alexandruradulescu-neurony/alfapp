@@ -251,9 +251,17 @@ def agent_claim_detail(request, claim_id):
             messages.error(request, 'You are not assigned to this claim.')
             return redirect('agent_claims')
 
+    # Get Zendesk subdomain for ticket links
+    try:
+        system_settings = SystemSettings.get_instance()
+        zd_subdomain = system_settings.zd_subdomain
+    except Exception:
+        zd_subdomain = ''
+
     context = {
         'claim': claim,
         'status_choices': Claim.STATUS_CHOICES,
+        'zd_subdomain': zd_subdomain,
     }
 
     return render(request, 'agent/claim_detail.html', context)
@@ -717,15 +725,15 @@ def manager_settings(request):
     if request.method == 'POST':
         form = SystemSettingsForm(request.POST, instance=settings)
         if form.is_valid():
-            # Save non-sensitive fields from the form
+            # Save non-sensitive fields
             form.save()
 
-            # Handle sensitive fields - only update if provided
-            sensitive_fields = ['imap_pass', 'zd_token', 'paypal_secret', 'sidebar_secret_token', 'zd_agent_password', 'ai_api_key']
+            # Handle sensitive fields separately - only update if new value provided
+            sensitive_fields = SystemSettingsForm.SENSITIVE_FIELDS
             for field_name in sensitive_fields:
-                value = form.cleaned_data.get(field_name)
-                if value:
-                    setattr(settings, field_name, value)
+                new_value = request.POST.get(field_name, '').strip()
+                if new_value:
+                    setattr(settings, field_name, new_value)
 
             settings.save()
             messages.success(request, 'Settings saved successfully.')

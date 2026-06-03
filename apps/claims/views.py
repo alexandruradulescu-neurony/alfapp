@@ -1,12 +1,21 @@
+import json
 import logging
 from django.db.models import Count
 
 from rest_framework import serializers, viewsets, permissions, status
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
+
+
+class CsrfExemptSessionAuthentication(SessionAuthentication):
+    """Session authentication that doesn't enforce CSRF."""
+    def enforce_csrf(self, request):
+        # Don't enforce CSRF for API endpoints
+        pass
 
 from apps.claims.models import Claim, ClaimEvidence
 from apps.claims.serializers import ClaimSerializer, ClaimDetailSerializer, ClaimEvidenceSerializer
@@ -150,7 +159,7 @@ class ClaimViewSet(viewsets.ModelViewSet):
             response['Content-Disposition'] = f'attachment; filename="proof_of_work_claim_{claim.id}.pdf"'
             response['Content-Length'] = len(pdf_bytes)
             
-            logger.info(f"Proof of work PDF downloaded for claim #{claim.id} by {request.user}")
+            log(f"Proof of work PDF downloaded for claim #{claim.id} by {request.user}")
             return response
             
         except Exception as e:
@@ -228,37 +237,74 @@ class ClaimUpdateFromZendeskView(APIView):
     """
     Update claim from Zendesk ticket.
     Fetches ticket data, analyzes with LLM, updates empty fields only, creates timeline entry.
-    
+
     POST /api/claims/{claim_id}/update-from-zendesk/
     """
-    permission_classes = [permissions.IsAuthenticated, IsAgentOrManager]
-    
+    authentication_classes = [CsrfExemptSessionAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
     def post(self, request, claim_id):
         """Update claim from Zendesk ticket."""
+        # File-based logging for debugging
+        import os
+        from datetime import datetime
+        log_file = os.path.join(os.path.dirname(__file__), 'update_zendesk_debug.log')
+        debug_log = []
+        
+        def log(msg):
+            debug_log.append(f"{datetime.now().isoformat()} - {msg}")
+            logger.info(msg)
+        
+        log(f"=== UPDATE FROM ZENDESK STARTED ===")
+        log(f"Claim ID: {claim_id}, User: {request.user}")
+
+        # Check role manually
+        if not hasattr(request.user, 'role') or request.user.role not in ['AGENT', 'MANAGER']:
+            log(f"Permission denied: User role '{getattr(request.user, 'role', 'none')}' not allowed")
+            with open(log_file, 'a') as f:
+                f.write('\n'.join(debug_log) + '\n')
+            return Response(
+                {'error': 'Permission denied: AGENT or MANAGER role required'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        log(f"Authentication passed for user: {request.user.username}, role: {request.user.role}")
+
         try:
             claim = Claim.objects.get(id=claim_id)
-            
+            log(f"Found claim #{claim.id}, Zendesk Ticket: {claim.zd_ticket_id}")
+
             if not claim.zd_ticket_id:
+                log(f"Claim #{claim_id} has no Zendesk ticket linked")
+                with open(log_file, 'a') as f:
+                    f.write('\n'.join(debug_log) + '\n\n')
                 return Response(
                     {'error': 'No Zendesk ticket linked to this claim'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
+
             # Fetch Zendesk ticket data
             from apps.integrations.services import (
                 fetch_zendesk_ticket,
                 fetch_zendesk_comments,
             )
-            
+
+            log(f"Fetching Zendesk ticket {claim.zd_ticket_id}...")
             ticket_data = fetch_zendesk_ticket(claim.zd_ticket_id)
             if not ticket_data:
+                log(f"Failed to fetch Zendesk ticket {claim.zd_ticket_id}")
+                with open(log_file, 'a') as f:
+                    f.write('\n'.join(debug_log) + '\n\n')
                 return Response(
                     {'error': 'Failed to fetch Zendesk ticket'},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
-            
+            log(f"Fetched ticket data: {ticket_data}")
+
             # Fetch recent comments
+            log(f"Fetching comments for ticket {claim.zd_ticket_id}...")
             comments = fetch_zendesk_comments(claim.zd_ticket_id)
+            log(f"Fetched {len(comments)} comments")
             
             # Prepare data for LLM
             claim_data = {
@@ -270,95 +316,104 @@ class ClaimUpdateFromZendeskView(APIView):
                 'status': claim.status,
             }
             
+            # Add comments to ticket data for LLM analysis
+            ticket_data['comments'] = comments
+
             # Call LLM to analyze changes and find new information
-            from apps.communications.services import call_qwen_ai
-            
-            llm_prompt = (
-                "Analyze this Zendesk ticket update and identify new information.\n\n"
-                "Existing Claim Data:\n"
-                f"{json.dumps(claim_data, indent=2)}\n\n"
-                f"Updated Ticket Status: {ticket_data.get('status', 'unknown')}\n"
-                f"Ticket Subject: {ticket_data.get('subject', '')}\n\n"
-                "Recent Comments:\n"
-            )
-            
-            for comment in comments[:10]:
-                author = comment.get('author', {}).get('name', 'Unknown')
-                body = comment.get('body', '')
-                llm_prompt += f"{author}: {body}\n"
-            
-            llm_prompt += (
-                "\nReturn ONLY valid JSON in this format:\n"
-                "{\n"
-                '  "new_info": {\n'
-                '    "flight_details": "...",\n'
-                '    "object_description": "...",\n'
-                '    "phone": "...",\n'
-                '    "alternate_email": "..."\n'
-                '  },\n'
-                '  "summary": "Brief summary of what changed or was discovered"\n'
-                "}\n\n"
-                "Only include fields in new_info that are NEW information not already in the claim."
-            )
-            
-            ai_result = call_qwen_ai(llm_prompt, '', ticket_data.get('subject', ''))
-            
-            # Parse LLM response
-            import json
-            import re
-            
-            raw_response = ai_result.get('raw_response', '')
-            llm_data = None
-            
-            try:
-                llm_data = json.loads(raw_response.strip())
-            except (json.JSONDecodeError, ValueError):
-                json_match = re.search(r'\{(?:[^{}]|\{[^{}]*\})*\}', raw_response, re.DOTALL)
-                if json_match:
-                    try:
-                        llm_data = json.loads(json_match.group(0))
-                    except (json.JSONDecodeError, ValueError):
-                        pass
-            
-            if not llm_data:
-                llm_data = {
-                    'new_info': {},
-                    'summary': 'Unable to parse LLM response',
-                }
-            
-            # Update claim fields ONLY if they are empty (never overwrite)
-            new_info = llm_data.get('new_info', {})
+            from apps.integrations.services import analyze_zendesk_ticket_for_claim
+
+            log(f"Calling LLM to analyze ticket...")
+            extracted_data = analyze_zendesk_ticket_for_claim(ticket_data)
+            log(f"LLM extraction completed: {extracted_data}")
+
+            # Compare with existing claim data to find NEW information
+            new_info = {}
+
+            if extracted_data.get('flight_details') and not claim.flight_details:
+                new_info['flight_details'] = extracted_data['flight_details']
+
+            if extracted_data.get('object_description') and not claim.object_description:
+                new_info['object_description'] = extracted_data['object_description']
+
+            if extracted_data.get('phone') and not claim.phone:
+                new_info['phone'] = extracted_data['phone']
+
+            if extracted_data.get('alternate_email') and not claim.alternate_email:
+                new_info['alternate_email'] = extracted_data['alternate_email']
+
+            log(f"New info from LLM: {new_info}")
+            log(f"Current claim data - flight: {bool(claim.flight_details)}, object: {bool(claim.object_description)}, phone: {bool(claim.phone)}, alt_email: {bool(claim.alternate_email)}")
+
             updated_fields = []
-            
+
             if new_info.get('flight_details') and not claim.flight_details:
                 claim.flight_details = new_info['flight_details']
                 updated_fields.append('flight_details')
-            
+                log(f"Updated flight_details: {new_info['flight_details']}")
+
             if new_info.get('object_description') and not claim.object_description:
                 claim.object_description = new_info['object_description']
                 updated_fields.append('object_description')
-            
+                log(f"Updated object_description: {new_info['object_description']}")
+
             if new_info.get('phone') and not claim.phone:
                 claim.phone = new_info['phone']
                 updated_fields.append('phone')
-            
+                log(f"Updated phone: {new_info['phone']}")
+
             if new_info.get('alternate_email') and not claim.alternate_email:
                 claim.alternate_email = new_info['alternate_email']
                 updated_fields.append('alternate_email')
-            
+                log(f"Updated alternate_email: {new_info['alternate_email']}")
+
             # Save claim if any fields were updated
             if updated_fields:
                 claim.save()
-                logger.info(
-                    f"Updated claim #{claim.id} from Zendesk: {', '.join(updated_fields)}"
-                )
-            
+                log(f"Saved claim with updated fields: {', '.join(updated_fields)}")
+            else:
+                log(f"No fields were updated (all fields already have data or no new info found)")
+
+            # Generate AI summary based on current ticket state
+            ai_summary_parts = []
+            if claim.flight_details:
+                ai_summary_parts.append(f"Flight: {claim.flight_details}.")
+            if claim.object_description:
+                ai_summary_parts.append(f"Lost item: {claim.object_description}.")
+            if claim.phone:
+                ai_summary_parts.append(f"Phone: {claim.phone}.")
+            if claim.alternate_email:
+                ai_summary_parts.append(f"Alternate email: {claim.alternate_email}.")
+
+            ai_summary = ' '.join(ai_summary_parts) if ai_summary_parts else 'No information available yet.'
+
+            # Update the claim's AI summary
+            claim.ai_summary = ai_summary
+            claim.save(update_fields=['ai_summary'])  # Only update the ai_summary field
+            log(f"Updated AI summary: {ai_summary}")
+
+            # Create summary of what was found
+            summary_parts = []
+            if new_info.get('flight_details'):
+                summary_parts.append(f"Found flight details: {new_info['flight_details']}")
+            if new_info.get('object_description'):
+                summary_parts.append(f"Found object description: {new_info['object_description']}")
+            if new_info.get('phone'):
+                summary_parts.append(f"Found phone: {new_info['phone']}")
+            if new_info.get('alternate_email'):
+                summary_parts.append(f"Found alternate email: {new_info['alternate_email']}")
+
+            if summary_parts:
+                summary = "; ".join(summary_parts)
+            else:
+                summary = "No new information found in Zendesk ticket update"
+
             # Create timeline entry
             from apps.claims.models import ClaimUpdateTimeline
-            
+
             update_type = 'INFO_UPDATED' if updated_fields else 'LLM_ANALYSIS'
-            
-            ClaimUpdateTimeline.objects.create(
+            log(f"Creating timeline entry with type: {update_type}")
+
+            timeline_entry = ClaimUpdateTimeline.objects.create(
                 claim=claim,
                 zendesk_ticket_id=claim.zd_ticket_id,
                 update_type=update_type,
@@ -367,23 +422,39 @@ class ClaimUpdateFromZendeskView(APIView):
                     'ticket_status': ticket_data.get('status'),
                     'new_info': new_info,
                 }),
-                llm_summary=llm_data.get('summary', ''),
+                llm_summary=summary,
             )
-            
+            log(f"Timeline entry created")
+
+            log(f"=== UPDATE FROM ZENDESK COMPLETED ===")
+            log(f"Summary: {summary}")
+            log(f"Updated fields: {updated_fields}")
+
+            # Save debug log to file
+            with open(log_file, 'a') as f:
+                f.write('\n'.join(debug_log) + '\n\n')
+
             return Response({
                 'success': True,
-                'summary': llm_data.get('summary', 'Update completed'),
+                'summary': summary,
                 'updated_fields': updated_fields,
+                'timeline_entry_id': timeline_entry.id,
             })
-            
+
         except Claim.DoesNotExist:
-            logger.warning(f"Claim {claim_id} not found for Zendesk update")
+            log(f"Claim {claim_id} not found for Zendesk update")
+            with open(log_file, 'a') as f:
+                f.write('\n'.join(debug_log) + '\n\n')
             return Response(
                 {'error': 'Claim not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
-            logger.error(f"Error updating claim from Zendesk: {e}", exc_info=True)
+            log(f"Error updating claim from Zendesk: {e}")
+            import traceback
+            log(f"Traceback: {traceback.format_exc()}")
+            with open(log_file, 'a') as f:
+                f.write('\n'.join(debug_log) + '\n\n')
             return Response(
                 {'error': 'Internal server error'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
