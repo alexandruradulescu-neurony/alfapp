@@ -23,6 +23,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='dispute',
-            constraint=models.CheckConstraint(condition=models.Q(('buyer_email', ''), ('claim__isnull', False), _negated=True), name='dispute_claim_requires_buyer_email'),
+            constraint=models.CheckConstraint(check=~(models.Q(claim__isnull=False) & models.Q(buyer_email='')), name='dispute_claim_requires_buyer_email'),
         ),
     ]
