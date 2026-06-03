@@ -1,0 +1,11 @@
+# LORA — development/test dependencies.
+# Includes everything in requirements.txt + tools needed for testing locally
+# and in CI.
+#
+# Install with: `pip install -r requirements-dev.txt`
+
+-r requirements.txt
+
+# ----- Test framework -----
+pytest==9.0.3
+pytest-django==4.12.0

@@ -1,59 +1,47 @@
-# Django 5.x
-Django>=5.0,<6.0
+# LORA — runtime dependencies (production).
+# Pinned to exact versions for reproducible deploys.
+# For test/dev tooling, see requirements-dev.txt.
+#
+# To upgrade a package: `pip install --upgrade <package>` then `pip freeze | grep <package>`
+# and update this file with the new pinned version.
 
-# Environment variables management
-django-environ>=0.11.0
+# ----- Web framework -----
+Django==5.2.14
+djangorestframework==3.17.1
+django-filter==25.2
+django-environ==0.13.0
+django-csp==4.0
+django-auditlog==3.4.1
 
-# Scheduled tasks
-django-apscheduler>=0.6.0
+# ----- Database -----
+psycopg2-binary==2.9.12
 
-# OpenAI-compatible SDK for Qwen AI
-openai>=1.12.0
+# ----- Background scheduling -----
+django-apscheduler==0.7.0
+APScheduler==3.11.2
 
-# Django REST Framework
-djangorestframework>=3.15.0
+# ----- AI / LLM -----
+openai==2.40.0
+pydantic==2.13.4                  # Output schema validation in apps/ai/schemas.py
+phonenumbers==9.0.31              # International phone PII detection in apps/ai/tokenizer.py
 
-# Filtering for DRF
-django-filter>=23.0.0
+# ----- File handling / Images / PDF -----
+Pillow==12.2.0
+weasyprint==68.1                  # PDF generation (requires GTK+ system libs on host)
+python-magic==0.4.27              # MIME type sniffing for upload validation
+filetype==1.2.0                   # File type detection (uploads)
+bleach==6.3.0                     # HTML sanitization (XSS prevention)
 
-# Image processing
-Pillow>=10.0.0
+# ----- External integrations -----
+requests==2.34.2                  # HTTP client for Zendesk/PayPal APIs
+playwright==1.60.0                # Browser automation for Zendesk screenshots
+tenacity==9.1.4                   # Retry decorators for external calls
 
-# PDF generation (requires GTK+ libraries)
-weasyprint>=60.0.0
+# ----- Security -----
+cryptography==48.0.0              # Field-level encryption in apps/config/encrypted_fields.py
 
-# Encryption for sensitive database fields
-cryptography>=41.0.0
+# ----- Observability -----
+structlog==25.5.0                 # Structured logs with correlation IDs
 
-# Browser automation for Zendesk screenshot capture
-playwright>=1.40.0
-
-# Retry mechanism for external APIs
-tenacity>=8.2.0
-
-# Structured logging with correlation IDs
-structlog>=24.0.0
-
-# Audit logging
-django-auditlog>=2.4.0
-
-# Production server
-gunicorn>=21.0.0
-
-# Content Security Policy
-django-csp>=3.8.0
-
-# PostgreSQL adapter
-psycopg2-binary>=2.9.0
-
-# HTML sanitization for XSS prevention
-bleach>=6.0.0
-
-# File type detection for secure uploads
-python-magic>=0.4.27
-
-# Output schema validation for LLM responses
-pydantic>=2.0,<3.0
-
-# International phone number parsing/normalization (Google libphonenumber port)
-phonenumbers>=8.13
+# ----- Production server -----
+gunicorn==26.0.0
