@@ -665,3 +665,197 @@ class TestZendeskClaimWebhookEdgeCases:
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert response.data['error'] == 'Internal server error'
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for two bugs identified by code review on 2026-06-02.
+#
+# These tests use the CURRENT expected nested Zendesk webhook payload structure
+# (event.current + detail.id/subject/etc.), unlike the older flat-payload tests
+# above which are stale and out-of-sync with the view code as of this writing.
+# ---------------------------------------------------------------------------
+
+
+# Zendesk custom status ID for "Investigation Initiated" (matches the view's constant)
+_INVESTIGATION_STATUS_ID = '11688538967068'
+
+
+def _nested_webhook_payload(ticket_id='12345', subject='Lost Item - ALF1234567'):
+    """Build a webhook payload matching the current nested Zendesk format."""
+    return {
+        'event': {'current': _INVESTIGATION_STATUS_ID},
+        'detail': {
+            'id': ticket_id,
+            'subject': subject,
+            'requester_id': 98765,
+            'custom_status': _INVESTIGATION_STATUS_ID,
+        },
+    }
+
+
+@pytest.mark.django_db
+class TestZendeskClaimRaceCondition:
+    """Bug 1: concurrent webhooks for the same ticket must not create duplicate Claims."""
+
+    def test_zd_ticket_id_unique_constraint_at_db_level(self):
+        """After the constraint migration, two Claims with the same zd_ticket_id
+        raise IntegrityError at the DB level. This is the foundation that makes
+        the view-level IntegrityError handling work safely under real concurrency."""
+        from django.db import IntegrityError
+
+        Claim.objects.create(
+            alf_claim_id='ALF0099001',
+            zd_ticket_id='99001',
+            client_email='first@example.com',
+            status='Received',
+        )
+        with pytest.raises(IntegrityError):
+            Claim.objects.create(
+                alf_claim_id='ALF0099002',
+                zd_ticket_id='99001',  # duplicate
+                client_email='second@example.com',
+                status='Received',
+            )
+
+    def test_null_zd_ticket_id_allowed_multiple_times(self):
+        """The unique constraint does NOT apply to NULL values, so manually-created
+        claims without a Zendesk ticket can still coexist."""
+        Claim.objects.create(
+            alf_claim_id='ALF0099003',
+            zd_ticket_id=None,
+            client_email='manual1@example.com',
+            status='Received',
+        )
+        Claim.objects.create(
+            alf_claim_id='ALF0099004',
+            zd_ticket_id=None,
+            client_email='manual2@example.com',
+            status='Received',
+        )
+        # Scope to just the two claims we created (other test fixtures may
+        # have unrelated NULL-ticket claims in the test DB).
+        ours = Claim.objects.filter(alf_claim_id__in=['ALF0099003', 'ALF0099004'])
+        assert ours.count() == 2
+        assert all(c.zd_ticket_id is None for c in ours)
+
+    def test_view_handles_race_via_integrity_error(self, api_client, system_settings):
+        """Simulates a real race: the view's early existence check returns None,
+        but during ticket-processing another concurrent webhook creates the same
+        Claim. When the view reaches its own Claim.objects.create(), it hits the
+        DB unique constraint (IntegrityError). The view must catch the error and
+        return a graceful 'already exists' response, with no duplicate row."""
+        mock_ticket = {
+            'id': '12345',
+            'subject': 'Lost Item - ALF1234567',
+            'description': 'Lost item details',
+            'status': 'investigation_initiated',
+            'requester_id': 98765,
+        }
+        mock_extracted = {
+            'client_email': 'customer@example.com',
+            'flight_details': '',
+            'object_description': '',
+            'phone': '',
+            'alternate_email': '',
+        }
+
+        # Simulate the race: create the conflicting Claim DURING the LLM extraction
+        # call, AFTER the view's early-existence check has already returned None.
+        def extraction_with_race_create(ticket_data):
+            Claim.objects.create(
+                alf_claim_id='ALF1234567',
+                zd_ticket_id='12345',
+                client_email='other-webhook@example.com',
+                status='Received',
+            )
+            return mock_extracted
+
+        payload = _nested_webhook_payload(ticket_id='12345')
+
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
+             patch('apps.integrations.services.analyze_zendesk_ticket_for_claim',
+                   side_effect=extraction_with_race_create), \
+             patch('apps.integrations.services.parse_alf_claim_id_from_subject',
+                   return_value='ALF1234567'):
+
+            response = api_client.post(
+                reverse('zendesk-claim-webhook'),
+                data=payload,
+                format='json',
+                HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert 'already exists' in response.data['message'].lower()
+        # Exactly one Claim must exist for this ticket — no duplicate from the race
+        assert Claim.objects.filter(zd_ticket_id='12345').count() == 1
+
+
+@pytest.mark.django_db
+class TestZendeskClaimEmptyEmailHandling:
+    """Bug 2: when every email-resolution path fails, operators must be notified
+    via a WARNING log so the manual-review queue gets attention instead of the
+    failure being silently lost."""
+
+    def test_warning_logged_and_flag_forced_when_email_unresolvable(
+        self, api_client, system_settings, caplog
+    ):
+        """When LLM extraction returns no email, the webhook has no requester.email,
+        and the Zendesk user API returns no email either — the view emits a
+        WARNING log mentioning the ticket_id and forces llm_extraction_failed=True
+        so the manual-review queue picks the Claim up."""
+        mock_ticket = {
+            'id': '77001',
+            'subject': 'Lost Item - ALF7700001',
+            'description': 'Lost item',
+            'status': 'investigation_initiated',
+            'requester_id': 12345,  # present so fallback path is exercised
+        }
+        mock_extracted = {
+            'client_email': '',
+            'flight_details': '',
+            'object_description': '',
+            'phone': '',
+            'alternate_email': '',
+        }
+
+        # Payload has NO top-level 'requester' object, so webhook fallback fails.
+        payload = _nested_webhook_payload(ticket_id='77001', subject='Lost Item - ALF7700001')
+
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
+             patch('apps.integrations.services.analyze_zendesk_ticket_for_claim',
+                   return_value=mock_extracted), \
+             patch('apps.integrations.services.parse_alf_claim_id_from_subject',
+                   return_value='ALF7700001'), \
+             patch('apps.integrations.services.fetch_zendesk_user', return_value=None):
+
+            with caplog.at_level('WARNING', logger='apps.integrations.views'):
+                response = api_client.post(
+                    reverse('zendesk-claim-webhook'),
+                    data=payload,
+                    format='json',
+                    HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
+                )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        # Claim is saved so the manual-review queue surfaces it
+        claim = Claim.objects.get(zd_ticket_id='77001')
+        assert claim.llm_extraction_failed is True, \
+            "When client_email cannot be resolved, llm_extraction_failed must be True"
+        # client_email empty is acceptable — operator fills it in during review
+        assert claim.client_email == ''
+
+        # A WARNING-level log mentioning the ticket_id and the word 'email' was emitted
+        warning_records = [r for r in caplog.records if r.levelname == 'WARNING']
+        relevant = [
+            r for r in warning_records
+            if '77001' in r.message and 'email' in r.message.lower()
+        ]
+        assert len(relevant) >= 1, (
+            f"Expected a WARNING log mentioning ticket 77001 and 'email'. "
+            f"Got these records: "
+            f"{[(r.levelname, r.message) for r in caplog.records]}"
+        )

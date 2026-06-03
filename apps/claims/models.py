@@ -32,6 +32,7 @@ class Claim(models.Model):
         blank=True,
         db_index=True,
         null=True,
+        unique=True,
         help_text='Zendesk ticket ID'
     )
 
