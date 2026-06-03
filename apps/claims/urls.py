@@ -9,5 +9,5 @@ router.register(r'evidence', ClaimEvidenceViewSet, basename='claim-evidence')
 
 urlpatterns = [
     path('', include(router.urls)),
-    path('claims/<int:claim_id>/update-from-zendesk/', ClaimUpdateFromZendeskView.as_view(), name='claim-update-from-zendesk'),
+    path('<int:claim_id>/update-from-zendesk/', ClaimUpdateFromZendeskView.as_view(), name='claim-update-from-zendesk'),
 ]
