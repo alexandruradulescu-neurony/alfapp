@@ -115,7 +115,9 @@ async function loadBriefing() {
 }
 
 function renderFacts(f) {
-  if (!f || !Object.keys(f).length) return '<span class="muted">No linked LORA claim.</span>';
+  if (!f || !Object.keys(f).length) {
+    return '<div class="info-line">No linked LORA claim — briefing is based on the ticket only.</div>';
+  }
   const bits = [];
   if (f.status) bits.push(`<span class="pill">${escapeHtml(f.status)}</span>`);
   if (f.deadline) {
@@ -172,6 +174,7 @@ function nl2brEscaped(text) {
 async function draftEmail(draftType, btn) {
   const statusEl = document.getElementById('draft-status');
   btn.disabled = true;
+  statusEl.className = '';
   statusEl.textContent = 'Writing draft…';
   try {
     const ctx = await ticketContext();
@@ -181,19 +184,31 @@ async function draftEmail(draftType, btn) {
     if (data.body) {
       // Insert into the ticket's reply composer — the agent reviews and sends.
       await client.invoke('ticket.editor.insert', nl2brEscaped(data.body));
+      statusEl.className = 'ok';
       statusEl.textContent = '✓ Draft inserted in the reply box — review and edit before sending.';
     } else {
+      statusEl.className = 'err';
       statusEl.textContent = 'Draft unavailable right now — try again.';
     }
   } catch (e) {
+    statusEl.className = 'err';
     statusEl.textContent = diagnose(e);
   } finally {
     btn.disabled = false;
   }
 }
 
-document.getElementById('btn-draft-client').onclick = (e) => draftEmail('client_update', e.target);
-document.getElementById('btn-draft-inst').onclick = (e) => draftEmail('institution_reply', e.target);
+document.getElementById('btn-draft-client').onclick = (e) => draftEmail('client_update', e.currentTarget);
+document.getElementById('btn-draft-inst').onclick = (e) => draftEmail('institution_reply', e.currentTarget);
+
+// --- chat suggestion chips ---
+document.querySelectorAll('.chip').forEach(ch => {
+  ch.onclick = () => {
+    const input = document.getElementById('chat-input');
+    input.value = ch.dataset.q;
+    document.getElementById('chat-form').requestSubmit();
+  };
+});
 
 // --- chat ---
 const chatLog = document.getElementById('chat-log');
@@ -226,6 +241,8 @@ document.getElementById('chat-form').onsubmit = async (ev) => {
 };
 
 function appendMsg(role, text) {
+  const empty = document.getElementById('chat-empty');
+  if (empty) empty.hidden = true;
   const div = document.createElement('div');
   div.className = 'msg ' + role;
   div.textContent = text;

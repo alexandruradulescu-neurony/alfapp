@@ -23,14 +23,24 @@
       <div id="facts" class="facts"></div>
       <div id="attention"></div>
       <div class="actions">
-        <button id="btn-regen" type="button">↻ Regenerate</button>
-        <button id="btn-next-steps" type="button">Suggest next steps</button>
+        <button id="btn-regen" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          Regenerate
+        </button>
+        <button id="btn-next-steps" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
+          Next steps
+        </button>
+        <button id="btn-draft-client" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 6 10-6"/></svg>
+          Client update
+        </button>
+        <button id="btn-draft-inst" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 22h18"/><path d="M6 18v-7M10 18v-7M14 18v-7M18 18v-7"/><path d="M3 11l9-7 9 7z"/></svg>
+          Institution reply
+        </button>
       </div>
-      <div class="actions">
-        <button id="btn-draft-client" type="button">✉️ Draft client update</button>
-        <button id="btn-draft-inst" type="button">🏛 Draft institution reply</button>
-      </div>
-      <div id="draft-status" class="muted"></div>
+      <div id="draft-status"></div>
     </div>
     <div id="briefing-error" class="error" hidden>
       Couldn't load the briefing. <button id="briefing-retry">Retry</button>
@@ -39,11 +49,23 @@
   </section>
 
   <section id="panel-chat" class="panel" hidden>
-    <div id="chat-log"></div>
+    <div id="chat-log">
+      <div id="chat-empty">
+        <p class="muted">Ask LORA anything about this ticket.</p>
+        <div class="chips">
+          <button type="button" class="chip" data-q="Summarize this ticket">Summarize</button>
+          <button type="button" class="chip" data-q="When was this ticket submitted?">When submitted?</button>
+          <button type="button" class="chip" data-q="Translate the last email into English">Translate last email</button>
+          <button type="button" class="chip" data-q="What is the agent expected to do next on this ticket?">What's next?</button>
+        </div>
+      </div>
+    </div>
     <div id="typing" hidden>LORA is thinking<span class="dots"></span></div>
     <form id="chat-form">
-      <input id="chat-input" type="text" placeholder="Ask about this claim…" autocomplete="off">
-      <button type="submit">→</button>
+      <input id="chat-input" type="text" placeholder="Ask about this ticket…" autocomplete="off">
+      <button type="submit" aria-label="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
+      </button>
     </form>
   </section>
 
