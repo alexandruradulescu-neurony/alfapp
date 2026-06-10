@@ -125,3 +125,25 @@ def test_briefing_summary_caps_next_steps_count():
             "summary": "ok",
             "next_steps": [f"step {i}" for i in range(7)],
         })
+
+
+def test_next_steps_accepts_valid_payload():
+    from apps.ai.schemas import NextSteps
+    obj = NextSteps.model_validate({"next_steps": ["Chase MCO lost & found", "Update client"]})
+    assert len(obj.next_steps) == 2
+
+
+def test_next_steps_caps_count():
+    import pytest
+    from pydantic import ValidationError
+    from apps.ai.schemas import NextSteps
+    with pytest.raises(ValidationError):
+        NextSteps.model_validate({"next_steps": [f"step {i}" for i in range(7)]})
+
+
+def test_next_steps_requires_field():
+    import pytest
+    from pydantic import ValidationError
+    from apps.ai.schemas import NextSteps
+    with pytest.raises(ValidationError):
+        NextSteps.model_validate({})

@@ -59,3 +59,10 @@ class BriefingSummary(BaseModel):
 
     summary: str = Field(max_length=600)
     next_steps: list[str] = Field(default_factory=list, max_length=6)
+
+
+class NextSteps(BaseModel):
+    """Schema for the Zendesk sidebar 'Generate next steps' action
+    (POST /zd/briefing/ with mode='next_steps')."""
+
+    next_steps: list[str] = Field(max_length=6)

@@ -12,6 +12,7 @@ ALLOWED_TAGS: frozenset[str] = frozenset({
     "email_subject",
     "ticket_description",
     "ticket_subject",
+    "ticket_created_at",
     "zendesk_comment",
     "claim_description",
 })
