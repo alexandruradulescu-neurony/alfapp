@@ -413,6 +413,55 @@ class ZendeskBriefingView(APIView):
         )
 
 
+class ZendeskChatView(APIView):
+    """POST /api/integrations/zd/chat/
+    Body: {ticket_id, message, history[]}
+    Returns: {answer, sources[]} — AI chat scoped to the ticket's claim.
+    Auth: ZendeskSidebarAuth (sidebar_secret_token)."""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        if not ZendeskSidebarAuth.authenticate(request):
+            ip = request.META.get('REMOTE_ADDR', '')
+            cache_key = f'sidebar_auth_fail_{ip}'
+            failed_attempts = cache.get(cache_key, 0)
+            cache.set(cache_key, failed_attempts + 1, 300)
+            logger.warning(f"Failed chat auth attempt, IP: {ip}, attempt: {failed_attempts + 1}")
+            if failed_attempts >= 5:
+                return Response({'error': 'Too many failed attempts. Please try again later.'},
+                                status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+
+        from apps.claims.models import Claim
+        from apps.agent.services import AgentChatService
+
+        data = request.data
+        ticket_id = str(data.get('ticket_id', '')).strip()
+        message = str(data.get('message', '')).strip()
+        history = data.get('history') or []
+
+        if not message:
+            return Response({'error': 'message is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        claim = Claim.objects.filter(zd_ticket_id=ticket_id).first() if ticket_id else None
+        if not claim:
+            return Response(
+                {'answer': 'No LORA claim is linked to this ticket yet, so I cannot answer '
+                           'claim-specific questions here.', 'sources': []},
+                status=status.HTTP_200_OK,
+            )
+
+        logger.info(f"Sidebar chat for ticket_id: {ticket_id}, claim: {claim.alf_claim_id}")
+        result = AgentChatService().process_message(
+            message=message,
+            claim_ids=[claim.alf_claim_id],
+            conversation_history=history,
+        )
+        return Response({'answer': result.answer, 'sources': getattr(result, 'sources', [])},
+                        status=status.HTTP_200_OK)
+
+
 class ZendeskTicketSyncView(APIView):
     """
     Endpoint to sync a claim with Zendesk.

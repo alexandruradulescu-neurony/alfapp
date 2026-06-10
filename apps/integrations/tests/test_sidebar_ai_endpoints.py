@@ -100,3 +100,40 @@ def test_briefing_tokenizes_pii_before_ai(api_client, settings_obj):
         user_content = sent[1]['content']
         assert 'alice@example.com' not in user_content
         assert '<EMAIL_' in user_content
+
+
+@pytest.mark.django_db
+def test_chat_requires_auth(api_client, settings_obj):
+    resp = api_client.post(reverse('zendesk-sidebar-chat'),
+                           data={'ticket_id': '70001', 'message': 'status?'}, format='json')
+    assert resp.status_code in (401, 403)
+
+
+@pytest.mark.django_db
+def test_chat_answers_scoped_to_claim(api_client, settings_obj):
+    Claim.objects.create(alf_claim_id='ALF7000001', zd_ticket_id='70001',
+                         client_email='c@example.com', status='Searching')
+
+    with patch('apps.agent.services.AgentChatService.process_message') as mock_pm:
+        mock_pm.return_value = MagicMock(answer='Status is Searching.', sources=['claim'])
+        resp = api_client.post(
+            reverse('zendesk-sidebar-chat'),
+            data={'ticket_id': '70001', 'message': 'what is the status?', 'history': []},
+            format='json', HTTP_AUTHORIZATION=f'Bearer {SECRET}',
+        )
+
+    assert resp.status_code == 200
+    assert resp.data['answer'] == 'Status is Searching.'
+    kwargs = mock_pm.call_args.kwargs
+    assert kwargs.get('claim_ids') == ['ALF7000001']
+
+
+@pytest.mark.django_db
+def test_chat_no_claim_returns_friendly_message(api_client, settings_obj):
+    resp = api_client.post(
+        reverse('zendesk-sidebar-chat'),
+        data={'ticket_id': '88888', 'message': 'status?'}, format='json',
+        HTTP_AUTHORIZATION=f'Bearer {SECRET}',
+    )
+    assert resp.status_code == 200
+    assert 'no lora claim' in resp.data['answer'].lower()
