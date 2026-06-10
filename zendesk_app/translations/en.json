@@ -1,0 +1,8 @@
+{
+  "app": {
+    "name": "LORA Claim Assistant",
+    "short_description": "AI briefing + chat for lost-item claims, inside the ticket.",
+    "long_description": "Shows an AI summary, key facts, and a claim-scoped chat assistant powered by LORA.",
+    "installation_instructions": "Set your LORA base URL and the sidebar secret token in the app settings."
+  }
+}
