@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://static.zdassets.com/zendesk_apps_framework/sdk_assets/2.x/zaf_sdk.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="tabs">
+    <button id="tab-briefing" class="tab active" data-tab="briefing">Briefing</button>
+    <button id="tab-chat" class="tab" data-tab="chat">Chat</button>
+  </div>
+
+  <section id="panel-briefing" class="panel">
+    <div id="briefing-loading" class="muted">Loading briefing…</div>
+    <div id="briefing-content" hidden>
+      <div id="summary" class="summary"></div>
+      <div id="next-steps"></div>
+      <div id="facts" class="facts"></div>
+    </div>
+    <div id="briefing-error" class="error" hidden>
+      Couldn't load the briefing. <button id="briefing-retry">Retry</button>
+    </div>
+  </section>
+
+  <section id="panel-chat" class="panel" hidden>
+    <div id="chat-log"></div>
+    <form id="chat-form">
+      <input id="chat-input" type="text" placeholder="Ask about this claim…" autocomplete="off">
+      <button type="submit">→</button>
+    </form>
+  </section>
+
+  <script src="https://static.zdassets.com/zendesk_apps_framework/sdk_assets/2.x/zaf_sdk.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
