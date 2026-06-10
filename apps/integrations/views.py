@@ -736,6 +736,18 @@ class ZendeskClaimWebhookView(APIView):
                     'alternate_email': '',
                 }
 
+            # Prefer the structured "Claim #" Zendesk field over the subject-parsed
+            # ID. The field is authoritative; the subject line is the fallback
+            # (already resolved into alf_claim_id above). Only override when the
+            # field holds a parseable ALF id, so a blank or malformed field value
+            # falls back to the subject-derived id rather than corrupting it.
+            claim_number_field = extracted_data.get('claim_number', '')
+            if claim_number_field:
+                parsed_from_field = parse_alf_claim_id_from_subject(claim_number_field)
+                if parsed_from_field:
+                    alf_claim_id = parsed_from_field
+                    logger.info(f"Using ALF claim ID from Zendesk 'Claim #' field: {alf_claim_id}")
+
             # Determine if LLM extraction failed
             llm_failed = not extracted_data.get('client_email') and not extracted_data.get('flight_details')
             logger.info(f"LLM extraction failed flag: {llm_failed}")
@@ -771,6 +783,8 @@ class ZendeskClaimWebhookView(APIView):
 
             # Generate AI summary from extracted data (for claim detail page display)
             ai_summary_parts = []
+            if extracted_data.get('client_name'):
+                ai_summary_parts.append(f"Client: {extracted_data['client_name']}.")
             if extracted_data.get('flight_details'):
                 ai_summary_parts.append(f"Flight: {extracted_data['flight_details']}.")
             if extracted_data.get('object_description'):
@@ -794,6 +808,7 @@ class ZendeskClaimWebhookView(APIView):
                         alf_claim_id=alf_claim_id,
                         zd_ticket_id=ticket_id,
                         client_email=client_email,
+                        client_name=extracted_data.get('client_name', ''),
                         flight_details=extracted_data.get('flight_details', ''),
                         object_description=extracted_data.get('object_description', ''),
                         phone=extracted_data.get('phone', ''),

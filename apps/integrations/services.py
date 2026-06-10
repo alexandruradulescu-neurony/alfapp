@@ -25,8 +25,21 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 ZENDESK_FIELD_ALIAS_EMAIL: int = 13606076120860   # "Email used for submissions" (our per-case alias)
 ZENDESK_FIELD_CLIENT_EMAIL: int = 13737499349020  # "Customer Email" (the client's real email)
+ZENDESK_FIELD_CLIENT_NAME: int = 13737514170140   # "Customer Name"
 ZENDESK_FIELD_PHONE: int = 11761070082844         # "Phone Number"
+ZENDESK_FIELD_CLAIM_NUMBER: int = 11688794648732  # "Claim #"
+
+# Flight info is spread across several fields; flight_details is composed from all.
 ZENDESK_FIELD_FLIGHT: int = 13737630819996        # "Flight Number"
+ZENDESK_FIELD_AIRLINE: int = 11761080032028       # "Airline"
+ZENDESK_FIELD_AIRPORT: int = 11761104069276       # "Airport"
+ZENDESK_FIELD_SEAT: int = 13737646294940          # "Seat Number"
+ZENDESK_FIELD_DATETIME: int = 13737598795292      # "Date & Time"
+
+# The lost item is described across two fields; object_description is composed
+# from both. "Lost Object" holds the item itself; "Object Details" holds extra detail.
+ZENDESK_FIELD_LOST_OBJECT: int = 11761123532444   # "Lost Object"
+ZENDESK_FIELD_OBJECT_DETAILS: int = 13737436477852  # "Object Details"
 
 
 def _get_zendesk_auth_headers() -> Dict[str, str]:
@@ -761,11 +774,38 @@ def _get_custom_field_value(custom_fields: list, field_id: int | None) -> str:
     """Return the string value of a Zendesk custom field, or '' if absent/None."""
     if field_id is None:
         return ''
+    if not isinstance(custom_fields, (list, tuple)):
+        return ''
     for field in custom_fields:
-        if field.get('id') == field_id:
+        if isinstance(field, dict) and field.get('id') == field_id:
             value = field.get('value')
             return str(value) if value else ''
     return ''
+
+
+def _compose_flight_details(custom_fields: list) -> str:
+    """Compose a single labeled flight_details string from the separate Zendesk
+    flight fields (number, airline, airport, seat, date/time). Only present
+    fields are included, joined with ' | '. Returns '' if none are set."""
+    segments = [
+        ("Flight", _get_custom_field_value(custom_fields, ZENDESK_FIELD_FLIGHT)),
+        ("Airline", _get_custom_field_value(custom_fields, ZENDESK_FIELD_AIRLINE)),
+        ("Airport", _get_custom_field_value(custom_fields, ZENDESK_FIELD_AIRPORT)),
+        ("Seat", _get_custom_field_value(custom_fields, ZENDESK_FIELD_SEAT)),
+        ("Date/Time", _get_custom_field_value(custom_fields, ZENDESK_FIELD_DATETIME)),
+    ]
+    return " | ".join(f"{label}: {value}" for label, value in segments if value)
+
+
+def _compose_object_description(custom_fields: list) -> str:
+    """Compose object_description from 'Lost Object' (the item) and 'Object
+    Details' (extra detail). Item first, then details on the next line. Returns
+    '' if neither is set (caller falls back to the LLM-extracted value)."""
+    parts = [
+        _get_custom_field_value(custom_fields, ZENDESK_FIELD_LOST_OBJECT),
+        _get_custom_field_value(custom_fields, ZENDESK_FIELD_OBJECT_DETAILS),
+    ]
+    return "\n".join(p for p in parts if p)
 
 
 def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, str]:
@@ -798,8 +838,11 @@ def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, s
         # ------------------------------------------------------------------
         alias_email = _get_custom_field_value(custom_fields, ZENDESK_FIELD_ALIAS_EMAIL)
         client_email_structured = _get_custom_field_value(custom_fields, ZENDESK_FIELD_CLIENT_EMAIL)
+        client_name_structured = _get_custom_field_value(custom_fields, ZENDESK_FIELD_CLIENT_NAME)
         phone_structured = _get_custom_field_value(custom_fields, ZENDESK_FIELD_PHONE)
-        flight_structured = _get_custom_field_value(custom_fields, ZENDESK_FIELD_FLIGHT)
+        claim_number_structured = _get_custom_field_value(custom_fields, ZENDESK_FIELD_CLAIM_NUMBER)
+        flight_composed = _compose_flight_details(custom_fields)
+        object_composed = _compose_object_description(custom_fields)
 
         # The alias is used as known_pii so the tokenizer tags it as ALIAS
         # instead of EMAIL — preventing the LLM from treating it as the
@@ -851,20 +894,30 @@ def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, s
             # because TicketExtraction schema does not extract email — the
             # caller (views.py) resolves email via requester_id fallback.
             'client_email': client_email_structured,
-            'flight_details': flight_structured,
-            'object_description': llm_result.get('object_description', ''),
+            'client_name': client_name_structured,
+            # flight: composed from the structured flight fields.
+            'flight_details': flight_composed,
+            # object: structured composition wins; fall back to the LLM-extracted
+            # description only when neither structured object field is populated.
+            'object_description': object_composed or llm_result.get('object_description', ''),
             'phone': phone_structured,
             'alternate_email': '',
+            # claim_number: the view uses this (with subject-line fallback) to
+            # resolve the ALF claim ID.
+            'claim_number': claim_number_structured,
         }
 
         logger.info(
-            "Extraction completed for ticket %s (structured email=%r, flight=%r, "
-            "phone=%r; LLM object_description=%r)",
+            "Extraction completed for ticket %s (structured email=%r, name=%r, "
+            "flight=%r, phone=%r, object=%r, claim_no=%r; LLM object fallback used=%r)",
             ticket_data.get('id', 'unknown'),
             bool(client_email_structured),
-            bool(flight_structured),
+            bool(client_name_structured),
+            bool(flight_composed),
             bool(phone_structured),
-            bool(extracted['object_description']),
+            bool(object_composed),
+            bool(claim_number_structured),
+            bool(not object_composed and llm_result.get('object_description', '')),
         )
         return extracted
 
@@ -872,10 +925,12 @@ def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, s
         logger.error(f"Error in extraction for Zendesk ticket: {e}", exc_info=True)
         return {
             'client_email': '',
+            'client_name': '',
             'flight_details': '',
             'object_description': '',
             'phone': '',
             'alternate_email': '',
+            'claim_number': '',
         }
 
 

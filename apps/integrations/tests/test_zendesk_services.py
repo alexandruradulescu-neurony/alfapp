@@ -1062,7 +1062,8 @@ class TestAnalyzeZendeskTicketForClaim:
 
         assert result['client_email'] == 'structured@example.com'
         assert result['phone'] == '+1-555-000-1234'
-        assert result['flight_details'] == 'AA123 JFK-LAX'
+        # flight_details is now a labeled composition; only the Flight field is set here
+        assert result['flight_details'] == 'Flight: AA123 JFK-LAX'
         assert result['object_description'] == 'Red bag'
 
     @patch('apps.communications.services.call_qwen_ai_for_ticket_extraction')
@@ -1260,3 +1261,114 @@ def test_analyze_ticket_reads_structured_alias_from_custom_field(db):
 
     # Confirm structured extraction produced the right object_description
     assert result.get('object_description') == "black backpack"
+
+
+# Real confirmed Zendesk custom field IDs (see apps/integrations/services.py)
+_FIELD_CUSTOMER_NAME = 13737514170140
+_FIELD_LOST_OBJECT = 11761123532444
+_FIELD_OBJECT_DETAILS = 13737436477852
+_FIELD_FLIGHT_NUMBER = 13737630819996
+_FIELD_AIRLINE = 11761080032028
+_FIELD_AIRPORT = 11761104069276
+_FIELD_SEAT = 13737646294940
+_FIELD_DATETIME = 13737598795292
+_FIELD_CLAIM_NUMBER = 11688794648732
+
+
+@pytest.mark.django_db
+class TestStructuredFieldComposition:
+    """Tests for the enriched structured-field reads added 2026-06-10:
+    composed flight_details, composed object_description, customer name, and
+    the Claim # field."""
+
+    @patch('apps.communications.services.call_qwen_ai_for_ticket_extraction')
+    def test_composes_flight_details_from_multiple_fields(self, mock_extract, mock_system_settings):
+        """flight_details combines Flight Number + Airline + Airport + Seat + Date/Time
+        into one labeled string."""
+        mock_extract.return_value = {'object_description': '', 'additional_context': ''}
+        ticket = {
+            'id': '12345', 'subject': 'Lost', 'description': 'x', 'comments': [],
+            'custom_fields': [
+                {'id': _FIELD_FLIGHT_NUMBER, 'value': 'AA123'},
+                {'id': _FIELD_AIRLINE, 'value': 'American Airlines'},
+                {'id': _FIELD_AIRPORT, 'value': 'JFK'},
+                {'id': _FIELD_SEAT, 'value': '14C'},
+                {'id': _FIELD_DATETIME, 'value': '2026-01-15 10:30'},
+            ],
+        }
+        result = services.analyze_zendesk_ticket_for_claim(ticket)
+        fd = result['flight_details']
+        assert 'AA123' in fd
+        assert 'American Airlines' in fd
+        assert 'JFK' in fd
+        assert '14C' in fd
+        assert '2026-01-15 10:30' in fd
+
+    @patch('apps.communications.services.call_qwen_ai_for_ticket_extraction')
+    def test_flight_details_omits_absent_fields(self, mock_extract, mock_system_settings):
+        """Only present flight fields appear; no empty labels for missing ones."""
+        mock_extract.return_value = {'object_description': '', 'additional_context': ''}
+        ticket = {
+            'id': '12345', 'subject': 'Lost', 'description': 'x', 'comments': [],
+            'custom_fields': [
+                {'id': _FIELD_FLIGHT_NUMBER, 'value': 'BA456'},
+                {'id': _FIELD_AIRPORT, 'value': 'LHR'},
+            ],
+        }
+        result = services.analyze_zendesk_ticket_for_claim(ticket)
+        fd = result['flight_details']
+        assert 'BA456' in fd
+        assert 'LHR' in fd
+        assert 'Airline' not in fd  # absent field not labeled
+        assert 'Seat' not in fd
+
+    @patch('apps.communications.services.call_qwen_ai_for_ticket_extraction')
+    def test_composes_object_description_from_structured_fields(self, mock_extract, mock_system_settings):
+        """object_description combines Lost Object + Object Details, and structured
+        data wins over the LLM."""
+        mock_extract.return_value = {'object_description': 'LLM GUESS', 'additional_context': ''}
+        ticket = {
+            'id': '12345', 'subject': 'Lost', 'description': 'x', 'comments': [],
+            'custom_fields': [
+                {'id': _FIELD_LOST_OBJECT, 'value': 'Black leather wallet'},
+                {'id': _FIELD_OBJECT_DETAILS, 'value': 'Contains driver license and 2 cards'},
+            ],
+        }
+        result = services.analyze_zendesk_ticket_for_claim(ticket)
+        od = result['object_description']
+        assert 'Black leather wallet' in od
+        assert 'Contains driver license and 2 cards' in od
+        assert 'LLM GUESS' not in od  # structured fields win over the LLM
+
+    @patch('apps.communications.services.call_qwen_ai_for_ticket_extraction')
+    def test_object_description_falls_back_to_llm_when_no_structured_fields(self, mock_extract, mock_system_settings):
+        """When neither Lost Object nor Object Details is present, the LLM value is used."""
+        mock_extract.return_value = {'object_description': 'A blue umbrella', 'additional_context': ''}
+        ticket = {
+            'id': '12345', 'subject': 'Lost', 'description': 'lost my umbrella', 'comments': [],
+            'custom_fields': [],
+        }
+        result = services.analyze_zendesk_ticket_for_claim(ticket)
+        assert result['object_description'] == 'A blue umbrella'
+
+    @patch('apps.communications.services.call_qwen_ai_for_ticket_extraction')
+    def test_extracts_customer_name(self, mock_extract, mock_system_settings):
+        """client_name is read from the Customer Name field."""
+        mock_extract.return_value = {'object_description': '', 'additional_context': ''}
+        ticket = {
+            'id': '12345', 'subject': 'Lost', 'description': 'x', 'comments': [],
+            'custom_fields': [{'id': _FIELD_CUSTOMER_NAME, 'value': 'Jane Doe'}],
+        }
+        result = services.analyze_zendesk_ticket_for_claim(ticket)
+        assert result['client_name'] == 'Jane Doe'
+
+    @patch('apps.communications.services.call_qwen_ai_for_ticket_extraction')
+    def test_returns_claim_number_from_field(self, mock_extract, mock_system_settings):
+        """The Claim # field value is surfaced in the result dict for the view to use."""
+        mock_extract.return_value = {'object_description': '', 'additional_context': ''}
+        ticket = {
+            'id': '12345', 'subject': 'Lost', 'description': 'x', 'comments': [],
+            'custom_fields': [{'id': _FIELD_CLAIM_NUMBER, 'value': 'ALF7654321'}],
+        }
+        result = services.analyze_zendesk_ticket_for_claim(ticket)
+        assert result['claim_number'] == 'ALF7654321'

@@ -859,3 +859,58 @@ class TestZendeskClaimEmptyEmailHandling:
             f"Got these records: "
             f"{[(r.levelname, r.message) for r in caplog.records]}"
         )
+
+
+@pytest.mark.django_db
+class TestZendeskClaimEnrichedFields:
+    """Verifies the enriched structured-field wiring (2026-06-10): client_name
+    persists on the Claim, and the 'Claim #' field drives the ALF id."""
+
+    def test_client_name_persisted_and_claim_number_field_drives_alf_id(
+        self, api_client, system_settings
+    ):
+        """When the extractor returns a client_name and a claim_number, the Claim
+        is saved with the name and the ALF id comes from the Claim # field (not
+        the subject)."""
+        mock_ticket = {
+            'id': '88123',
+            'subject': 'Lost item - ALF0000001',  # subject has a DIFFERENT id
+            'description': 'Lost a watch',
+            'status': 'investigation_initiated',
+            'requester_id': 98765,
+        }
+        # Extractor returns the Claim # field value distinct from the subject id
+        mock_extracted = {
+            'client_email': 'real.client@example.com',
+            'client_name': 'Maria Schmidt',
+            'flight_details': 'Flight: LH400 | Airport: FRA',
+            'object_description': 'Silver wristwatch',
+            'phone': '+49 30 1234567',
+            'alternate_email': '',
+            'claim_number': 'ALF9990001',  # authoritative
+        }
+        payload = _nested_webhook_payload(ticket_id='88123', subject='Lost item - ALF0000001')
+
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
+             patch('apps.integrations.services.analyze_zendesk_ticket_for_claim',
+                   return_value=mock_extracted), \
+             patch('apps.integrations.services.parse_alf_claim_id_from_subject',
+                   side_effect=lambda s: 'ALF9990001' if s == 'ALF9990001'
+                   else ('ALF0000001' if 'ALF0000001' in (s or '') else None)):
+
+            response = api_client.post(
+                reverse('zendesk-claim-webhook'),
+                data=payload,
+                format='json',
+                HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        claim = Claim.objects.get(zd_ticket_id='88123')
+        # client_name persisted from the Customer Name field
+        assert claim.client_name == 'Maria Schmidt'
+        # ALF id came from the Claim # field, NOT the subject's ALF0000001
+        assert claim.alf_claim_id == 'ALF9990001'
+        # client_name appears in the generated AI summary
+        assert 'Maria Schmidt' in claim.ai_summary

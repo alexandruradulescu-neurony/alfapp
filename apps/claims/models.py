@@ -37,6 +37,12 @@ class Claim(models.Model):
     )
 
     # Client Information
+    client_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Client full name (from Zendesk "Customer Name" field)'
+    )
     client_email = models.EmailField(
         db_index=True,
         help_text='Client email address (extracted from Zendesk ticket)'
