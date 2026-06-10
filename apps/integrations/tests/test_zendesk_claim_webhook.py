@@ -914,3 +914,76 @@ class TestZendeskClaimEnrichedFields:
         assert claim.alf_claim_id == 'ALF9990001'
         # client_name appears in the generated AI summary
         assert 'Maria Schmidt' in claim.ai_summary
+
+    def test_extended_fields_persist_with_type_coercion(self, api_client, system_settings):
+        """deadline_date coerces to a date, price_paid to Decimal, and the text
+        fields persist; bad date/price values become None rather than raising."""
+        from datetime import date
+        from decimal import Decimal
+
+        mock_ticket = {
+            'id': '88200', 'subject': 'Lost item - ALF8820000',
+            'description': 'x', 'status': 'investigation_initiated', 'requester_id': 1,
+        }
+        mock_extracted = {
+            'client_email': 'c@example.com', 'client_name': 'Sam Lee',
+            'flight_details': '', 'object_description': 'Bag', 'phone': '',
+            'alternate_email': '', 'claim_number': '',
+            'billing_address': '1 Bill St', 'shipping_address': '2 Ship Ave',
+            'incident_details': 'Lost at gate', 'lost_location': 'Gate B12',
+            'deadline_date': '2026-07-01', 'deadline_time': '17:00',
+            'deadline_timezone': 'Europe/Berlin', 'price_paid': '149.99',
+            'payment_method': 'PayPal', 'payment_status': 'Paid',
+            'woocommerce_id': 'WC-55012', 'tracking_info': 'DHL 123',
+        }
+        payload = _nested_webhook_payload(ticket_id='88200', subject='Lost item - ALF8820000')
+
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
+             patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted), \
+             patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF8820000'):
+            response = api_client.post(
+                reverse('zendesk-claim-webhook'), data=payload, format='json',
+                HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        claim = Claim.objects.get(zd_ticket_id='88200')
+        assert claim.deadline_date == date(2026, 7, 1)
+        assert claim.price_paid == Decimal('149.99')
+        assert claim.shipping_address == '2 Ship Ave'
+        assert claim.billing_address == '1 Bill St'
+        assert claim.lost_location == 'Gate B12'
+        assert claim.woocommerce_id == 'WC-55012'
+        assert claim.tracking_info == 'DHL 123'
+        assert claim.payment_method == 'PayPal'
+
+    def test_bad_deadline_and_price_become_none(self, api_client, system_settings):
+        """Malformed deadline_date / price_paid values do not crash; they store None."""
+        mock_ticket = {
+            'id': '88201', 'subject': 'Lost item - ALF8820001',
+            'description': 'x', 'status': 'investigation_initiated', 'requester_id': 1,
+        }
+        mock_extracted = {
+            'client_email': 'c@example.com', 'client_name': '', 'flight_details': '',
+            'object_description': 'Bag', 'phone': '', 'alternate_email': '', 'claim_number': '',
+            'billing_address': '', 'shipping_address': '', 'incident_details': '',
+            'lost_location': '', 'deadline_date': 'not-a-date', 'deadline_time': '',
+            'deadline_timezone': '', 'price_paid': 'free', 'payment_method': '',
+            'payment_status': '', 'woocommerce_id': '', 'tracking_info': '',
+        }
+        payload = _nested_webhook_payload(ticket_id='88201', subject='Lost item - ALF8820001')
+
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
+             patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted), \
+             patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF8820001'):
+            response = api_client.post(
+                reverse('zendesk-claim-webhook'), data=payload, format='json',
+                HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        claim = Claim.objects.get(zd_ticket_id='88201')
+        assert claim.deadline_date is None
+        assert claim.price_paid is None

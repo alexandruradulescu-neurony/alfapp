@@ -1273,6 +1273,19 @@ _FIELD_AIRPORT = 11761104069276
 _FIELD_SEAT = 13737646294940
 _FIELD_DATETIME = 13737598795292
 _FIELD_CLAIM_NUMBER = 11688794648732
+# Additional fields wired 2026-06-10
+_FIELD_BILLING_ADDRESS = 13737449416988
+_FIELD_SHIPPING_ADDRESS = 11949784750236
+_FIELD_INCIDENT_DETAILS = 13737603591964
+_FIELD_LOST_LOCATION = 16314445118492
+_FIELD_DEADLINE_DATE = 14394267216668
+_FIELD_DEADLINE_TIME = 14394267218972
+_FIELD_DEADLINE_TZ = 14394267222684
+_FIELD_PRICE_PAID = 19736734259996
+_FIELD_PAYMENT_METHOD = 14495509913244
+_FIELD_PAYMENT_STATUS = 11761180893980
+_FIELD_WOOCOMMERCE_ID = 13484164181916
+_FIELD_TRACKING_INFO = 11949753094556
 
 
 @pytest.mark.django_db
@@ -1372,3 +1385,56 @@ class TestStructuredFieldComposition:
         }
         result = services.analyze_zendesk_ticket_for_claim(ticket)
         assert result['claim_number'] == 'ALF7654321'
+
+    @patch('apps.communications.services.call_qwen_ai_for_ticket_extraction')
+    def test_reads_extended_structured_fields(self, mock_extract, mock_system_settings):
+        """The extractor surfaces the extended fields wired 2026-06-10:
+        addresses, incident details, lost location, deadline, price, payment,
+        WooCommerce id, and tracking — all as raw string values."""
+        mock_extract.return_value = {'object_description': '', 'additional_context': ''}
+        ticket = {
+            'id': '12345', 'subject': 'Lost', 'description': 'x', 'comments': [],
+            'custom_fields': [
+                {'id': _FIELD_BILLING_ADDRESS, 'value': '1 Bill St, Berlin'},
+                {'id': _FIELD_SHIPPING_ADDRESS, 'value': '2 Ship Ave, Munich'},
+                {'id': _FIELD_INCIDENT_DETAILS, 'value': 'Left it at security'},
+                {'id': _FIELD_LOST_LOCATION, 'value': 'Terminal 2, Gate B12'},
+                {'id': _FIELD_DEADLINE_DATE, 'value': '2026-07-01'},
+                {'id': _FIELD_DEADLINE_TIME, 'value': '17:00'},
+                {'id': _FIELD_DEADLINE_TZ, 'value': 'Europe/Berlin'},
+                {'id': _FIELD_PRICE_PAID, 'value': '149.99'},
+                {'id': _FIELD_PAYMENT_METHOD, 'value': 'PayPal'},
+                {'id': _FIELD_PAYMENT_STATUS, 'value': 'Paid'},
+                {'id': _FIELD_WOOCOMMERCE_ID, 'value': 'WC-55012'},
+                {'id': _FIELD_TRACKING_INFO, 'value': 'DHL 1234567890'},
+            ],
+        }
+        result = services.analyze_zendesk_ticket_for_claim(ticket)
+        assert result['billing_address'] == '1 Bill St, Berlin'
+        assert result['shipping_address'] == '2 Ship Ave, Munich'
+        assert result['incident_details'] == 'Left it at security'
+        assert result['lost_location'] == 'Terminal 2, Gate B12'
+        assert result['deadline_date'] == '2026-07-01'
+        assert result['deadline_time'] == '17:00'
+        assert result['deadline_timezone'] == 'Europe/Berlin'
+        assert result['price_paid'] == '149.99'
+        assert result['payment_method'] == 'PayPal'
+        assert result['payment_status'] == 'Paid'
+        assert result['woocommerce_id'] == 'WC-55012'
+        assert result['tracking_info'] == 'DHL 1234567890'
+
+    @patch('apps.communications.services.call_qwen_ai_for_ticket_extraction')
+    def test_extended_fields_default_empty_when_absent(self, mock_extract, mock_system_settings):
+        """Extended fields default to '' when the ticket has no custom fields."""
+        mock_extract.return_value = {'object_description': '', 'additional_context': ''}
+        ticket = {
+            'id': '12345', 'subject': 'Lost', 'description': 'x', 'comments': [],
+            'custom_fields': [],
+        }
+        result = services.analyze_zendesk_ticket_for_claim(ticket)
+        for key in (
+            'billing_address', 'shipping_address', 'incident_details', 'lost_location',
+            'deadline_date', 'deadline_time', 'deadline_timezone', 'price_paid',
+            'payment_method', 'payment_status', 'woocommerce_id', 'tracking_info',
+        ):
+            assert result[key] == '', f"{key} should default to empty string"

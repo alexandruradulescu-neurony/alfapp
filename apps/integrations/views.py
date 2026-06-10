@@ -5,6 +5,8 @@ Provides API endpoints for Zendesk sidebar widget.
 
 import hmac
 import logging
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 from django.core.cache import cache
 from rest_framework.views import APIView
@@ -25,6 +27,26 @@ from apps.payments.refund_service import RefundService
 from apps.integrations.services import tag_zendesk_ticket_as_refunded, add_refund_comment_to_zendesk
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_date(value):
+    """Parse a Zendesk date string ('YYYY-MM-DD') into a date, or None on failure."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value).strip(), "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_decimal(value):
+    """Parse a numeric value into Decimal, or None on failure."""
+    if value in (None, ''):
+        return None
+    try:
+        return Decimal(str(value).strip())
+    except (InvalidOperation, ValueError, TypeError):
+        return None
 
 
 class ZendeskSidebarAuth:
@@ -813,6 +835,21 @@ class ZendeskClaimWebhookView(APIView):
                         object_description=extracted_data.get('object_description', ''),
                         phone=extracted_data.get('phone', ''),
                         alternate_email=extracted_data.get('alternate_email', ''),
+                        # Extended structured fields (2026-06-10). deadline_date and
+                        # price_paid are coerced to their DB types; bad/empty values
+                        # become None rather than raising.
+                        billing_address=extracted_data.get('billing_address', ''),
+                        shipping_address=extracted_data.get('shipping_address', ''),
+                        incident_details=extracted_data.get('incident_details', ''),
+                        lost_location=extracted_data.get('lost_location', ''),
+                        deadline_date=_safe_date(extracted_data.get('deadline_date', '')),
+                        deadline_time=extracted_data.get('deadline_time', ''),
+                        deadline_timezone=extracted_data.get('deadline_timezone', ''),
+                        price_paid=_safe_decimal(extracted_data.get('price_paid', '')),
+                        payment_method=extracted_data.get('payment_method', ''),
+                        payment_status=extracted_data.get('payment_status', ''),
+                        woocommerce_id=extracted_data.get('woocommerce_id', ''),
+                        tracking_info=extracted_data.get('tracking_info', ''),
                         status='Received',
                         llm_extraction_failed=llm_failed,
                         ai_summary=ai_summary,

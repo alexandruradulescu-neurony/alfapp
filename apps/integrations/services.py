@@ -41,6 +41,20 @@ ZENDESK_FIELD_DATETIME: int = 13737598795292      # "Date & Time"
 ZENDESK_FIELD_LOST_OBJECT: int = 11761123532444   # "Lost Object"
 ZENDESK_FIELD_OBJECT_DETAILS: int = 13737436477852  # "Object Details"
 
+# Extended fields wired 2026-06-10 (see docs/ZENDESK_FIELDS.md for the full map).
+ZENDESK_FIELD_BILLING_ADDRESS: int = 13737449416988   # "Billing Address"
+ZENDESK_FIELD_SHIPPING_ADDRESS: int = 11949784750236  # "Shipping Address"
+ZENDESK_FIELD_INCIDENT_DETAILS: int = 13737603591964  # "Incident Details"
+ZENDESK_FIELD_LOST_LOCATION: int = 16314445118492     # "Lost Location"
+ZENDESK_FIELD_DEADLINE_DATE: int = 14394267216668     # "Deadline Date"
+ZENDESK_FIELD_DEADLINE_TIME: int = 14394267218972     # "Deadline Time"
+ZENDESK_FIELD_DEADLINE_TZ: int = 14394267222684       # "Deadline Time Zone"
+ZENDESK_FIELD_PRICE_PAID: int = 19736734259996        # "Price Paid" (numeric)
+ZENDESK_FIELD_PAYMENT_METHOD: int = 14495509913244    # "Payment Method"
+ZENDESK_FIELD_PAYMENT_STATUS: int = 11761180893980    # "Payment Status"
+ZENDESK_FIELD_WOOCOMMERCE_ID: int = 13484164181916    # "WooCommerce ID"
+ZENDESK_FIELD_TRACKING_INFO: int = 11949753094556     # "3rd Party Tracking Information"
+
 
 def _get_zendesk_auth_headers() -> Dict[str, str]:
     """
@@ -844,6 +858,23 @@ def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, s
         flight_composed = _compose_flight_details(custom_fields)
         object_composed = _compose_object_description(custom_fields)
 
+        # Extended structured fields (raw string values; the view coerces
+        # deadline_date and price_paid to their DB types defensively).
+        extended = {
+            'billing_address': _get_custom_field_value(custom_fields, ZENDESK_FIELD_BILLING_ADDRESS),
+            'shipping_address': _get_custom_field_value(custom_fields, ZENDESK_FIELD_SHIPPING_ADDRESS),
+            'incident_details': _get_custom_field_value(custom_fields, ZENDESK_FIELD_INCIDENT_DETAILS),
+            'lost_location': _get_custom_field_value(custom_fields, ZENDESK_FIELD_LOST_LOCATION),
+            'deadline_date': _get_custom_field_value(custom_fields, ZENDESK_FIELD_DEADLINE_DATE),
+            'deadline_time': _get_custom_field_value(custom_fields, ZENDESK_FIELD_DEADLINE_TIME),
+            'deadline_timezone': _get_custom_field_value(custom_fields, ZENDESK_FIELD_DEADLINE_TZ),
+            'price_paid': _get_custom_field_value(custom_fields, ZENDESK_FIELD_PRICE_PAID),
+            'payment_method': _get_custom_field_value(custom_fields, ZENDESK_FIELD_PAYMENT_METHOD),
+            'payment_status': _get_custom_field_value(custom_fields, ZENDESK_FIELD_PAYMENT_STATUS),
+            'woocommerce_id': _get_custom_field_value(custom_fields, ZENDESK_FIELD_WOOCOMMERCE_ID),
+            'tracking_info': _get_custom_field_value(custom_fields, ZENDESK_FIELD_TRACKING_INFO),
+        }
+
         # The alias is used as known_pii so the tokenizer tags it as ALIAS
         # instead of EMAIL — preventing the LLM from treating it as the
         # client's real address.
@@ -905,6 +936,7 @@ def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, s
             # claim_number: the view uses this (with subject-line fallback) to
             # resolve the ALF claim ID.
             'claim_number': claim_number_structured,
+            **extended,
         }
 
         logger.info(
@@ -931,6 +963,18 @@ def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, s
             'phone': '',
             'alternate_email': '',
             'claim_number': '',
+            'billing_address': '',
+            'shipping_address': '',
+            'incident_details': '',
+            'lost_location': '',
+            'deadline_date': '',
+            'deadline_time': '',
+            'deadline_timezone': '',
+            'price_paid': '',
+            'payment_method': '',
+            'payment_status': '',
+            'woocommerce_id': '',
+            'tracking_info': '',
         }
 
 

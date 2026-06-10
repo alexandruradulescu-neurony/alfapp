@@ -57,6 +57,16 @@ class Claim(models.Model):
         blank=True,
         help_text='Alternate contact email'
     )
+    billing_address = models.TextField(
+        blank=True,
+        default='',
+        help_text='Billing address (from Zendesk "Billing Address" field)'
+    )
+    shipping_address = models.TextField(
+        blank=True,
+        default='',
+        help_text='Where to ship the recovered object (Zendesk "Shipping Address")'
+    )
 
     # Claim Details
     flight_details = models.TextField(
@@ -66,6 +76,70 @@ class Claim(models.Model):
     object_description = models.TextField(
         blank=True,
         help_text='Description of lost item'
+    )
+    incident_details = models.TextField(
+        blank=True,
+        default='',
+        help_text='How/when the item was lost (Zendesk "Incident Details")'
+    )
+    lost_location = models.TextField(
+        blank=True,
+        default='',
+        help_text='Where the item was lost (Zendesk "Lost Location") — primary search lead'
+    )
+
+    # Deadline (30-day claim lifecycle)
+    deadline_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text='Claim deadline date (Zendesk "Deadline Date")'
+    )
+    deadline_time = models.CharField(
+        max_length=20,
+        blank=True,
+        default='',
+        help_text='Claim deadline time-of-day (Zendesk "Deadline Time")'
+    )
+    deadline_timezone = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        help_text='Timezone for the deadline (Zendesk "Deadline Time Zone")'
+    )
+
+    # Payment & order
+    price_paid = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text='Concierge fee the client paid (Zendesk "Price Paid")'
+    )
+    payment_method = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        help_text='Payment method (Zendesk "Payment Method")'
+    )
+    payment_status = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        help_text='Payment status from the storefront (Zendesk "Payment Status")'
+    )
+    woocommerce_id = models.CharField(
+        max_length=50,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='WooCommerce order ID (Zendesk "WooCommerce ID")'
+    )
+
+    # Fulfillment
+    tracking_info = models.TextField(
+        blank=True,
+        default='',
+        help_text='Return-shipment tracking (Zendesk "3rd Party Tracking Information")'
     )
 
     # Workflow
