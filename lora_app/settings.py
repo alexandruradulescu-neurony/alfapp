@@ -271,9 +271,12 @@ if not DEBUG:
         'DIRECTIVES': {
             'default-src': ["'self'"],
             'script-src': ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://code.jquery.com", "https://stackpath.bootstrapcdn.com"],
-            'style-src': ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://stackpath.bootstrapcdn.com"],
+            'style-src': ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://stackpath.bootstrapcdn.com", "https://fonts.googleapis.com"],
             'img-src': ["'self'", "data:", "https:"],
-            'font-src': ["'self'", "https://fonts.gstatic.com"],
+            # font-src must allow the Bootstrap Icons font files (jsDelivr) and the
+            # Google Fonts file host (gstatic). The matching stylesheets are
+            # allowed in style-src above (jsDelivr + fonts.googleapis.com).
+            'font-src': ["'self'", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
             'connect-src': ["'self'", "https://api.paypal.com", "https://api.sandbox.paypal.com"],
             'frame-ancestors': ["'none'"],
         }
