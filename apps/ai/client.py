@@ -56,6 +56,7 @@ def _build_tokenizer(known_pii: dict | None) -> RegexTokenizer:
         known_aliases=(known_pii or {}).get("aliases", []),
         phone_default_region=settings.AI_PHONE_DEFAULT_REGION,
         phone_fallback_regions=settings.AI_PHONE_FALLBACK_REGIONS,
+        known_names=(known_pii or {}).get("names", []),
     )
 
 

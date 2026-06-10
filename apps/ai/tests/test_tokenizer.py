@@ -259,3 +259,71 @@ def test_untokenize_no_placeholders_unchanged():
     tok = make_tokenizer_with_phones()
     out = tok.untokenize("Plain text with nothing tokenized.", {})
     assert out == "Plain text with nothing tokenized."
+
+
+# --- known client names (NAME kind) ---
+
+def make_tokenizer_with_names(names):
+    return RegexTokenizer(salt=SALT, known_aliases=[], known_names=names)
+
+
+def test_known_name_full_match_replaced():
+    tok = make_tokenizer_with_names(["Charles Copeland"])
+    mapping = {}
+    out = tok.tokenize("Item belongs to Charles Copeland, please ship it.", mapping)
+    assert "Charles Copeland" not in out
+    assert "<NAME_" in out
+
+
+def test_known_name_full_match_case_insensitive():
+    tok = make_tokenizer_with_names(["Charles Copeland"])
+    mapping = {}
+    out = tok.tokenize("Cards for CHARLES COPELAND were found.", mapping)
+    assert "CHARLES COPELAND" not in out
+    assert "<NAME_" in out
+
+
+def test_known_name_capitalized_part_replaced():
+    """Single name parts are replaced when they look like a name
+    (Capitalized or ALL-CAPS), e.g. greetings: 'Dear Charles,'."""
+    tok = make_tokenizer_with_names(["Charles Copeland"])
+    mapping = {}
+    out = tok.tokenize("Dear Charles, your wallet was located. COPELAND confirmed.", mapping)
+    assert "Charles" not in out
+    assert "COPELAND" not in out
+    assert out.count("<NAME_") >= 2
+
+
+def test_known_name_lowercase_part_left_alone():
+    """Lowercase occurrences of a single name part are NOT replaced — protects
+    common words from being nuked when a client is named e.g. 'May' or 'Will'.
+    (The FULL name is replaced in any casing — that's tested above.)"""
+    tok = make_tokenizer_with_names(["Will Turner"])
+    mapping = {}
+    out = tok.tokenize("we will arrange pickup at the turner counter", mapping)
+    assert "will" in out
+    assert "turner" in out
+    assert "<NAME_" not in out
+
+
+def test_known_name_short_parts_not_replaced_alone():
+    """1-2 char parts (middle initials) are not replaced on their own."""
+    tok = make_tokenizer_with_names(["Charles M Copeland"])
+    mapping = {}
+    out = tok.tokenize("Section M of the terminal", mapping)
+    assert "Section M of the terminal" == out
+
+
+def test_known_name_untokenize_restores():
+    tok = make_tokenizer_with_names(["Charles Copeland"])
+    mapping = {}
+    tokenized = tok.tokenize("Charles Copeland asked for UPS.", mapping)
+    restored = tok.untokenize(tokenized, mapping)
+    assert "Charles Copeland" in restored
+
+
+def test_no_known_names_is_noop():
+    tok = make_tokenizer_with_names([])
+    mapping = {}
+    text = "Charles Copeland asked for UPS."
+    assert tok.tokenize(text, mapping) == text

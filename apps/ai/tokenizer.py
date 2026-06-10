@@ -78,11 +78,15 @@ class Tokenizer(Protocol):
 
 class RegexTokenizer:
     """Regex-based PII detector. Detects emails, ALF IDs, flight numbers,
-    phone numbers (via phonenumbers library), and known aliases passed in by
-    the caller.
+    phone numbers (via phonenumbers library), known aliases, and known client
+    names passed in by the caller.
 
-    Names, street addresses, and other unstructured PII are NOT detected by
-    this implementation — see the spec for the Presidio upgrade path.
+    UNKNOWN names, street addresses, and other unstructured PII are NOT
+    detected by this implementation — see the spec for the Presidio upgrade
+    path. Known names (e.g. the ticket requester) ARE tokenized: the full name
+    case-insensitively, and each name part (3+ chars) when it appears
+    Capitalized or ALL-CAPS — the capitalization guard keeps common words
+    intact for clients named e.g. "May" or "Will".
     """
 
     def __init__(
@@ -91,11 +95,13 @@ class RegexTokenizer:
         known_aliases: list[str],
         phone_default_region: str = "US",
         phone_fallback_regions: list[str] | None = None,
+        known_names: list[str] | None = None,
     ) -> None:
         if not salt:
             raise ValueError("salt must be non-empty bytes")
         self._salt = salt
         self._known_aliases = {a.lower() for a in known_aliases if a}
+        self._known_names = [n.strip() for n in (known_names or []) if n and n.strip()]
         self._phone_default_region = phone_default_region
         self._phone_fallback_regions = list(phone_fallback_regions or [])
 
@@ -103,6 +109,7 @@ class RegexTokenizer:
         if not text:
             return text
         text = self._tokenize_aliases(text, mapping)
+        text = self._tokenize_names(text, mapping)
         text = self._tokenize_phones(text, mapping)
         text = self._tokenize_pattern(
             text, mapping, _EMAIL_PATTERN, kind="EMAIL", normalize=str.lower
@@ -171,6 +178,41 @@ class RegexTokenizer:
                 return placeholder
 
             text = pattern.sub(sub, text)
+        return text
+
+    def _tokenize_names(self, text: str, mapping: dict[str, str]) -> str:
+        if not self._known_names:
+            return text
+        for name in self._known_names:
+            # Full name: case-insensitive, word-bounded (a multi-word client
+            # name is distinctive enough to replace in any casing).
+            full_pattern = re.compile(r"\b" + re.escape(name) + r"\b", re.IGNORECASE)
+
+            def sub_full(match: re.Match, *, _name=name) -> str:
+                placeholder = generate_placeholder("NAME", _name.lower(), salt=self._salt)
+                mapping[placeholder] = _name
+                return placeholder
+
+            text = full_pattern.sub(sub_full, text)
+
+            # Individual parts (3+ chars): only when Capitalized or ALL-CAPS,
+            # so ordinary lowercase words survive for clients named "May"/"Will".
+            for part in name.split():
+                if len(part) < 3:
+                    continue
+                part_pattern = re.compile(
+                    r"\b(?:" + re.escape(part.capitalize()) + "|"
+                    + re.escape(part.upper()) + r")\b"
+                )
+
+                def sub_part(match: re.Match, *, _part=part) -> str:
+                    placeholder = generate_placeholder(
+                        "NAME", _part.lower(), salt=self._salt
+                    )
+                    mapping[placeholder] = _part.capitalize()
+                    return placeholder
+
+                text = part_pattern.sub(sub_part, text)
         return text
 
     def _tokenize_pattern(
