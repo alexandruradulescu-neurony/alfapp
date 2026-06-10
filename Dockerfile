@@ -55,10 +55,15 @@ RUN playwright install --with-deps chromium
 # ----- Application code -----
 COPY . .
 
-# ----- Collect static files for the admin and any STATIC_ROOT assets -----
-# `|| true` so a missing STATIC_ROOT doesn't break the build during early
-# iteration. Once you wire up static settings properly, remove the `|| true`.
-RUN python manage.py collectstatic --noinput || true
+# ----- Collect static files into STATIC_ROOT so WhiteNoise can serve them -----
+# settings.py requires SECRET_KEY at import time, but real secrets are runtime
+# env vars not present during `docker build`. Supply a THROWAWAY key for this
+# one build step only (the real key comes from the Railway env var at runtime).
+# DEBUG defaults to False and DATABASE_URL defaults to sqlite (collectstatic
+# touches neither). No `|| true`: if static collection fails, fail the build
+# loudly rather than shipping an unstyled site.
+RUN SECRET_KEY=build-time-collectstatic-only-not-used-at-runtime \
+    python manage.py collectstatic --noinput
 
 # ----- Runtime -----
 # Bind to $PORT (set by the platform). Migrations run first; if they fail,
