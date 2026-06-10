@@ -336,6 +336,83 @@ class ZendeskSidebarView(APIView):
         }
 
 
+class ZendeskBriefingView(APIView):
+    """POST /api/integrations/zd/briefing/
+    Body: {ticket_id, requester_email, subject, description, comments[]}
+    Returns: {summary, next_steps[], facts{}} — AI briefing + LORA facts.
+    Auth: ZendeskSidebarAuth (sidebar_secret_token)."""
+
+    permission_classes = [AllowAny]
+
+    BRIEFING_PROMPT = (
+        "You are briefing a lost-item recovery agent who is about to handle a "
+        "ticket. Using ONLY the provided ticket content and claim facts, write a "
+        "2-3 sentence summary of where this claim stands, then list up to 4 "
+        "concrete next steps the agent should take. Respond as JSON: "
+        '{"summary": "...", "next_steps": ["..."]}.'
+    )
+
+    def post(self, request):
+        if not ZendeskSidebarAuth.authenticate(request):
+            ip = request.META.get('REMOTE_ADDR', '')
+            cache_key = f'sidebar_auth_fail_{ip}'
+            failed_attempts = cache.get(cache_key, 0)
+            cache.set(cache_key, failed_attempts + 1, 300)
+            logger.warning(f"Failed briefing auth attempt, IP: {ip}, attempt: {failed_attempts + 1}")
+            if failed_attempts >= 5:
+                return Response({'error': 'Too many failed attempts. Please try again later.'},
+                                status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+
+        from apps.ai.client import AIClient
+        from apps.ai.schemas import BriefingSummary
+        from apps.ai.exceptions import AIResponseValidationError
+        from apps.claims.models import Claim
+        from apps.integrations.services import build_claim_facts
+
+        data = request.data
+        ticket_id = str(data.get('ticket_id', '')).strip()
+        logger.info(f"Briefing request for ticket_id: {ticket_id or 'N/A'}")
+        subject = str(data.get('subject', ''))
+        description = str(data.get('description', ''))
+        comments = data.get('comments') or []
+        if not isinstance(comments, list):
+            comments = [str(comments)]
+        comments = [str(c)[:1000] for c in comments[:10]]
+
+        claim = Claim.objects.filter(zd_ticket_id=ticket_id).first() if ticket_id else None
+        facts = build_claim_facts(claim) if claim else {}
+
+        trusted = {'claim_facts': str(facts)} if facts else None
+        untrusted = {'ticket_subject': subject[:200], 'ticket_description': description[:2000]}
+        if comments:
+            untrusted['zendesk_comment'] = comments
+
+        try:
+            result = AIClient.complete(
+                system_prompt=self.BRIEFING_PROMPT,
+                trusted=trusted,
+                untrusted=untrusted,
+                known_pii={'aliases': []},
+                response_schema=BriefingSummary,
+                call_site='zendesk_briefing',
+                temperature=0.4,
+                max_tokens=500,
+            )
+        except AIResponseValidationError as e:
+            logger.warning(f"Briefing AI validation failed for ticket {ticket_id}: {e}")
+            return Response(
+                {'summary': 'Briefing unavailable right now. Please use the Chat tab or retry.',
+                 'next_steps': [], 'facts': facts},
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {'summary': result.summary, 'next_steps': result.next_steps, 'facts': facts},
+            status=status.HTTP_200_OK,
+        )
+
+
 class ZendeskTicketSyncView(APIView):
     """
     Endpoint to sync a claim with Zendesk.
