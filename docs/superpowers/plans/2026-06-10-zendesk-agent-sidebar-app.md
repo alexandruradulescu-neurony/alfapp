@@ -596,7 +596,6 @@ git commit -m "feat(zendesk-app): add ZAF manifest (ticket sidebar + secure sett
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="https://static.zdassets.com/zendesk_apps_framework/sdk_assets/2.x/zaf_sdk.min.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -625,7 +624,7 @@ git commit -m "feat(zendesk-app): add ZAF manifest (ticket sidebar + secure sett
     </form>
   </section>
 
-  <script src="https://static.zdassets.com/zendesk_apps_framework/sdk_assets/2.x/zaf_sdk.min.js"></script>
+  <script src="https://static.zdassets.com/zendesk_app_framework_sdk/2.0/zaf_sdk.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
