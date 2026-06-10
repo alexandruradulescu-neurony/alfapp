@@ -46,16 +46,45 @@ def system_settings():
 
 @pytest.fixture
 def valid_webhook_payload():
-    """Returns a valid webhook payload for testing."""
-    return {
-        'ticket_id': '12345',
-        'subject': 'Lost Item - ALF1234567',
-        'requester': {
-            'email': 'customer@example.com',
-            'name': 'John Doe',
-        },
-        'status': 'investigation_initiated',
+    """Returns a valid nested webhook payload matching the current Zendesk format.
+
+    NOTE: The old flat payload (ticket_id/subject/requester/status at top level) is
+    no longer accepted by ZendeskClaimWebhookView for status-gating. The view now
+    reads event.current for the custom status ID. This fixture has been updated to
+    the nested format so all tests exercise the real code path.
+    """
+    return _nested_webhook_payload(ticket_id='12345', subject='Lost Item - ALF1234567')
+
+
+def _full_extracted_data(**overrides):
+    """Return a complete extracted-data dict with sensible defaults.
+
+    Providing a complete dict avoids KeyError when the view reads fields that
+    older per-test mocks omitted (billing_address, shipping_address, etc.).
+    """
+    base = {
+        'client_email': 'customer@example.com',
+        'client_name': '',
+        'flight_details': '',
+        'object_description': '',
+        'phone': '',
+        'alternate_email': '',
+        'claim_number': '',
+        'billing_address': '',
+        'shipping_address': '',
+        'incident_details': '',
+        'lost_location': '',
+        'deadline_date': '',
+        'deadline_time': '',
+        'deadline_timezone': '',
+        'price_paid': '',
+        'payment_method': '',
+        'payment_status': '',
+        'woocommerce_id': '',
+        'tracking_info': '',
     }
+    base.update(overrides)
+    return base
 
 
 @pytest.mark.django_db
@@ -65,8 +94,7 @@ class TestZendeskClaimWebhookView:
     def test_webhook_creates_claim_successfully(
         self, api_client, system_settings, valid_webhook_payload
     ):
-        """Valid webhook creates claim with all fields."""
-        # Mock Zendesk API calls
+        """Valid nested webhook creates claim with all fields populated from LLM."""
         mock_ticket_data = {
             'id': '12345',
             'subject': 'Lost Item - ALF1234567',
@@ -88,13 +116,13 @@ class TestZendeskClaimWebhookView:
             }
         ]
 
-        mock_extracted_data = {
-            'client_email': 'customer@example.com',
-            'flight_details': 'Flight AA123 from JFK to LAX on March 15, 2026',
-            'object_description': 'Black MacBook Pro laptop, 15-inch',
-            'phone': '+1-555-123-4567',
-            'alternate_email': 'john.doe.backup@gmail.com',
-        }
+        mock_extracted_data = _full_extracted_data(
+            client_email='customer@example.com',
+            flight_details='Flight AA123 from JFK to LAX on March 15, 2026',
+            object_description='Black MacBook Pro laptop, 15-inch',
+            phone='+1-555-123-4567',
+            alternate_email='john.doe.backup@gmail.com',
+        )
 
         with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
              patch('apps.integrations.services.fetch_zendesk_comments', return_value=mock_comments), \
@@ -125,10 +153,8 @@ class TestZendeskClaimWebhookView:
         assert claim.status == 'Received'
         assert claim.llm_extraction_failed is False
 
-    def test_webhook_idempotency(
-        self, api_client, system_settings, valid_webhook_payload
-    ):
-        """Duplicate webhook for same ticket returns existing claim."""
+    def test_webhook_idempotency(self, api_client, system_settings):
+        """Duplicate webhook for same ticket returns existing claim without re-fetching."""
         # Create existing claim
         existing_claim = Claim.objects.create(
             alf_claim_id='ALF1234567',
@@ -137,11 +163,14 @@ class TestZendeskClaimWebhookView:
             status='Received',
         )
 
-        # Mock should not be called since we return early
+        payload = _nested_webhook_payload(ticket_id='12345')
+
+        # The view's early existence check fires AFTER the status check, so the
+        # nested payload must carry the correct investigation status ID.
         with patch('apps.integrations.services.fetch_zendesk_ticket') as mock_fetch:
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
-                data=valid_webhook_payload,
+                data=payload,
                 format='json',
                 HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
             )
@@ -158,11 +187,16 @@ class TestZendeskClaimWebhookView:
         # Verify no duplicate claim was created
         assert Claim.objects.filter(zd_ticket_id='12345').count() == 1
 
-    def test_webhook_invalid_secret(self, api_client, system_settings, valid_webhook_payload):
-        """Invalid webhook secret returns 401."""
+    def test_webhook_invalid_secret(self, api_client, system_settings):
+        """Invalid webhook secret returns 401.
+
+        The view checks ticket_id presence before the secret, so we use a nested
+        payload that carries a valid ticket_id so the secret check is actually reached.
+        """
+        payload = _nested_webhook_payload(ticket_id='12345')
         response = api_client.post(
             reverse('zendesk-claim-webhook'),
-            data=valid_webhook_payload,
+            data=payload,
             format='json',
             HTTP_X_WEBHOOK_SECRET='invalid_secret_wrong',
         )
@@ -171,40 +205,36 @@ class TestZendeskClaimWebhookView:
         assert response.data['error'] == 'Invalid webhook secret'
 
     def test_webhook_missing_ticket_id(self, api_client, system_settings):
-        """Missing ticket_id returns 400."""
+        """Nested payload with no detail.id and no ticket_id returns 400."""
+        # A payload that has an event section but no id in detail and no ticket_id
         payload = {
-            'subject': 'Lost Item - ALF1234567',
-            'requester': {'email': 'customer@example.com'},
+            'event': {'current': _INVESTIGATION_STATUS_ID},
+            'detail': {'subject': 'Lost Item - ALF1234567'},
         }
 
         response = api_client.post(
             reverse('zendesk-claim-webhook'),
             data=payload,
             format='json',
-            HTTP_X_WEBHOOK_SECRET='test_webhook_secret_abc123',
+            HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.data['error'] == 'Missing required field: ticket_id'
 
-    def test_webhook_alf_id_parsing(
-        self, api_client, system_settings, valid_webhook_payload
-    ):
-        """ALF claim ID correctly parsed from subject."""
+    def test_webhook_alf_id_parsing(self, api_client, system_settings):
+        """ALF claim ID correctly parsed from the nested payload's subject."""
         mock_ticket_data = {
             'id': '12345',
             'subject': 'Lost Item - ALF1234567',
             'description': 'Lost luggage',
             'status': 'investigation_initiated',
+            'requester_id': 98765,
         }
 
-        mock_extracted_data = {
-            'client_email': 'customer@example.com',
-            'flight_details': '',
-            'object_description': '',
-            'phone': '',
-            'alternate_email': '',
-        }
+        mock_extracted_data = _full_extracted_data(client_email='customer@example.com')
+
+        payload = _nested_webhook_payload(ticket_id='12345', subject='Lost Item - ALF1234567')
 
         with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
              patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
@@ -213,7 +243,7 @@ class TestZendeskClaimWebhookView:
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
-                data=valid_webhook_payload,
+                data=payload,
                 format='json',
                 HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
             )
@@ -224,32 +254,19 @@ class TestZendeskClaimWebhookView:
         claim = Claim.objects.get(zd_ticket_id='12345')
         assert claim.alf_claim_id == 'ALF1234567'
 
-    def test_webhook_alf_id_not_found(
-        self, api_client, system_settings, valid_webhook_payload
-    ):
-        """Missing ALF ID generates placeholder."""
-        # Subject without ALF ID
-        payload = {
-            'ticket_id': '67890',
-            'subject': 'Lost Item Report',
-            'requester': {'email': 'customer@example.com'},
-            'status': 'investigation_initiated',
-        }
-
+    def test_webhook_alf_id_not_found(self, api_client, system_settings):
+        """When parse_alf_claim_id_from_subject returns None, a placeholder is generated."""
         mock_ticket_data = {
             'id': '67890',
             'subject': 'Lost Item Report',
             'description': 'Lost luggage',
             'status': 'investigation_initiated',
+            'requester_id': 98765,
         }
 
-        mock_extracted_data = {
-            'client_email': 'customer@example.com',
-            'flight_details': '',
-            'object_description': '',
-            'phone': '',
-            'alternate_email': '',
-        }
+        mock_extracted_data = _full_extracted_data(client_email='customer@example.com')
+
+        payload = _nested_webhook_payload(ticket_id='67890', subject='Lost Item Report')
 
         # parse_alf_claim_id_from_subject returns None when no ALF ID found
         with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
@@ -271,15 +288,14 @@ class TestZendeskClaimWebhookView:
         claim = Claim.objects.get(zd_ticket_id='67890')
         assert claim.alf_claim_id == 'ALF0067890'
 
-    def test_webhook_llm_extraction_success(
-        self, api_client, system_settings, valid_webhook_payload
-    ):
-        """LLM extracts all fields correctly."""
+    def test_webhook_llm_extraction_success(self, api_client, system_settings):
+        """LLM extracts all fields correctly — llm_extraction_failed is False."""
         mock_ticket_data = {
             'id': '12345',
             'subject': 'Lost Item - ALF1234567',
             'description': 'Lost item details',
             'status': 'investigation_initiated',
+            'requester_id': 98765,
         }
 
         mock_comments = [
@@ -292,14 +308,15 @@ class TestZendeskClaimWebhookView:
             }
         ]
 
-        # LLM successfully extracts all fields
-        mock_extracted_data = {
-            'client_email': 'customer@example.com',
-            'flight_details': 'Flight AA123 from JFK to LAX',
-            'object_description': 'Black suitcase with wheels',
-            'phone': '+1-555-987-6543',
-            'alternate_email': 'backup@example.com',
-        }
+        mock_extracted_data = _full_extracted_data(
+            client_email='customer@example.com',
+            flight_details='Flight AA123 from JFK to LAX',
+            object_description='Black suitcase with wheels',
+            phone='+1-555-987-6543',
+            alternate_email='backup@example.com',
+        )
+
+        payload = _nested_webhook_payload(ticket_id='12345')
 
         with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
              patch('apps.integrations.services.fetch_zendesk_comments', return_value=mock_comments), \
@@ -308,7 +325,7 @@ class TestZendeskClaimWebhookView:
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
-                data=valid_webhook_payload,
+                data=payload,
                 format='json',
                 HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
             )
@@ -322,34 +339,38 @@ class TestZendeskClaimWebhookView:
         assert claim.flight_details == 'Flight AA123 from JFK to LAX'
         assert claim.object_description == 'Black suitcase with wheels'
 
-    def test_webhook_llm_extraction_failed(
-        self, api_client, system_settings, valid_webhook_payload
-    ):
-        """LLM failure sets flag and uses fallback email."""
+    def test_webhook_llm_extraction_failed(self, api_client, system_settings):
+        """When LLM returns empty data, llm_extraction_failed=True and email
+        falls back to the Zendesk user API (requester_id is in detail)."""
         mock_ticket_data = {
             'id': '12345',
             'subject': 'Lost Item - ALF1234567',
             'description': 'Lost item details',
             'status': 'investigation_initiated',
+            'requester_id': 98765,
         }
 
         # LLM returns empty data (extraction failed)
-        mock_extracted_data = {
-            'client_email': '',
-            'flight_details': '',
-            'object_description': '',
-            'phone': '',
-            'alternate_email': '',
-        }
+        mock_extracted_data = _full_extracted_data(
+            client_email='',
+            flight_details='',
+        )
+
+        # The nested payload has no top-level 'requester.email'; the view falls
+        # through to fetch_zendesk_user with the requester_id from detail.
+        mock_user_data = {'email': 'customer@example.com', 'name': 'John Doe'}
+
+        payload = _nested_webhook_payload(ticket_id='12345')
 
         with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
              patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted_data), \
-             patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'):
+             patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'), \
+             patch('apps.integrations.services.fetch_zendesk_user', return_value=mock_user_data):
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
-                data=valid_webhook_payload,
+                data=payload,
                 format='json',
                 HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
             )
@@ -359,57 +380,60 @@ class TestZendeskClaimWebhookView:
 
         claim = Claim.objects.get(zd_ticket_id='12345')
         assert claim.llm_extraction_failed is True
-        # Should use requester email as fallback
+        # Email resolved via Zendesk user API fallback
         assert claim.client_email == 'customer@example.com'
 
-    def test_webhook_requester_email_fallback(
-        self, api_client, system_settings, valid_webhook_payload
-    ):
-        """Uses requester email when LLM fails to extract email."""
+    def test_webhook_requester_email_fallback(self, api_client, system_settings):
+        """When LLM returns no email, the view falls back to fetch_zendesk_user
+        using the requester_id from detail. Other LLM fields are still persisted."""
         mock_ticket_data = {
             'id': '12345',
             'subject': 'Lost Item - ALF1234567',
             'description': 'Lost item details',
             'status': 'investigation_initiated',
+            'requester_id': 98765,
         }
 
         # LLM extracts other fields but not email
-        mock_extracted_data = {
-            'client_email': '',  # Empty - LLM couldn't find email
-            'flight_details': 'Flight AA123 from JFK to LAX',
-            'object_description': 'Black suitcase',
-            'phone': '',
-            'alternate_email': '',
-        }
+        mock_extracted_data = _full_extracted_data(
+            client_email='',  # Empty - LLM couldn't find email
+            flight_details='Flight AA123 from JFK to LAX',
+            object_description='Black suitcase',
+        )
+
+        mock_user_data = {'email': 'customer@example.com', 'name': 'John Doe'}
+
+        payload = _nested_webhook_payload(ticket_id='12345')
 
         with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
              patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted_data), \
-             patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'):
+             patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'), \
+             patch('apps.integrations.services.fetch_zendesk_user', return_value=mock_user_data):
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
-                data=valid_webhook_payload,
+                data=payload,
                 format='json',
                 HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
             )
 
         assert response.status_code == status.HTTP_201_CREATED
-        # Should use requester email from payload as fallback
+        # Email resolved via Zendesk user API
         claim = Claim.objects.get(zd_ticket_id='12345')
         assert claim.client_email == 'customer@example.com'
-        # Other fields should still be populated
+        # Other LLM fields still populated
         assert claim.flight_details == 'Flight AA123 from JFK to LAX'
         assert claim.object_description == 'Black suitcase'
 
-    def test_webhook_fetch_ticket_fails(
-        self, api_client, system_settings, valid_webhook_payload
-    ):
+    def test_webhook_fetch_ticket_fails(self, api_client, system_settings):
         """Returns 500 when Zendesk API fails to fetch ticket."""
+        payload = _nested_webhook_payload(ticket_id='12345')
+
         with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=None):
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
-                data=valid_webhook_payload,
+                data=payload,
                 format='json',
                 HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
             )
@@ -417,24 +441,19 @@ class TestZendeskClaimWebhookView:
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert response.data['error'] == 'Failed to fetch Zendesk ticket'
 
-    def test_webhook_no_secret_header(
-        self, api_client, system_settings, valid_webhook_payload
-    ):
-        """Webhook without secret header still processes (secret is optional)."""
+    def test_webhook_no_secret_header(self, api_client, system_settings):
+        """Webhook without X-Webhook-Secret header still processes (secret is optional)."""
         mock_ticket_data = {
             'id': '12345',
             'subject': 'Lost Item - ALF1234567',
             'description': 'Lost item',
             'status': 'investigation_initiated',
+            'requester_id': 98765,
         }
 
-        mock_extracted_data = {
-            'client_email': 'customer@example.com',
-            'flight_details': '',
-            'object_description': '',
-            'phone': '',
-            'alternate_email': '',
-        }
+        mock_extracted_data = _full_extracted_data(client_email='customer@example.com')
+
+        payload = _nested_webhook_payload(ticket_id='12345')
 
         with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
              patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
@@ -444,59 +463,60 @@ class TestZendeskClaimWebhookView:
             # No HTTP_X_WEBHOOK_SECRET header
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
-                data=valid_webhook_payload,
+                data=payload,
                 format='json',
             )
 
-        # Should still succeed (secret verification is conditional)
+        # Should still succeed (secret verification is conditional on header presence)
         assert response.status_code == status.HTTP_201_CREATED
 
-    def test_webhook_system_settings_error(
-        self, api_client, valid_webhook_payload
-    ):
-        """Returns 500 when SystemSettings cannot be loaded."""
-        # Delete system settings to trigger error
+    def test_webhook_system_settings_error(self, api_client):
+        """When SystemSettings has no token configured (blank row) and a secret
+        header is present, the view returns 401.
+
+        NOTE: The original test expected HTTP 500 on the assumption that
+        SystemSettings.get_instance() would raise when no row exists. In
+        practice get_instance() uses get_or_create, so it always succeeds —
+        returning a blank-token row. hmac.compare_digest(provided, '') then
+        returns False, which the view correctly surfaces as 401 Unauthorized
+        rather than 500. The asserted behavior has been updated accordingly.
+        """
+        # Ensure no SystemSettings row exists; get_instance() will auto-create
+        # one with an empty sidebar_secret_token.
         SystemSettings.objects.all().delete()
 
-        # Don't send secret header - SystemSettings error happens before secret validation
+        # Send a nested payload WITH a secret header so the view reaches the
+        # secret-comparison branch (no header → view skips the check entirely).
+        payload = _nested_webhook_payload(ticket_id='12345')
         response = api_client.post(
             reverse('zendesk-claim-webhook'),
-            data=valid_webhook_payload,
+            data=payload,
             format='json',
+            HTTP_X_WEBHOOK_SECRET='any_secret',
         )
 
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        # View loads settings (auto-created, empty token), compare_digest fails → 401
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.data['error'] == 'Invalid webhook secret'
 
 
 @pytest.mark.django_db
 class TestZendeskClaimWebhookEdgeCases:
     """Edge case tests for ZendeskClaimWebhookView."""
 
-    def test_webhook_empty_subject(
-        self, api_client, system_settings, valid_webhook_payload
-    ):
-        """Handles webhook with empty subject."""
-        payload = {
-            'ticket_id': '12345',
-            'subject': '',
-            'requester': {'email': 'customer@example.com'},
-            'status': 'investigation_initiated',
-        }
-
+    def test_webhook_empty_subject(self, api_client, system_settings):
+        """Nested payload with empty subject generates a placeholder ALF ID."""
         mock_ticket_data = {
             'id': '12345',
             'subject': '',
             'description': 'Lost item',
             'status': 'investigation_initiated',
+            'requester_id': 98765,
         }
 
-        mock_extracted_data = {
-            'client_email': 'customer@example.com',
-            'flight_details': '',
-            'object_description': '',
-            'phone': '',
-            'alternate_email': '',
-        }
+        mock_extracted_data = _full_extracted_data(client_email='customer@example.com')
+
+        payload = _nested_webhook_payload(ticket_id='12345', subject='')
 
         with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
              patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
@@ -514,31 +534,20 @@ class TestZendeskClaimWebhookEdgeCases:
         # Should generate placeholder ALF ID from ticket_id
         assert response.data['alf_claim_id'] == 'ALF0012345'
 
-    def test_webhook_special_characters_in_subject(
-        self, api_client, system_settings
-    ):
-        """Handles webhook with special characters in subject."""
-        payload = {
-            'ticket_id': '12345',
-            'subject': 'Lost Item - ALF1234567 - Special chars: <>&"\'',
-            'requester': {'email': 'customer@example.com'},
-            'status': 'investigation_initiated',
-        }
-
+    def test_webhook_special_characters_in_subject(self, api_client, system_settings):
+        """Nested payload with special characters in subject is handled gracefully."""
+        subject_with_specials = 'Lost Item - ALF1234567 - Special chars: <>&"\''
         mock_ticket_data = {
             'id': '12345',
-            'subject': 'Lost Item - ALF1234567 - Special chars: <>&"\'',
+            'subject': subject_with_specials,
             'description': 'Lost item',
             'status': 'investigation_initiated',
+            'requester_id': 98765,
         }
 
-        mock_extracted_data = {
-            'client_email': 'customer@example.com',
-            'flight_details': '',
-            'object_description': '',
-            'phone': '',
-            'alternate_email': '',
-        }
+        mock_extracted_data = _full_extracted_data(client_email='customer@example.com')
+
+        payload = _nested_webhook_payload(ticket_id='12345', subject=subject_with_specials)
 
         with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
              patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
@@ -555,37 +564,30 @@ class TestZendeskClaimWebhookEdgeCases:
         assert response.status_code == status.HTTP_201_CREATED
         assert response.data['alf_claim_id'] == 'ALF1234567'
 
-    def test_webhook_missing_requester_email(
-        self, api_client, system_settings
-    ):
-        """Handles webhook when requester email is missing."""
-        payload = {
-            'ticket_id': '12345',
-            'subject': 'Lost Item - ALF1234567',
-            'requester': {},  # No email
-            'status': 'investigation_initiated',
-        }
-
+    def test_webhook_missing_requester_email(self, api_client, system_settings):
+        """When LLM and Zendesk user API both return no email, claim is still created
+        with empty client_email and llm_extraction_failed=True."""
         mock_ticket_data = {
             'id': '12345',
             'subject': 'Lost Item - ALF1234567',
             'description': 'Lost item',
             'status': 'investigation_initiated',
+            'requester_id': 98765,
         }
 
         # LLM also fails to extract email
-        mock_extracted_data = {
-            'client_email': '',
-            'flight_details': '',
-            'object_description': '',
-            'phone': '',
-            'alternate_email': '',
-        }
+        mock_extracted_data = _full_extracted_data(
+            client_email='',
+            flight_details='',
+        )
+
+        payload = _nested_webhook_payload(ticket_id='12345')
 
         with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
              patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted_data), \
-             patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'):
+             patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'), \
+             patch('apps.integrations.services.fetch_zendesk_user', return_value=None):
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
@@ -595,61 +597,63 @@ class TestZendeskClaimWebhookEdgeCases:
             )
 
         assert response.status_code == status.HTTP_201_CREATED
-        # Claim created with empty email (LLM failed flag set)
+        # Claim created with empty email; llm_extraction_failed must be True
         claim = Claim.objects.get(zd_ticket_id='12345')
         assert claim.client_email == ''
         assert claim.llm_extraction_failed is True
 
-    def test_webhook_llm_exception(
-        self, api_client, system_settings, valid_webhook_payload
-    ):
-        """Handles exception during LLM extraction."""
+    def test_webhook_llm_exception(self, api_client, system_settings):
+        """Exception from analyze_zendesk_ticket_for_claim triggers fallback path.
+
+        The view catches the exception, uses empty extracted_data, then resolves
+        the email via fetch_zendesk_user. Claim is created with llm_extraction_failed=True.
+        """
         mock_ticket_data = {
             'id': '12345',
             'subject': 'Lost Item - ALF1234567',
             'description': 'Lost item',
             'status': 'investigation_initiated',
+            'requester_id': 98765,
         }
 
-        # LLM extraction raises exception
+        mock_user_data = {'email': 'customer@example.com', 'name': 'John Doe'}
+
+        payload = _nested_webhook_payload(ticket_id='12345')
+
         with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
              patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', side_effect=Exception('LLM API error')), \
-             patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'):
+             patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'), \
+             patch('apps.integrations.services.fetch_zendesk_user', return_value=mock_user_data):
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
-                data=valid_webhook_payload,
+                data=payload,
                 format='json',
                 HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
             )
 
-        # Should still create claim with fallback (LLM failed)
+        # Should still create claim (with fallback email from Zendesk user API)
         assert response.status_code == status.HTTP_201_CREATED
         claim = Claim.objects.get(zd_ticket_id='12345')
         assert claim.llm_extraction_failed is True
-        assert claim.client_email == 'customer@example.com'  # Fallback to requester email
+        assert claim.client_email == 'customer@example.com'
 
-    def test_webhook_database_error(
-        self, api_client, system_settings, valid_webhook_payload
-    ):
-        """Handles database error during claim creation."""
+    def test_webhook_database_error(self, api_client, system_settings):
+        """A non-IntegrityError exception from Claim.objects.create returns 500."""
         mock_ticket_data = {
             'id': '12345',
             'subject': 'Lost Item - ALF1234567',
             'description': 'Lost item',
             'status': 'investigation_initiated',
+            'requester_id': 98765,
         }
 
-        mock_extracted_data = {
-            'client_email': 'customer@example.com',
-            'flight_details': '',
-            'object_description': '',
-            'phone': '',
-            'alternate_email': '',
-        }
+        mock_extracted_data = _full_extracted_data(client_email='customer@example.com')
 
-        # Simulate database error on claim creation
+        payload = _nested_webhook_payload(ticket_id='12345')
+
+        # Simulate a generic (non-IntegrityError) database error
         with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
              patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted_data), \
@@ -658,7 +662,7 @@ class TestZendeskClaimWebhookEdgeCases:
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
-                data=valid_webhook_payload,
+                data=payload,
                 format='json',
                 HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
             )
