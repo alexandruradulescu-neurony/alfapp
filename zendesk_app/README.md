@@ -15,6 +15,12 @@ zcli apps:server
 ```
 Set the two settings when prompted: `lora_base_url` (your LORA URL) and `sidebar_secret_token`.
 
+> **Note:** the zcli local server does not support Zendesk's secure-settings substitution.
+> The app detects this and sends the token you typed at the zcli prompt directly instead.
+> The installed app uses the proper secure path ({{setting...}} + `secure: true`), which
+> also requires the LORA domain to be listed in `domainWhitelist` in `manifest.json` —
+> if you ever change the LORA domain, update `domainWhitelist` to match.
+
 ## First install (upload as a private app)
 ```bash
 cd zendesk_app

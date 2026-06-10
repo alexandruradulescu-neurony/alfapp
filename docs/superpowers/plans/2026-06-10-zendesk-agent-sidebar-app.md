@@ -569,6 +569,7 @@ Expected: `System check identified no issues`.
   "location": { "support": { "ticket_sidebar": "assets/iframe.html" } },
   "version": "1.0.0",
   "frameworkVersion": "2.0",
+  "domainWhitelist": ["alfapp-production.up.railway.app", "lora.airportlostfound.com"],
   "parameters": [
     { "name": "lora_base_url", "type": "text", "required": true,
       "default": "https://lora.airportlostfound.com" },
@@ -671,15 +672,25 @@ client.invoke('resize', { width: '100%', height: '520px' });
 
 // --- helpers ---
 async function loraRequest(path, body) {
-  // client.request proxies server-side: injects the secure token, no CORS.
   const settings = await client.metadata().then(m => m.settings);
-  return client.request({
+  const opts = {
     url: settings.lora_base_url.replace(/\/$/, '') + path,
     type: 'POST',
     contentType: 'application/json',
-    headers: { Authorization: 'Bearer {{setting.sidebar_secret_token}}' },
     data: JSON.stringify(body),
-  });
+  };
+  if (settings.sidebar_secret_token) {
+    // zcli local server: no secure-settings support, so the value typed at the
+    // zcli prompt is exposed here — send it directly. Installed apps never
+    // expose secure settings to the browser, so this branch is dev-only.
+    opts.headers = { Authorization: 'Bearer ' + settings.sidebar_secret_token };
+  } else {
+    // Installed app: Zendesk's proxy substitutes the secure setting server-side.
+    // Requires secure:true and the domain in manifest.json domainWhitelist.
+    opts.headers = { Authorization: 'Bearer {{setting.sidebar_secret_token}}' };
+    opts.secure = true;
+  }
+  return client.request(opts);
 }
 
 async function ticketContext() {
