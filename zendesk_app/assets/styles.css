@@ -7,6 +7,9 @@ body { font: 13px/1.45 -apple-system, system-ui, sans-serif; color: #2f3941; mar
 .facts { margin-top: 10px; line-height: 1.7; }
 .facts .pill { display: inline-block; background: #fff0e1; color: #ad5e18; padding: 1px 8px; border-radius: 10px; margin-right: 4px; }
 .muted { color: #68737d; } .error { color: #b81a1a; }
+.actions { margin-top: 10px; display: flex; gap: 6px; }
+.actions button { background: #fff; border: 1px solid #1f73b7; color: #1f73b7; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-weight: 600; }
+.actions button:hover { background: #f0f7ff; }
 #chat-log { max-height: 320px; overflow-y: auto; margin-bottom: 8px; }
 .msg { margin: 6px 0; padding: 6px 8px; border-radius: 6px; }
 .msg.user { background: #e9eef2; } .msg.ai { background: #f0f7ff; }

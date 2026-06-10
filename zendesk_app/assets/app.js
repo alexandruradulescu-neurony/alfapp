@@ -46,15 +46,39 @@ async function loraRequest(path, body) {
 async function ticketContext() {
   const data = await client.get([
     'ticket.id', 'ticket.subject', 'ticket.description',
-    'ticket.requester.email', 'ticket.comments',
+    'ticket.requester.email', 'ticket.requester.name', 'ticket.createdAt',
   ]);
-  return {
+  const ctx = {
     ticket_id: String(data['ticket.id']),
     subject: data['ticket.subject'] || '',
     description: data['ticket.description'] || '',
     requester_email: data['ticket.requester.email'] || '',
-    comments: (data['ticket.comments'] || []).map(c => c.value).slice(0, 10),
+    requester_name: data['ticket.requester.name'] || '',
+    ticket_created_at: data['ticket.createdAt'] || '',
+    comments: [],
   };
+  try {
+    // Zendesk REST API (agent session): comments WITH timestamps, authors and
+    // the public/internal flag — ZAF's ticket.comments has none of those.
+    const resp = await client.request({
+      url: '/api/v2/tickets/' + ctx.ticket_id
+        + '/comments.json?include=users&sort_order=desc&per_page=30',
+      type: 'GET',
+    });
+    const users = {};
+    (resp.users || []).forEach(u => { users[u.id] = u.name; });
+    ctx.comments = (resp.comments || []).reverse().map(c => ({
+      author: users[c.author_id] || '',
+      created_at: c.created_at || '',
+      public: c.public !== false,
+      text: (c.plain_body || c.body || '').slice(0, 1500),
+    }));
+  } catch (e) {
+    // REST unavailable — fall back to bare comment text.
+    const fallback = await client.get(['ticket.comments']);
+    ctx.comments = (fallback['ticket.comments'] || []).map(c => c.value).slice(0, 30);
+  }
+  return ctx;
 }
 
 // --- tabs ---
@@ -79,8 +103,7 @@ async function loadBriefing() {
     const resp = await loraRequest('/api/integrations/zd/briefing/', ctx);
     const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
     document.getElementById('summary').textContent = data.summary || '';
-    const steps = (data.next_steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
-    document.getElementById('next-steps').innerHTML = steps ? `<strong>Next steps:</strong><ul>${steps}</ul>` : '';
+    document.getElementById('next-steps').innerHTML = ''; // generated on demand
     const f = data.facts || {};
     document.getElementById('facts').innerHTML = renderFacts(f);
     loading.hidden = true; content.hidden = false;
@@ -102,6 +125,24 @@ function renderFacts(f) {
 }
 
 document.getElementById('briefing-retry').onclick = loadBriefing;
+document.getElementById('btn-regen').onclick = loadBriefing;
+
+document.getElementById('btn-next-steps').onclick = async () => {
+  const target = document.getElementById('next-steps');
+  target.innerHTML = '<span class="muted">Thinking…</span>';
+  try {
+    const ctx = await ticketContext();
+    const resp = await loraRequest('/api/integrations/zd/briefing/',
+      Object.assign({}, ctx, { mode: 'next_steps' }));
+    const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
+    const steps = (data.next_steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
+    target.innerHTML = steps
+      ? `<strong>Next steps:</strong><ul>${steps}</ul>`
+      : '<span class="muted">No pending actions found.</span>';
+  } catch (e) {
+    target.innerHTML = '<span class="error">' + escapeHtml(diagnose(e)) + '</span>';
+  }
+};
 
 // --- chat ---
 const chatLog = document.getElementById('chat-log');
@@ -115,11 +156,8 @@ document.getElementById('chat-form').onsubmit = async (ev) => {
   history.push({ role: 'user', content: msg });
   try {
     const ctx = await ticketContext();
-    const resp = await loraRequest('/api/integrations/zd/chat/', {
-      ticket_id: ctx.ticket_id, message: msg, history: history,
-      subject: ctx.subject, description: ctx.description,
-      requester_email: ctx.requester_email, comments: ctx.comments,
-    });
+    const resp = await loraRequest('/api/integrations/zd/chat/',
+      Object.assign({}, ctx, { message: msg, history: history }));
     const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
     appendMsg('ai', data.answer || '(no answer)');
     history.push({ role: 'assistant', content: data.answer || '' });
