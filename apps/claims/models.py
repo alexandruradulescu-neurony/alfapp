@@ -271,7 +271,11 @@ class ClaimEvidence(models.Model):
         related_name='evidence',
     )
     image = models.ImageField(upload_to='evidence/')
-    description = models.CharField(max_length=255)
+    description = models.TextField(
+        blank=True,
+        default='',
+        help_text='Agent description of the evidence image'
+    )
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
