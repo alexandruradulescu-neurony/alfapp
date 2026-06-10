@@ -117,6 +117,8 @@ document.getElementById('chat-form').onsubmit = async (ev) => {
     const ctx = await ticketContext();
     const resp = await loraRequest('/api/integrations/zd/chat/', {
       ticket_id: ctx.ticket_id, message: msg, history: history,
+      subject: ctx.subject, description: ctx.description,
+      requester_email: ctx.requester_email, comments: ctx.comments,
     });
     const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
     appendMsg('ai', data.answer || '(no answer)');

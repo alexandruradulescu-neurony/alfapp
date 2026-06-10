@@ -137,3 +137,53 @@ def test_chat_no_claim_returns_friendly_message(api_client, settings_obj):
     )
     assert resp.status_code == 200
     assert 'no lora claim' in resp.data['answer'].lower()
+
+
+@pytest.mark.django_db
+def test_chat_no_claim_with_ticket_content_answers_from_ticket(api_client, settings_obj):
+    """An unlinked ticket should still get AI answers based on the ticket
+    content the app sends (subject/description/comments)."""
+    with patch('apps.ai.client.OpenAI') as MockOpenAI:
+        MockOpenAI.return_value.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=(
+                '{"answer": "The requester reports a lost black bag on UA123.", '
+                '"sources": ["zendesk"]}'
+            )))],
+        )
+        resp = api_client.post(
+            reverse('zendesk-sidebar-chat'),
+            data={
+                'ticket_id': '88888', 'message': 'what was lost?', 'history': [],
+                'subject': 'Lost item enquiry',
+                'description': 'I lost my black bag on UA123',
+                'comments': ['Airline says not located yet'],
+            },
+            format='json', HTTP_AUTHORIZATION=f'Bearer {SECRET}',
+        )
+    assert resp.status_code == 200
+    assert 'black bag' in resp.data['answer']
+    assert resp.data['sources'] == ['zendesk']
+
+
+@pytest.mark.django_db
+def test_chat_no_claim_tokenizes_ticket_pii_before_ai(api_client, settings_obj):
+    """Ticket content is untrusted: client PII must be tokenized before the
+    AI provider sees it, exactly like the briefing endpoint."""
+    with patch('apps.ai.client.OpenAI') as MockOpenAI:
+        MockOpenAI.return_value.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content='{"answer":"a","sources":[]}'))],
+        )
+        api_client.post(
+            reverse('zendesk-sidebar-chat'),
+            data={
+                'ticket_id': '88888', 'message': 'who is the contact?',
+                'subject': 'Lost item',
+                'description': 'Reach me at alice@example.com',
+                'comments': [],
+            },
+            format='json', HTTP_AUTHORIZATION=f'Bearer {SECRET}',
+        )
+        sent = MockOpenAI.return_value.chat.completions.create.call_args.kwargs['messages']
+        user_content = sent[1]['content']
+        assert 'alice@example.com' not in user_content
+        assert '<EMAIL_' in user_content

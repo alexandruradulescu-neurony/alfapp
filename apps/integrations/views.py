@@ -415,11 +415,21 @@ class ZendeskBriefingView(APIView):
 
 class ZendeskChatView(APIView):
     """POST /api/integrations/zd/chat/
-    Body: {ticket_id, message, history[]}
+    Body: {ticket_id, message, history[], subject?, description?, comments[]?}
     Returns: {answer, sources[]} — AI chat scoped to the ticket's claim.
+    If no claim is linked but the app sent ticket content, answers from the
+    ticket content alone (untrusted channel, PII-tokenized).
     Auth: ZendeskSidebarAuth (sidebar_secret_token)."""
 
     permission_classes = [AllowAny]
+
+    TICKET_ONLY_PROMPT = (
+        "You are assisting a lost-item recovery agent inside a Zendesk ticket. "
+        "No LORA claim is linked to this ticket, so answer the agent's question "
+        "using ONLY the ticket content provided. If the answer is not in the "
+        "ticket, say you don't see it there. Respond as JSON: "
+        '{"answer": "...", "sources": ["zendesk"]}.'
+    )
 
     def post(self, request):
         if not ZendeskSidebarAuth.authenticate(request):
@@ -446,11 +456,7 @@ class ZendeskChatView(APIView):
 
         claim = Claim.objects.filter(zd_ticket_id=ticket_id).first() if ticket_id else None
         if not claim:
-            return Response(
-                {'answer': 'No LORA claim is linked to this ticket yet, so I cannot answer '
-                           'claim-specific questions here.', 'sources': []},
-                status=status.HTTP_200_OK,
-            )
+            return self._ticket_only_chat(data, ticket_id, message, history)
 
         logger.info(f"Sidebar chat for ticket_id: {ticket_id}, claim: {claim.alf_claim_id}")
         result = AgentChatService().process_message(
@@ -459,6 +465,70 @@ class ZendeskChatView(APIView):
             conversation_history=history,
         )
         return Response({'answer': result.answer, 'sources': getattr(result, 'sources', [])},
+                        status=status.HTTP_200_OK)
+
+    def _ticket_only_chat(self, data, ticket_id, message, history):
+        """Chat for tickets with no linked claim: answer from the ticket content
+        the app sent. Ticket content is untrusted (external senders) and goes
+        through the same tokenize-and-fence path as everything else; the agent's
+        question is trusted, mirroring AgentChatService."""
+        subject = str(data.get('subject', ''))
+        description = str(data.get('description', ''))
+        comments = data.get('comments') or []
+        if not isinstance(comments, list):
+            comments = [str(comments)]
+        comments = [str(c)[:1000] for c in comments[:10]]
+
+        has_content = bool(subject.strip() or description.strip()
+                           or any(c.strip() for c in comments))
+        if not has_content:
+            return Response(
+                {'answer': 'No LORA claim is linked to this ticket yet, so I cannot answer '
+                           'claim-specific questions here.', 'sources': []},
+                status=status.HTTP_200_OK,
+            )
+
+        from apps.ai.client import AIClient
+        from apps.ai.schemas import ChatAnswer
+        from apps.ai.exceptions import AIResponseValidationError
+
+        trusted = {'agent_question': message}
+        if history:
+            history_parts = []
+            for msg in history[-10:]:
+                if not isinstance(msg, dict):
+                    continue
+                role = 'User' if msg.get('role') == 'user' else 'Assistant'
+                history_parts.append(f"{role}: {str(msg.get('content', ''))[:1000]}")
+            if history_parts:
+                trusted['conversation_history'] = "\n".join(history_parts)
+
+        untrusted = {'ticket_subject': subject[:200],
+                     'ticket_description': description[:2000]}
+        if comments:
+            untrusted['zendesk_comment'] = comments
+
+        try:
+            result = AIClient.complete(
+                system_prompt=self.TICKET_ONLY_PROMPT,
+                trusted=trusted,
+                untrusted=untrusted,
+                known_pii={'aliases': []},
+                response_schema=ChatAnswer,
+                call_site='zendesk_ticket_chat',
+                temperature=0.7,
+                max_tokens=1000,
+            )
+        except AIResponseValidationError as e:
+            logger.warning(f"Ticket-only chat AI validation failed for ticket {ticket_id}: {e}")
+            return Response(
+                {'answer': "I couldn't process that just now — please try again.",
+                 'sources': []},
+                status=status.HTTP_200_OK,
+            )
+
+        logger.info(f"Ticket-only sidebar chat for ticket_id: {ticket_id} (no linked claim)")
+        return Response({'answer': result.answer, 'sources': result.sources},
                         status=status.HTTP_200_OK)
 
 
