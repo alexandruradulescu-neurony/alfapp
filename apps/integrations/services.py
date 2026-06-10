@@ -978,6 +978,22 @@ def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, s
         }
 
 
+def build_claim_facts(claim) -> dict:
+    """Compact, panel-ready facts for the Zendesk sidebar Briefing tab.
+    Uses only LORA-side data the Zendesk ticket does not already have.
+    `disputes_total` is a count (no dependence on the Dispute status enum)."""
+    from apps.payments.models import Dispute
+
+    emails = claim.emails.all()
+    return {
+        'status': claim.get_status_display(),
+        'deadline': claim.deadline_date.isoformat() if claim.deadline_date else None,
+        'emails_total': emails.count(),
+        'emails_unresolved': emails.filter(action_required=True, auto_resolved=False).count(),
+        'disputes_total': Dispute.objects.filter(claim=claim).count(),
+    }
+
+
 def parse_alf_claim_id_from_subject(subject: str) -> Optional[str]:
     """
     Parse ALF claim ID from Zendesk ticket subject.

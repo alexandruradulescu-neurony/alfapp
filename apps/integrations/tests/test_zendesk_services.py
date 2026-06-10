@@ -1438,3 +1438,33 @@ class TestStructuredFieldComposition:
             'payment_method', 'payment_status', 'woocommerce_id', 'tracking_info',
         ):
             assert result[key] == '', f"{key} should default to empty string"
+
+
+# =============================================================================
+# Test build_claim_facts
+# =============================================================================
+
+
+@pytest.mark.django_db
+def test_build_claim_facts_returns_panel_facts():
+    from apps.integrations.services import build_claim_facts
+    from apps.claims.models import Claim
+    from apps.communications.models import EmailLog
+    from datetime import date
+
+    claim = Claim.objects.create(
+        alf_claim_id='ALF7000001', zd_ticket_id='70001',
+        client_email='c@example.com', status='Searching',
+        deadline_date=date(2026, 7, 1),
+    )
+    EmailLog.objects.create(claim=claim, subject='a', body='', category='UNKNOWN',
+                            action_required=True, auto_resolved=False)
+    EmailLog.objects.create(claim=claim, subject='b', body='', category='OBJECT_FOUND',
+                            action_required=False, auto_resolved=True)
+
+    facts = build_claim_facts(claim)
+    assert facts['status'] == 'Searching'
+    assert facts['deadline'] == '2026-07-01'
+    assert facts['emails_total'] == 2
+    assert facts['emails_unresolved'] == 1
+    assert facts['disputes_total'] == 0
