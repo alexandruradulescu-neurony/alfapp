@@ -1,0 +1,14 @@
+{
+  "name": "LORA Claim Assistant",
+  "author": { "name": "Airport Lost & Found", "email": "alexandru.radulescu@neurony.ro" },
+  "defaultLocale": "en",
+  "private": true,
+  "location": { "support": { "ticket_sidebar": "assets/iframe.html" } },
+  "version": "1.0.0",
+  "frameworkVersion": "2.0",
+  "parameters": [
+    { "name": "lora_base_url", "type": "text", "required": true,
+      "default": "https://lora.airportlostfound.com" },
+    { "name": "sidebar_secret_token", "type": "text", "required": true, "secure": true }
+  ]
+}
