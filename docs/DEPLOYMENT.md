@@ -191,6 +191,29 @@ Railway's managed Postgres takes daily backups automatically. Restore via dashbo
 
 ---
 
+## 11. Zendesk sidebar app
+
+The agent sidebar app (AI briefing + claim-scoped chat) lives in [`zendesk_app/`](../zendesk_app/) and **deploys separately** from this Django backend. The backend ships to Railway on `git push`; the app ships to Zendesk via `zcli`. They are independent — changing the app does not redeploy LORA, and vice versa.
+
+**One-time install** (needs a Zendesk plan that allows private apps — Support **Team** and up):
+```bash
+npm install -g @zendesk/zcli
+cd zendesk_app
+zcli login -i        # authenticate to your Zendesk subdomain
+zcli apps:create     # packages + uploads the private app
+```
+Then in Zendesk **Admin → Apps**, set the two settings: `lora_base_url` (`https://lora.airportlostfound.com`) and `sidebar_secret_token` (the same value as `SystemSettings.sidebar_secret_token` in LORA).
+
+**Updating after a code change** (the default — manual and deliberate):
+```bash
+cd zendesk_app && zcli apps:update
+```
+⚠️ `zcli apps:update` is **immediate for all agents** — there is no staging environment. Run it intentionally.
+
+**Optional automation (later):** a GitHub Actions workflow can run `zcli apps:update` on push using repo secrets (`ZENDESK_SUBDOMAIN`, `ZENDESK_EMAIL`, `ZENDESK_API_TOKEN`). Because updates hit every agent instantly, gate it behind a release tag (e.g. run only on `v*` tags), not on every commit to `main`. See [`zendesk_app/README.md`](../zendesk_app/README.md) for the full dev/install/update workflow.
+
+---
+
 ## Troubleshooting
 
 **Build fails on Playwright install**
