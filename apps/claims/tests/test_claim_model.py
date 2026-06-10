@@ -103,17 +103,23 @@ class TestClaimModel:
         """Multiple claims can have NULL alf_claim_id."""
         Claim.objects.create(
             alf_claim_id=None,
-            client_email='first@example.com',
+            client_email='nulltest-a@example.com',
         )
 
         # Should not raise - NULL values don't violate unique constraint
         Claim.objects.create(
             alf_claim_id=None,
-            client_email='second@example.com',
+            client_email='nulltest-b@example.com',
         )
 
-        # Verify both claims exist
-        assert Claim.objects.filter(alf_claim_id__isnull=True).count() == 2
+        # Verify both claims exist. Scope to the two we created (other fixtures
+        # in this suite may also create NULL-alf claims), so the assertion is
+        # isolation-safe.
+        ours = Claim.objects.filter(
+            alf_claim_id__isnull=True,
+            client_email__in=['nulltest-a@example.com', 'nulltest-b@example.com'],
+        )
+        assert ours.count() == 2
 
     def test_claim_alf_claim_id_blank_allowed(self):
         """Multiple claims can have empty string alf_claim_id."""
@@ -587,17 +593,22 @@ class TestClaimModelQueries:
     def test_claim_filter_by_llm_extraction_failed(self):
         """Can filter claims by LLM extraction failed flag."""
         Claim.objects.create(
-            client_email='first@example.com',
+            client_email='llmfail-yes@example.com',
             llm_extraction_failed=True,
         )
         Claim.objects.create(
-            client_email='second@example.com',
+            client_email='llmfail-no@example.com',
             llm_extraction_failed=False,
         )
 
-        failed_claims = Claim.objects.filter(llm_extraction_failed=True)
+        # Scope to the two claims we created so other fixtures' claims (which may
+        # also set llm_extraction_failed=True) don't break the count.
+        ours = Claim.objects.filter(
+            client_email__in=['llmfail-yes@example.com', 'llmfail-no@example.com'],
+        )
+        failed_claims = ours.filter(llm_extraction_failed=True)
         assert failed_claims.count() == 1
-        assert failed_claims.first().client_email == 'first@example.com'
+        assert failed_claims.first().client_email == 'llmfail-yes@example.com'
 
     def test_claim_get_or_create_with_alf_claim_id(self):
         """get_or_create works with ALF claim ID."""

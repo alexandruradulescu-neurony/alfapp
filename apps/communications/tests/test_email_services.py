@@ -598,10 +598,12 @@ class TestProcessSingleEmail:
         mock_extract_alias.return_value = "client-123@mydomain.com"
         mock_extract_body.return_value = "Email body"
 
-        mock_call_ai.return_value = {"raw_response": '{"summary": "Test"}'}
-        mock_parse_ai.return_value = {
+        # call_qwen_ai now returns structured fields directly (post-AIClient
+        # migration). process_single_email reads category/auto_resolvable from
+        # this dict, not from parse_ai_response.
+        mock_call_ai.return_value = {
             "summary": "Test",
-            "category": "SUBMISSION_CONFIRMATION",
+            "category": "SUBMISSION_CONFIRMATION",  # an AUTO_RESOLVABLE_CATEGORY
             "action_required": False,
             "auto_resolvable": True,
         }
