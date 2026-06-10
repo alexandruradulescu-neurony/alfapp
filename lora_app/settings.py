@@ -156,9 +156,13 @@ STORAGES = {
     },
 }
 
-# Media files (uploads)
-MEDIA_URL = 'media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+# Media files (user uploads, e.g. claim evidence images)
+# Leading slash so {{ image.url }} produces a root-relative URL that works on
+# nested pages (claim detail, etc.), not one relative to the current path.
+MEDIA_URL = '/media/'
+# MEDIA_ROOT is env-driven so a persistent disk (e.g. a Railway Volume) can be
+# mounted at a different path in production. Defaults to <project>/media for dev.
+MEDIA_ROOT = env('MEDIA_ROOT', default=str(BASE_DIR / 'media'))
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

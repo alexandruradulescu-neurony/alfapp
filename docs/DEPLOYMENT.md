@@ -58,6 +58,7 @@ In Railway → your web service → **Variables** tab, add each of these. (Don't
 | `DEBUG` | `False` | Must be `False` in production |
 | `ALLOWED_HOSTS` | `lora.yourcompany.com` | Comma-separated; add the Railway-provided URL too while testing |
 | `CSRF_TRUSTED_ORIGINS` | `https://lora.yourcompany.com` | Comma-separated; MUST include your real domain (with `https://`) or login/forms get a 403. Add the Railway `*.up.railway.app` URL too while testing. |
+| `MEDIA_ROOT` | `/app/media` | Set this to the mount path of a Railway Volume so uploaded evidence images persist across redeploys (see "Persistent media" below). |
 | `AI_API_BASE` | `https://api.deepseek.com/v1` | Or your chosen provider |
 | `AI_API_KEY` | (your DeepSeek/Qwen API key) | Treat as a secret |
 | `AI_API_MODEL` | `deepseek-chat` | Or your chosen model |
@@ -135,6 +136,20 @@ The IMAP poller runs in-process every 3 minutes. To confirm it's running:
 4. The scheduler can be paused/started from Manager → Configuration → Scheduler Control.
 
 **Important:** if you ever scale Railway to more than 1 replica, the scheduler will run multiple times per tick and you'll fetch each email N times. Don't scale up without moving the scheduler to a dedicated worker process.
+
+---
+
+## 7b. Persistent media (uploaded evidence images)
+
+Railway's container disk is **ephemeral** — files written by the app are wiped on every redeploy. Uploaded claim-evidence images must live on a **Railway Volume** (a persistent disk) or they'll vanish.
+
+1. Railway → your **app** service → **Settings** → **Volumes** → **+ New Volume**.
+2. Set the **mount path** to `/app/media`.
+3. Add the env var `MEDIA_ROOT=/app/media` (matches the mount path). Save → redeploy.
+
+The app serves media through a **login-protected** route in production (`lora_app/urls.py`), so evidence images are only viewable by authenticated staff — `django.views.static.serve` wrapped in `login_required`. This is adequate for an internal, low-traffic tool.
+
+**Scale-up path (later):** for high traffic or multi-replica, move media to object storage (Cloudflare R2 or AWS S3) via `django-storages`. A Volume binds you to a single replica (same constraint as the scheduler above), which is fine at current scale.
 
 ---
 
