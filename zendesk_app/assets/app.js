@@ -106,6 +106,7 @@ async function loadBriefing() {
     document.getElementById('next-steps').innerHTML = ''; // generated on demand
     const f = data.facts || {};
     document.getElementById('facts').innerHTML = renderFacts(f);
+    document.getElementById('attention').innerHTML = renderAttention(data.attention || []);
     loading.hidden = true; content.hidden = false;
   } catch (e) {
     loading.hidden = true; errorEl.hidden = false;
@@ -128,7 +129,15 @@ function renderFacts(f) {
   let html = `<div class="row">${bits.join(' ')}</div>`;
   if (f.emails_total != null) html += `<div class="row">✉️ ${f.emails_total} emails · <b>${f.emails_unresolved || 0} need action</b></div>`;
   if (f.disputes_total != null) html += `<div class="row">💳 ${f.disputes_total} disputes</div>`;
+  if (f.next_update_due) html += `<div class="row">🗓 Day-${f.next_update_due.day} client update due <b>${escapeHtml(f.next_update_due.date)}</b></div>`;
   return html;
+}
+
+function renderAttention(items) {
+  if (!items.length) return '';
+  const rows = items.map(a =>
+    `<li><span class="muted">${escapeHtml(a.date)}</span> — ${escapeHtml(a.subject)}</li>`).join('');
+  return `<div class="attention"><strong>⚠️ Needs attention</strong><ul>${rows}</ul></div>`;
 }
 
 document.getElementById('briefing-retry').onclick = loadBriefing;
@@ -154,6 +163,37 @@ document.getElementById('btn-next-steps').onclick = async () => {
     btn.disabled = false;
   }
 };
+
+// --- email drafts ---
+function nl2brEscaped(text) {
+  return escapeHtml(text).replace(/\n/g, '<br>');
+}
+
+async function draftEmail(draftType, btn) {
+  const statusEl = document.getElementById('draft-status');
+  btn.disabled = true;
+  statusEl.textContent = 'Writing draft…';
+  try {
+    const ctx = await ticketContext();
+    const resp = await loraRequest('/api/integrations/zd/draft/',
+      Object.assign({}, ctx, { draft_type: draftType }));
+    const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
+    if (data.body) {
+      // Insert into the ticket's reply composer — the agent reviews and sends.
+      await client.invoke('ticket.editor.insert', nl2brEscaped(data.body));
+      statusEl.textContent = '✓ Draft inserted in the reply box — review and edit before sending.';
+    } else {
+      statusEl.textContent = 'Draft unavailable right now — try again.';
+    }
+  } catch (e) {
+    statusEl.textContent = diagnose(e);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('btn-draft-client').onclick = (e) => draftEmail('client_update', e.target);
+document.getElementById('btn-draft-inst').onclick = (e) => draftEmail('institution_reply', e.target);
 
 // --- chat ---
 const chatLog = document.getElementById('chat-log');

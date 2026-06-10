@@ -26,6 +26,11 @@ body { font: 13px/1.5 -apple-system, system-ui, "Segoe UI", sans-serif; color: #
 .muted { color: #68737d; }
 .error { color: #b81a1a; }
 
+.attention { margin-top: 12px; background: #fff8f0; border: 1px solid #f5d7a1; border-radius: 6px; padding: 8px 10px; }
+.attention ul { margin: 6px 0 0; padding-left: 16px; }
+.attention li { margin: 3px 0; }
+#draft-status { margin-top: 6px; font-size: 12px; min-height: 16px; }
+
 .actions { margin-top: 12px; display: flex; gap: 6px; }
 .actions button { background: #fff; border: 1px solid #1f73b7; color: #1f73b7; border-radius: 4px; padding: 5px 12px; cursor: pointer; font-weight: 600; font-size: 12px; transition: background .15s; }
 .actions button:hover { background: #f0f7ff; }
