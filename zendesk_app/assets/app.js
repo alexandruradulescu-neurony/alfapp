@@ -1,5 +1,20 @@
 const client = ZAFClient.init();
 let history = [];
+let devTokenUsed = null; // true = zcli local token sent; false = secure-setting path
+
+function diagnose(e) {
+  const s = e && typeof e.status === 'number' ? e.status : null;
+  const mode = devTokenUsed === null ? '' : devTokenUsed ? ' [dev token sent]' : ' [secure mode]';
+  if (s === 401 || s === 403) {
+    return 'LORA refused the secret (HTTP ' + s + ').' + mode +
+      ' Check that sidebar_secret_token in LORA Admin → System Settings matches the app setting exactly.';
+  }
+  if (s === 429) return 'Too many failed attempts — LORA blocked this caller for ~5 minutes. Fix the secret, wait, then retry.';
+  if (s === 404) return 'LORA endpoint not found (HTTP 404) — check lora_base_url.';
+  if (s !== null && s >= 500) return 'LORA had an internal error (HTTP ' + s + ').';
+  if (s !== null) return 'Unexpected response from LORA (HTTP ' + s + ').' + mode;
+  return 'Could not reach LORA at all — network or proxy issue.' + mode;
+}
 
 client.invoke('resize', { width: '100%', height: '520px' });
 
@@ -16,10 +31,12 @@ async function loraRequest(path, body) {
     // zcli local server: no secure-settings support, so the value typed at the
     // zcli prompt is exposed here — send it directly. Installed apps never
     // expose secure settings to the browser, so this branch is dev-only.
+    devTokenUsed = true;
     opts.headers = { Authorization: 'Bearer ' + settings.sidebar_secret_token };
   } else {
     // Installed app: Zendesk's proxy substitutes the secure setting server-side.
     // Requires secure:true and the domain in manifest.json domainWhitelist.
+    devTokenUsed = false;
     opts.headers = { Authorization: 'Bearer {{setting.sidebar_secret_token}}' };
     opts.secure = true;
   }
@@ -69,6 +86,7 @@ async function loadBriefing() {
     loading.hidden = true; content.hidden = false;
   } catch (e) {
     loading.hidden = true; errorEl.hidden = false;
+    document.getElementById('briefing-error-detail').textContent = diagnose(e);
   }
 }
 
@@ -104,7 +122,7 @@ document.getElementById('chat-form').onsubmit = async (ev) => {
     appendMsg('ai', data.answer || '(no answer)');
     history.push({ role: 'assistant', content: data.answer || '' });
   } catch (e) {
-    appendMsg('ai', 'Sorry — something went wrong reaching LORA.');
+    appendMsg('ai', 'Sorry — something went wrong reaching LORA. ' + diagnose(e));
   }
 };
 
