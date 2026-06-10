@@ -19,15 +19,14 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Zendesk custom field IDs (populated by the marketing site for every new
-# ticket).  Only ZENDESK_FIELD_ALIAS_EMAIL is currently documented in the
-# README; the others need to be confirmed with the project owner or read from
-# Zendesk admin.  When a field ID is None, the extractor falls back to LLM
-# extraction for that field.
+# ticket).  Confirmed against the live Zendesk field list on 2026-06-10.
+# When a field ID is None, the extractor falls back to LLM extraction for
+# that field.
 # ---------------------------------------------------------------------------
-ZENDESK_FIELD_ALIAS_EMAIL: int = 13606076120860  # the per-case alias address
-ZENDESK_FIELD_CLIENT_EMAIL: int | None = None    # confirm with project owner
-ZENDESK_FIELD_PHONE: int | None = None           # confirm with project owner
-ZENDESK_FIELD_FLIGHT: int | None = None          # confirm with project owner
+ZENDESK_FIELD_ALIAS_EMAIL: int = 13606076120860   # "Email used for submissions" (our per-case alias)
+ZENDESK_FIELD_CLIENT_EMAIL: int = 13737499349020  # "Customer Email" (the client's real email)
+ZENDESK_FIELD_PHONE: int = 11761070082844         # "Phone Number"
+ZENDESK_FIELD_FLIGHT: int = 13737630819996        # "Flight Number"
 
 
 def _get_zendesk_auth_headers() -> Dict[str, str]:
