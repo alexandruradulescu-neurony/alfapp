@@ -117,10 +117,17 @@ function renderFacts(f) {
   if (!f || !Object.keys(f).length) return '<span class="muted">No linked LORA claim.</span>';
   const bits = [];
   if (f.status) bits.push(`<span class="pill">${escapeHtml(f.status)}</span>`);
-  if (f.deadline) bits.push(`<span class="pill">Deadline ${escapeHtml(f.deadline)}</span>`);
-  let html = `<div>${bits.join(' ')}</div>`;
-  if (f.emails_total != null) html += `<div>✉️ ${f.emails_total} emails · <b>${f.emails_unresolved || 0} need action</b></div>`;
-  if (f.disputes_total != null) html += `<div>💳 ${f.disputes_total} disputes</div>`;
+  if (f.deadline) {
+    const days = Math.ceil((new Date(f.deadline) - new Date()) / 86400000);
+    let cls = 'pill';
+    let label = 'Deadline ' + f.deadline;
+    if (days < 0) { cls += ' overdue'; label += ' (passed)'; }
+    else if (days <= 7) { cls += ' due-soon'; label += ` (${days}d left)`; }
+    bits.push(`<span class="${cls}">${escapeHtml(label)}</span>`);
+  }
+  let html = `<div class="row">${bits.join(' ')}</div>`;
+  if (f.emails_total != null) html += `<div class="row">✉️ ${f.emails_total} emails · <b>${f.emails_unresolved || 0} need action</b></div>`;
+  if (f.disputes_total != null) html += `<div class="row">💳 ${f.disputes_total} disputes</div>`;
   return html;
 }
 
@@ -128,8 +135,10 @@ document.getElementById('briefing-retry').onclick = loadBriefing;
 document.getElementById('btn-regen').onclick = loadBriefing;
 
 document.getElementById('btn-next-steps').onclick = async () => {
+  const btn = document.getElementById('btn-next-steps');
   const target = document.getElementById('next-steps');
-  target.innerHTML = '<span class="muted">Thinking…</span>';
+  btn.disabled = true;
+  target.innerHTML = '<div class="skel" style="width: 70%"></div><div class="skel" style="width: 58%"></div>';
   try {
     const ctx = await ticketContext();
     const resp = await loraRequest('/api/integrations/zd/briefing/',
@@ -141,6 +150,8 @@ document.getElementById('btn-next-steps').onclick = async () => {
       : '<span class="muted">No pending actions found.</span>';
   } catch (e) {
     target.innerHTML = '<span class="error">' + escapeHtml(diagnose(e)) + '</span>';
+  } finally {
+    btn.disabled = false;
   }
 };
 
@@ -154,6 +165,10 @@ document.getElementById('chat-form').onsubmit = async (ev) => {
   appendMsg('user', msg);
   input.value = '';
   history.push({ role: 'user', content: msg });
+  const typing = document.getElementById('typing');
+  const sendBtn = ev.target.querySelector('button');
+  typing.hidden = false;
+  sendBtn.disabled = true;
   try {
     const ctx = await ticketContext();
     const resp = await loraRequest('/api/integrations/zd/chat/',
@@ -163,6 +178,10 @@ document.getElementById('chat-form').onsubmit = async (ev) => {
     history.push({ role: 'assistant', content: data.answer || '' });
   } catch (e) {
     appendMsg('ai', 'Sorry — something went wrong reaching LORA. ' + diagnose(e));
+  } finally {
+    typing.hidden = true;
+    sendBtn.disabled = false;
+    input.focus();
   }
 };
 

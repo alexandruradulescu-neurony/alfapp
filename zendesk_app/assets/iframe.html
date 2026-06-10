@@ -12,7 +12,11 @@
   </div>
 
   <section id="panel-briefing" class="panel">
-    <div id="briefing-loading" class="muted">Loading briefing…</div>
+    <div id="briefing-loading">
+      <div class="skel" style="width: 92%"></div>
+      <div class="skel" style="width: 74%"></div>
+      <div class="skel" style="width: 84%"></div>
+    </div>
     <div id="briefing-content" hidden>
       <div id="summary" class="summary"></div>
       <div id="next-steps"></div>
@@ -30,6 +34,7 @@
 
   <section id="panel-chat" class="panel" hidden>
     <div id="chat-log"></div>
+    <div id="typing" hidden>LORA is thinking<span class="dots"></span></div>
     <form id="chat-form">
       <input id="chat-input" type="text" placeholder="Ask about this claim…" autocomplete="off">
       <button type="submit">→</button>
