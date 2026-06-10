@@ -93,3 +93,35 @@ def test_dispute_letter_caps_subject_length():
             "subject": "x" * 201,
             "body": "ok",
         })
+
+
+# ---- BriefingSummary ----
+
+from apps.ai.schemas import BriefingSummary
+
+
+def test_briefing_summary_accepts_valid_payload():
+    obj = BriefingSummary.model_validate({
+        "summary": "Bag lost on UA123; searching 9 days.",
+        "next_steps": ["Chase airport", "Send 11-day update"],
+    })
+    assert obj.summary.startswith("Bag lost")
+    assert len(obj.next_steps) == 2
+
+
+def test_briefing_summary_next_steps_defaults_empty():
+    obj = BriefingSummary.model_validate({"summary": "All quiet."})
+    assert obj.next_steps == []
+
+
+def test_briefing_summary_rejects_too_long_summary():
+    with pytest.raises(ValidationError):
+        BriefingSummary.model_validate({"summary": "x" * 601})
+
+
+def test_briefing_summary_caps_next_steps_count():
+    with pytest.raises(ValidationError):
+        BriefingSummary.model_validate({
+            "summary": "ok",
+            "next_steps": [f"step {i}" for i in range(7)],
+        })

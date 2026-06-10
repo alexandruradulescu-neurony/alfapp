@@ -49,3 +49,13 @@ class DisputeLetter(BaseModel):
 
     subject: str = Field(max_length=200)
     body: str = Field(max_length=5000)
+
+
+class BriefingSummary(BaseModel):
+    """Schema for the Zendesk sidebar briefing (POST /zd/briefing/).
+    The LLM produces a short summary + a few suggested next steps. The
+    structured `facts` block is assembled by the view, not the LLM, so it is
+    not part of this schema."""
+
+    summary: str = Field(max_length=600)
+    next_steps: list[str] = Field(default_factory=list, max_length=6)
