@@ -356,6 +356,14 @@ def agent_upload_evidence(request, claim_id):
                         f'Invalid file extension. Allowed extensions: {", ".join(allowed_extensions)}.'
                     )
                 else:
+                    # Allowed image MIME types — used by BOTH the python-magic
+                    # pass (when available) and the filetype secondary check
+                    # below. Defined here, outside the HAS_LIBMAGIC branch, so it
+                    # is always set even when libmagic is not installed (otherwise
+                    # the filetype check raises UnboundLocalError and every upload
+                    # fails on hosts without libmagic).
+                    allowed_mime_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+
                     # Validate using python-magic for accurate MIME type detection (if available)
                     if HAS_LIBMAGIC and magic:
                         # Read first 1024 bytes for magic number detection
@@ -369,7 +377,6 @@ def agent_upload_evidence(request, claim_id):
                             messages.error(request, 'Could not validate file content. Please try again.')
                             return redirect('agent_claim_detail', claim_id=claim_id)
 
-                        allowed_mime_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
                         if mime not in allowed_mime_types:
                             messages.error(request, f'Invalid file type. Detected: {mime}')
                             return redirect('agent_claim_detail', claim_id=claim_id)
