@@ -66,3 +66,10 @@ class NextSteps(BaseModel):
     (POST /zd/briefing/ with mode='next_steps')."""
 
     next_steps: list[str] = Field(max_length=6)
+
+
+class EmailDraft(BaseModel):
+    """Schema for the Zendesk sidebar draft endpoint (POST /zd/draft/).
+    Body only — the draft is inserted into the ticket's existing reply box."""
+
+    body: str = Field(max_length=4000)

@@ -147,3 +147,25 @@ def test_next_steps_requires_field():
     from apps.ai.schemas import NextSteps
     with pytest.raises(ValidationError):
         NextSteps.model_validate({})
+
+
+def test_email_draft_accepts_valid_payload():
+    from apps.ai.schemas import EmailDraft
+    obj = EmailDraft.model_validate({"body": "Dear client, your wallet was found."})
+    assert obj.body.startswith("Dear client")
+
+
+def test_email_draft_rejects_too_long_body():
+    import pytest
+    from pydantic import ValidationError
+    from apps.ai.schemas import EmailDraft
+    with pytest.raises(ValidationError):
+        EmailDraft.model_validate({"body": "x" * 4001})
+
+
+def test_email_draft_requires_body():
+    import pytest
+    from pydantic import ValidationError
+    from apps.ai.schemas import EmailDraft
+    with pytest.raises(ValidationError):
+        EmailDraft.model_validate({})

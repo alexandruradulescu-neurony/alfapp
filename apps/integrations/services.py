@@ -978,19 +978,37 @@ def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, s
         }
 
 
+CLIENT_UPDATE_CADENCE_DAYS = (2, 5, 11, 20)
+
+
 def build_claim_facts(claim) -> dict:
     """Compact, panel-ready facts for the Zendesk sidebar Briefing tab.
     Uses only LORA-side data the Zendesk ticket does not already have.
-    `disputes_total` is a count (no dependence on the Dispute status enum)."""
+    `disputes_total` is a count (no dependence on the Dispute status enum).
+    `next_update_due` is the next client-update milestone (day 2/5/11/20 after
+    claim creation) that hasn't passed yet, or None once all have."""
+    from datetime import timedelta
+    from django.utils import timezone
     from apps.payments.models import Dispute
 
     emails = claim.emails.all()
+
+    next_update_due = None
+    base = timezone.localtime(claim.created_at).date()
+    today = timezone.localdate()
+    for day in CLIENT_UPDATE_CADENCE_DAYS:
+        due = base + timedelta(days=day)
+        if due >= today:
+            next_update_due = {'day': day, 'date': due.isoformat()}
+            break
+
     return {
         'status': claim.get_status_display(),
         'deadline': claim.deadline_date.isoformat() if claim.deadline_date else None,
         'emails_total': emails.count(),
         'emails_unresolved': emails.filter(action_required=True, auto_resolved=False).count(),
         'disputes_total': Dispute.objects.filter(claim=claim).count(),
+        'next_update_due': next_update_due,
     }
 
 

@@ -270,3 +270,103 @@ def test_chat_no_claim_tokenizes_client_name(api_client, settings_obj):
         user_content = sent[1]['content']
         assert 'Alice Wonder' not in user_content
         assert '<NAME_' in user_content
+
+
+# --- draft endpoint ---
+
+@pytest.mark.django_db
+def test_draft_requires_auth(api_client, settings_obj):
+    resp = api_client.post(reverse('zendesk-sidebar-draft'),
+                           data={'ticket_id': '70001', 'draft_type': 'client_update'},
+                           format='json')
+    assert resp.status_code in (401, 403)
+
+
+@pytest.mark.django_db
+def test_draft_rejects_unknown_type(api_client, settings_obj):
+    resp = api_client.post(
+        reverse('zendesk-sidebar-draft'),
+        data={**_briefing_body(), 'draft_type': 'love_letter'}, format='json',
+        HTTP_AUTHORIZATION=f'Bearer {SECRET}',
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_draft_client_update_returns_body(api_client, settings_obj):
+    with patch('apps.ai.client.OpenAI') as MockOpenAI:
+        MockOpenAI.return_value.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=(
+                '{"body": "Dear client, good news: your wallet was located and is being shipped."}'
+            )))],
+        )
+        resp = api_client.post(
+            reverse('zendesk-sidebar-draft'),
+            data={**_briefing_body(), 'draft_type': 'client_update'}, format='json',
+            HTTP_AUTHORIZATION=f'Bearer {SECRET}',
+        )
+    assert resp.status_code == 200
+    assert 'Dear client' in resp.data['body']
+
+
+@pytest.mark.django_db
+def test_draft_institution_reply_returns_body(api_client, settings_obj):
+    with patch('apps.ai.client.OpenAI') as MockOpenAI:
+        MockOpenAI.return_value.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=(
+                '{"body": "Hello, following up on item 526-3047 — any update on the shipment?"}'
+            )))],
+        )
+        resp = api_client.post(
+            reverse('zendesk-sidebar-draft'),
+            data={**_briefing_body(), 'draft_type': 'institution_reply'}, format='json',
+            HTTP_AUTHORIZATION=f'Bearer {SECRET}',
+        )
+    assert resp.status_code == 200
+    assert '526-3047' in resp.data['body']
+
+
+@pytest.mark.django_db
+def test_draft_tokenizes_pii_before_ai(api_client, settings_obj):
+    with patch('apps.ai.client.OpenAI') as MockOpenAI:
+        MockOpenAI.return_value.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content='{"body":"b"}'))],
+        )
+        body = _briefing_body()
+        body['draft_type'] = 'client_update'
+        body['requester_name'] = 'Alice Wonder'
+        body['description'] = 'Alice Wonder can be reached at alice@example.com'
+        api_client.post(reverse('zendesk-sidebar-draft'), data=body, format='json',
+                        HTTP_AUTHORIZATION=f'Bearer {SECRET}')
+        sent = MockOpenAI.return_value.chat.completions.create.call_args.kwargs['messages']
+        user_content = sent[1]['content']
+        assert 'alice@example.com' not in user_content
+        assert 'Alice Wonder' not in user_content
+
+
+# --- needs-attention block ---
+
+@pytest.mark.django_db
+def test_briefing_returns_attention_list(api_client, settings_obj):
+    from apps.communications.models import EmailLog
+    claim = Claim.objects.create(alf_claim_id='ALF7000001', zd_ticket_id='70001',
+                                 client_email='c@example.com', status='Searching')
+    EmailLog.objects.create(claim=claim, subject='Airport needs more details',
+                            body='', category='UNKNOWN',
+                            action_required=True, auto_resolved=False)
+    EmailLog.objects.create(claim=claim, subject='Auto ack', body='',
+                            category='SUBMISSION_CONFIRMATION',
+                            action_required=False, auto_resolved=True)
+
+    with patch('apps.ai.client.OpenAI') as MockOpenAI:
+        MockOpenAI.return_value.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content='{"summary":"s","next_steps":[]}'))],
+        )
+        resp = api_client.post(
+            reverse('zendesk-sidebar-briefing'), data=_briefing_body(), format='json',
+            HTTP_AUTHORIZATION=f'Bearer {SECRET}',
+        )
+    assert resp.status_code == 200
+    assert len(resp.data['attention']) == 1
+    assert resp.data['attention'][0]['subject'] == 'Airport needs more details'
+    assert 'date' in resp.data['attention'][0]

@@ -1499,3 +1499,20 @@ def test_build_ticket_thread_empty_input():
     assert untrusted['ticket_subject'] == ''
     assert 'zendesk_comment' not in untrusted
     assert 'ticket_created_at' not in untrusted
+
+
+@pytest.mark.django_db
+def test_build_claim_facts_includes_next_update_due():
+    """Client-update cadence: days 2/5/11/20 after claim creation; the facts
+    carry the next milestone that is not yet past."""
+    from apps.integrations.services import build_claim_facts
+    from apps.claims.models import Claim
+
+    claim = Claim.objects.create(
+        alf_claim_id='ALF7000002', zd_ticket_id='70002',
+        client_email='c2@example.com', status='Searching',
+    )
+    facts = build_claim_facts(claim)
+    # claim created just now -> day-2 update is the next one due
+    assert facts['next_update_due']['day'] == 2
+    assert 'date' in facts['next_update_due']

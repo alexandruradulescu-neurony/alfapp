@@ -408,6 +408,17 @@ class ZendeskBriefingView(APIView):
         claim = Claim.objects.filter(zd_ticket_id=ticket_id).first() if ticket_id else None
         facts = build_claim_facts(claim) if claim else {}
 
+        # "Needs attention": unresolved institution emails, for panel display
+        # only — external subjects stay OUT of the trusted AI channel.
+        attention = []
+        if claim:
+            from django.utils import timezone
+            unresolved = (claim.emails.filter(action_required=True, auto_resolved=False)
+                          .order_by('-received_at')[:5])
+            attention = [{'date': timezone.localtime(e.received_at).date().isoformat(),
+                          'subject': e.subject[:90], 'category': e.category}
+                         for e in unresolved]
+
         trusted = {'claim_facts': str(facts)} if facts else None
         untrusted = build_ticket_thread(data)
 
@@ -438,16 +449,108 @@ class ZendeskBriefingView(APIView):
                 return Response({'next_steps': []}, status=status.HTTP_200_OK)
             return Response(
                 {'summary': 'Briefing unavailable right now. Please use the Chat tab or retry.',
-                 'next_steps': [], 'facts': facts},
+                 'next_steps': [], 'facts': facts, 'attention': attention},
                 status=status.HTTP_200_OK,
             )
 
         if mode == 'next_steps':
             return Response({'next_steps': result.next_steps}, status=status.HTTP_200_OK)
         return Response(
-            {'summary': result.summary, 'next_steps': result.next_steps, 'facts': facts},
+            {'summary': result.summary, 'next_steps': result.next_steps,
+             'facts': facts, 'attention': attention},
             status=status.HTTP_200_OK,
         )
+
+
+class ZendeskDraftView(APIView):
+    """POST /api/integrations/zd/draft/
+    Body: same ticket context as the briefing + draft_type
+          ('client_update' | 'institution_reply')
+    Returns: {body} — an email draft the agent reviews in the composer.
+    Auth: ZendeskSidebarAuth (sidebar_secret_token)."""
+
+    permission_classes = [AllowAny]
+
+    PROMPTS = {
+        'client_update': ALF_BUSINESS_CONTEXT + (
+            "Draft the next email FROM ALF TO THE CLIENT for this case. Mirror "
+            "the greeting, tone and sign-off style of previous ALF emails in the "
+            "thread. Lead with the current status in plain words; if the item is "
+            "found, cover the retrieval logistics and what the client must do "
+            "next; if still searching, say what ALF has done since the last "
+            "update and what happens next. Warm and concise (under 180 words). "
+            "Use ONLY facts from the provided content; keep placeholders "
+            "verbatim. No subject line. "
+            'Respond as JSON: {"body": "..."}.'
+        ),
+        'institution_reply': ALF_BUSINESS_CONTEXT + (
+            "Draft a reply FROM ALF TO THE INSTITUTION (airport / airline / "
+            "lost-and-found office) whose email appears most recently in the "
+            "thread. Reference the case identifiers present in the content "
+            "(item number, flight, dates, item description) and ask precisely "
+            "for what is needed to move the case forward (search status, "
+            "retrieval arrangement, shipping). Professional and brief. Use ONLY "
+            "facts from the provided content; keep placeholders verbatim. No "
+            "subject line. "
+            'Respond as JSON: {"body": "..."}.'
+        ),
+    }
+
+    def post(self, request):
+        if not ZendeskSidebarAuth.authenticate(request):
+            ip = request.META.get('REMOTE_ADDR', '')
+            cache_key = f'sidebar_auth_fail_{ip}'
+            failed_attempts = cache.get(cache_key, 0)
+            cache.set(cache_key, failed_attempts + 1, 300)
+            logger.warning(f"Failed draft auth attempt, IP: {ip}, attempt: {failed_attempts + 1}")
+            if failed_attempts >= 5:
+                return Response({'error': 'Too many failed attempts. Please try again later.'},
+                                status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+
+        from apps.ai.client import AIClient
+        from apps.ai.schemas import EmailDraft
+        from apps.ai.exceptions import AIResponseValidationError
+        from apps.claims.models import Claim
+        from apps.integrations.services import build_claim_facts, build_ticket_thread
+
+        data = request.data
+        ticket_id = str(data.get('ticket_id', '')).strip()
+        draft_type = str(data.get('draft_type', '')).strip()
+        if draft_type not in self.PROMPTS:
+            return Response(
+                {'error': "draft_type must be 'client_update' or 'institution_reply'"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        logger.info(f"Draft request for ticket_id: {ticket_id or 'N/A'} (type={draft_type})")
+
+        claim = Claim.objects.filter(zd_ticket_id=ticket_id).first() if ticket_id else None
+        facts = build_claim_facts(claim) if claim else {}
+
+        trusted = {'claim_facts': str(facts)} if facts else None
+        untrusted = build_ticket_thread(data)
+
+        known_names = [str(data.get('requester_name', '')).strip()]
+        if claim and getattr(claim, 'client_name', ''):
+            known_names.append(claim.client_name)
+        known_pii = {'aliases': [], 'names': [n for n in known_names if n]}
+
+        try:
+            result = AIClient.complete(
+                system_prompt=self.PROMPTS[draft_type],
+                trusted=trusted,
+                untrusted=untrusted,
+                known_pii=known_pii,
+                response_schema=EmailDraft,
+                call_site='zendesk_draft',
+                temperature=0.5,
+                max_tokens=1200,
+            )
+        except AIResponseValidationError as e:
+            logger.warning(f"Draft AI validation failed for ticket {ticket_id} ({draft_type}): {e}")
+            return Response({'body': ''}, status=status.HTTP_200_OK)
+
+        return Response({'body': result.body}, status=status.HTTP_200_OK)
 
 
 class ZendeskChatView(APIView):
@@ -463,8 +566,11 @@ class ZendeskChatView(APIView):
     TICKET_ONLY_PROMPT = ALF_BUSINESS_CONTEXT + (
         "No LORA claim is linked to this ticket. Answer the ALF agent's question "
         "using ONLY the ticket content provided. Be specific — quote dates, item "
-        "numbers and locations when present. If the answer is not in the ticket "
-        "content, say you don't see it in the ticket. "
+        "numbers and locations when present. If the agent asks for a translation "
+        "of any email or comment in the content, translate it faithfully and "
+        "completely into the requested language (English unless stated "
+        "otherwise). If the answer is not in the ticket content, say you don't "
+        "see it in the ticket. "
         'Respond as JSON: {"answer": "...", "sources": ["zendesk"]}.'
     )
 
