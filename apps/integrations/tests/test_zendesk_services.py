@@ -1468,3 +1468,34 @@ def test_build_claim_facts_returns_panel_facts():
     assert facts['emails_total'] == 2
     assert facts['emails_unresolved'] == 1
     assert facts['disputes_total'] == 0
+
+
+def test_build_ticket_thread_formats_dated_comments():
+    from apps.integrations.services import build_ticket_thread
+    data = {
+        'subject': 'Lost wallet',
+        'description': 'Left at TSA',
+        'ticket_created_at': '2026-05-16T20:59:00Z',
+        'comments': [
+            {'author': 'Mark Johnson', 'created_at': '2026-05-16T20:59:00Z',
+             'public': False, 'text': 'New abandoned cart created'},
+            {'author': 'Gaby Smith', 'created_at': '2026-05-17T20:36:00Z',
+             'public': True, 'text': 'We found your wallet'},
+            'plain string comment',
+        ],
+    }
+    untrusted = build_ticket_thread(data)
+    assert untrusted['ticket_subject'] == 'Lost wallet'
+    assert untrusted['ticket_created_at'].startswith('2026-05-16')
+    lines = untrusted['zendesk_comment']
+    assert lines[0] == '[2026-05-16T20:59:00Z | Mark Johnson | internal note] New abandoned cart created'
+    assert lines[1] == '[2026-05-17T20:36:00Z | Gaby Smith | public] We found your wallet'
+    assert lines[2] == 'plain string comment'
+
+
+def test_build_ticket_thread_empty_input():
+    from apps.integrations.services import build_ticket_thread
+    untrusted = build_ticket_thread({})
+    assert untrusted['ticket_subject'] == ''
+    assert 'zendesk_comment' not in untrusted
+    assert 'ticket_created_at' not in untrusted

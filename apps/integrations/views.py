@@ -336,20 +336,50 @@ class ZendeskSidebarView(APIView):
         }
 
 
+ALF_BUSINESS_CONTEXT = (
+    "Airport Lost Found (ALF) is a paid concierge service: travelers who lost an item "
+    "at an airport or on a flight pay ALF to run the recovery for them. Clients submit "
+    "a web form and never email; ALF reports the loss to the airport, airline and "
+    "security (TSA) lost-and-found offices and then corresponds with those institutions "
+    "by email and phone. Inbound emails come from institutions, not clients. Case "
+    "lifecycle: reported -> searching -> found or not found -> retrieval (client pickup, "
+    "authorized person, or courier/UPS at the client's expense) -> delivered -> closed. "
+    "ALF has no staff at airports and cannot search physically — it works by reporting, "
+    "calling and emailing. Comments marked 'internal note' are ALF staff notes; 'public' "
+    "ones are visible to the client. Comments are listed in chronological order. Person "
+    "names and contact details may appear as <NAME_...>/<EMAIL_...>/<PHONE_...> "
+    "placeholders — treat each placeholder as that person or value and repeat it "
+    "verbatim when referring to them. "
+)
+
+
 class ZendeskBriefingView(APIView):
     """POST /api/integrations/zd/briefing/
-    Body: {ticket_id, requester_email, subject, description, comments[]}
-    Returns: {summary, next_steps[], facts{}} — AI briefing + LORA facts.
+    Body: {ticket_id, requester_email, requester_name, subject, description,
+           ticket_created_at, comments[], mode?}
+    mode='summary' (default) → {summary, next_steps[], facts{}}
+    mode='next_steps'        → {next_steps[]} (generated on demand)
     Auth: ZendeskSidebarAuth (sidebar_secret_token)."""
 
     permission_classes = [AllowAny]
 
-    BRIEFING_PROMPT = (
-        "You are briefing a lost-item recovery agent who is about to handle a "
-        "ticket. Using ONLY the provided ticket content and claim facts, write a "
-        "2-3 sentence summary of where this claim stands, then list up to 4 "
-        "concrete next steps the agent should take. Respond as JSON: "
-        '{"summary": "...", "next_steps": ["..."]}.'
+    BRIEFING_PROMPT = ALF_BUSINESS_CONTEXT + (
+        "Write a briefing of at most 3 sentences for the ALF agent opening this "
+        "ticket. Lead with the current lifecycle stage and its key identifiers "
+        "(e.g. item found — item number, where it is, retrieval method; or still "
+        "searching and since when), then say what is currently awaited and from "
+        "whom. Use ONLY facts present in the provided content; never invent "
+        "dates, people or procedures. "
+        'Respond as JSON: {"summary": "..."}.'
+    )
+
+    NEXT_STEPS_PROMPT = ALF_BUSINESS_CONTEXT + (
+        "List up to 4 concrete next actions the ALF agent should take NOW on "
+        "this ticket, consistent with how ALF actually works: chase institutions "
+        "by email or phone, answer/update the client, arrange retrieval or "
+        "courier, confirm delivery, close the case. Base every action ONLY on "
+        "the provided content; if nothing is pending, say so in a single step. "
+        'Respond as JSON: {"next_steps": ["..."]}.'
     )
 
     def post(self, request):
@@ -365,48 +395,55 @@ class ZendeskBriefingView(APIView):
             return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
 
         from apps.ai.client import AIClient
-        from apps.ai.schemas import BriefingSummary
+        from apps.ai.schemas import BriefingSummary, NextSteps
         from apps.ai.exceptions import AIResponseValidationError
         from apps.claims.models import Claim
-        from apps.integrations.services import build_claim_facts
+        from apps.integrations.services import build_claim_facts, build_ticket_thread
 
         data = request.data
         ticket_id = str(data.get('ticket_id', '')).strip()
-        logger.info(f"Briefing request for ticket_id: {ticket_id or 'N/A'}")
-        subject = str(data.get('subject', ''))
-        description = str(data.get('description', ''))
-        comments = data.get('comments') or []
-        if not isinstance(comments, list):
-            comments = [str(comments)]
-        comments = [str(c)[:1000] for c in comments[:10]]
+        mode = str(data.get('mode', 'summary')).strip() or 'summary'
+        logger.info(f"Briefing request for ticket_id: {ticket_id or 'N/A'} (mode={mode})")
 
         claim = Claim.objects.filter(zd_ticket_id=ticket_id).first() if ticket_id else None
         facts = build_claim_facts(claim) if claim else {}
 
         trusted = {'claim_facts': str(facts)} if facts else None
-        untrusted = {'ticket_subject': subject[:200], 'ticket_description': description[:2000]}
-        if comments:
-            untrusted['zendesk_comment'] = comments
+        untrusted = build_ticket_thread(data)
+
+        known_names = [str(data.get('requester_name', '')).strip()]
+        if claim and getattr(claim, 'client_name', ''):
+            known_names.append(claim.client_name)
+        known_pii = {'aliases': [], 'names': [n for n in known_names if n]}
+
+        if mode == 'next_steps':
+            prompt, schema = self.NEXT_STEPS_PROMPT, NextSteps
+        else:
+            prompt, schema = self.BRIEFING_PROMPT, BriefingSummary
 
         try:
             result = AIClient.complete(
-                system_prompt=self.BRIEFING_PROMPT,
+                system_prompt=prompt,
                 trusted=trusted,
                 untrusted=untrusted,
-                known_pii={'aliases': []},
-                response_schema=BriefingSummary,
+                known_pii=known_pii,
+                response_schema=schema,
                 call_site='zendesk_briefing',
                 temperature=0.4,
                 max_tokens=500,
             )
         except AIResponseValidationError as e:
-            logger.warning(f"Briefing AI validation failed for ticket {ticket_id}: {e}")
+            logger.warning(f"Briefing AI validation failed for ticket {ticket_id} (mode={mode}): {e}")
+            if mode == 'next_steps':
+                return Response({'next_steps': []}, status=status.HTTP_200_OK)
             return Response(
                 {'summary': 'Briefing unavailable right now. Please use the Chat tab or retry.',
                  'next_steps': [], 'facts': facts},
                 status=status.HTTP_200_OK,
             )
 
+        if mode == 'next_steps':
+            return Response({'next_steps': result.next_steps}, status=status.HTTP_200_OK)
         return Response(
             {'summary': result.summary, 'next_steps': result.next_steps, 'facts': facts},
             status=status.HTTP_200_OK,
@@ -423,12 +460,12 @@ class ZendeskChatView(APIView):
 
     permission_classes = [AllowAny]
 
-    TICKET_ONLY_PROMPT = (
-        "You are assisting a lost-item recovery agent inside a Zendesk ticket. "
-        "No LORA claim is linked to this ticket, so answer the agent's question "
-        "using ONLY the ticket content provided. If the answer is not in the "
-        "ticket, say you don't see it there. Respond as JSON: "
-        '{"answer": "...", "sources": ["zendesk"]}.'
+    TICKET_ONLY_PROMPT = ALF_BUSINESS_CONTEXT + (
+        "No LORA claim is linked to this ticket. Answer the ALF agent's question "
+        "using ONLY the ticket content provided. Be specific — quote dates, item "
+        "numbers and locations when present. If the answer is not in the ticket "
+        "content, say you don't see it in the ticket. "
+        'Respond as JSON: {"answer": "...", "sources": ["zendesk"]}.'
     )
 
     def post(self, request):
@@ -472,15 +509,12 @@ class ZendeskChatView(APIView):
         the app sent. Ticket content is untrusted (external senders) and goes
         through the same tokenize-and-fence path as everything else; the agent's
         question is trusted, mirroring AgentChatService."""
-        subject = str(data.get('subject', ''))
-        description = str(data.get('description', ''))
-        comments = data.get('comments') or []
-        if not isinstance(comments, list):
-            comments = [str(comments)]
-        comments = [str(c)[:1000] for c in comments[:10]]
+        from apps.integrations.services import build_ticket_thread
 
-        has_content = bool(subject.strip() or description.strip()
-                           or any(c.strip() for c in comments))
+        untrusted = build_ticket_thread(data)
+        has_content = bool(untrusted['ticket_subject'].strip()
+                           or untrusted['ticket_description'].strip()
+                           or untrusted.get('zendesk_comment'))
         if not has_content:
             return Response(
                 {'answer': 'No LORA claim is linked to this ticket yet, so I cannot answer '
@@ -503,17 +537,15 @@ class ZendeskChatView(APIView):
             if history_parts:
                 trusted['conversation_history'] = "\n".join(history_parts)
 
-        untrusted = {'ticket_subject': subject[:200],
-                     'ticket_description': description[:2000]}
-        if comments:
-            untrusted['zendesk_comment'] = comments
+        requester_name = str(data.get('requester_name', '')).strip()
+        known_pii = {'aliases': [], 'names': [requester_name] if requester_name else []}
 
         try:
             result = AIClient.complete(
                 system_prompt=self.TICKET_ONLY_PROMPT,
                 trusted=trusted,
                 untrusted=untrusted,
-                known_pii={'aliases': []},
+                known_pii=known_pii,
                 response_schema=ChatAnswer,
                 call_site='zendesk_ticket_chat',
                 temperature=0.7,

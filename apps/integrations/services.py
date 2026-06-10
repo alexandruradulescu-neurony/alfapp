@@ -1018,3 +1018,43 @@ def parse_alf_claim_id_from_subject(subject: str) -> Optional[str]:
         return f"ALF{match.group(1)}"
 
     return None
+
+
+def build_ticket_thread(data) -> dict:
+    """Build the untrusted AI payload from ticket content sent by the sidebar app.
+
+    Comments may be plain strings (legacy) or dicts {author, created_at, public,
+    text}; dicts are rendered as '[created_at | author | visibility] text' lines
+    so the model can reason about chronology and who said what. Caller passes
+    the result as AIClient's `untrusted` (ticket content comes from external
+    senders and must stay in the fenced, PII-tokenized channel).
+    """
+    subject = str(data.get('subject', ''))[:200]
+    description = str(data.get('description', ''))[:3000]
+    created_at = str(data.get('ticket_created_at', '') or '')[:40]
+
+    raw_comments = data.get('comments') or []
+    if not isinstance(raw_comments, list):
+        raw_comments = [str(raw_comments)]
+
+    lines = []
+    for c in raw_comments[:30]:
+        if isinstance(c, dict):
+            text = str(c.get('text', '') or c.get('value', ''))[:1500].strip()
+            if not text:
+                continue
+            when = str(c.get('created_at', ''))[:25]
+            author = str(c.get('author', ''))[:80]
+            visibility = 'internal note' if c.get('public') is False else 'public'
+            lines.append(f"[{when} | {author} | {visibility}] {text}")
+        else:
+            text = str(c)[:1500].strip()
+            if text:
+                lines.append(text)
+
+    untrusted = {'ticket_subject': subject, 'ticket_description': description}
+    if created_at:
+        untrusted['ticket_created_at'] = created_at
+    if lines:
+        untrusted['zendesk_comment'] = lines
+    return untrusted

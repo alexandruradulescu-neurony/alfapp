@@ -187,3 +187,86 @@ def test_chat_no_claim_tokenizes_ticket_pii_before_ai(api_client, settings_obj):
         user_content = sent[1]['content']
         assert 'alice@example.com' not in user_content
         assert '<EMAIL_' in user_content
+
+
+@pytest.mark.django_db
+def test_briefing_sends_dated_comments_and_creation_date(api_client, settings_obj):
+    """Dated/attributed comments and the ticket creation date must reach the AI
+    so it can reason about chronology and 'when was this submitted'."""
+    with patch('apps.ai.client.OpenAI') as MockOpenAI:
+        MockOpenAI.return_value.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content='{"summary":"s","next_steps":[]}'))],
+        )
+        body = {
+            'ticket_id': '70002',
+            'subject': 'Lost wallet',
+            'description': 'Left at TSA',
+            'ticket_created_at': '2026-05-16T20:59:00Z',
+            'comments': [
+                {'author': 'Gaby Smith', 'created_at': '2026-05-17T20:36:00Z',
+                 'public': True, 'text': 'We located the item at the airport office'},
+            ],
+        }
+        api_client.post(reverse('zendesk-sidebar-briefing'), data=body, format='json',
+                        HTTP_AUTHORIZATION=f'Bearer {SECRET}')
+        sent = MockOpenAI.return_value.chat.completions.create.call_args.kwargs['messages']
+        user_content = sent[1]['content']
+        assert '2026-05-16T20:59:00Z' in user_content
+        assert '[2026-05-17T20:36:00Z | Gaby Smith | public]' in user_content
+
+
+@pytest.mark.django_db
+def test_briefing_tokenizes_client_name(api_client, settings_obj):
+    """The requester's real name must never reach the AI provider."""
+    with patch('apps.ai.client.OpenAI') as MockOpenAI:
+        MockOpenAI.return_value.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content='{"summary":"s","next_steps":[]}'))],
+        )
+        body = _briefing_body()
+        body['requester_name'] = 'Alice Wonder'
+        body['description'] = 'The wallet belongs to Alice Wonder.'
+        api_client.post(reverse('zendesk-sidebar-briefing'), data=body, format='json',
+                        HTTP_AUTHORIZATION=f'Bearer {SECRET}')
+        sent = MockOpenAI.return_value.chat.completions.create.call_args.kwargs['messages']
+        user_content = sent[1]['content']
+        assert 'Alice Wonder' not in user_content
+        assert '<NAME_' in user_content
+
+
+@pytest.mark.django_db
+def test_briefing_next_steps_mode(api_client, settings_obj):
+    """mode='next_steps' generates only next steps, on demand."""
+    with patch('apps.ai.client.OpenAI') as MockOpenAI:
+        MockOpenAI.return_value.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=(
+                '{"next_steps": ["Call MCO lost and found about item 526-3047"]}'
+            )))],
+        )
+        resp = api_client.post(
+            reverse('zendesk-sidebar-briefing'),
+            data={**_briefing_body(), 'mode': 'next_steps'}, format='json',
+            HTTP_AUTHORIZATION=f'Bearer {SECRET}',
+        )
+    assert resp.status_code == 200
+    assert resp.data['next_steps'] == ['Call MCO lost and found about item 526-3047']
+
+
+@pytest.mark.django_db
+def test_chat_no_claim_tokenizes_client_name(api_client, settings_obj):
+    with patch('apps.ai.client.OpenAI') as MockOpenAI:
+        MockOpenAI.return_value.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content='{"answer":"a","sources":[]}'))],
+        )
+        api_client.post(
+            reverse('zendesk-sidebar-chat'),
+            data={'ticket_id': '88888', 'message': 'who owns it?',
+                  'requester_name': 'Alice Wonder',
+                  'subject': 'Lost wallet',
+                  'description': 'Wallet of Alice Wonder found at gate.',
+                  'comments': []},
+            format='json', HTTP_AUTHORIZATION=f'Bearer {SECRET}',
+        )
+        sent = MockOpenAI.return_value.chat.completions.create.call_args.kwargs['messages']
+        user_content = sent[1]['content']
+        assert 'Alice Wonder' not in user_content
+        assert '<NAME_' in user_content
