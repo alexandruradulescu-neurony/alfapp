@@ -45,3 +45,4 @@ structlog==25.5.0                 # Structured logs with correlation IDs
 
 # ----- Production server -----
 gunicorn==26.0.0
+whitenoise[brotli]==6.12.0        # Serve static files in production (no CDN needed)

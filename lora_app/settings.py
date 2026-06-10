@@ -31,12 +31,16 @@ DEBUG = env('DEBUG')
 
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
 
-# CSRF Trusted Origins for ngrok and other domains
-CSRF_TRUSTED_ORIGINS = [
+# CSRF Trusted Origins. In production, set the CSRF_TRUSTED_ORIGINS env var to a
+# comma-separated list that includes your real domain, e.g.
+#   CSRF_TRUSTED_ORIGINS=https://lora.yourcompany.com
+# Without your production domain here, login and config form POSTs are rejected
+# with a 403 CSRF error. The defaults keep local dev + ngrok working.
+CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[
     'https://neurozen.ngrok.dev',
     'http://localhost:8000',
     'http://127.0.0.1:8000',
-]
+])
 
 # Application definition
 INSTALLED_APPS = [
@@ -66,6 +70,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # WhiteNoise serves static files in production; must come right after
+    # SecurityMiddleware and before everything else.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -135,6 +142,19 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [
     BASE_DIR / 'static',
 ]
+
+# Serve static files in production via WhiteNoise (no separate web server / CDN
+# needed). CompressedStaticFilesStorage gzips/brotli-compresses files but does
+# NOT use manifest hashing — chosen so a template referencing a not-yet-collected
+# static file won't 500 the whole page. WhiteNoise middleware is added below.
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
+    },
+}
 
 # Media files (uploads)
 MEDIA_URL = 'media/'

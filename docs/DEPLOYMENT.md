@@ -57,6 +57,7 @@ In Railway → your web service → **Variables** tab, add each of these. (Don't
 | `PII_TOKENIZATION_SALT` | (from step 1) | AI client tokenizer |
 | `DEBUG` | `False` | Must be `False` in production |
 | `ALLOWED_HOSTS` | `lora.yourcompany.com` | Comma-separated; add the Railway-provided URL too while testing |
+| `CSRF_TRUSTED_ORIGINS` | `https://lora.yourcompany.com` | Comma-separated; MUST include your real domain (with `https://`) or login/forms get a 403. Add the Railway `*.up.railway.app` URL too while testing. |
 | `AI_API_BASE` | `https://api.deepseek.com/v1` | Or your chosen provider |
 | `AI_API_KEY` | (your DeepSeek/Qwen API key) | Treat as a secret |
 | `AI_API_MODEL` | `deepseek-chat` | Or your chosen model |
