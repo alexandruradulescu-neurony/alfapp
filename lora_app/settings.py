@@ -281,6 +281,12 @@ if not DEBUG:
 
 # Security settings for production
 if not DEBUG:
+    # Behind a TLS-terminating proxy (Railway, Render, Heroku, most PaaS), the
+    # proxy handles HTTPS and forwards plain HTTP to the app, setting the
+    # X-Forwarded-Proto header to 'https'. Without this, SECURE_SSL_REDIRECT
+    # never sees the request as secure and redirects to https forever (infinite
+    # 301 loop -> "too many redirects").
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
