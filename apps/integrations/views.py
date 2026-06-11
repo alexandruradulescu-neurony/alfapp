@@ -4,6 +4,7 @@ Provides API endpoints for Zendesk sidebar widget.
 """
 
 import hmac
+import json
 import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -19,7 +20,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, Aggregate, F
 from django.db.models.functions import TruncDate
 
-from apps.claims.models import Claim
+from apps.claims.models import Claim, ClaimUpdateTimeline
 from apps.communications.models import EmailLog
 from apps.config.models import SystemSettings
 from apps.payments.models import Dispute, Refund
@@ -834,36 +835,27 @@ class RefundWebhookView(APIView):
 
 class ZendeskClaimWebhookView(APIView):
     """
-    Webhook endpoint for creating claims from Zendesk tickets.
+    Webhook endpoint for Zendesk custom-status changes (zen:event-type:ticket.custom_status_changed).
 
-    Triggered when Zendesk ticket status changes to 'investigation_initiated'.
-    Uses custom status ID: 11688538967068
+    Authentication: every request must carry a matching X-Webhook-Secret header
+    (compared against SystemSettings.sidebar_secret_token).  The secret is checked
+    before the request body is parsed or anything is logged.
 
-    Expects POST request with JSON payload (zen:event-type:ticket.custom_status_changed):
-    {
-        "event": {
-            "current": "11688538967068",
-            "previous": "8475923145214"
-        },
-        "detail": {
-            "id": "41960",
-            "subject": "Lost Item - ALF1234567",
-            "custom_status": "11688538967068",
-            "status": "OPEN",
-            "requester_id": "8645878250110"
-        }
-    }
+    Behaviour:
+    (a) Existing claim → mirrors every custom-status change onto the claim:
+        - same-status payload → no-op (idempotent under Zendesk retries)
+        - status change → atomic: update claim fields + write ClaimUpdateTimeline
+          entry (llm_summary=''); then best-effort AI summary back-fill
+        - unresolved status id (resolver returns the raw id) → dropped to prevent
+          overwriting a real named status with a number
+    (b) Unknown ticket at 'investigation initiated' status (INVESTIGATION_STATUS_ID)
+        → full claim creation: fetch ticket, LLM extraction, Claim.objects.create,
+          best-effort AI summary.  The creation status name is resolved live from
+          Zendesk so that a creation retry is treated as a same-status no-op.
+    (c) Unknown ticket at any other status → 200 ignored.
 
-    Process:
-    1. Validate webhook secret
-    2. Check if claim already exists (by zd_ticket_id) - skip if exists
-    3. Fetch full ticket data from Zendesk API
-    4. Parse ALF claim ID from subject
-    5. Call LLM to extract claim data
-    6. Create Claim entity
-    7. Set llm_extraction_failed flag if LLM failed
-
-    Idempotency: Duplicate webhooks for same ticket are skipped.
+    Idempotency: the DB unique constraint on zd_ticket_id is the authoritative
+    guard; the view-level existence check is an optimisation only.
     """
 
     # Zendesk custom status ID for "Investigation Initiated"
@@ -875,18 +867,18 @@ class ZendeskClaimWebhookView(APIView):
         Process Zendesk claim creation or status-change webhook.
         """
         try:
-            data = request.data
-
             # Auth is mandatory: a webhook without the correct shared secret
-            # is rejected before anything is parsed or logged.
+            # is rejected before the body is parsed or anything is logged.
             webhook_secret = request.headers.get('X-Webhook-Secret', '')
             expected_secret = SystemSettings.get_instance().sidebar_secret_token or ''
             if not (webhook_secret and expected_secret
-                    and hmac.compare_digest(webhook_secret, expected_secret)):
+                    and hmac.compare_digest(webhook_secret.encode('utf-8'),
+                                            expected_secret.encode('utf-8'))):
                 logger.warning("Rejected Zendesk webhook: missing or invalid X-Webhook-Secret")
                 return Response({'error': 'Invalid webhook secret'},
                                 status=status.HTTP_401_UNAUTHORIZED)
 
+            data = request.data
             event_data = data.get('event', {})
             detail_data = data.get('detail', {})
             custom_status = str(event_data.get('current')
@@ -1000,6 +992,20 @@ class ZendeskClaimWebhookView(APIView):
                     f"Claim will be flagged for manual review."
                 )
 
+            # Resolve the live Zendesk label for the creation status so that a
+            # creation retry (common: the inline AI work can outlive Zendesk's
+            # webhook timeout) lands in _handle_status_change as a same-status
+            # no-op regardless of the label's live casing.
+            creation_status = resolve_custom_status(self.INVESTIGATION_STATUS_ID)
+            creation_status_name = creation_status['name']
+            if creation_status_name == self.INVESTIGATION_STATUS_ID:
+                creation_status_name = 'Investigation initiated'  # resolver unavailable
+            creation_status_category = creation_status['category'] or 'open'
+
+            # Hoist the _safe_date call so we compute it once and reuse for both
+            # deadline_date= and deadline_at=.
+            deadline_date_val = _safe_date(extracted_data.get('deadline_date', ''))
+
             # Create Claim. The Claim.objects.filter check above is a cheap
             # optimization for the common case; concurrent webhooks can still
             # race past it. The DB-level unique constraint on zd_ticket_id
@@ -1025,7 +1031,7 @@ class ZendeskClaimWebhookView(APIView):
                         shipping_address=extracted_data.get('shipping_address', ''),
                         incident_details=extracted_data.get('incident_details', ''),
                         lost_location=extracted_data.get('lost_location', ''),
-                        deadline_date=_safe_date(extracted_data.get('deadline_date', '')),
+                        deadline_date=deadline_date_val,
                         deadline_time=extracted_data.get('deadline_time', ''),
                         deadline_timezone=extracted_data.get('deadline_timezone', ''),
                         price_paid=_safe_decimal(extracted_data.get('price_paid', '')),
@@ -1033,11 +1039,11 @@ class ZendeskClaimWebhookView(APIView):
                         payment_status=extracted_data.get('payment_status', ''),
                         woocommerce_id=extracted_data.get('woocommerce_id', ''),
                         tracking_info=extracted_data.get('tracking_info', ''),
-                        status='Investigation initiated',
-                        status_category='open',
+                        status=creation_status_name,
+                        status_category=creation_status_category,
                         status_changed_at=timezone.now(),
                         deadline_at=compute_deadline_at(
-                            _safe_date(extracted_data.get('deadline_date', '')),
+                            deadline_date_val,
                             extracted_data.get('deadline_time', ''),
                             extracted_data.get('deadline_timezone', ''),
                         ),
@@ -1087,43 +1093,62 @@ class ZendeskClaimWebhookView(APIView):
 
     def _handle_status_change(self, claim, custom_status_id):
         """Mirror a Zendesk custom-status change onto an existing claim and
-        refresh the stored AI summary. The summary is best-effort: the stage
-        update and history entry must land even when AI or the ticket fetch
-        fails."""
-        import json as json_module
-        from apps.claims.models import ClaimUpdateTimeline
+        refresh the stored AI summary.
 
+        - same-status → no-op (idempotent under Zendesk retries)
+        - timeline entry (llm_summary='') is written in the same atomic block as
+          the status save so a crash during the AI call never leaves the claim
+          updated without a history entry
+        - AI summary is best-effort: attempted after the transaction commits;
+          on success the entry is back-filled
+        - unresolved custom-status id (resolver returns the raw id as name) is
+          silently dropped to prevent overwriting a real status name with a number
+        """
         if not custom_status_id:
             return Response({'message': 'Ignored: no custom status in payload'},
                             status=status.HTTP_200_OK)
 
         resolved = resolve_custom_status(custom_status_id)
         new_status = resolved['name']
+
+        # Fix 4: never overwrite a real named status with a raw numeric id.
+        if new_status == str(custom_status_id) and not (claim.status or '').isdigit():
+            logger.warning(
+                f"Claim #{claim.id}: unresolved custom status {custom_status_id}; "
+                f"keeping '{claim.status}'"
+            )
+            return Response({'message': 'Ignored: unresolved custom status',
+                             'claim_id': claim.id}, status=status.HTTP_200_OK)
+
         if new_status == claim.status:
             return Response({'message': 'No change', 'claim_id': claim.id,
                              'status': claim.status}, status=status.HTTP_200_OK)
 
         old_status = claim.status
-        claim.status = new_status
-        claim.status_category = resolved['category']
-        claim.status_changed_at = timezone.now()
-        claim.save(update_fields=['status', 'status_category', 'status_changed_at'])
+
+        # Fix 3: write the timeline entry in the same atomic block as the claim
+        # save so a crash during the subsequent AI call never leaves the status
+        # updated without a history entry.
+        with transaction.atomic():
+            claim.status = new_status
+            claim.status_category = resolved['category']
+            claim.status_changed_at = timezone.now()
+            claim.save(update_fields=['status', 'status_category', 'status_changed_at'])
+            entry = ClaimUpdateTimeline.objects.create(
+                claim=claim,
+                zendesk_ticket_id=claim.zd_ticket_id or '',
+                update_type='STATUS_CHANGE',
+                changes_summary=json.dumps({'old_status': old_status, 'new_status': new_status}),
+                llm_summary='',
+            )
         logger.info(f"Claim #{claim.id} status mirrored: '{old_status}' -> '{new_status}'")
 
-        summary_text = ''
         ticket_data = fetch_zendesk_ticket(claim.zd_ticket_id)
         if ticket_data:
             ticket_data['comments'] = fetch_zendesk_comments(claim.zd_ticket_id)
             if refresh_claim_summary(claim, ticket_data):
-                summary_text = claim.ai_summary
+                entry.llm_summary = claim.ai_summary
+                entry.save(update_fields=['llm_summary'])
 
-        ClaimUpdateTimeline.objects.create(
-            claim=claim,
-            zendesk_ticket_id=claim.zd_ticket_id or '',
-            update_type='STATUS_CHANGE',
-            changes_summary=json_module.dumps(
-                {'old_status': old_status, 'new_status': new_status}),
-            llm_summary=summary_text,
-        )
         return Response({'message': 'Status updated', 'claim_id': claim.id,
                          'status': new_status}, status=status.HTTP_200_OK)

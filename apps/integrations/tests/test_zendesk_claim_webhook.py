@@ -5,6 +5,7 @@ Tests the webhook endpoint that creates claims from Zendesk tickets when
 status changes to 'investigation_initiated'.
 """
 
+import json
 import pytest
 from unittest.mock import patch, MagicMock, PropertyMock
 from django.test import TestCase, Client
@@ -210,8 +211,8 @@ class TestZendeskClaimWebhookView:
     def test_webhook_invalid_secret(self, api_client, system_settings):
         """Invalid webhook secret returns 401.
 
-        The view checks ticket_id presence before the secret, so we use a nested
-        payload that carries a valid ticket_id so the secret check is actually reached.
+        Auth is checked before the body is parsed (Fix 2), so any payload with
+        a wrong secret is rejected immediately regardless of ticket_id presence.
         """
         payload = _nested_webhook_payload(ticket_id='12345')
         response = api_client.post(
@@ -1013,13 +1014,11 @@ class WebhookTestBase(TestCase):
 
 class WebhookAuthRequiredTests(WebhookTestBase):
     def test_missing_secret_is_rejected(self):
-        import json
         payload = json.dumps({'event': {'current': '11688538967068'}, 'detail': {'id': '50001'}})
         response = self.client.post(self.webhook_url, payload, content_type='application/json')
         self.assertEqual(response.status_code, 401)
 
     def test_wrong_secret_is_rejected(self):
-        import json
         payload = json.dumps({'event': {'current': '11688538967068'}, 'detail': {'id': '50001'}})
         response = self.client.post(
             self.webhook_url, payload, content_type='application/json',
@@ -1036,7 +1035,6 @@ class WebhookStatusMirrorTests(WebhookTestBase):
             status='Investigation initiated', status_category='open')
 
     def _payload(self, status_id='222'):
-        import json
         return json.dumps({'event': {'current': status_id}, 'detail': {'id': '60001'}})
 
     @patch('apps.integrations.views.refresh_claim_summary', return_value=True)
@@ -1073,14 +1071,53 @@ class WebhookStatusMirrorTests(WebhookTestBase):
         self.assertEqual(response.status_code, 200)
         self.claim.refresh_from_db()
         self.assertEqual(self.claim.status, 'Object Found')
+        # Timeline entry is written atomically with the status save (Fix 3);
+        # llm_summary stays '' when the AI call does not succeed.
         entry = self.claim.updates.first()
+        self.assertIsNotNone(entry)
         self.assertEqual(entry.llm_summary, '')
+        # ai_summary on the claim itself is unchanged from creation ('')
+        self.assertEqual(self.claim.ai_summary, '')
+
+    @patch('apps.integrations.views.resolve_custom_status',
+           return_value={'name': 'Investigation initiated', 'category': 'open'})
+    def test_creation_retry_is_noop(self, _mock_resolve):
+        """Creation retry: claim already exists with the creation status name.
+
+        When Zendesk retries the 'investigation initiated' webhook and the claim
+        already exists with that exact status, _handle_status_change must return
+        200 with no timeline entry written and the status unchanged.
+        """
+        # claim already has status 'Investigation initiated' (from setUp)
+        response = self._post_webhook(
+            json.dumps({'event': {'current': _INVESTIGATION_STATUS_ID},
+                        'detail': {'id': '60001'}}))
+        self.assertEqual(response.status_code, 200)
+        self.claim.refresh_from_db()
+        self.assertEqual(self.claim.status, 'Investigation initiated')
+        self.assertEqual(self.claim.updates.count(), 0)
+
+    @patch('apps.integrations.views.resolve_custom_status',
+           return_value={'name': '424242', 'category': ''})
+    def test_unresolved_status_guard(self, _mock_resolve):
+        """Unresolved status id: resolver returns the raw id as the name.
+
+        The view must not overwrite a real named status with a numeric id.
+        Returns 200, status unchanged, zero timeline entries.
+        """
+        payload = json.dumps({'event': {'current': '424242'}, 'detail': {'id': '60001'}})
+        response = self._post_webhook(payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Ignored', response.json()['message'])
+        self.claim.refresh_from_db()
+        self.assertEqual(self.claim.status, 'Investigation initiated')
+        self.assertEqual(self.claim.updates.count(), 0)
 
     def test_unknown_ticket_with_non_creation_status_is_ignored(self):
         with patch('apps.integrations.views.resolve_custom_status',
                    return_value={'name': 'Pending', 'category': 'pending'}):
             response = self._post_webhook(
-                __import__('json').dumps(
+                json.dumps(
                     {'event': {'current': '333'}, 'detail': {'id': '99999'}}))
         self.assertEqual(response.status_code, 200)
         self.assertIn('Ignored', response.json()['message'])
