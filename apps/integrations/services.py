@@ -1003,7 +1003,7 @@ def build_claim_facts(claim) -> dict:
             break
 
     return {
-        'status': claim.get_status_display(),
+        'status': claim.status,
         'deadline': claim.deadline_date.isoformat() if claim.deadline_date else None,
         'emails_total': emails.count(),
         'emails_unresolved': emails.filter(action_required=True, auto_resolved=False).count(),

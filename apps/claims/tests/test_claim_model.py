@@ -11,7 +11,7 @@ Tests the Claim model including:
 import pytest
 from django.test import TestCase
 from django.db import IntegrityError, connection
-from apps.claims.models import Claim
+from apps.claims.models import Claim, ClaimUpdateTimeline
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -63,7 +63,7 @@ class TestClaimModel:
         assert claim.alternate_email == ''
         assert claim.flight_details == ''
         assert claim.object_description == ''
-        assert claim.status == 'Received'
+        assert claim.status == 'Investigation initiated'
         assert claim.llm_extraction_failed is False
 
     def test_claim_alf_claim_id_unique(self):
@@ -255,11 +255,11 @@ class TestClaimModel:
         assert claim.status == 'INVALID_STATUS'
 
     def test_claim_default_status(self):
-        """Claim default status is 'Received'."""
+        """Claim default status is 'Investigation initiated'."""
         claim = Claim.objects.create(
             client_email='test@example.com',
         )
-        assert claim.status == 'Received'
+        assert claim.status == 'Investigation initiated'
 
     def test_claim_phone_optional(self):
         """Phone field is optional (blank and null allowed)."""
@@ -656,7 +656,6 @@ class TestClaimModelQueries:
 
 class ClaimUpdateTimelineStrTests(TestCase):
     def test_str_does_not_crash_and_mentions_update_type(self):
-        from apps.claims.models import Claim, ClaimUpdateTimeline
         claim = Claim.objects.create(client_email='str-test@example.com')
         entry = ClaimUpdateTimeline.objects.create(
             claim=claim, zendesk_ticket_id='123', update_type='STATUS_CHANGE',
@@ -664,3 +663,21 @@ class ClaimUpdateTimelineStrTests(TestCase):
         text = str(entry)
         self.assertIn('STATUS_CHANGE', text)
         self.assertIn(str(claim.id), text)
+
+
+class ClaimStatusMirrorFieldTests(TestCase):
+    def test_new_claim_defaults_to_investigation_initiated_open_family(self):
+        claim = Claim.objects.create(client_email='mirror@example.com')
+        self.assertEqual(claim.status, 'Investigation initiated')
+        self.assertEqual(claim.status_category, 'open')
+        self.assertIsNone(claim.status_changed_at)
+        self.assertIsNone(claim.deadline_at)
+        self.assertIsNone(claim.ai_summary_updated_at)
+
+    def test_status_accepts_long_zendesk_names(self):
+        claim = Claim.objects.create(
+            client_email='long@example.com',
+            status='Closed - Client Not Answering', status_category='solved',
+        )
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, 'Closed - Client Not Answering')

@@ -7,15 +7,13 @@ class Claim(models.Model):
     Represents a lost object claim submitted by a client.
     """
 
-    STATUS_CHOICES = [
-        ('Received', 'Received'),
-        ('Searching', 'Searching'),
-        ('Found', 'Found'),
-        ('Shipped', 'Shipped'),
-        ('Disputed', 'Disputed'),
-        ('REFUND_REQUESTED', 'Refund Requested'),
-        ('REFUNDED', 'Refunded'),
-        ('PARTIALLY_REFUNDED', 'Partially Refunded'),
+    # Zendesk custom-status families (status_category in the Zendesk API).
+    STATUS_FAMILIES = [
+        ('new', 'New'),
+        ('open', 'Open'),
+        ('pending', 'Pending'),
+        ('hold', 'On hold'),
+        ('solved', 'Solved'),
     ]
 
     # Claim Identifiers
@@ -106,6 +104,11 @@ class Claim(models.Model):
         default='',
         help_text='Timezone for the deadline (Zendesk "Deadline Time Zone")'
     )
+    deadline_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='Computed deadline moment (date + best-effort time/timezone); urgency math uses this'
+    )
 
     # Payment & order
     price_paid = models.DecimalField(
@@ -144,10 +147,21 @@ class Claim(models.Model):
 
     # Workflow
     status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='Received',
-        help_text='Current claim status'
+        max_length=64,
+        default='Investigation initiated',
+        help_text='Zendesk custom status name (agent view), mirrored verbatim from the ticket'
+    )
+    status_category = models.CharField(
+        max_length=10,
+        choices=STATUS_FAMILIES,
+        default='open',
+        blank=True,
+        help_text="Zendesk status family — drives grouping/colors; '' when unknown"
+    )
+    status_changed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When the current status was set (from the Zendesk webhook)'
     )
     assigned_to = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -167,6 +181,11 @@ class Claim(models.Model):
         blank=True,
         help_text='AI-generated summary from Zendesk ticket analysis (generated once at creation)'
     )
+    ai_summary_updated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When the AI summary was last regenerated'
+    )
 
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
@@ -177,6 +196,7 @@ class Claim(models.Model):
         indexes = [
             models.Index(fields=['-created_at']),
             models.Index(fields=['status', '-created_at']),
+            models.Index(fields=['status_category', '-created_at']),
             models.Index(fields=['client_email']),
             models.Index(fields=['assigned_to', '-created_at']),
             models.Index(fields=['alf_claim_id']),
