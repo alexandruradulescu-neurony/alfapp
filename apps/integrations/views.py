@@ -6,8 +6,6 @@ Provides API endpoints for Zendesk sidebar widget.
 import hmac
 import json
 import logging
-from datetime import datetime
-from decimal import Decimal, InvalidOperation
 
 from django.core.cache import cache
 from rest_framework.views import APIView
@@ -33,6 +31,8 @@ from apps.integrations.services import (
     fetch_zendesk_ticket,
     fetch_zendesk_comments,
     resolve_custom_status,
+    safe_date,
+    safe_decimal,
 )
 from apps.claims.services import compute_deadline_at
 from apps.integrations.briefing import ALF_BUSINESS_CONTEXT, refresh_claim_summary
@@ -40,24 +40,6 @@ from apps.integrations.briefing import ALF_BUSINESS_CONTEXT, refresh_claim_summa
 logger = logging.getLogger(__name__)
 
 
-def _safe_date(value):
-    """Parse a Zendesk date string ('YYYY-MM-DD') into a date, or None on failure."""
-    if not value:
-        return None
-    try:
-        return datetime.strptime(str(value).strip(), "%Y-%m-%d").date()
-    except (ValueError, TypeError):
-        return None
-
-
-def _safe_decimal(value):
-    """Parse a numeric value into Decimal, or None on failure."""
-    if value in (None, ''):
-        return None
-    try:
-        return Decimal(str(value).strip())
-    except (InvalidOperation, ValueError, TypeError):
-        return None
 
 
 class ZendeskSidebarAuth:
@@ -1004,9 +986,9 @@ class ZendeskClaimWebhookView(APIView):
                 creation_status_name = 'Investigation initiated'  # resolver unavailable
             creation_status_category = creation_status['category'] or 'open'
 
-            # Hoist the _safe_date call so we compute it once and reuse for both
+            # Hoist the safe_date call so we compute it once and reuse for both
             # deadline_date= and deadline_at=.
-            deadline_date_val = _safe_date(extracted_data.get('deadline_date', ''))
+            deadline_date_val = safe_date(extracted_data.get('deadline_date', ''))
 
             # Create Claim. The Claim.objects.filter check above is a cheap
             # optimization for the common case; concurrent webhooks can still
@@ -1036,7 +1018,7 @@ class ZendeskClaimWebhookView(APIView):
                         deadline_date=deadline_date_val,
                         deadline_time=extracted_data.get('deadline_time', ''),
                         deadline_timezone=extracted_data.get('deadline_timezone', ''),
-                        price_paid=_safe_decimal(extracted_data.get('price_paid', '')),
+                        price_paid=safe_decimal(extracted_data.get('price_paid', '')),
                         payment_method=extracted_data.get('payment_method', ''),
                         payment_status=extracted_data.get('payment_status', ''),
                         woocommerce_id=extracted_data.get('woocommerce_id', ''),

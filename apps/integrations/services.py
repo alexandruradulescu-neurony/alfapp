@@ -9,6 +9,8 @@ import logging
 import urllib.parse
 import urllib.request
 import urllib.error
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import List, Dict, Any, Optional
 
 from django.conf import settings
@@ -17,6 +19,26 @@ from django.core.cache import cache
 from apps.config.models import SystemSettings
 
 logger = logging.getLogger(__name__)
+
+
+def safe_date(value):
+    """Parse a Zendesk date string ('YYYY-MM-DD') into a date, or None on failure."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value).strip(), "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
+
+
+def safe_decimal(value):
+    """Parse a numeric value into Decimal, or None on failure."""
+    if value in (None, ''):
+        return None
+    try:
+        return Decimal(str(value).strip())
+    except (InvalidOperation, ValueError, TypeError):
+        return None
 
 # ---------------------------------------------------------------------------
 # Zendesk custom field IDs (populated by the marketing site for every new

@@ -17,7 +17,7 @@
         <button type="button" class="btn btn-primary rounded-xl transition-all duration-200"
                 onclick="updateFromZendesk({{ claim.id }})"
                 {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
-            <i class="bi bi-arrow-clockwise"></i> Update from Zendesk
+            <i class="bi bi-arrow-clockwise"></i> Refresh from Zendesk
         </button>
         <a href="{% url 'agent_claims' %}" class="btn btn-outline rounded-xl transition-all duration-200">
             <i class="bi bi-arrow-left"></i> Back to Claims
@@ -254,7 +254,7 @@
                 <p class="text-base-content/60 mb-3">No updates yet.</p>
                 <button type="button" class="btn btn-sm btn-primary" onclick="updateFromZendesk({{ claim.id }})"
                         {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
-                    <i class="bi bi-arrow-clockwise"></i> Update from Zendesk
+                    <i class="bi bi-arrow-clockwise"></i> Refresh from Zendesk
                 </button>
             </div>
             {% endfor %}
