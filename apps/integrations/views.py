@@ -38,6 +38,7 @@ from apps.integrations.briefing import ALF_BUSINESS_CONTEXT, refresh_claim_summa
 from apps.integrations.flight_lookup import (
     FlightProviderNotConfigured,
     analyze_flight_match,
+    derive_flight_verdict,
     find_candidate_flights,
     format_candidates_note,
     format_flight_note,
@@ -1205,23 +1206,27 @@ class ZendeskFlightLookupView(APIView):
             return self._handle_not_found(claim, query)
 
         flight = normalize_flight(raw_legs)
+        analysis = analyze_flight_match(claim, flight)
+        verdict = derive_flight_verdict(True, analysis)
+        flight['verdict'] = verdict
         claim.flight_data = flight
         claim.flight_data_updated_at = timezone.now()
         claim.save(update_fields=['flight_data', 'flight_data_updated_at', 'updated_at'])
 
-        analysis = analyze_flight_match(claim, flight)
-        note_posted = self._post_note(claim, format_flight_note(flight, analysis))
+        note_posted = self._post_note(claim, format_flight_note(flight, analysis, verdict))
 
         ClaimUpdateTimeline.objects.create(
             claim=claim,
             zendesk_ticket_id=claim.zd_ticket_id,
             update_type='INFO_UPDATED',
-            changes_summary=json.dumps({'flight_lookup': {**query, 'found': True}}),
+            changes_summary=json.dumps({'flight_lookup': {**query, 'found': True,
+                                                          'verdict': verdict['level']}}),
             llm_summary=analysis.summary if analysis else '',
         )
-        logger.info(f"Flight lookup for claim #{claim.id}: {query['number']} {query['date']} found")
+        logger.info(f"Flight lookup for claim #{claim.id}: {query['number']} {query['date']} "
+                    f"found, verdict={verdict['level']}")
         return Response({'flight': flight, 'analysis': self._analysis_dict(analysis),
-                         'cached': False, 'note_posted': note_posted},
+                         'verdict': verdict, 'cached': False, 'note_posted': note_posted},
                         status=status.HTTP_200_OK)
 
     def _handle_not_found(self, claim, query):
@@ -1240,8 +1245,9 @@ class ZendeskFlightLookupView(APIView):
 
         if candidates:
             analysis = analyze_flight_match(claim, None, candidates)
+            verdict = derive_flight_verdict(False, analysis, has_candidates=True)
             note = format_candidates_note(
-                query['number'], query['date'], airport, candidates, analysis)
+                query['number'], query['date'], airport, candidates, analysis, verdict)
             note_posted = self._post_note(claim, note)
             ClaimUpdateTimeline.objects.create(
                 claim=claim,
@@ -1253,10 +1259,12 @@ class ZendeskFlightLookupView(APIView):
             )
             return Response({'error_message': error_message, 'candidates': candidates,
                              'analysis': self._analysis_dict(analysis),
+                             'verdict': verdict,
                              'note_posted': note_posted}, status=status.HTTP_200_OK)
 
+        verdict = derive_flight_verdict(False, None)
         note_posted = self._post_note(
-            claim, format_not_found_note(query['number'], query['date']))
+            claim, format_not_found_note(query['number'], query['date'], verdict))
         ClaimUpdateTimeline.objects.create(
             claim=claim,
             zendesk_ticket_id=claim.zd_ticket_id,
@@ -1265,7 +1273,8 @@ class ZendeskFlightLookupView(APIView):
                 **query, 'found': False, 'candidates': 0}}),
             llm_summary='',
         )
-        return Response({'error_message': error_message, 'note_posted': note_posted},
+        return Response({'error_message': error_message, 'verdict': verdict,
+                         'note_posted': note_posted},
                         status=status.HTTP_200_OK)
 
     @staticmethod

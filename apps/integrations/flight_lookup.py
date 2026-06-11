@@ -64,9 +64,13 @@ FLIGHT_CHECK_PROMPT = ALF_BUSINESS_CONTEXT + (
     "search should focus: the departure airport, the arrival airport, or the "
     "airline for items lost on board the aircraft. If candidate flights are "
     "provided instead of a verified flight, say which candidate best fits the "
-    "client's story and why. List concrete mismatches (wrong day, airport not "
-    "on the route, flight not operating that date). Use ONLY the provided "
-    "content; never invent flights, airports or times. "
+    "client's story and why. If the flight has multiple legs (e.g. an "
+    "out-and-back rotation under one number), say which leg the client most "
+    "likely took, using their reported time and airport. List concrete "
+    "mismatches (wrong day, airport not on the route, flight not operating "
+    "that date). Report a mismatch ONLY when the provided content genuinely "
+    "contradicts itself — an empty mismatches list means everything fits. "
+    "Use ONLY the provided content; never invent flights, airports or times. "
     'Respond as JSON: {"summary": "...", "mismatches": ["..."]}.'
 )
 
@@ -281,6 +285,7 @@ def normalize_flight(raw_legs: List[Dict[str, Any]]) -> Dict[str, Any]:
             'to_city': arr_airport.get('municipalityName', ''),
             'scheduled_departure_local': (departure.get('scheduledTime') or {}).get('local', ''),
             'scheduled_arrival_local': (arrival.get('scheduledTime') or {}).get('local', ''),
+            'status': leg.get('status', ''),
         })
     return {
         'number': first.get('number', ''),
@@ -327,53 +332,125 @@ def analyze_flight_match(claim, flight_payload: Optional[Dict[str, Any]] = None,
         return None
 
 
+VERDICT_EMOJI = {
+    'verified': '✅',
+    'check': '⚠️',
+    'unchecked': 'ℹ️',
+    'not_found': '❌',
+}
+
+
+def derive_flight_verdict(found: bool, analysis,
+                          has_candidates: bool = False) -> Dict[str, str]:
+    """Rule-derived, agent-readable verdict — never an invented number.
+    The level is computed from facts (flight found? cross-check ran? did it
+    flag mismatches?); the AI only contributes the mismatch list it already
+    produces, so the label cannot hallucinate optimism."""
+    if not found:
+        label = 'Flight NOT found'
+        if has_candidates:
+            label += ' — likely candidates listed below'
+        return {'level': 'not_found', 'label': label}
+    if analysis is None:
+        return {'level': 'unchecked',
+                'label': 'Flight found — AI cross-check unavailable, verify manually'}
+    if analysis.mismatches:
+        return {'level': 'check',
+                'label': 'Flight found — verify details before acting'}
+    return {'level': 'verified',
+            'label': "Flight verified — consistent with the client's report"}
+
+
+def _verdict_line(verdict) -> str:
+    if not verdict:
+        return ''
+    return f"{VERDICT_EMOJI.get(verdict['level'], '')} {verdict['label']}".strip()
+
+
+def _airport_label(iata: str, name: str, city: str) -> str:
+    """'DTW (Detroit)' — the city is the human anchor; airport name only when
+    the city is missing. Avoids 'Tampa, Tampa' duplication."""
+    place = city or name
+    if iata and place:
+        return f'{iata} ({place})'
+    return iata or place or '?'
+
+
+def _clock(scheduled_local: str) -> str:
+    """'2026-06-11 07:00-04:00' -> '07:00'."""
+    match = re.search(r'\b(\d{2}:\d{2})', scheduled_local or '')
+    return match.group(1) if match else ''
+
+
 def _analysis_block(analysis) -> str:
     if not analysis:
         return ''
-    lines = [f"\nAI check: {analysis.summary}"]
+    lines = ['', f"AI check: {analysis.summary}"]
     if analysis.mismatches:
         lines.append('Mismatches:')
-        lines.extend(f'- {m}' for m in analysis.mismatches)
+        lines.extend(f'• {m}' for m in analysis.mismatches)
     return '\n'.join(lines)
 
 
-def format_flight_note(flight: Dict[str, Any], analysis) -> str:
-    """Internal-note body for a found flight (+ optional AI check block)."""
-    lines = ['Flight lookup (AeroDataBox)']
+def format_flight_note(flight: Dict[str, Any], analysis, verdict=None) -> str:
+    """Internal-note body for a found flight: verdict first, one compact line
+    per leg, then the AI check. Plain text — renders everywhere in Zendesk."""
+    legs = flight.get('legs', [])
+    date = ''
+    if legs:
+        date = (legs[0].get('scheduled_departure_local') or '')[:10]
+
+    lines = []
+    if verdict:
+        lines.append(_verdict_line(verdict))
+        lines.append('')
     header = ' — '.join(p for p in [
         f"Flight {flight.get('number', '')}".strip(),
         flight.get('airline', ''),
-        f"status: {flight.get('status', '')}" if flight.get('status') else '',
+        date,
     ] if p)
     lines.append(header)
-    for leg in flight.get('legs', []):
-        route = (f"{leg['from_iata']} ({leg['from_name']}, {leg['from_city']}) -> "
-                 f"{leg['to_iata']} ({leg['to_name']}, {leg['to_city']})")
-        lines.append(route)
-        times = ' | '.join(p for p in [
-            f"dep {leg['scheduled_departure_local']}" if leg['scheduled_departure_local'] else '',
-            f"arr {leg['scheduled_arrival_local']}" if leg['scheduled_arrival_local'] else '',
-        ] if p)
-        if times:
-            lines.append(f'Scheduled: {times}')
+
+    label_legs = len(legs) > 1
+    for i, leg in enumerate(legs, 1):
+        route = (f"{_airport_label(leg['from_iata'], leg['from_name'], leg['from_city'])} "
+                 f"{_clock(leg['scheduled_departure_local'])} → "
+                 f"{_airport_label(leg['to_iata'], leg['to_name'], leg['to_city'])} "
+                 f"{_clock(leg['scheduled_arrival_local'])}").replace('  ', ' ').strip()
+        status = leg.get('status', '') or (flight.get('status', '') if not label_legs else '')
+        line = f"Leg {i}: {route}" if label_legs else f"Route: {route}"
+        if status:
+            line += f" — {status}"
+        lines.append(line)
+    lines.append('')
+    lines.append('(times are local; via AeroDataBox)')
     return '\n'.join(lines) + _analysis_block(analysis)
 
 
 def format_candidates_note(number: str, date: str, airport_iata: str,
-                           candidates: List[Dict[str, str]], analysis) -> str:
+                           candidates: List[Dict[str, str]], analysis,
+                           verdict=None) -> str:
     """Internal-note body for the not-found-with-candidates rescue."""
-    lines = [
-        f"Flight {number} not found on {date} — likely candidates departing {airport_iata}:",
-    ]
+    lines = []
+    if verdict:
+        lines.append(_verdict_line(verdict))
+        lines.append('')
+    lines.append(f"Flight {number} not found on {date} — "
+                 f"likely candidates departing {airport_iata}:")
     for c in candidates:
         entry = ' '.join(p for p in [
             c.get('number', ''),
-            f"-> {c['destination']}" if c.get('destination') else '',
-            f"dep {c['scheduled_local']}" if c.get('scheduled_local') else '',
+            f"→ {c['destination']}" if c.get('destination') else '',
+            f"dep {_clock(c.get('scheduled_local')) or c.get('scheduled_local', '')}"
+            if c.get('scheduled_local') else '',
         ] if p)
-        lines.append(f'- {entry}')
+        lines.append(f'• {entry}')
+    lines.append('')
+    lines.append('(times are local; via AeroDataBox)')
     return '\n'.join(lines) + _analysis_block(analysis)
 
 
-def format_not_found_note(number: str, date: str) -> str:
-    return f"Flight information was not found for {number} on {date}."
+def format_not_found_note(number: str, date: str, verdict=None) -> str:
+    prefix = _verdict_line(verdict)
+    body = f"Flight information was not found for {number} on {date}."
+    return f'{prefix}\n\n{body}' if prefix else body

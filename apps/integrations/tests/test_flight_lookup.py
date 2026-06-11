@@ -203,27 +203,77 @@ class AnalyzeFlightMatchTests(TestCase):
 
 
 class FormatNotesTests(TestCase):
-    def test_found_note_with_analysis(self):
-        from apps.integrations.flight_lookup import format_flight_note, normalize_flight
-        note = format_flight_note(normalize_flight([RAW_LEG]),
-                                  _fake_check(mismatches=['Client selected OTP; loss after landing at CDG']))
+    def test_found_note_with_analysis_and_verdict(self):
+        from apps.integrations.flight_lookup import (
+            derive_flight_verdict, format_flight_note, normalize_flight)
+        analysis = _fake_check(mismatches=['Client selected OTP; loss after landing at CDG'])
+        verdict = derive_flight_verdict(True, analysis)
+        note = format_flight_note(normalize_flight([RAW_LEG]), analysis, verdict)
+        first_line = note.splitlines()[0]
+        self.assertIn('verify details', first_line)        # verdict leads the note
+        self.assertIn('⚠️', first_line)
         self.assertIn('Flight RO 301', note)
-        self.assertIn('OTP', note)
+        self.assertIn('OTP (Bucharest) 14:20 → CDG (Paris) 17:05', note)
         self.assertIn('AI check:', note)
-        self.assertIn('- Client selected OTP', note)
+        self.assertIn('• Client selected OTP', note)
+
+    def test_multi_leg_note_labels_legs(self):
+        from apps.integrations.flight_lookup import format_flight_note, normalize_flight
+        leg2 = {
+            'number': 'RO 301', 'status': 'Expected',
+            'departure': {'airport': {'iata': 'CDG', 'name': 'Charles de Gaulle',
+                                      'municipalityName': 'Paris'},
+                          'scheduledTime': {'local': '2026-06-01 19:10+02:00'}},
+            'arrival': {'airport': {'iata': 'OTP', 'name': 'Henri Coanda',
+                                    'municipalityName': 'Bucharest'},
+                        'scheduledTime': {'local': '2026-06-01 22:55+03:00'}},
+        }
+        note = format_flight_note(normalize_flight([dict(RAW_LEG, status='Arrived'), leg2]), None)
+        self.assertIn('Leg 1: OTP (Bucharest) 14:20 → CDG (Paris) 17:05 — Arrived', note)
+        self.assertIn('Leg 2: CDG (Paris) 19:10 → OTP (Bucharest) 22:55 — Expected', note)
 
     def test_candidates_note(self):
-        from apps.integrations.flight_lookup import format_candidates_note
+        from apps.integrations.flight_lookup import (
+            derive_flight_verdict, format_candidates_note)
+        verdict = derive_flight_verdict(False, None, has_candidates=True)
         note = format_candidates_note('RO3O1', '2026-06-01', 'OTP',
                                       [{'number': 'RO301', 'destination': 'CDG Charles de Gaulle',
-                                        'scheduled_local': '14:20'}], None)
+                                        'scheduled_local': '2026-06-01 14:20+03:00'}], None, verdict)
+        self.assertIn('❌', note.splitlines()[0])
         self.assertIn('RO3O1 not found', note)
-        self.assertIn('- RO301 -> CDG', note)
+        self.assertIn('• RO301 → CDG Charles de Gaulle dep 14:20', note)
 
     def test_not_found_note(self):
-        from apps.integrations.flight_lookup import format_not_found_note
-        self.assertEqual(format_not_found_note('RO301', '2026-06-01'),
-                         'Flight information was not found for RO301 on 2026-06-01.')
+        from apps.integrations.flight_lookup import (
+            derive_flight_verdict, format_not_found_note)
+        note = format_not_found_note('RO301', '2026-06-01',
+                                     derive_flight_verdict(False, None))
+        self.assertIn('❌ Flight NOT found', note.splitlines()[0])
+        self.assertIn('Flight information was not found for RO301 on 2026-06-01.', note)
+
+
+class DeriveFlightVerdictTests(TestCase):
+    def test_verified_when_found_and_clean(self):
+        from apps.integrations.flight_lookup import derive_flight_verdict
+        verdict = derive_flight_verdict(True, _fake_check(mismatches=[]))
+        self.assertEqual(verdict['level'], 'verified')
+
+    def test_check_when_mismatches_flagged(self):
+        from apps.integrations.flight_lookup import derive_flight_verdict
+        verdict = derive_flight_verdict(True, _fake_check(mismatches=['wrong day']))
+        self.assertEqual(verdict['level'], 'check')
+
+    def test_unchecked_when_ai_failed(self):
+        from apps.integrations.flight_lookup import derive_flight_verdict
+        verdict = derive_flight_verdict(True, None)
+        self.assertEqual(verdict['level'], 'unchecked')
+        self.assertIn('verify manually', verdict['label'])
+
+    def test_not_found_with_and_without_candidates(self):
+        from apps.integrations.flight_lookup import derive_flight_verdict
+        self.assertEqual(derive_flight_verdict(False, None)['level'], 'not_found')
+        self.assertIn('candidates',
+                      derive_flight_verdict(False, None, has_candidates=True)['label'])
 
 
 class FlightLookupEndpointTests(TestCase):
@@ -465,3 +515,28 @@ class UserAgentHeaderTests(TestCase):
         _aerodatabox_get('/flights/number/RO301/2026-06-01')
         request = mock_urlopen.call_args.args[0]
         self.assertEqual(request.get_header('User-agent'), 'LORA-flight-lookup/1.0')
+
+
+class VerdictInEndpointTests(FlightLookupEndpointTests):
+    """The verdict travels in the response AND is stored inside flight_data
+    (so cached responses keep it)."""
+
+    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.analyze_flight_match', return_value=_fake_check())
+    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
+    def test_success_response_and_stored_verdict(self, *_mocks):
+        response = self._post()
+        data = response.json()
+        self.assertEqual(data['verdict']['level'], 'verified')
+        self.claim.refresh_from_db()
+        self.assertEqual(self.claim.flight_data['verdict']['level'], 'verified')
+
+    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.analyze_flight_match',
+           return_value=_fake_check(mismatches=['airport not on route']))
+    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
+    def test_mismatch_gives_check_verdict_and_leads_note(self, _ml, _ma, mock_post):
+        response = self._post()
+        self.assertEqual(response.json()['verdict']['level'], 'check')
+        note_body = mock_post.call_args.args[1]
+        self.assertIn('⚠️', note_body.splitlines()[0])

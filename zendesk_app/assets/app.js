@@ -286,6 +286,10 @@ async function flightLookup(refresh) {
 function renderFlightResult(data) {
   if (data.error) return '<span class="error">' + escapeHtml(data.error) + '</span>';
   let html = '';
+  const verdict = (data.flight && data.flight.verdict) || data.verdict;
+  if (verdict && verdict.label) {
+    html += `<div class="fr-chip v-${escapeHtml(verdict.level || '')}">${escapeHtml(verdict.label)}</div>`;
+  }
   if (data.flight) {
     const f = data.flight;
     const head = ['✈ ' + (f.number || ''), f.airline ? '— ' + f.airline : '', f.status ? '· ' + f.status : '']
