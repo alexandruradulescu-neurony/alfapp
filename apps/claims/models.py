@@ -257,7 +257,7 @@ class ClaimUpdateTimeline(models.Model):
         ]
     
     def __str__(self):
-        return f"Update for Claim #{self.claim_id} - {self.update_type} ({self.created_at|date:'M d, Y'})"
+        return f"Update for Claim #{self.claim_id} - {self.update_type} ({self.created_at:%b %d, %Y})"
 
 
 class ClaimEvidence(models.Model):

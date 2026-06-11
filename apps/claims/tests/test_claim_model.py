@@ -652,3 +652,15 @@ class TestClaimModelQueries:
         assert claim2.id == claim.id
         assert claim2.client_email == 'updated@example.com'
         assert claim2.status == 'Found'
+
+
+class ClaimUpdateTimelineStrTests(TestCase):
+    def test_str_does_not_crash_and_mentions_update_type(self):
+        from apps.claims.models import Claim, ClaimUpdateTimeline
+        claim = Claim.objects.create(client_email='str-test@example.com')
+        entry = ClaimUpdateTimeline.objects.create(
+            claim=claim, zendesk_ticket_id='123', update_type='STATUS_CHANGE',
+        )
+        text = str(entry)
+        self.assertIn('STATUS_CHANGE', text)
+        self.assertIn(str(claim.id), text)
