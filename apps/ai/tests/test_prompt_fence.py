@@ -42,6 +42,8 @@ def test_allowed_tags_includes_expected_set():
         "email_body", "email_subject",
         "ticket_description", "ticket_subject",
         "zendesk_comment", "claim_description",
+        # flight-lookup cross-check channels (client-typed text)
+        "client_reported_flight", "client_lost_location", "client_incident_details",
     }
     assert expected.issubset(ALLOWED_TAGS)
 

@@ -356,3 +356,45 @@ class FlightLookupEndpointTests(TestCase):
         response = self._post()
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()['note_posted'])
+
+
+class NotFoundSignalTests(TestCase):
+    """AeroDataBox signals 'no data' with HTTP 204 + empty body; _aerodatabox_get
+    maps that to None and both callers must treat it as not-found, not outage."""
+
+    @patch('apps.integrations.flight_lookup._aerodatabox_get', return_value=None)
+    def test_lookup_204_means_not_found(self, _mock):
+        from apps.integrations.flight_lookup import lookup_flight
+        self.assertEqual(lookup_flight('RO301', '2026-06-01'), [])
+
+    @patch('apps.integrations.flight_lookup._aerodatabox_get', return_value=None)
+    def test_candidates_204_means_no_candidates(self, _mock):
+        from apps.integrations.flight_lookup import find_candidate_flights
+        self.assertEqual(find_candidate_flights('OTP', '2026-06-01'), [])
+
+    @patch('apps.integrations.flight_lookup.urllib.request.urlopen')
+    def test_get_returns_none_on_204_empty_body(self, mock_urlopen):
+        from apps.integrations.flight_lookup import _aerodatabox_get
+        ss = SystemSettings.get_instance()
+        ss.aerodatabox_api_key = 'k'
+        ss.save()
+        response = mock_urlopen.return_value.__enter__.return_value
+        response.status = 204
+        response.read.return_value = b''
+        self.assertIsNone(_aerodatabox_get('/flights/number/RO301/2026-06-01'))
+
+
+class FidsWindowTests(TestCase):
+    @patch('apps.integrations.flight_lookup._aerodatabox_get', return_value={'departures': []})
+    def test_default_window_stays_under_12_hours(self, mock_get):
+        from apps.integrations.flight_lookup import find_candidate_flights
+        find_candidate_flights('OTP', '2026-06-01', None)
+        path = mock_get.call_args.args[0]
+        self.assertIn('/2026-06-01T08:00/2026-06-01T19:59', path)
+
+
+class TimeHintIsoTests(TestCase):
+    def test_iso_t_separated_datetime(self):
+        from apps.integrations.flight_lookup import parse_time_hint
+        self.assertEqual(parse_time_hint('Date/Time: 2026-06-01T14:20:00'),
+                         dt_time(14, 20))

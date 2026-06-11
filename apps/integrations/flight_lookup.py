@@ -40,8 +40,10 @@ _ISO_DATE_PATTERN = re.compile(r'\b(\d{4}-\d{2}-\d{2})\b')
 _TIME_HINT_PATTERN = re.compile(r'\b(\d{1,2}):(\d{2})\b')
 _PAREN_IATA_PATTERN = re.compile(r'\(([A-Za-z]{3})\)')
 _IATA_TOKEN_PATTERN = re.compile(r'\b[A-Z]{3}\b')
-# 3-letter English words that show up in airport names and are not IATA hints.
-_IATA_STOPWORDS = {'NEW', 'THE', 'AND', 'FOR', 'INT', 'AIR', 'DEL', 'VON'}
+# 3-letter words that show up in airport names and are not IATA hints here
+# (LOS/SAN are real IATA codes, but as words they are far likelier city-name
+# fragments like "Los Angeles" / "San Francisco" than intended codes).
+_IATA_STOPWORDS = {'NEW', 'THE', 'AND', 'FOR', 'INT', 'AIR', 'DEL', 'VON', 'LOS', 'SAN'}
 
 FLIGHT_CHECK_PROMPT = ALF_BUSINESS_CONTEXT + (
     "You are validating flight data for a lost-item case. Compare the verified "
@@ -106,6 +108,9 @@ def parse_airport_hint(flight_details: str) -> Optional[str]:
 def parse_time_hint(flight_details: str) -> Optional[dt_time]:
     """HH:MM from the 'Date/Time:' segment, or None."""
     seg = _segment(flight_details or '', 'Date/Time')
+    # ISO 'T' separators would make the first HH:MM match land on minutes
+    # (…T14:20:00 -> '20:00'); normalize to a space first.
+    seg = seg.replace('T', ' ')
     match = _TIME_HINT_PATTERN.search(seg)
     if not match:
         return None
@@ -131,13 +136,17 @@ def _aerodatabox_get(path: str) -> Any:
         method='GET',
     )
     with urllib.request.urlopen(req, timeout=AERODATABOX_TIMEOUT) as response:
-        return json.loads(response.read().decode('utf-8'))
+        body = response.read()
+        # AeroDataBox signals "no data" with HTTP 204 + empty body (NOT 404).
+        if response.status == 204 or not body:
+            return None
+        return json.loads(body.decode('utf-8'))
 
 
 def lookup_flight(number: str, date: str) -> Optional[List[Dict[str, Any]]]:
     """Flight legs for a flight number on a local date.
     Returns a list of raw leg dicts; [] when the provider answered but found
-    nothing (incl. HTTP 404); None on transport/provider errors."""
+    nothing (HTTP 204 empty body, or 404); None on transport/provider errors."""
     try:
         result = _aerodatabox_get(f'/flights/number/{number}/{date}')
     except FlightProviderNotConfigured:
@@ -160,14 +169,16 @@ def find_candidate_flights(airport_iata: str, date: str,
                            destination_hint: str = '') -> Optional[List[Dict[str, str]]]:
     """Departures from the stated airport around the stated time — the rescue
     path when the flight number is not found. Window: time hint ±3h, else
-    08:00-20:00 (AeroDataBox FIDS windows are capped at 12h per call).
+    08:00-19:59 (AeroDataBox FIDS windows must stay UNDER 12h per call).
+    `destination_hint` is accepted for future wiring; the current caller has
+    no reliable destination source and passes nothing.
     Returns compact candidates capped at CANDIDATE_LIMIT; [] when none;
     None on transport/provider errors."""
     if time_hint:
         from_hour = max(time_hint.hour - 3, 0)
         to_hour = min(time_hint.hour + 3, 23)
     else:
-        from_hour, to_hour = 8, 20
+        from_hour, to_hour = 8, 19
     path = (f'/flights/airports/iata/{airport_iata}'
             f'/{date}T{from_hour:02d}:00/{date}T{to_hour:02d}:59'
             f'?direction=Departure&withCancelled=true&withCodeshared=false&withLeg=false')
@@ -184,6 +195,8 @@ def find_candidate_flights(airport_iata: str, date: str,
         logger.error(f"AeroDataBox departures failed for {airport_iata} {date}: {e}")
         return None
 
+    if not result:
+        return []
     candidates = []
     wanted = (destination_hint or '').strip().upper()
     for dep in (result.get('departures') or []):
