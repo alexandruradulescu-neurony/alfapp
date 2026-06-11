@@ -25,6 +25,7 @@ from apps.config.models import SystemSettings
 from apps.payments.models import Dispute, Refund
 from apps.payments.refund_service import RefundService
 from apps.integrations.services import tag_zendesk_ticket_as_refunded, add_refund_comment_to_zendesk
+from apps.integrations.briefing import ALF_BUSINESS_CONTEXT, refresh_claim_summary
 
 logger = logging.getLogger(__name__)
 
@@ -334,24 +335,6 @@ class ZendeskSidebarView(APIView):
             'total': submission_confirmations,
             'responses_received': general_correspondence,
         }
-
-
-ALF_BUSINESS_CONTEXT = (
-    "Airport Lost Found (ALF) is a paid concierge service: travelers who lost an item "
-    "at an airport or on a flight pay ALF to run the recovery for them. Clients submit "
-    "a web form and never email; ALF reports the loss to the airport, airline and "
-    "security (TSA) lost-and-found offices and then corresponds with those institutions "
-    "by email and phone. Inbound emails come from institutions, not clients. Case "
-    "lifecycle: reported -> searching -> found or not found -> retrieval (client pickup, "
-    "authorized person, or courier/UPS at the client's expense) -> delivered -> closed. "
-    "ALF has no staff at airports and cannot search physically — it works by reporting, "
-    "calling and emailing. Comments marked 'internal note' are ALF staff notes; 'public' "
-    "ones are visible to the client. Comments are listed in chronological order. Person "
-    "names and contact details may appear as <NAME_...>/<EMAIL_...>/<PHONE_...> "
-    "placeholders — treat each placeholder as that person or value and repeat it "
-    "verbatim when referring to them, INCLUDING the angle brackets "
-    "(write <NAME_12ab34cd>, never NAME_12ab34cd). "
-)
 
 
 class ZendeskBriefingView(APIView):
