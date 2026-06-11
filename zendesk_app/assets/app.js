@@ -302,6 +302,10 @@ function renderFlightResult(data) {
         l.scheduled_arrival_local ? 'arr ' + l.scheduled_arrival_local : '',
       ].filter(Boolean).join(' · ');
       if (times) html += `<div class="fr-route muted">${escapeHtml(times)}</div>`;
+      const depBits = [l.from_terminal ? 'Terminal ' + l.from_terminal : '', l.from_gate ? 'Gate ' + l.from_gate : ''].filter(Boolean).join(', ');
+      const arrBits = [l.to_terminal ? 'Terminal ' + l.to_terminal : '', l.to_gate ? 'Gate ' + l.to_gate : '', l.to_baggage_belt ? 'Belt ' + l.to_baggage_belt : ''].filter(Boolean).join(', ');
+      const fac = [depBits ? 'dep ' + depBits : '', arrBits ? 'arr ' + arrBits : ''].filter(Boolean).join(' · ');
+      if (fac) html += `<div class="fr-route muted">${escapeHtml(fac)}</div>`;
     });
   } else if (data.error_message) {
     html += `<div class="fr-head">${escapeHtml(data.error_message)}</div>`;

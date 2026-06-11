@@ -702,3 +702,34 @@ class OldDateHintTests(TestCase):
                                  HTTP_AUTHORIZATION=f'Bearer {SECRET}')
         self.assertEqual(response.status_code, 200)
         self.assertIn('history window', response.json()['error_message'])
+
+
+class TerminalGateBeltTests(TestCase):
+    """Terminal/gate (and arrival baggage belt) surface when the provider has
+    them; silently absent otherwise (they appear near flight time and fade
+    from history)."""
+
+    LEG_WITH_FACILITIES = {
+        **RAW_LEG,
+        'departure': {**RAW_LEG['departure'], 'terminal': 'B', 'gate': '22'},
+        'arrival': {**RAW_LEG['arrival'], 'terminal': '2E', 'baggageBelt': '7'},
+    }
+
+    def test_normalize_carries_facilities(self):
+        from apps.integrations.flight_lookup import normalize_flight
+        leg = normalize_flight([self.LEG_WITH_FACILITIES])['legs'][0]
+        self.assertEqual(leg['from_terminal'], 'B')
+        self.assertEqual(leg['from_gate'], '22')
+        self.assertEqual(leg['to_terminal'], '2E')
+        self.assertEqual(leg['to_baggage_belt'], '7')
+
+    def test_note_shows_facilities_line(self):
+        from apps.integrations.flight_lookup import format_flight_note, normalize_flight
+        note = format_flight_note(normalize_flight([self.LEG_WITH_FACILITIES]), None)
+        self.assertIn('dep Terminal B, Gate 22 · arr Terminal 2E, Belt 7', note)
+
+    def test_note_omits_line_when_absent(self):
+        from apps.integrations.flight_lookup import format_flight_note, normalize_flight
+        note = format_flight_note(normalize_flight([RAW_LEG]), None)
+        self.assertNotIn('Terminal', note)
+        self.assertNotIn('Gate', note)

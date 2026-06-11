@@ -321,6 +321,11 @@ def normalize_flight(raw_legs: List[Dict[str, Any]]) -> Dict[str, Any]:
             'scheduled_departure_local': (departure.get('scheduledTime') or {}).get('local', ''),
             'scheduled_arrival_local': (arrival.get('scheduledTime') or {}).get('local', ''),
             'status': leg.get('status', ''),
+            'from_terminal': departure.get('terminal', '') or '',
+            'from_gate': departure.get('gate', '') or '',
+            'to_terminal': arrival.get('terminal', '') or '',
+            'to_gate': arrival.get('gate', '') or '',
+            'to_baggage_belt': arrival.get('baggageBelt', '') or '',
         })
     return {
         'number': first.get('number', ''),
@@ -427,6 +432,27 @@ def _clock(scheduled_local: str) -> str:
     return match.group(1) if match else ''
 
 
+def _leg_facilities(leg: Dict[str, Any]) -> str:
+    """'dep Terminal B, Gate 22 · arr Terminal 2E, Belt 7' — only the pieces
+    the provider actually has; '' when none (gates/belts appear close to the
+    flight and fade from history)."""
+    dep_bits = [bit for bit in [
+        f"Terminal {leg.get('from_terminal')}" if leg.get('from_terminal') else '',
+        f"Gate {leg.get('from_gate')}" if leg.get('from_gate') else '',
+    ] if bit]
+    arr_bits = [bit for bit in [
+        f"Terminal {leg.get('to_terminal')}" if leg.get('to_terminal') else '',
+        f"Gate {leg.get('to_gate')}" if leg.get('to_gate') else '',
+        f"Belt {leg.get('to_baggage_belt')}" if leg.get('to_baggage_belt') else '',
+    ] if bit]
+    parts = []
+    if dep_bits:
+        parts.append('dep ' + ', '.join(dep_bits))
+    if arr_bits:
+        parts.append('arr ' + ', '.join(arr_bits))
+    return ' · '.join(parts)
+
+
 def _analysis_block(analysis) -> str:
     if not analysis:
         return ''
@@ -467,6 +493,9 @@ def format_flight_note(flight: Dict[str, Any], analysis, verdict=None) -> str:
         if status:
             line += f" — {status}"
         lines.append(line)
+        facilities = _leg_facilities(leg)
+        if facilities:
+            lines.append(facilities)
     lines.append('')
     lines.append('(times are local; via AeroDataBox)')
     return '\n'.join(lines) + _analysis_block(analysis)
