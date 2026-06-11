@@ -176,6 +176,9 @@ def _aerodatabox_get(path: str) -> Any:
         headers={
             'X-RapidAPI-Key': api_key,
             'X-RapidAPI-Host': AERODATABOX_HOST,
+            # RapidAPI's edge rejects Python's default urllib User-Agent with
+            # 403 (verified live: same key, curl 200 vs urllib 403).
+            'User-Agent': 'LORA-flight-lookup/1.0',
         },
         method='GET',
     )

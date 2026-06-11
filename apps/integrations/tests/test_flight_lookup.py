@@ -447,3 +447,21 @@ class HumanDateFormatTests(TestCase):
     def test_airport_hint_from_tampa(self):
         from apps.integrations.flight_lookup import parse_airport_hint
         self.assertEqual(parse_airport_hint(self.TAMPA), 'TPA')
+
+
+class UserAgentHeaderTests(TestCase):
+    """RapidAPI's edge 403s Python's default urllib User-Agent (verified live);
+    every AeroDataBox request must carry our own UA."""
+
+    @patch('apps.integrations.flight_lookup.urllib.request.urlopen')
+    def test_requests_carry_custom_user_agent(self, mock_urlopen):
+        from apps.integrations.flight_lookup import _aerodatabox_get
+        ss = SystemSettings.get_instance()
+        ss.aerodatabox_api_key = 'k'
+        ss.save()
+        response = mock_urlopen.return_value.__enter__.return_value
+        response.status = 200
+        response.read.return_value = b'[]'
+        _aerodatabox_get('/flights/number/RO301/2026-06-01')
+        request = mock_urlopen.call_args.args[0]
+        self.assertEqual(request.get_header('User-agent'), 'LORA-flight-lookup/1.0')
