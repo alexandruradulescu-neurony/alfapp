@@ -74,3 +74,33 @@ class RefreshClaimSummaryTests(TestCase):
         self.claim.refresh_from_db()
         self.assertEqual(self.claim.ai_summary, 'old text')
         self.assertIsNone(self.claim.ai_summary_updated_at)
+
+
+class GenerateClaimSummaryPIIAndEmptyTests(TestCase):
+    def setUp(self):
+        self.claim = Claim.objects.create(
+            client_email='sum@example.com', client_name='Ana Pop',
+            zd_ticket_id='779', object_description='Black wallet')
+        self.ticket_data = {'subject': 'ALF1234567', 'description': 'Lost wallet',
+                            'created_at': '2026-06-01T09:00:00Z', 'comments': []}
+
+    @patch('apps.integrations.briefing.AIClient.complete')
+    def test_ticket_text_stays_in_untrusted_channel(self, mock_complete):
+        from apps.integrations.briefing import generate_claim_summary
+        mock_complete.return_value = _fake_briefing()
+        generate_claim_summary(self.claim, {
+            'subject': 'ALF1234567', 'description': 'SENSITIVE-TICKET-TEXT',
+            'created_at': 'x', 'comments': [
+                {'author': {'name': 'TSA'}, 'body': 'SENSITIVE-COMMENT', 'public': False,
+                 'created_at': '2026-06-01T10:00:00Z'}]})
+        kwargs = mock_complete.call_args.kwargs
+        self.assertIn('SENSITIVE-TICKET-TEXT', str(kwargs['untrusted']))
+        self.assertIn('SENSITIVE-COMMENT', str(kwargs['untrusted']))
+        self.assertNotIn('SENSITIVE-TICKET-TEXT', str(kwargs['trusted']))
+        self.assertNotIn('SENSITIVE-TICKET-TEXT', kwargs['system_prompt'])
+
+    @patch('apps.integrations.briefing.AIClient.complete')
+    def test_empty_summary_is_treated_as_failure(self, mock_complete):
+        from apps.integrations.briefing import generate_claim_summary
+        mock_complete.return_value = _fake_briefing('')
+        self.assertIsNone(generate_claim_summary(self.claim, self.ticket_data))

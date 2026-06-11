@@ -48,6 +48,7 @@ ALF_BUSINESS_CONTEXT = (
 
 SUMMARY_PROMPT = ALF_BUSINESS_CONTEXT + (
     "Write a management summary of at most 4 sentences for this lost-item case. "
+    "Keep it under 600 characters. "
     "Lead with the current workflow status and what it means for the case, then "
     "the key facts (what was lost, where, search position), then what is "
     "currently awaited and from whom. Use ONLY facts present in the provided "
@@ -83,7 +84,7 @@ def generate_claim_summary(claim, ticket_data):
         'subject': ticket_data.get('subject', ''),
         'description': ticket_data.get('description', ''),
         'ticket_created_at': ticket_data.get('created_at', ''),
-        'comments': normalize_fetched_comments(ticket_data.get('comments')),
+        'comments': normalize_fetched_comments(ticket_data.get('comments'))[-30:],
     })
     known_pii = {'aliases': [], 'names': [n for n in [claim.client_name] if n]}
     try:
@@ -100,7 +101,11 @@ def generate_claim_summary(claim, ticket_data):
     except Exception as e:
         logger.warning(f"Claim summary generation failed for claim #{claim.id}: {e}")
         return None
-    return result.summary
+    summary = (result.summary or '').strip()
+    if not summary:
+        logger.warning(f"Claim summary came back empty for claim #{claim.id}")
+        return None
+    return summary
 
 
 def refresh_claim_summary(claim, ticket_data) -> bool:

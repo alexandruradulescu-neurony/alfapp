@@ -24,7 +24,16 @@ from apps.communications.models import EmailLog
 from apps.config.models import SystemSettings
 from apps.payments.models import Dispute, Refund
 from apps.payments.refund_service import RefundService
-from apps.integrations.services import tag_zendesk_ticket_as_refunded, add_refund_comment_to_zendesk
+from django.utils import timezone
+
+from apps.integrations.services import (
+    tag_zendesk_ticket_as_refunded,
+    add_refund_comment_to_zendesk,
+    fetch_zendesk_ticket,
+    fetch_zendesk_comments,
+    resolve_custom_status,
+)
+from apps.claims.services import compute_deadline_at
 from apps.integrations.briefing import ALF_BUSINESS_CONTEXT, refresh_claim_summary
 
 logger = logging.getLogger(__name__)
@@ -863,74 +872,52 @@ class ZendeskClaimWebhookView(APIView):
 
     def post(self, request):
         """
-        Process Zendesk claim creation webhook.
+        Process Zendesk claim creation or status-change webhook.
         """
         try:
             data = request.data
 
-            # DEBUG: Log full webhook payload for troubleshooting
-            import json
-            logger.info(f"=== ZENDESK WEBHOOK PAYLOAD ===")
-            logger.info(f"Headers: {dict(request.headers)}")
-            logger.info(f"Body: {json.dumps(data, indent=2, default=str)}")
-            logger.info(f"=== END PAYLOAD ===")
+            # Auth is mandatory: a webhook without the correct shared secret
+            # is rejected before anything is parsed or logged.
+            webhook_secret = request.headers.get('X-Webhook-Secret', '')
+            expected_secret = SystemSettings.get_instance().sidebar_secret_token or ''
+            if not (webhook_secret and expected_secret
+                    and hmac.compare_digest(webhook_secret, expected_secret)):
+                logger.warning("Rejected Zendesk webhook: missing or invalid X-Webhook-Secret")
+                return Response({'error': 'Invalid webhook secret'},
+                                status=status.HTTP_401_UNAUTHORIZED)
 
-            # Extract data from Zendesk webhook payload structure
-            # event.current contains the custom status ID
             event_data = data.get('event', {})
             detail_data = data.get('detail', {})
-
-            # Get custom status from event.current or detail.custom_status
-            custom_status = event_data.get('current') or detail_data.get('custom_status', '')
-
-            # Get ticket details from detail object
+            custom_status = str(event_data.get('current')
+                                or detail_data.get('custom_status', '') or '')
             ticket_id = detail_data.get('id') or data.get('ticket_id')
             subject = detail_data.get('subject', '')
-            requester_id = detail_data.get('requester_id')
 
             if not ticket_id:
-                logger.warning(f"Missing ticket_id in webhook payload: {data}")
+                logger.warning("Zendesk webhook missing ticket id")
                 return Response(
                     {'error': 'Missing required field: ticket_id'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
-            # Verify webhook secret
-            webhook_secret = request.headers.get('X-Webhook-Secret', '')
-            if webhook_secret:
-                system_settings = SystemSettings.get_instance()
-                expected_secret = system_settings.sidebar_secret_token
-                if not hmac.compare_digest(webhook_secret, expected_secret):
-                    logger.warning("Invalid webhook secret for claim creation")
-                    return Response(
-                        {'error': 'Invalid webhook secret'},
-                        status=status.HTTP_401_UNAUTHORIZED
-                    )
+            ticket_id = str(ticket_id)
 
-            # Validate status - must be "Investigation Initiated" (custom status ID)
-            if str(custom_status) != self.INVESTIGATION_STATUS_ID:
-                logger.info(f"Ignoring webhook for ticket {ticket_id}: custom_status '{custom_status}' is not investigation initiated")
+            claim = Claim.objects.filter(zd_ticket_id=ticket_id).first()
+
+            if claim:
+                return self._handle_status_change(claim, custom_status)
+
+            if custom_status != self.INVESTIGATION_STATUS_ID:
+                logger.info(
+                    f"Ignoring webhook for ticket {ticket_id}: no claim and "
+                    f"custom_status '{custom_status}' is not investigation initiated")
                 return Response({
-                    'message': 'Ignored: status is not investigation initiated',
+                    'message': 'Ignored: no claim and status is not investigation initiated',
                     'custom_status': custom_status,
                 }, status=status.HTTP_200_OK)
 
-            # Check if claim already exists (idempotency)
-            from apps.claims.models import Claim
-            existing_claim = Claim.objects.filter(zd_ticket_id=ticket_id).first()
-            
-            if existing_claim:
-                logger.info(f"Claim already exists for Zendesk ticket {ticket_id} (Claim #{existing_claim.id})")
-                return Response({
-                    'message': 'Claim already exists',
-                    'claim_id': existing_claim.id,
-                    'alf_claim_id': existing_claim.alf_claim_id,
-                }, status=status.HTTP_200_OK)
-            
-            # Fetch full ticket data from Zendesk API
+            # New ticket at investigation-initiated status — create the claim.
             from apps.integrations.services import (
-                fetch_zendesk_ticket,
-                fetch_zendesk_comments,
                 analyze_zendesk_ticket_for_claim,
                 parse_alf_claim_id_from_subject,
             )
@@ -946,30 +933,18 @@ class ZendeskClaimWebhookView(APIView):
             # Fetch comments for LLM analysis
             comments = fetch_zendesk_comments(ticket_id)
             ticket_data['comments'] = comments
-            
+
             # Parse ALF claim ID from subject
             alf_claim_id = parse_alf_claim_id_from_subject(subject)
-            
+
             if not alf_claim_id:
                 logger.warning(f"No ALF claim ID found in subject: {subject}")
                 # Generate a placeholder if not found (should not happen)
                 alf_claim_id = f"ALF{ticket_id.zfill(7)}"
 
-            # DEBUG: Log ticket data before LLM extraction
-            logger.info(f"=== TICKET DATA FOR LLM ===")
-            logger.info(f"Ticket ID: {ticket_id}")
-            logger.info(f"Subject: {subject}")
-            logger.info(f"Ticket data keys: {list(ticket_data.keys())}")
-            logger.info(f"Requester ID: {ticket_data.get('requester_id')}")
-            logger.info(f"Comments count: {len(ticket_data.get('comments', []))}")
-            logger.info(f"=== END TICKET DATA ===")
-
             # Call LLM to extract claim data
             try:
                 extracted_data = analyze_zendesk_ticket_for_claim(ticket_data)
-                logger.info(f"=== LLM EXTRACTION RESULT ===")
-                logger.info(f"Extracted data: {extracted_data}")
-                logger.info(f"=== END EXTRACTION RESULT ===")
             except Exception as e:
                 logger.error(f"LLM extraction failed: {e}", exc_info=True)
                 # Use empty data - will trigger fallback to requester email
@@ -995,7 +970,6 @@ class ZendeskClaimWebhookView(APIView):
 
             # Determine if LLM extraction failed
             llm_failed = not extracted_data.get('client_email') and not extracted_data.get('flight_details')
-            logger.info(f"LLM extraction failed flag: {llm_failed}")
 
             # Use requester email as fallback if LLM didn't extract email
             client_email = extracted_data.get('client_email', '')
@@ -1026,27 +1000,13 @@ class ZendeskClaimWebhookView(APIView):
                     f"Claim will be flagged for manual review."
                 )
 
-            # Generate AI summary from extracted data (for claim detail page display)
-            ai_summary_parts = []
-            if extracted_data.get('client_name'):
-                ai_summary_parts.append(f"Client: {extracted_data['client_name']}.")
-            if extracted_data.get('flight_details'):
-                ai_summary_parts.append(f"Flight: {extracted_data['flight_details']}.")
-            if extracted_data.get('object_description'):
-                ai_summary_parts.append(f"Lost item: {extracted_data['object_description']}.")
-            if extracted_data.get('phone'):
-                ai_summary_parts.append(f"Phone: {extracted_data['phone']}.")
-            if extracted_data.get('alternate_email'):
-                ai_summary_parts.append(f"Alternate email: {extracted_data['alternate_email']}.")
-            
-            ai_summary = ' '.join(ai_summary_parts) if ai_summary_parts else ''
-
-            # Create Claim. The early existence check above is a cheap optimization
-            # for the common case; concurrent webhooks can still race past it. The
-            # DB-level unique constraint on zd_ticket_id catches that race here.
-            # The atomic() savepoint isolates the create so that an IntegrityError
-            # only rolls back the failed insert — not any surrounding transaction —
-            # leaving us free to query for the existing Claim afterward.
+            # Create Claim. The Claim.objects.filter check above is a cheap
+            # optimization for the common case; concurrent webhooks can still
+            # race past it. The DB-level unique constraint on zd_ticket_id
+            # catches that race here. The atomic() savepoint isolates the
+            # create so that an IntegrityError only rolls back the failed
+            # insert — not any surrounding transaction — leaving us free to
+            # query for the existing Claim afterward.
             try:
                 with transaction.atomic():
                     claim = Claim.objects.create(
@@ -1073,9 +1033,16 @@ class ZendeskClaimWebhookView(APIView):
                         payment_status=extracted_data.get('payment_status', ''),
                         woocommerce_id=extracted_data.get('woocommerce_id', ''),
                         tracking_info=extracted_data.get('tracking_info', ''),
-                        status='Received',
+                        status='Investigation initiated',
+                        status_category='open',
+                        status_changed_at=timezone.now(),
+                        deadline_at=compute_deadline_at(
+                            _safe_date(extracted_data.get('deadline_date', '')),
+                            extracted_data.get('deadline_time', ''),
+                            extracted_data.get('deadline_timezone', ''),
+                        ),
                         llm_extraction_failed=llm_failed,
-                        ai_summary=ai_summary,
+                        ai_summary='',
                     )
             except IntegrityError:
                 # Another concurrent webhook created the Claim between our early
@@ -1100,6 +1067,9 @@ class ZendeskClaimWebhookView(APIView):
                 f"LLM failed: {llm_failed}"
             )
 
+            # Real AI summary (best-effort — creation never fails on AI)
+            refresh_claim_summary(claim, ticket_data)
+
             return Response({
                 'message': 'Claim created successfully',
                 'claim_id': claim.id,
@@ -1114,3 +1084,46 @@ class ZendeskClaimWebhookView(APIView):
                 {'error': 'Internal server error'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    def _handle_status_change(self, claim, custom_status_id):
+        """Mirror a Zendesk custom-status change onto an existing claim and
+        refresh the stored AI summary. The summary is best-effort: the stage
+        update and history entry must land even when AI or the ticket fetch
+        fails."""
+        import json as json_module
+        from apps.claims.models import ClaimUpdateTimeline
+
+        if not custom_status_id:
+            return Response({'message': 'Ignored: no custom status in payload'},
+                            status=status.HTTP_200_OK)
+
+        resolved = resolve_custom_status(custom_status_id)
+        new_status = resolved['name']
+        if new_status == claim.status:
+            return Response({'message': 'No change', 'claim_id': claim.id,
+                             'status': claim.status}, status=status.HTTP_200_OK)
+
+        old_status = claim.status
+        claim.status = new_status
+        claim.status_category = resolved['category']
+        claim.status_changed_at = timezone.now()
+        claim.save(update_fields=['status', 'status_category', 'status_changed_at'])
+        logger.info(f"Claim #{claim.id} status mirrored: '{old_status}' -> '{new_status}'")
+
+        summary_text = ''
+        ticket_data = fetch_zendesk_ticket(claim.zd_ticket_id)
+        if ticket_data:
+            ticket_data['comments'] = fetch_zendesk_comments(claim.zd_ticket_id)
+            if refresh_claim_summary(claim, ticket_data):
+                summary_text = claim.ai_summary
+
+        ClaimUpdateTimeline.objects.create(
+            claim=claim,
+            zendesk_ticket_id=claim.zd_ticket_id or '',
+            update_type='STATUS_CHANGE',
+            changes_summary=json_module.dumps(
+                {'old_status': old_status, 'new_status': new_status}),
+            llm_summary=summary_text,
+        )
+        return Response({'message': 'Status updated', 'claim_id': claim.id,
+                         'status': new_status}, status=status.HTTP_200_OK)
