@@ -165,7 +165,8 @@ class FindCandidateFlightsTests(TestCase):
     def test_destination_filter(self, mock_get):
         from apps.integrations.flight_lookup import find_candidate_flights
         mock_get.return_value = self.DEPARTURES
-        result = find_candidate_flights('OTP', '2026-06-01', None, destination_hint='Orly')
+        result = find_candidate_flights('OTP', '2026-06-01', dt_time(14, 20),
+                                        destination_hint='Orly')
         self.assertEqual([c['number'] for c in result], ['RO307'])
 
     @patch('apps.integrations.flight_lookup._aerodatabox_get',
@@ -434,11 +435,15 @@ class NotFoundSignalTests(TestCase):
 
 class FidsWindowTests(TestCase):
     @patch('apps.integrations.flight_lookup._aerodatabox_get', return_value={'departures': []})
-    def test_default_window_stays_under_12_hours(self, mock_get):
+    def test_no_hint_covers_whole_day_in_two_sub12h_windows(self, mock_get):
+        # AeroDataBox FIDS caps a window at 12h; without a time hint the whole
+        # day is covered with two calls.
         from apps.integrations.flight_lookup import find_candidate_flights
         find_candidate_flights('OTP', '2026-06-01', None)
-        path = mock_get.call_args.args[0]
-        self.assertIn('/2026-06-01T08:00/2026-06-01T19:59', path)
+        paths = [call.args[0] for call in mock_get.call_args_list]
+        self.assertEqual(len(paths), 2)
+        self.assertIn('/2026-06-01T00:00/2026-06-01T11:59', paths[0])
+        self.assertIn('/2026-06-01T12:00/2026-06-01T23:59', paths[1])
 
 
 class TimeHintIsoTests(TestCase):
@@ -733,3 +738,90 @@ class TerminalGateBeltTests(TestCase):
         note = format_flight_note(normalize_flight([RAW_LEG]), None)
         self.assertNotIn('Terminal', note)
         self.assertNotIn('Gate', note)
+
+
+class NoNumberSearchTests(TestCase):
+    """No flight number at all: search departures by airport + date, narrowed
+    to the form's airline; the AI ranks the candidates."""
+
+    NO_NUMBER = ('Airline: American Airlines - AA | '
+                 'Airport: Tampa International Airport / TPA | '
+                 'Date/Time: June 11, 2026 9:15 am')
+
+    DEPARTURES = {'departures': [
+        {'number': 'AA 377',
+         'movement': {'airport': {'iata': 'PHX', 'name': 'Sky Harbor'},
+                      'scheduledTime': {'local': '2026-06-11 09:41-04:00'}}},
+        {'number': 'DL 2852',
+         'movement': {'airport': {'iata': 'DTW', 'name': 'Detroit Metro'},
+                      'scheduledTime': {'local': '2026-06-11 10:44-04:00'}}},
+    ]}
+
+    def setUp(self):
+        ss = SystemSettings.get_instance()
+        ss.sidebar_secret_token = SECRET
+        ss.aerodatabox_api_key = 'k'
+        ss.save()
+        self.api = APIClient()
+        self.claim = Claim.objects.create(
+            client_email='nonum@example.com', zd_ticket_id='98001',
+            flight_details=self.NO_NUMBER)
+        self.url = '/api/integrations/zd/flight-lookup/'
+
+    def _post(self):
+        return self.api.post(self.url, {'ticket_id': '98001'}, format='json',
+                             HTTP_AUTHORIZATION=f'Bearer {SECRET}')
+
+    @patch('apps.integrations.flight_lookup._aerodatabox_get')
+    def test_airline_filter_keeps_only_carrier(self, mock_get):
+        from apps.integrations.flight_lookup import find_candidate_flights
+        mock_get.return_value = self.DEPARTURES
+        result = find_candidate_flights('TPA', '2026-06-11', dt_time(9, 15),
+                                        airline_code='AA')
+        self.assertEqual([c['number'] for c in result], ['AA 377'])
+
+    @patch('apps.integrations.flight_lookup._fetch_departures_window')
+    def test_no_time_hint_covers_whole_day_in_two_windows(self, mock_window):
+        from apps.integrations.flight_lookup import find_candidate_flights
+        mock_window.side_effect = [self.DEPARTURES, {'departures': []}]
+        find_candidate_flights('TPA', '2026-06-11', None)
+        self.assertEqual(mock_window.call_count, 2)
+        windows = [(call.args[2], call.args[3]) for call in mock_window.call_args_list]
+        self.assertEqual(windows, [(0, 11), (12, 23)])
+
+    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.analyze_flight_match',
+           return_value=_fake_check('AA377 to Phoenix fits the 9:15 bag check.'))
+    @patch('apps.integrations.views.find_candidate_flights')
+    def test_endpoint_searches_without_number(self, mock_candidates, _ma, mock_post):
+        from apps.claims.models import ClaimUpdateTimeline
+        timeline_before = ClaimUpdateTimeline.objects.count()
+        mock_candidates.return_value = [
+            {'number': 'AA 377', 'destination': 'PHX Sky Harbor',
+             'scheduled_local': '2026-06-11 09:41-04:00'}]
+        response = self._post()
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['error_message'], 'No flight number on this ticket.')
+        self.assertEqual(len(data['candidates']), 1)
+        self.assertEqual(data['verdict']['level'], 'not_found')
+        # airline filter was passed through
+        self.assertEqual(mock_candidates.call_args.kwargs['airline_code'], 'AA')
+        # note posted with the no-number headline + carrier marker
+        note_body = mock_post.call_args.args[1]
+        self.assertIn('No flight number on this ticket', note_body)
+        self.assertIn('(AA flights only)', note_body)
+        # claim path writes history
+        self.assertEqual(ClaimUpdateTimeline.objects.count(), timeline_before + 1)
+
+    def test_endpoint_needs_airport_and_date(self):
+        self.claim.flight_details = 'Airline: American Airlines - AA'
+        self.claim.save()
+        response = self._post()
+        self.assertIn('Airport', response.json()['error_message'])
+
+    @patch('apps.integrations.views.find_candidate_flights', return_value=[])
+    def test_endpoint_reports_empty_departure_search(self, _mock):
+        response = self._post()
+        self.assertIn('no AA departures found from TPA',
+                      response.json()['error_message'])

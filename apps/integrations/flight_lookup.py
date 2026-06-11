@@ -151,12 +151,25 @@ def parse_flight_query(flight_details: str) -> Optional[Dict[str, str]]:
         if bare and code:
             number = code + bare.group(1)
 
-    date_source = _segment(text, 'Date/Time') or text
-    date = _parse_date_text(date_source) or _parse_date_text(text)
+    date = parse_date_hint(text)
 
     if not number or not date:
         return None
     return {'number': number, 'date': date}
+
+
+def parse_date_hint(flight_details: str) -> Optional[str]:
+    """'YYYY-MM-DD' from the 'Date/Time:' segment, falling back to anywhere
+    in the string. None when no recognizable date."""
+    text = flight_details or ''
+    date_source = _segment(text, 'Date/Time') or text
+    return _parse_date_text(date_source) or _parse_date_text(text)
+
+
+def parse_airline_hint(flight_details: str) -> Optional[str]:
+    """IATA carrier code from the 'Airline:' segment ('American Airlines - AA'
+    -> 'AA'), or None."""
+    return _airline_code(_segment(flight_details or '', 'Airline'))
 
 
 def parse_airport_hint(flight_details: str) -> Optional[str]:
@@ -250,49 +263,67 @@ def lookup_flight(number: str, date: str) -> Optional[List[Dict[str, Any]]]:
     return []
 
 
-def find_candidate_flights(airport_iata: str, date: str,
-                           time_hint: Optional[dt_time] = None,
-                           destination_hint: str = '') -> Optional[List[Dict[str, str]]]:
-    """Departures from the stated airport around the stated time — the rescue
-    path when the flight number is not found. Window: time hint ±3h, else
-    08:00-19:59 (AeroDataBox FIDS windows must stay UNDER 12h per call).
-    `destination_hint` is accepted for future wiring; the current caller has
-    no reliable destination source and passes nothing.
-    Returns compact candidates capped at CANDIDATE_LIMIT; [] when none;
-    None on transport/provider errors."""
-    if time_hint:
-        from_hour = max(time_hint.hour - 3, 0)
-        to_hour = min(time_hint.hour + 3, 23)
-    else:
-        from_hour, to_hour = 8, 19
+def _fetch_departures_window(airport_iata: str, date: str,
+                             from_hour: int, to_hour: int) -> Optional[Dict[str, Any]]:
     path = (f'/flights/airports/iata/{airport_iata}'
             f'/{date}T{from_hour:02d}:00/{date}T{to_hour:02d}:59'
             f'?direction=Departure&withCancelled=true&withCodeshared=false&withLeg=false')
     try:
-        result = _aerodatabox_get(path)
+        return _aerodatabox_get(path) or {}
     except FlightProviderNotConfigured:
         raise
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            return []
+            return {}
         logger.error(f"AeroDataBox departures HTTP {e.code} for {airport_iata} {date}")
         return None
     except Exception as e:
         logger.error(f"AeroDataBox departures failed for {airport_iata} {date}: {e}")
         return None
 
-    if not result:
-        return []
+
+def find_candidate_flights(airport_iata: str, date: str,
+                           time_hint: Optional[dt_time] = None,
+                           destination_hint: str = '',
+                           airline_code: str = '') -> Optional[List[Dict[str, str]]]:
+    """Departures from the stated airport around the stated time — the rescue
+    path when the flight number is wrong or missing. Window: time hint ±3h in
+    one call; no hint -> two calls covering the whole day (AeroDataBox FIDS
+    windows must stay UNDER 12h each). `airline_code` ('AA') filters to that
+    carrier; `destination_hint` filters toward a destination when one is ever
+    available (future form field).
+    Returns compact candidates capped at CANDIDATE_LIMIT; [] when none;
+    None when every window errored."""
+    if time_hint:
+        windows = [(max(time_hint.hour - 3, 0), min(time_hint.hour + 3, 23))]
+    else:
+        windows = [(0, 11), (12, 23)]
+
+    departures = []
+    any_ok = False
+    for from_hour, to_hour in windows:
+        result = _fetch_departures_window(airport_iata, date, from_hour, to_hour)
+        if result is None:
+            continue
+        any_ok = True
+        departures.extend(result.get('departures') or [])
+    if not any_ok:
+        return None
+
     candidates = []
     wanted = (destination_hint or '').strip().upper()
-    for dep in (result.get('departures') or []):
+    carrier = (airline_code or '').strip().upper()
+    for dep in departures:
+        number = (dep.get('number') or '')
+        if carrier and not number.replace(' ', '').upper().startswith(carrier):
+            continue
         movement = dep.get('movement') or {}
         airport = movement.get('airport') or {}
         destination = ' '.join(p for p in [airport.get('iata', ''), airport.get('name', '')] if p)
         if wanted and wanted not in destination.upper():
             continue
         candidates.append({
-            'number': dep.get('number', ''),
+            'number': number,
             'destination': destination,
             'scheduled_local': (movement.get('scheduledTime') or {}).get('local', ''),
         })
@@ -501,6 +532,19 @@ def format_flight_note(flight: Dict[str, Any], analysis, verdict=None) -> str:
     return '\n'.join(lines) + _analysis_block(analysis)
 
 
+def _candidate_lines(candidates: List[Dict[str, str]]) -> List[str]:
+    lines = []
+    for c in candidates:
+        entry = ' '.join(p for p in [
+            c.get('number', ''),
+            f"→ {c['destination']}" if c.get('destination') else '',
+            f"dep {_clock(c.get('scheduled_local')) or c.get('scheduled_local', '')}"
+            if c.get('scheduled_local') else '',
+        ] if p)
+        lines.append(f'• {entry}')
+    return lines
+
+
 def format_candidates_note(number: str, date: str, airport_iata: str,
                            candidates: List[Dict[str, str]], analysis,
                            verdict=None) -> str:
@@ -511,14 +555,27 @@ def format_candidates_note(number: str, date: str, airport_iata: str,
         lines.append('')
     lines.append(f"Flight {number} not found on {date} — "
                  f"likely candidates departing {airport_iata}:")
-    for c in candidates:
-        entry = ' '.join(p for p in [
-            c.get('number', ''),
-            f"→ {c['destination']}" if c.get('destination') else '',
-            f"dep {_clock(c.get('scheduled_local')) or c.get('scheduled_local', '')}"
-            if c.get('scheduled_local') else '',
-        ] if p)
-        lines.append(f'• {entry}')
+    lines.extend(_candidate_lines(candidates))
+    lines.append('')
+    lines.append('(times are local; via AeroDataBox)')
+    return '\n'.join(lines) + _analysis_block(analysis)
+
+
+def format_no_number_note(date: str, airport_iata: str,
+                          candidates: List[Dict[str, str]], analysis,
+                          verdict=None, airline_code: str = '') -> str:
+    """Internal-note body for the no-flight-number search (airport + date,
+    optionally narrowed to one carrier)."""
+    lines = []
+    if verdict:
+        lines.append(_verdict_line(verdict))
+        lines.append('')
+    headline = (f"No flight number on this ticket — likely candidates "
+                f"departing {airport_iata} on {date}")
+    if airline_code:
+        headline += f" ({airline_code} flights only)"
+    lines.append(headline + ':')
+    lines.extend(_candidate_lines(candidates))
     lines.append('')
     lines.append('(times are local; via AeroDataBox)')
     return '\n'.join(lines) + _analysis_block(analysis)

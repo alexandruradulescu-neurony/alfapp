@@ -43,10 +43,13 @@ from apps.integrations.flight_lookup import (
     find_candidate_flights,
     format_candidates_note,
     format_flight_note,
+    format_no_number_note,
     format_not_found_note,
     lookup_flight,
     normalize_flight,
+    parse_airline_hint,
     parse_airport_hint,
+    parse_date_hint,
     parse_flight_query,
     parse_time_hint,
 )
@@ -1206,10 +1209,7 @@ class ZendeskFlightLookupView(APIView):
 
         query = parse_flight_query(flight_details)
         if not query:
-            source = 'claim' if claim else "ticket's flight fields"
-            return Response(
-                {'error_message': f"Couldn't read a flight number and date from this {source}."},
-                status=status.HTTP_200_OK)
+            return self._handle_no_number(claim, ticket_id, flight_details)
 
         if claim and claim.flight_data and not refresh:
             return Response({'flight': claim.flight_data, 'analysis': None,
@@ -1259,6 +1259,63 @@ class ZendeskFlightLookupView(APIView):
                          'verdict': verdict, 'cached': False, 'note_posted': note_posted,
                          'claimless': claim is None},
                         status=status.HTTP_200_OK)
+
+    def _handle_no_number(self, claim, ticket_id, flight_details):
+        """No flight number on the ticket: search departures by airport +
+        date (narrowed to the form's airline when present) and let the AI
+        rank the candidates against the client's report."""
+        airport = parse_airport_hint(flight_details)
+        date = parse_date_hint(flight_details)
+        if not airport or not date:
+            source = 'claim' if claim else "ticket's flight fields"
+            return Response(
+                {'error_message': f"Couldn't read a flight number and date from this {source}. "
+                                  "Searching without a number needs at least the Airport "
+                                  "and Date fields."},
+                status=status.HTTP_200_OK)
+
+        airline_code = parse_airline_hint(flight_details) or ''
+        try:
+            candidates = find_candidate_flights(
+                airport, date, parse_time_hint(flight_details),
+                airline_code=airline_code)
+        except FlightProviderNotConfigured:
+            return Response(
+                {'error': 'AeroDataBox API key is not configured in System settings.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if candidates is None:
+            return Response({'error': 'Flight data provider unavailable. Try again.'},
+                            status=status.HTTP_502_BAD_GATEWAY)
+        if not candidates:
+            carrier = f'{airline_code} ' if airline_code else ''
+            return Response(
+                {'error_message': f"No flight number on this ticket, and no {carrier}"
+                                  f"departures found from {airport} on {date}.",
+                 'claimless': claim is None},
+                status=status.HTTP_200_OK)
+
+        analysis = analyze_flight_match(
+            claim, None, candidates,
+            flight_details_text='' if claim else flight_details)
+        verdict = derive_flight_verdict(False, analysis, has_candidates=True)
+        note = format_no_number_note(date, airport, candidates, analysis,
+                                     verdict, airline_code)
+        note_posted = self._post_note(ticket_id, note)
+        if claim:
+            ClaimUpdateTimeline.objects.create(
+                claim=claim,
+                zendesk_ticket_id=claim.zd_ticket_id,
+                update_type='INFO_UPDATED',
+                changes_summary=json.dumps({'flight_lookup': {
+                    'number': None, 'date': date, 'airport': airport,
+                    'found': False, 'candidates': len(candidates)}}),
+                llm_summary=analysis.summary if analysis else '',
+            )
+        return Response({'error_message': 'No flight number on this ticket.',
+                         'candidates': candidates,
+                         'analysis': self._analysis_dict(analysis),
+                         'verdict': verdict, 'claimless': claim is None,
+                         'note_posted': note_posted}, status=status.HTTP_200_OK)
 
     def _handle_not_found(self, claim, ticket_id, query, flight_details):
         """Candidate rescue: when the flight number is not found, list likely
