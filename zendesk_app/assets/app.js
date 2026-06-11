@@ -272,8 +272,12 @@ async function flightLookup(refresh) {
     const link = document.getElementById('flight-refresh');
     if (link) link.onclick = () => flightLookup(true);
   } catch (e) {
+    const s = e && typeof e.status === 'number' ? e.status : null;
     const server = e && e.responseJSON && (e.responseJSON.error || e.responseJSON.error_message);
-    box.innerHTML = '<span class="error">' + escapeHtml(server || diagnose(e)) + '</span>';
+    // Auth/lockout statuses: diagnose() explains the secret mismatch far
+    // better than the server's bare "Unauthorized".
+    const msg = (s === 401 || s === 403 || s === 429) ? diagnose(e) : (server || diagnose(e));
+    box.innerHTML = '<span class="error">' + escapeHtml(msg) + '</span>';
   } finally {
     btn.disabled = false;
   }
