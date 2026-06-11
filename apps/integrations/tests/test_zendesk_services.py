@@ -1553,3 +1553,44 @@ class ResolveCustomStatusTests(TestCase):
         from apps.integrations.services import resolve_custom_status
         result = resolve_custom_status('123')
         self.assertEqual(result, {'name': '123', 'category': ''})
+
+
+# =============================================================================
+# Test build_claim_facts — family, cadence, deadline preference
+# =============================================================================
+
+
+class BuildClaimFactsFamilyTests(TestCase):
+    def test_status_family_included_and_cadence_suppressed_when_solved(self):
+        from apps.integrations.services import build_claim_facts
+        from apps.claims.models import Claim
+        claim = Claim.objects.create(
+            client_email='facts@example.com',
+            status='Closed - Refunded', status_category='solved')
+        facts = build_claim_facts(claim)
+        self.assertEqual(facts['status'], 'Closed - Refunded')
+        self.assertEqual(facts['status_family'], 'solved')
+        self.assertIsNone(facts['next_update_due'])
+
+    def test_active_claim_keeps_cadence(self):
+        from apps.integrations.services import build_claim_facts
+        from apps.claims.models import Claim
+        claim = Claim.objects.create(
+            client_email='facts2@example.com',
+            status='Claim submitted', status_category='open')
+        facts = build_claim_facts(claim)
+        self.assertIsNotNone(facts['next_update_due'])
+
+    def test_deadline_prefers_computed_moment(self):
+        # TIME_ZONE = 'UTC', so localtime(deadline_at) stays on 2026-07-01
+        from datetime import date, datetime
+        from zoneinfo import ZoneInfo
+        from apps.integrations.services import build_claim_facts
+        from apps.claims.models import Claim
+        claim = Claim.objects.create(
+            client_email='facts3@example.com',
+            status='Claim submitted', status_category='open',
+            deadline_date=date(2026, 7, 2),
+            deadline_at=datetime(2026, 7, 1, 23, 59, 59, tzinfo=ZoneInfo('UTC')))
+        facts = build_claim_facts(claim)
+        self.assertEqual(facts['deadline'], '2026-07-01')

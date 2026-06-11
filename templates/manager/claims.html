@@ -71,7 +71,7 @@
                     <td class="font-mono font-semibold text-primary">{{ claim.alf_claim_id|default:"-" }}</td>
                     <td>{{ claim.client_email }}</td>
                     <td>
-                        <span class="badge status-{{ claim.status }} rounded-full">
+                        <span class="badge family-{{ claim.status_category|default:'open' }} rounded-full">
                             {{ claim.status }}
                         </span>
                     </td>

@@ -1051,9 +1051,16 @@ CLIENT_UPDATE_CADENCE_DAYS = (2, 5, 11, 20)
 def build_claim_facts(claim) -> dict:
     """Compact, panel-ready facts for the Zendesk sidebar Briefing tab.
     Uses only LORA-side data the Zendesk ticket does not already have.
-    `disputes_total` is a count (no dependence on the Dispute status enum).
-    `next_update_due` is the next client-update milestone (day 2/5/11/20 after
-    claim creation) that hasn't passed yet, or None once all have."""
+
+    Keys:
+    - 'status': verbatim Zendesk status name (sidebar renders it as-is; do not rename).
+    - 'status_family': claim.status_category ('new'/'open'/'pending'/'hold'/'solved').
+    - 'deadline': ISO date string.  When deadline_at (computed moment) exists it
+      wins over deadline_date; both are localtime'd before formatting.
+    - 'disputes_total': count; no dependence on the Dispute status enum.
+    - 'next_update_due': next client-update milestone (day 2/5/11/20 after claim
+      creation) that hasn't passed yet; None when all milestones are past OR when
+      status_category is 'solved' (cadence is suppressed for closed claims)."""
     from datetime import timedelta
     from django.utils import timezone
     from apps.payments.models import Dispute
@@ -1061,17 +1068,25 @@ def build_claim_facts(claim) -> dict:
     emails = claim.emails.all()
 
     next_update_due = None
-    base = timezone.localtime(claim.created_at).date()
-    today = timezone.localdate()
-    for day in CLIENT_UPDATE_CADENCE_DAYS:
-        due = base + timedelta(days=day)
-        if due >= today:
-            next_update_due = {'day': day, 'date': due.isoformat()}
-            break
+    if claim.status_category != 'solved':
+        base = timezone.localtime(claim.created_at).date()
+        today = timezone.localdate()
+        for day in CLIENT_UPDATE_CADENCE_DAYS:
+            due = base + timedelta(days=day)
+            if due >= today:
+                next_update_due = {'day': day, 'date': due.isoformat()}
+                break
+
+    deadline = None
+    if claim.deadline_at:
+        deadline = timezone.localtime(claim.deadline_at).date().isoformat()
+    elif claim.deadline_date:
+        deadline = claim.deadline_date.isoformat()
 
     return {
         'status': claim.status,
-        'deadline': claim.deadline_date.isoformat() if claim.deadline_date else None,
+        'status_family': claim.status_category,
+        'deadline': deadline,
         'emails_total': emails.count(),
         'emails_unresolved': emails.filter(action_required=True, auto_resolved=False).count(),
         'disputes_total': Dispute.objects.filter(claim=claim).count(),

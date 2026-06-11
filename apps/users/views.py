@@ -136,7 +136,11 @@ def agent_dashboard(request):
         action_required=True,
         category__in=['RESUBMISSION_REQUIRED', 'OBJECT_NOT_FOUND']
     ).count()
-    disputed = Claim.objects.filter(disputes__isnull=False).distinct().count()
+    disputed = Claim.objects.filter(
+        disputes__isnull=False
+    ).exclude(
+        disputes__status__in=['RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED']
+    ).distinct().count()
 
     # Consolidate email stats into single aggregate query
     from django.db.models import Case, When, IntegerField

@@ -35,76 +35,82 @@
             </h3>
             
             <!-- Primary Status Badge - Large and Prominent -->
-            <div class="status-card-large status-{{ claim.status }} mb-4">
+            <div class="status-card-large family-{{ claim.status_category|default:'open' }} mb-4">
                 <div class="status-icon">
-                    {% if claim.status == 'Received' %}
-                        <i class="bi bi-inbox"></i>
-                    {% elif claim.status == 'Searching' %}
-                        <i class="bi bi-search"></i>
-                    {% elif claim.status == 'Found' %}
+                    {% if claim.status_category == 'solved' %}
                         <i class="bi bi-check-circle"></i>
-                    {% elif claim.status == 'Shipped' %}
-                        <i class="bi bi-box-seam"></i>
-                    {% elif claim.status == 'Disputed' %}
-                        <i class="bi bi-exclamation-triangle"></i>
-                    {% elif claim.status == 'REFUND_REQUESTED' %}
-                        <i class="bi bi-currency-exchange"></i>
-                    {% elif claim.status == 'REFUNDED' %}
-                        <i class="bi bi-check-circle-fill"></i>
-                    {% elif claim.status == 'PARTIALLY_REFUNDED' %}
-                        <i class="bi bi-arrow-return-left"></i>
+                    {% elif claim.status_category == 'pending' %}
+                        <i class="bi bi-hourglass-split"></i>
+                    {% elif claim.status_category == 'hold' %}
+                        <i class="bi bi-pause-circle"></i>
+                    {% elif claim.status_category == 'new' %}
+                        <i class="bi bi-inbox"></i>
                     {% else %}
-                        <i class="bi bi-question-circle"></i>
+                        <i class="bi bi-search"></i>
                     {% endif %}
                 </div>
                 <div class="status-text">
                     <span class="status-label">{{ claim.status }}</span>
+                    {% if claim.status_changed_at %}
+                    <span class="text-xs text-base-content/50 block">since {{ claim.status_changed_at|date:"M d, Y H:i" }}</span>
+                    {% endif %}
                 </div>
             </div>
 
             <!-- Active Statuses Overview -->
             <div class="space-y-2">
                 <span class="text-xs text-base-content/60 font-semibold uppercase tracking-wider">Status Overview</span>
-                
-                <!-- Fulfillment Status -->
+
                 <div class="flex items-center justify-between p-2 rounded-lg bg-base-200/50">
                     <span class="text-sm flex items-center gap-2">
-                        <i class="bi bi-box-seam text-base-content/60"></i> Fulfillment
+                        <i class="bi bi-box-seam text-base-content/60"></i> Case
                     </span>
-                    <span class="badge badge-sm {% if claim.status in 'Received,Searching,Found,Shipped' %}badge-success{% else %}badge-neutral{% endif %}">
-                        {% if claim.status in 'Received,Searching,Found,Shipped' %}Active{% else %}{{ claim.status }}{% endif %}
+                    <span class="badge badge-sm {% if claim.status_category == 'solved' %}badge-neutral{% else %}badge-success{% endif %}">
+                        {% if claim.status_category == 'solved' %}Closed{% else %}Active{% endif %}
                     </span>
                 </div>
-                
-                <!-- Financial Status -->
+
                 <div class="flex items-center justify-between p-2 rounded-lg bg-base-200/50">
                     <span class="text-sm flex items-center gap-2">
                         <i class="bi bi-currency-dollar text-base-content/60"></i> Financial
                     </span>
-                    <span class="badge badge-sm {% if claim.status == 'REFUNDED' or claim.status == 'PARTIALLY_REFUNDED' %}badge-success{% elif claim.status == 'REFUND_REQUESTED' %}badge-warning{% else %}badge-neutral{% endif %}">
-                        {% if claim.status == 'REFUNDED' %}Refunded{% elif claim.status == 'PARTIALLY_REFUNDED' %}Partial Refund{% elif claim.status == 'REFUND_REQUESTED' %}Requested{% else %}No Action{% endif %}
+                    <span class="badge badge-sm {% if claim.refund_status == 'COMPLETED' %}badge-success{% elif claim.refund_status %}badge-warning{% else %}badge-neutral{% endif %}">
+                        {% if claim.refund_status == 'COMPLETED' %}Refunded{% elif claim.refund_status %}{{ claim.refund_status|title }}{% else %}No Action{% endif %}
                     </span>
                 </div>
-                
-                <!-- Dispute Status -->
+
                 <div class="flex items-center justify-between p-2 rounded-lg bg-base-200/50">
                     <span class="text-sm flex items-center gap-2">
                         <i class="bi bi-exclamation-triangle text-base-content/60"></i> Dispute
                     </span>
-                    <span class="badge badge-sm {% if claim.status == 'Disputed' %}badge-error{% else %}badge-neutral{% endif %}">
-                        {% if claim.status == 'Disputed' %}Active Dispute{% else %}No Dispute{% endif %}
+                    <span class="badge badge-sm {% if claim.disputes.all %}badge-error{% else %}badge-neutral{% endif %}">
+                        {% if claim.disputes.all %}Active Dispute{% else %}No Dispute{% endif %}
                     </span>
                 </div>
             </div>
 
             <!-- Refund Action Button -->
-            {% if claim.status != 'REFUNDED' %}
+            {% if claim.refund_status != 'COMPLETED' %}
             <div class="mt-4 pt-4 border-t border-base-200/60">
                 <button type="button" class="btn btn-warning rounded-xl w-full transition-all duration-200" onclick="openGrantRefundModal()">
                     <i class="bi bi-currency-exchange"></i> Grant Refund
                 </button>
             </div>
             {% endif %}
+
+            <!-- Stage follows Zendesk -->
+            <div class="mt-4 pt-4 border-t border-base-200/60">
+                <p class="text-xs text-base-content/50 mb-2">
+                    <i class="bi bi-arrow-repeat"></i> Status follows the Zendesk ticket automatically.
+                </p>
+                {% if claim.zd_ticket_id and zd_subdomain %}
+                <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ claim.zd_ticket_id }}"
+                   target="_blank" rel="noopener"
+                   class="btn btn-outline rounded-xl w-full transition-all duration-200">
+                    <i class="bi bi-box-arrow-up-right"></i> Open ticket in Zendesk
+                </a>
+                {% endif %}
+            </div>
 
         </div>
 
@@ -154,7 +160,7 @@
                         <i class="bi bi-currency-exchange text-3xl text-base-content/40"></i>
                     </div>
                     <p class="text-base-content/60 text-sm mb-3">No refunds issued for this claim.</p>
-                    {% if claim.status != 'REFUNDED' %}
+                    {% if claim.refund_status != 'COMPLETED' %}
                     <button type="button" class="btn btn-sm btn-warning" onclick="openGrantRefundModal()">
                         <i class="bi bi-plus-circle"></i> Grant First Refund
                     </button>
@@ -218,6 +224,9 @@
             {% if claim.ai_summary %}
                 <div class="rounded-xl bg-info/10 p-3">
                     <span class="text-sm">{{ claim.ai_summary }}</span>
+                    {% if claim.ai_summary_updated_at %}
+                    <div class="text-xs text-base-content/40 mt-1">Updated {{ claim.ai_summary_updated_at|timesince }} ago</div>
+                    {% endif %}
                 </div>
             {% else %}
                 <p class="text-base-content/40 text-sm">No AI summary available yet.</p>
@@ -489,82 +498,57 @@
     @apply text-xl font-bold uppercase tracking-wide;
 }
 
-/* Status color variants */
-.status-card-large.status-Received {
+/* Family-based status card color variants (maps Zendesk status_category to palette) */
+/* new → neutral/base (Received-style) */
+.status-card-large.family-new {
     @apply bg-base-200/60 border-2 border-base-300;
 }
-.status-card-large.status-Received .status-icon {
+.status-card-large.family-new .status-icon {
     @apply bg-base-300 text-base-content;
 }
 
-.status-card-large.status-Searching {
+/* open → info (Searching-style — actively being worked) */
+.status-card-large.family-open {
     @apply bg-info/10 border-2 border-info/30;
 }
-.status-card-large.status-Searching .status-icon {
+.status-card-large.family-open .status-icon {
     @apply bg-info text-info-content;
 }
-.status-card-large.status-Searching .status-label {
+.status-card-large.family-open .status-label {
     @apply text-info;
 }
 
-.status-card-large.status-Found {
-    @apply bg-success/10 border-2 border-success/30;
-}
-.status-card-large.status-Found .status-icon {
-    @apply bg-success text-success-content;
-}
-.status-card-large.status-Found .status-label {
-    @apply text-success;
-}
-
-.status-card-large.status-Shipped {
-    @apply bg-primary/10 border-2 border-primary/30;
-}
-.status-card-large.status-Shipped .status-icon {
-    @apply bg-primary text-primary-content;
-}
-.status-card-large.status-Shipped .status-label {
-    @apply text-primary;
-}
-
-.status-card-large.status-Disputed {
-    @apply bg-error/10 border-2 border-error/30;
-}
-.status-card-large.status-Disputed .status-icon {
-    @apply bg-error text-error-content;
-}
-.status-card-large.status-Disputed .status-label {
-    @apply text-error;
-}
-
-.status-card-large.status-REFUND_REQUESTED {
+/* pending → warning (waiting on client/third-party) */
+.status-card-large.family-pending {
     @apply bg-warning/10 border-2 border-warning/30;
 }
-.status-card-large.status-REFUND_REQUESTED .status-icon {
+.status-card-large.family-pending .status-icon {
     @apply bg-warning text-warning-content;
 }
-.status-card-large.status-REFUND_REQUESTED .status-label {
+.status-card-large.family-pending .status-label {
     @apply text-warning;
 }
 
-.status-card-large.status-REFUNDED {
-    @apply bg-success/10 border-2 border-success/30;
+/* hold → neutral (paused, no action expected) */
+.status-card-large.family-hold {
+    @apply bg-base-200/60 border-2 border-base-300;
 }
-.status-card-large.status-REFUNDED .status-icon {
-    @apply bg-success text-success-content;
+.status-card-large.family-hold .status-icon {
+    @apply bg-base-300 text-base-content;
 }
-.status-card-large.status-REFUNDED .status-label {
-    @apply text-success;
+.status-card-large.family-hold .status-label {
+    @apply text-base-content/70;
 }
 
-.status-card-large.status-PARTIALLY_REFUNDED {
-    @apply bg-info/10 border-2 border-info/30;
+/* solved → success (closed/refunded) */
+.status-card-large.family-solved {
+    @apply bg-success/10 border-2 border-success/30;
 }
-.status-card-large.status-PARTIALLY_REFUNDED .status-icon {
-    @apply bg-info text-info-content;
+.status-card-large.family-solved .status-icon {
+    @apply bg-success text-success-content;
 }
-.status-card-large.status-PARTIALLY_REFUNDED .status-label {
-    @apply text-info;
+.status-card-large.family-solved .status-label {
+    @apply text-success;
 }
 </style>
 

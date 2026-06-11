@@ -185,7 +185,7 @@
                         <td class="font-mono">#{{ claim.id }}</td>
                         <td>{{ claim.client_email }}</td>
                         <td>
-                            <div class="badge {% if claim.status == 'Received' %}badge-soft-neutral{% elif claim.status == 'Searching' %}badge-soft-info{% elif claim.status == 'Found' %}badge-soft-success{% elif claim.status == 'Shipped' %}badge-soft-primary{% elif claim.status == 'Disputed' %}badge-soft-error{% endif %} rounded-full">
+                            <div class="badge {% if claim.status_category == 'solved' %}badge-soft-neutral{% elif claim.status_category == 'pending' %}badge-soft-warning{% elif claim.status_category == 'new' %}badge-soft-info{% elif claim.status_category == 'hold' %}badge-soft-ghost{% else %}badge-soft-primary{% endif %} rounded-full">
                                 {{ claim.status }}
                             </div>
                         </td>

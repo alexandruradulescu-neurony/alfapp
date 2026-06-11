@@ -73,7 +73,7 @@
                     <td class="font-mono text-sm">#{{ claim.id }}</td>
                     <td>{{ claim.client_email }}</td>
                     <td>
-                        <span class="badge status-{{ claim.status }}">
+                        <span class="badge family-{{ claim.status_category|default:'open' }}">
                             {{ claim.status }}
                         </span>
                     </td>
