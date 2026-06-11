@@ -168,44 +168,62 @@ Please analyze this claim and provide:
     )
     imap_user = models.CharField(
         max_length=255,
+        blank=True,
+        default='',
         help_text='IMAP username/email'
     )
     imap_pass = EncryptedCharField(
         max_length=255,
+        blank=True,
+        default='',
         help_text='IMAP password or app-specific password (encrypted at rest)'
     )
 
     # Zendesk Configuration (ENCRYPTED - sensitive credentials)
     zd_subdomain = models.CharField(
         max_length=100,
+        blank=True,
+        default='',
         help_text='Zendesk subdomain (e.g., "company" in company.zendesk.com)'
     )
     zd_token = EncryptedCharField(
         max_length=255,
+        blank=True,
+        default='',
         help_text='Zendesk API token (encrypted at rest)'
     )
     zd_email = models.CharField(
         max_length=255,
+        blank=True,
+        default='',
         help_text='Zendesk account email'
     )
 
     # PayPal Configuration (ENCRYPTED - sensitive credentials)
     paypal_client_id = EncryptedCharField(
         max_length=255,
+        blank=True,
+        default='',
         help_text='PayPal API Client ID (encrypted at rest)'
     )
     paypal_secret = EncryptedCharField(
         max_length=255,
+        blank=True,
+        default='',
         help_text='PayPal API Secret (encrypted at rest)'
     )
     paypal_webhook_id = models.CharField(
         max_length=255,
+        blank=True,
+        default='',
         help_text='PayPal Webhook ID for event notifications'
     )
 
     # Zendesk Sidebar Authentication (ENCRYPTED - sensitive credential)
     sidebar_secret_token = EncryptedCharField(
         max_length=255,
+        blank=True,
+        default='',
         help_text='Secret token for Zendesk sidebar authentication (encrypted at rest)'
     )
 

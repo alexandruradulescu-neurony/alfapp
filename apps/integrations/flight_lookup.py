@@ -37,7 +37,18 @@ CANDIDATE_LIMIT = 5
 # Airline designator (RO, W6, 0B, U2) + 1-4 digit flight number, optional space.
 _FLIGHT_NUMBER_PATTERN = re.compile(r'\b([A-Z][A-Z0-9]|[0-9][A-Z])\s?(\d{1,4})\b')
 _ISO_DATE_PATTERN = re.compile(r'\b(\d{4}-\d{2}-\d{2})\b')
-_TIME_HINT_PATTERN = re.compile(r'\b(\d{1,2}):(\d{2})\b')
+# Zendesk's "Date & Time" form field is free text and usually human English
+# ("June 11, 2026 9:15 am") — accept the common shapes, not just ISO.
+_MONTH_FIRST_PATTERN = re.compile(
+    r'\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b')
+_DAY_FIRST_PATTERN = re.compile(
+    r'\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})\b')
+_SLASH_DATE_PATTERN = re.compile(r'\b(\d{1,2})/(\d{1,2})/(\d{4})\b')
+_MONTH_NUMBERS = {
+    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+}
+_TIME_HINT_PATTERN = re.compile(r'\b(\d{1,2}):(\d{2})\s*(am|pm)?\b', re.IGNORECASE)
 _PAREN_IATA_PATTERN = re.compile(r'\(([A-Za-z]{3})\)')
 _IATA_TOKEN_PATTERN = re.compile(r'\b[A-Z]{3}\b')
 # 3-letter words that show up in airport names and are not IATA hints here
@@ -74,6 +85,34 @@ def _segment(flight_details: str, label: str) -> str:
     return ''
 
 
+def _parse_date_text(text: str) -> Optional[str]:
+    """ISO ('2026-06-11'), human English ('June 11, 2026' / '11 June 2026'),
+    or slash dates ('06/11/2026', US month-first; flipped when the first
+    number cannot be a month) -> 'YYYY-MM-DD' | None."""
+    match = _ISO_DATE_PATTERN.search(text)
+    if match:
+        return match.group(1)
+    match = _MONTH_FIRST_PATTERN.search(text)
+    if match:
+        month = _MONTH_NUMBERS.get(match.group(1)[:3].lower())
+        day, year = int(match.group(2)), int(match.group(3))
+        if month and 1 <= day <= 31:
+            return f'{year:04d}-{month:02d}-{day:02d}'
+    match = _DAY_FIRST_PATTERN.search(text)
+    if match:
+        month = _MONTH_NUMBERS.get(match.group(2)[:3].lower())
+        day, year = int(match.group(1)), int(match.group(3))
+        if month and 1 <= day <= 31:
+            return f'{year:04d}-{month:02d}-{day:02d}'
+    match = _SLASH_DATE_PATTERN.search(text)
+    if match:
+        first, second, year = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        month, day = (first, second) if first <= 12 else (second, first)
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return f'{year:04d}-{month:02d}-{day:02d}'
+    return None
+
+
 def parse_flight_query(flight_details: str) -> Optional[Dict[str, str]]:
     """{'number': 'RO301', 'date': '2026-06-01'} from the claim's flight
     details, or None when either piece is missing. Prefers the labeled
@@ -83,12 +122,12 @@ def parse_flight_query(flight_details: str) -> Optional[Dict[str, str]]:
     number_match = _FLIGHT_NUMBER_PATTERN.search(number_source.upper())
 
     date_source = _segment(text, 'Date/Time') or text
-    date_match = _ISO_DATE_PATTERN.search(date_source)
+    date = _parse_date_text(date_source) or _parse_date_text(text)
 
-    if not number_match or not date_match:
+    if not number_match or not date:
         return None
     number = (number_match.group(1) + number_match.group(2)).replace(' ', '')
-    return {'number': number, 'date': date_match.group(1)}
+    return {'number': number, 'date': date}
 
 
 def parse_airport_hint(flight_details: str) -> Optional[str]:
@@ -115,6 +154,11 @@ def parse_time_hint(flight_details: str) -> Optional[dt_time]:
     if not match:
         return None
     hour, minute = int(match.group(1)), int(match.group(2))
+    meridiem = (match.group(3) or '').lower()
+    if meridiem == 'pm' and hour != 12:
+        hour += 12
+    elif meridiem == 'am' and hour == 12:
+        hour = 0
     if hour > 23 or minute > 59:
         return None
     return dt_time(hour, minute)

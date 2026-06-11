@@ -398,3 +398,52 @@ class TimeHintIsoTests(TestCase):
         from apps.integrations.flight_lookup import parse_time_hint
         self.assertEqual(parse_time_hint('Date/Time: 2026-06-01T14:20:00'),
                          dt_time(14, 20))
+
+
+class HumanDateFormatTests(TestCase):
+    """Zendesk's 'Date & Time' form field arrives as human English in the wild
+    (seen in production: 'June 11, 2026 9:15 am') — not ISO."""
+
+    TAMPA = ('Flight: DL2852 | Airline: Delta Air Lines - DL | '
+             'Airport: Tampa International Airport / TPA | '
+             'Date/Time: June 11, 2026 9:15 am')
+
+    def test_real_world_tampa_claim(self):
+        from apps.integrations.flight_lookup import parse_flight_query
+        self.assertEqual(parse_flight_query(self.TAMPA),
+                         {'number': 'DL2852', 'date': '2026-06-11'})
+
+    def test_day_first_english(self):
+        from apps.integrations.flight_lookup import parse_flight_query
+        self.assertEqual(
+            parse_flight_query('Flight: RO301 | Date/Time: 11 June 2026'),
+            {'number': 'RO301', 'date': '2026-06-11'})
+
+    def test_us_slash_date(self):
+        from apps.integrations.flight_lookup import parse_flight_query
+        self.assertEqual(
+            parse_flight_query('Flight: RO301 | Date/Time: 06/11/2026 9:15'),
+            {'number': 'RO301', 'date': '2026-06-11'})
+
+    def test_slash_date_day_first_when_over_12(self):
+        from apps.integrations.flight_lookup import parse_flight_query
+        self.assertEqual(
+            parse_flight_query('Flight: RO301 | Date/Time: 23/06/2026'),
+            {'number': 'RO301', 'date': '2026-06-23'})
+
+    def test_pm_time_hint(self):
+        from apps.integrations.flight_lookup import parse_time_hint
+        self.assertEqual(parse_time_hint('Date/Time: June 11, 2026 9:15 pm'),
+                         dt_time(21, 15))
+
+    def test_am_time_hint_from_tampa(self):
+        from apps.integrations.flight_lookup import parse_time_hint
+        self.assertEqual(parse_time_hint(self.TAMPA), dt_time(9, 15))
+
+    def test_12am_time_hint(self):
+        from apps.integrations.flight_lookup import parse_time_hint
+        self.assertEqual(parse_time_hint('Date/Time: 12:30 am'), dt_time(0, 30))
+
+    def test_airport_hint_from_tampa(self):
+        from apps.integrations.flight_lookup import parse_airport_hint
+        self.assertEqual(parse_airport_hint(self.TAMPA), 'TPA')
