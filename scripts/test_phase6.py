@@ -44,7 +44,6 @@ try:
         agent_dashboard,
         agent_claims,
         agent_claim_detail,
-        agent_update_status,
         agent_upload_evidence,
         manager_dashboard,
         manager_claims,
@@ -56,7 +55,6 @@ try:
     print("   ✓ agent_dashboard - available")
     print("   ✓ agent_claims - available")
     print("   ✓ agent_claim_detail - available")
-    print("   ✓ agent_update_status - available")
     print("   ✓ agent_upload_evidence - available")
     print("   ✓ manager_dashboard - available")
     print("   ✓ manager_claims - available")

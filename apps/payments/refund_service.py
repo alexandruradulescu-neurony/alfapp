@@ -368,17 +368,6 @@ class RefundService:
                 'error': str(e),
             }
     
-    def _get_claim_total(self, claim: Claim) -> Decimal:
-        """
-        Get the total amount for a claim.
-        
-        TODO: Implement based on your claim pricing structure.
-        For now, returns a placeholder.
-        """
-        # This should query your pricing/payment data
-        # For now, return a default value
-        return Decimal('0.00')
-    
     def get_refund_status(self, refund_id: str) -> Optional[Dict[str, Any]]:
         """
         Check refund status with PayPal API.

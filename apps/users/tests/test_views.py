@@ -798,13 +798,18 @@ class TestManagerDashboard:
         client.login(username=f'{test_prefix}manager', password='testpass123')
         response = client.get('/manager/')
 
-        # Verify context data exists and has minimum expected values
-        assert response.context['total_claims'] >= 3
-        assert response.context['active'] >= 0
-        assert response.context['pending_client'] >= 0
-        assert response.context['solved'] >= 0
-        assert response.context['disputed'] >= 0
-        assert response.context['agents_count'] >= 1
+        # Context must mirror DB truth exactly (other fixtures may add claims,
+        # so derive expectations from the DB rather than hardcoding counts).
+        from apps.payments.models import Dispute
+        assert response.context['total_claims'] == Claim.objects.count()
+        assert response.context['active'] == Claim.objects.exclude(status_category='solved').count()
+        assert response.context['pending_client'] == Claim.objects.filter(status_category='pending').count()
+        assert response.context['solved'] == Claim.objects.filter(status_category='solved').count()
+        assert response.context['disputed'] == Dispute.objects.exclude(
+            status__in=['RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED']).count()
+        assert response.context['agents_count'] == User.objects.filter(role='AGENT').count()
+        # And the three claims this test created are all active (family 'open')
+        assert response.context['active'] >= 3
 
     def test_manager_dashboard_denies_agent(self):
         """Test AGENT cannot access manager dashboard."""

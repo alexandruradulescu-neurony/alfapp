@@ -101,7 +101,7 @@ class TestRefundServiceInitiateRefund:
 
         # Claim status is NOT written by the refund service (Zendesk webhook owns status)
         claim.refresh_from_db()
-        assert claim.status != "REFUNDED"  # status unchanged by refund
+        assert claim.status == "Received"  # status unchanged by refund
 
         # Verify refund record created
         refund = Refund.objects.filter(claim=claim).first()
@@ -142,7 +142,7 @@ class TestRefundServiceInitiateRefund:
 
         # Claim status is NOT written by the refund service (Zendesk webhook owns status)
         claim.refresh_from_db()
-        assert claim.status != "PARTIALLY_REFUNDED"  # status unchanged by refund
+        assert claim.status == "Received"  # status unchanged by refund
 
     @patch("apps.payments.refund_service.RefundService._process_paypal_refund")
     def test_initiate_refund_paypal_error(self, mock_process_refund):

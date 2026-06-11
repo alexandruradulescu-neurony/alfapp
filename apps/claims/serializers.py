@@ -29,20 +29,16 @@ class ClaimSerializer(serializers.ModelSerializer):
             'updated_at',
             'evidence_count',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'evidence_count']
+        read_only_fields = [
+            'id', 'created_at', 'updated_at', 'evidence_count',
+            'status', 'status_category', 'status_changed_at',
+        ]
 
     def get_evidence_count(self, obj):
         # Use annotated count if available (from ViewSet), otherwise fall back to query
         if hasattr(obj, '_evidence_count'):
             return obj._evidence_count
         return obj.evidence.count()
-
-    def validate_status(self, value):
-        """Validate status is non-empty (mirrors Zendesk verbatim; no fixed vocabulary)."""
-        value = (value or '').strip()
-        if not value:
-            raise serializers.ValidationError('Status cannot be empty.')
-        return value
 
     def validate_client_email(self, value):
         """Normalize email to lowercase."""
