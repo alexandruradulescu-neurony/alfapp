@@ -145,6 +145,18 @@ class Claim(models.Model):
         help_text='Return-shipment tracking (Zendesk "3rd Party Tracking Information")'
     )
 
+    # Flight lookup (AeroDataBox via the zd/flight-lookup/ endpoint)
+    flight_data = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Normalized flight lookup result; written only by the flight-lookup endpoint'
+    )
+    flight_data_updated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When flight_data was last fetched'
+    )
+
     # Workflow
     status = models.CharField(
         max_length=64,

@@ -29,6 +29,10 @@ class SystemSettingsAdmin(admin.ModelAdmin):
             'fields': ('sidebar_secret_token',),
             'description': 'Secret token for Zendesk sidebar authentication.'
         }),
+        ('Flight Data (AeroDataBox)', {
+            'fields': ('aerodatabox_api_key',),
+            'description': 'RapidAPI key for the AeroDataBox flight lookups.'
+        }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
             'classes': ('collapse',)

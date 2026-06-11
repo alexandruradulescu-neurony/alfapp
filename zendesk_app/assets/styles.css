@@ -43,6 +43,16 @@ body { font: 13px/1.5 -apple-system, system-ui, "Segoe UI", sans-serif; color: #
 .actions button:hover { background: #f0f7ff; border-color: #1f73b7; }
 .actions button:disabled { opacity: .55; cursor: default; }
 .actions svg { width: 14px; height: 14px; flex: none; }
+.actions button.wide { grid-column: 1 / -1; }
+
+/* flight lookup result */
+#flight-result { margin-top: 10px; padding: 10px; background: #f7fafc; border: 1px solid #d8e3ec; border-radius: 6px; font-size: 12px; }
+#flight-result .fr-head { font-weight: 700; margin-bottom: 4px; }
+#flight-result .fr-route { margin: 2px 0; }
+#flight-result .fr-ai { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #c2d8ec; }
+#flight-result .fr-ai strong { color: #1f73b7; }
+#flight-result ul { margin: 4px 0 0 16px; padding: 0; }
+#flight-result .muted-link { color: #68737d; text-decoration: underline; cursor: pointer; background: none; border: none; font-size: 11px; padding: 0; }
 
 #draft-status { margin-top: 8px; font-size: 12px; min-height: 16px; color: #68737d; }
 #draft-status.ok { color: #038153; }

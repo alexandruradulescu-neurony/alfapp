@@ -28,12 +28,26 @@ from apps.integrations.services import (
     add_refund_comment_to_zendesk,
     fetch_zendesk_ticket,
     fetch_zendesk_comments,
+    post_zendesk_comment,
     resolve_custom_status,
     safe_date,
     safe_decimal,
 )
 from apps.claims.services import compute_deadline_at
 from apps.integrations.briefing import ALF_BUSINESS_CONTEXT, refresh_claim_summary
+from apps.integrations.flight_lookup import (
+    FlightProviderNotConfigured,
+    analyze_flight_match,
+    find_candidate_flights,
+    format_candidates_note,
+    format_flight_note,
+    format_not_found_note,
+    lookup_flight,
+    normalize_flight,
+    parse_airport_hint,
+    parse_flight_query,
+    parse_time_hint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1132,3 +1146,139 @@ class ZendeskClaimWebhookView(APIView):
 
         return Response({'message': 'Status updated', 'claim_id': claim.id,
                          'status': new_status}, status=status.HTTP_200_OK)
+
+
+class ZendeskFlightLookupView(APIView):
+    """POST /api/integrations/zd/flight-lookup/
+    Body: {ticket_id, refresh?: bool}
+
+    LORA's first action button: looks up the claim's flight on AeroDataBox,
+    AI-cross-checks it against the client's report (selected airport, loss
+    time/circumstances), stores the result on the claim and posts an internal
+    note on the ticket. On not-found, the candidate rescue lists likely
+    departures from the stated airport. Never touches claim.status.
+    Auth: ZendeskSidebarAuth (sidebar_secret_token)."""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        if not ZendeskSidebarAuth.authenticate(request):
+            ip = request.META.get('REMOTE_ADDR', '')
+            cache_key = f'sidebar_auth_fail_{ip}'
+            failed_attempts = cache.get(cache_key, 0)
+            cache.set(cache_key, failed_attempts + 1, 300)
+            logger.warning(f"Failed flight-lookup auth attempt, IP: {ip}, attempt: {failed_attempts + 1}")
+            if failed_attempts >= 5:
+                return Response({'error': 'Too many failed attempts. Please try again later.'},
+                                status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+
+        ticket_id = str(request.data.get('ticket_id', '')).strip()
+        refresh = bool(request.data.get('refresh'))
+        claim = Claim.objects.filter(zd_ticket_id=ticket_id).first() if ticket_id else None
+        if not claim:
+            return Response({'error_message': 'No LORA claim is linked to this ticket.'},
+                            status=status.HTTP_200_OK)
+
+        query = parse_flight_query(claim.flight_details)
+        if not query:
+            return Response(
+                {'error_message': "Couldn't read a flight number and date from this claim."},
+                status=status.HTTP_200_OK)
+
+        if claim.flight_data and not refresh:
+            return Response({'flight': claim.flight_data, 'analysis': None,
+                             'cached': True, 'note_posted': False},
+                            status=status.HTTP_200_OK)
+
+        try:
+            raw_legs = lookup_flight(query['number'], query['date'])
+        except FlightProviderNotConfigured:
+            return Response(
+                {'error': 'AeroDataBox API key is not configured in System settings.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if raw_legs is None:
+            return Response({'error': 'Flight data provider unavailable. Try again.'},
+                            status=status.HTTP_502_BAD_GATEWAY)
+
+        if not raw_legs:
+            return self._handle_not_found(claim, query)
+
+        flight = normalize_flight(raw_legs)
+        claim.flight_data = flight
+        claim.flight_data_updated_at = timezone.now()
+        claim.save(update_fields=['flight_data', 'flight_data_updated_at', 'updated_at'])
+
+        analysis = analyze_flight_match(claim, flight)
+        note_posted = self._post_note(claim, format_flight_note(flight, analysis))
+
+        ClaimUpdateTimeline.objects.create(
+            claim=claim,
+            zendesk_ticket_id=claim.zd_ticket_id,
+            update_type='INFO_UPDATED',
+            changes_summary=json.dumps({'flight_lookup': {**query, 'found': True}}),
+            llm_summary=analysis.summary if analysis else '',
+        )
+        logger.info(f"Flight lookup for claim #{claim.id}: {query['number']} {query['date']} found")
+        return Response({'flight': flight, 'analysis': self._analysis_dict(analysis),
+                         'cached': False, 'note_posted': note_posted},
+                        status=status.HTTP_200_OK)
+
+    def _handle_not_found(self, claim, query):
+        """Candidate rescue: when the flight number is not found, list likely
+        departures from the client's stated airport so agents get leads
+        instead of a dead end."""
+        error_message = f"No flight found for {query['number']} on {query['date']}."
+        airport = parse_airport_hint(claim.flight_details)
+        candidates = None
+        if airport:
+            try:
+                candidates = find_candidate_flights(
+                    airport, query['date'], parse_time_hint(claim.flight_details))
+            except FlightProviderNotConfigured:
+                candidates = None
+
+        if candidates:
+            analysis = analyze_flight_match(claim, None, candidates)
+            note = format_candidates_note(
+                query['number'], query['date'], airport, candidates, analysis)
+            note_posted = self._post_note(claim, note)
+            ClaimUpdateTimeline.objects.create(
+                claim=claim,
+                zendesk_ticket_id=claim.zd_ticket_id,
+                update_type='INFO_UPDATED',
+                changes_summary=json.dumps({'flight_lookup': {
+                    **query, 'found': False, 'candidates': len(candidates)}}),
+                llm_summary=analysis.summary if analysis else '',
+            )
+            return Response({'error_message': error_message, 'candidates': candidates,
+                             'analysis': self._analysis_dict(analysis),
+                             'note_posted': note_posted}, status=status.HTTP_200_OK)
+
+        note_posted = self._post_note(
+            claim, format_not_found_note(query['number'], query['date']))
+        ClaimUpdateTimeline.objects.create(
+            claim=claim,
+            zendesk_ticket_id=claim.zd_ticket_id,
+            update_type='INFO_UPDATED',
+            changes_summary=json.dumps({'flight_lookup': {
+                **query, 'found': False, 'candidates': 0}}),
+            llm_summary='',
+        )
+        return Response({'error_message': error_message, 'note_posted': note_posted},
+                        status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _post_note(claim, body):
+        """Post an internal note; never let a Zendesk hiccup fail the lookup."""
+        try:
+            return bool(post_zendesk_comment(claim.zd_ticket_id, body, is_internal=True))
+        except Exception as e:
+            logger.warning(f"Flight note post failed for claim #{claim.id}: {e}")
+            return False
+
+    @staticmethod
+    def _analysis_dict(analysis):
+        if not analysis:
+            return None
+        return {'summary': analysis.summary, 'mismatches': analysis.mismatches}

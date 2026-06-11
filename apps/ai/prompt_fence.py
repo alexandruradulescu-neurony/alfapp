@@ -15,6 +15,9 @@ ALLOWED_TAGS: frozenset[str] = frozenset({
     "ticket_created_at",
     "zendesk_comment",
     "claim_description",
+    "client_reported_flight",
+    "client_lost_location",
+    "client_incident_details",
 })
 
 

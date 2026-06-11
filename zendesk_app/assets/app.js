@@ -255,5 +255,66 @@ function escapeHtml(s) {
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// --- flight lookup ---
+async function flightLookup(refresh) {
+  const btn = document.getElementById('btn-flight');
+  const box = document.getElementById('flight-result');
+  btn.disabled = true;
+  box.hidden = false;
+  box.innerHTML = '<div class="skel" style="width: 60%"></div><div class="skel" style="width: 45%"></div>';
+  try {
+    const data0 = await client.get(['ticket.id']);
+    const body = { ticket_id: String(data0['ticket.id']) };
+    if (refresh) body.refresh = true;
+    const resp = await loraRequest('/api/integrations/zd/flight-lookup/', body);
+    const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
+    box.innerHTML = renderFlightResult(data);
+    const link = document.getElementById('flight-refresh');
+    if (link) link.onclick = () => flightLookup(true);
+  } catch (e) {
+    const server = e && e.responseJSON && (e.responseJSON.error || e.responseJSON.error_message);
+    box.innerHTML = '<span class="error">' + escapeHtml(server || diagnose(e)) + '</span>';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderFlightResult(data) {
+  if (data.error) return '<span class="error">' + escapeHtml(data.error) + '</span>';
+  let html = '';
+  if (data.flight) {
+    const f = data.flight;
+    const head = ['✈ ' + (f.number || ''), f.airline ? '— ' + f.airline : '', f.status ? '· ' + f.status : '']
+      .filter(Boolean).join(' ');
+    html += `<div class="fr-head">${escapeHtml(head)}</div>`;
+    (f.legs || []).forEach(l => {
+      html += `<div class="fr-route">${escapeHtml(l.from_iata)} (${escapeHtml(l.from_city)}) → ${escapeHtml(l.to_iata)} (${escapeHtml(l.to_city)})</div>`;
+      const times = [
+        l.scheduled_departure_local ? 'dep ' + l.scheduled_departure_local : '',
+        l.scheduled_arrival_local ? 'arr ' + l.scheduled_arrival_local : '',
+      ].filter(Boolean).join(' · ');
+      if (times) html += `<div class="fr-route muted">${escapeHtml(times)}</div>`;
+    });
+  } else if (data.error_message) {
+    html += `<div class="fr-head">${escapeHtml(data.error_message)}</div>`;
+    if (data.candidates && data.candidates.length) {
+      html += '<div>Likely candidates:</div><ul>' + data.candidates.map(c =>
+        `<li>${escapeHtml(c.number)} → ${escapeHtml(c.destination)}${c.scheduled_local ? ' · dep ' + escapeHtml(c.scheduled_local) : ''}</li>`).join('') + '</ul>';
+    }
+  }
+  if (data.analysis && data.analysis.summary) {
+    html += `<div class="fr-ai"><strong>AI check:</strong> ${escapeHtml(data.analysis.summary)}`;
+    if (data.analysis.mismatches && data.analysis.mismatches.length) {
+      html += '<ul>' + data.analysis.mismatches.map(m => `<li>${escapeHtml(m)}</li>`).join('') + '</ul>';
+    }
+    html += '</div>';
+  }
+  if (data.note_posted) html += '<div class="muted" style="margin-top:6px">✓ Posted as internal note on the ticket.</div>';
+  if (data.cached) html += '<div style="margin-top:6px"><span class="muted">Saved result.</span> <button id="flight-refresh" class="muted-link" type="button">Refresh from provider</button></div>';
+  return html || '<span class="muted">No result.</span>';
+}
+
+document.getElementById('btn-flight').onclick = () => flightLookup(false);
+
 // init
 loadBriefing();

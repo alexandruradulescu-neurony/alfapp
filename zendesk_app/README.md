@@ -12,7 +12,7 @@ email drafts, and a claim-scoped chat — all backed by LORA.
 - AI summary of where the case stands (leads with lifecycle stage: searching / found / retrieval / delivered)
 - LORA facts: claim status + status family (new/open/pending/hold/solved), deadline (with urgency coloring), email counts, disputes, next client-update milestone (day 2/5/11/20 cadence — stops once the case reaches a solved/closed status)
 - ⚠️ Needs attention: up to 5 unresolved action-required institution emails
-- Buttons: **Regenerate** · **Next steps** (generated on demand) · **Client update** / **Institution reply** (AI drafts the email and inserts it into the ticket reply box — the agent reviews and sends; nothing sends automatically)
+- Buttons: **Regenerate** · **Next steps** (generated on demand) · **Client update** / **Institution reply** (AI drafts the email and inserts it into the ticket reply box — the agent reviews and sends; nothing sends automatically) · **Find flight info** (looks the flight up on AeroDataBox, AI-cross-checks it against the client's report — wrong-airport detection, search-focus advice — saves it on the claim and posts an internal note; on not-found it lists likely candidate departures from the stated airport)
 
 **Chat tab**
 - Ask anything about the ticket/claim; scoped to THIS ticket's claim only
@@ -35,6 +35,7 @@ LORA side — never a passthrough.
 | `POST /api/integrations/zd/briefing/` | Briefing | default mode returns `{summary, next_steps[], facts{}, attention[]}`; `mode: "next_steps"` returns `{next_steps[]}` only |
 | `POST /api/integrations/zd/chat/` | Chat | `{answer, sources[]}`; claim-linked tickets use LORA's AgentChatService, unlinked tickets answer from ticket content |
 | `POST /api/integrations/zd/draft/` | Email drafts | `draft_type: "client_update" \| "institution_reply"` → `{body}` |
+| `POST /api/integrations/zd/flight-lookup/` | Flight lookup (action button) | `{ticket_id, refresh?}` → `{flight, analysis, cached, note_posted}` or `{error_message, candidates?}`; needs `aerodatabox_api_key` in SystemSettings; posts an internal note on the ticket |
 
 **Payload the app sends** (built in `assets/app.js` → `ticketContext()`):
 `ticket_id`, `subject`, `description`, `requester_email`, `requester_name`,

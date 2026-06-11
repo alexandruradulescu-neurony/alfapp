@@ -209,6 +209,14 @@ Please analyze this claim and provide:
         help_text='Secret token for Zendesk sidebar authentication (encrypted at rest)'
     )
 
+    # Flight data provider (ENCRYPTED - sensitive credential)
+    aerodatabox_api_key = EncryptedCharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='AeroDataBox (RapidAPI) key for flight lookups (encrypted at rest)'
+    )
+
     # Email Configuration
     email_domain = models.CharField(
         max_length=255,

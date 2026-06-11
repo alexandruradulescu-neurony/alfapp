@@ -73,3 +73,13 @@ class EmailDraft(BaseModel):
     Body only — the draft is inserted into the ticket's existing reply box."""
 
     body: str = Field(max_length=4000)
+
+
+class FlightCheck(BaseModel):
+    """Schema for the flight-lookup AI cross-check (POST /zd/flight-lookup/).
+    Validates fetched flight data (or candidate flights) against the client's
+    report and says where the search should focus; `mismatches` lists concrete
+    discrepancies (wrong day, airport not on route, etc.)."""
+
+    summary: str = Field(max_length=600)
+    mismatches: list[str] = Field(default_factory=list, max_length=5)

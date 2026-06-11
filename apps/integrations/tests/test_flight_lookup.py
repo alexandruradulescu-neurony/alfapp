@@ -1,0 +1,358 @@
+"""Tests for the flight lookup feature (service module + endpoint).
+
+External boundaries are mocked: AeroDataBox via _aerodatabox_get / urlopen,
+AI via AIClient.complete, Zendesk notes via post_zendesk_comment.
+"""
+import urllib.error
+from datetime import time as dt_time
+from unittest.mock import patch
+
+from django.test import TestCase
+from rest_framework.test import APIClient
+
+from apps.ai.schemas import FlightCheck
+from apps.claims.models import Claim
+from apps.config.models import SystemSettings
+
+SECRET = 'flight-test-secret'
+
+COMPOSED = ('Flight: RO301 | Airline: TAROM | Airport: Henri Coanda (OTP) | '
+            'Seat: 12A | Date/Time: 2026-06-01 14:20')
+
+RAW_LEG = {
+    'number': 'RO 301',
+    'status': 'Arrived',
+    'airline': {'name': 'TAROM'},
+    'departure': {
+        'airport': {'iata': 'OTP', 'name': 'Henri Coanda', 'municipalityName': 'Bucharest'},
+        'scheduledTime': {'local': '2026-06-01 14:20+03:00'},
+    },
+    'arrival': {
+        'airport': {'iata': 'CDG', 'name': 'Charles de Gaulle', 'municipalityName': 'Paris'},
+        'scheduledTime': {'local': '2026-06-01 17:05+02:00'},
+    },
+}
+
+
+def _fake_check(summary='Route matches the client report.', mismatches=None):
+    return FlightCheck(summary=summary, mismatches=mismatches or [])
+
+
+class ParseFlightQueryTests(TestCase):
+    def test_labeled_string(self):
+        from apps.integrations.flight_lookup import parse_flight_query
+        self.assertEqual(parse_flight_query(COMPOSED),
+                         {'number': 'RO301', 'date': '2026-06-01'})
+
+    def test_missing_date_returns_none(self):
+        from apps.integrations.flight_lookup import parse_flight_query
+        self.assertIsNone(parse_flight_query('Flight: RO301 | Airline: TAROM'))
+
+    def test_missing_number_returns_none(self):
+        from apps.integrations.flight_lookup import parse_flight_query
+        self.assertIsNone(parse_flight_query('Date/Time: 2026-06-01 14:20'))
+
+    def test_garbage_returns_none(self):
+        from apps.integrations.flight_lookup import parse_flight_query
+        self.assertIsNone(parse_flight_query('forgot my wallet at the gate'))
+
+    def test_bare_string_fallback(self):
+        from apps.integrations.flight_lookup import parse_flight_query
+        self.assertEqual(parse_flight_query('W6 3001 on 2026-06-02 to Rome'),
+                         {'number': 'W63001', 'date': '2026-06-02'})
+
+
+class ParseHintsTests(TestCase):
+    def test_airport_from_parentheses(self):
+        from apps.integrations.flight_lookup import parse_airport_hint
+        self.assertEqual(parse_airport_hint(COMPOSED), 'OTP')
+
+    def test_airport_bare_code(self):
+        from apps.integrations.flight_lookup import parse_airport_hint
+        self.assertEqual(parse_airport_hint('Airport: JFK New York'), 'JFK')
+
+    def test_airport_stopword_skipped(self):
+        from apps.integrations.flight_lookup import parse_airport_hint
+        self.assertIsNone(parse_airport_hint('Airport: New Airfield'))
+
+    def test_no_airport_segment(self):
+        from apps.integrations.flight_lookup import parse_airport_hint
+        self.assertIsNone(parse_airport_hint('Flight: RO301'))
+
+    def test_time_hint(self):
+        from apps.integrations.flight_lookup import parse_time_hint
+        self.assertEqual(parse_time_hint(COMPOSED), dt_time(14, 20))
+
+    def test_time_hint_missing(self):
+        from apps.integrations.flight_lookup import parse_time_hint
+        self.assertIsNone(parse_time_hint('Date/Time: 2026-06-01'))
+
+
+class NormalizeFlightTests(TestCase):
+    def test_normalizes_legs_and_header(self):
+        from apps.integrations.flight_lookup import normalize_flight
+        result = normalize_flight([RAW_LEG])
+        self.assertEqual(result['number'], 'RO 301')
+        self.assertEqual(result['airline'], 'TAROM')
+        self.assertEqual(result['status'], 'Arrived')
+        self.assertEqual(len(result['legs']), 1)
+        leg = result['legs'][0]
+        self.assertEqual(leg['from_iata'], 'OTP')
+        self.assertEqual(leg['to_city'], 'Paris')
+        self.assertTrue(result['looked_up_at'])
+
+    def test_defensive_on_sparse_payload(self):
+        from apps.integrations.flight_lookup import normalize_flight
+        result = normalize_flight([{'number': 'RO301'}])
+        self.assertEqual(result['legs'][0]['from_iata'], '')
+
+
+class LookupFlightTests(TestCase):
+    def setUp(self):
+        ss = SystemSettings.get_instance()
+        ss.aerodatabox_api_key = 'k'
+        ss.save()
+
+    @patch('apps.integrations.flight_lookup._aerodatabox_get', return_value=[RAW_LEG])
+    def test_success_returns_list(self, _mock):
+        from apps.integrations.flight_lookup import lookup_flight
+        self.assertEqual(lookup_flight('RO301', '2026-06-01'), [RAW_LEG])
+
+    @patch('apps.integrations.flight_lookup._aerodatabox_get',
+           side_effect=urllib.error.HTTPError('u', 404, 'nf', {}, None))
+    def test_404_means_not_found(self, _mock):
+        from apps.integrations.flight_lookup import lookup_flight
+        self.assertEqual(lookup_flight('RO301', '2026-06-01'), [])
+
+    @patch('apps.integrations.flight_lookup._aerodatabox_get',
+           side_effect=urllib.error.URLError('down'))
+    def test_transport_error_returns_none(self, _mock):
+        from apps.integrations.flight_lookup import lookup_flight
+        self.assertIsNone(lookup_flight('RO301', '2026-06-01'))
+
+    def test_missing_key_raises(self):
+        from apps.integrations.flight_lookup import (
+            FlightProviderNotConfigured, lookup_flight)
+        ss = SystemSettings.get_instance()
+        ss.aerodatabox_api_key = ''
+        ss.save()
+        with self.assertRaises(FlightProviderNotConfigured):
+            lookup_flight('RO301', '2026-06-01')
+
+
+class FindCandidateFlightsTests(TestCase):
+    DEPARTURES = {'departures': [
+        {'number': 'RO301',
+         'movement': {'airport': {'iata': 'CDG', 'name': 'Charles de Gaulle'},
+                      'scheduledTime': {'local': '2026-06-01 14:20+03:00'}}},
+        {'number': 'RO307',
+         'movement': {'airport': {'iata': 'ORY', 'name': 'Orly'},
+                      'scheduledTime': {'local': '2026-06-01 15:05+03:00'}}},
+    ]}
+
+    @patch('apps.integrations.flight_lookup._aerodatabox_get')
+    def test_candidates_normalized_and_window_from_hint(self, mock_get):
+        from apps.integrations.flight_lookup import find_candidate_flights
+        mock_get.return_value = self.DEPARTURES
+        result = find_candidate_flights('OTP', '2026-06-01', dt_time(14, 20))
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]['number'], 'RO301')
+        self.assertIn('CDG', result[0]['destination'])
+        path = mock_get.call_args.args[0]
+        self.assertIn('/flights/airports/iata/OTP/2026-06-01T11:00/2026-06-01T17:59', path)
+
+    @patch('apps.integrations.flight_lookup._aerodatabox_get')
+    def test_destination_filter(self, mock_get):
+        from apps.integrations.flight_lookup import find_candidate_flights
+        mock_get.return_value = self.DEPARTURES
+        result = find_candidate_flights('OTP', '2026-06-01', None, destination_hint='Orly')
+        self.assertEqual([c['number'] for c in result], ['RO307'])
+
+    @patch('apps.integrations.flight_lookup._aerodatabox_get',
+           side_effect=urllib.error.URLError('down'))
+    def test_transport_error_returns_none(self, _mock):
+        from apps.integrations.flight_lookup import find_candidate_flights
+        self.assertIsNone(find_candidate_flights('OTP', '2026-06-01'))
+
+
+class AnalyzeFlightMatchTests(TestCase):
+    def setUp(self):
+        self.claim = Claim.objects.create(
+            client_email='fl@example.com', client_name='Ana Pop',
+            zd_ticket_id='80001', flight_details=COMPOSED,
+            lost_location='Gate 12 security', incident_details='Left it at security around 13:40')
+
+    @patch('apps.integrations.flight_lookup.AIClient.complete')
+    def test_channels_and_pii(self, mock_complete):
+        from apps.integrations.flight_lookup import analyze_flight_match, normalize_flight
+        mock_complete.return_value = _fake_check()
+        flight = normalize_flight([RAW_LEG])
+        result = analyze_flight_match(self.claim, flight)
+        self.assertEqual(result.summary, 'Route matches the client report.')
+        kwargs = mock_complete.call_args.kwargs
+        self.assertIn('CDG', str(kwargs['trusted']))           # flight data is trusted
+        self.assertIn('Gate 12', str(kwargs['untrusted']))      # client text is untrusted
+        self.assertNotIn('Gate 12', str(kwargs['trusted']))
+        self.assertIn('Ana Pop', kwargs['known_pii']['names'])
+        self.assertEqual(kwargs['call_site'], 'flight_check')
+
+    @patch('apps.integrations.flight_lookup.AIClient.complete', side_effect=RuntimeError('down'))
+    def test_ai_failure_returns_none(self, _mock):
+        from apps.integrations.flight_lookup import analyze_flight_match
+        self.assertIsNone(analyze_flight_match(self.claim, {'number': 'RO301', 'legs': []}))
+
+
+class FormatNotesTests(TestCase):
+    def test_found_note_with_analysis(self):
+        from apps.integrations.flight_lookup import format_flight_note, normalize_flight
+        note = format_flight_note(normalize_flight([RAW_LEG]),
+                                  _fake_check(mismatches=['Client selected OTP; loss after landing at CDG']))
+        self.assertIn('Flight RO 301', note)
+        self.assertIn('OTP', note)
+        self.assertIn('AI check:', note)
+        self.assertIn('- Client selected OTP', note)
+
+    def test_candidates_note(self):
+        from apps.integrations.flight_lookup import format_candidates_note
+        note = format_candidates_note('RO3O1', '2026-06-01', 'OTP',
+                                      [{'number': 'RO301', 'destination': 'CDG Charles de Gaulle',
+                                        'scheduled_local': '14:20'}], None)
+        self.assertIn('RO3O1 not found', note)
+        self.assertIn('- RO301 -> CDG', note)
+
+    def test_not_found_note(self):
+        from apps.integrations.flight_lookup import format_not_found_note
+        self.assertEqual(format_not_found_note('RO301', '2026-06-01'),
+                         'Flight information was not found for RO301 on 2026-06-01.')
+
+
+class FlightLookupEndpointTests(TestCase):
+    def setUp(self):
+        ss = SystemSettings.get_instance()
+        ss.sidebar_secret_token = SECRET
+        ss.aerodatabox_api_key = 'k'
+        ss.save()
+        self.api = APIClient()
+        self.claim = Claim.objects.create(
+            client_email='ep@example.com', client_name='Ana Pop',
+            zd_ticket_id='90001', flight_details=COMPOSED)
+        self.url = '/api/integrations/zd/flight-lookup/'
+
+    def _post(self, body=None):
+        return self.api.post(self.url, body or {'ticket_id': '90001'},
+                             format='json', HTTP_AUTHORIZATION=f'Bearer {SECRET}')
+
+    def test_auth_required(self):
+        response = self.api.post(self.url, {'ticket_id': '90001'}, format='json')
+        self.assertEqual(response.status_code, 403)
+
+    def test_no_claim(self):
+        response = self._post({'ticket_id': '99999'})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('No LORA claim', response.json()['error_message'])
+
+    def test_unparseable_flight(self):
+        self.claim.flight_details = 'no flight info here'
+        self.claim.save()
+        response = self._post()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Couldn't read", response.json()['error_message'])
+
+    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.analyze_flight_match', return_value=_fake_check())
+    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
+    def test_success_saves_posts_and_returns(self, mock_lookup, mock_analyze, mock_post):
+        response = self._post()
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['flight']['number'], 'RO 301')
+        self.assertFalse(data['cached'])
+        self.assertTrue(data['note_posted'])
+        self.assertEqual(data['analysis']['summary'], 'Route matches the client report.')
+        self.claim.refresh_from_db()
+        self.assertEqual(self.claim.flight_data['number'], 'RO 301')
+        self.assertIsNotNone(self.claim.flight_data_updated_at)
+        entry = self.claim.updates.first()
+        self.assertEqual(entry.update_type, 'INFO_UPDATED')
+        self.assertIn('flight_lookup', entry.changes_summary)
+        note_body = mock_post.call_args.args[1]
+        self.assertIn('AI check:', note_body)
+
+    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
+    @patch('apps.integrations.views.analyze_flight_match', return_value=None)
+    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
+    def test_analysis_failure_still_succeeds(self, mock_post, _mock_analyze, _mock_lookup):
+        response = self._post()
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()['analysis'])
+        note_body = mock_post.call_args.args[1]
+        self.assertNotIn('AI check:', note_body)
+
+    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
+    @patch('apps.integrations.views.analyze_flight_match', return_value=_fake_check())
+    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
+    def test_cached_second_call_skips_api(self, _mock_post, _mock_analyze, mock_lookup):
+        self._post()
+        self.assertEqual(mock_lookup.call_count, 1)
+        response = self._post()
+        self.assertEqual(mock_lookup.call_count, 1)  # not called again
+        self.assertTrue(response.json()['cached'])
+
+    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
+    @patch('apps.integrations.views.analyze_flight_match', return_value=_fake_check())
+    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
+    def test_refresh_forces_new_lookup(self, _mock_post, _mock_analyze, mock_lookup):
+        self._post()
+        response = self._post({'ticket_id': '90001', 'refresh': True})
+        self.assertEqual(mock_lookup.call_count, 2)
+        self.assertFalse(response.json()['cached'])
+
+    @patch('apps.integrations.views.lookup_flight', return_value=None)
+    def test_provider_down_502_no_note(self, _mock_lookup):
+        with patch('apps.integrations.views.post_zendesk_comment') as mock_post:
+            response = self._post()
+        self.assertEqual(response.status_code, 502)
+        mock_post.assert_not_called()
+
+    @patch('apps.integrations.views.lookup_flight',
+           side_effect=__import__('apps.integrations.flight_lookup', fromlist=['FlightProviderNotConfigured']).FlightProviderNotConfigured('no key'))
+    def test_missing_key_503(self, _mock_lookup):
+        response = self._post()
+        self.assertEqual(response.status_code, 503)
+        self.assertIn('not configured', response.json()['error'])
+
+    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.analyze_flight_match', return_value=_fake_check('RO301 at 14:20 fits best.'))
+    @patch('apps.integrations.views.find_candidate_flights',
+           return_value=[{'number': 'RO301', 'destination': 'CDG Charles de Gaulle',
+                          'scheduled_local': '2026-06-01 14:20+03:00'}])
+    @patch('apps.integrations.views.lookup_flight', return_value=[])
+    def test_not_found_with_candidates(self, _ml, mock_candidates, _ma, mock_post):
+        response = self._post()
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn('No flight found', data['error_message'])
+        self.assertEqual(len(data['candidates']), 1)
+        self.assertTrue(data['note_posted'])
+        note_body = mock_post.call_args.args[1]
+        self.assertIn('likely candidates', note_body)
+        entry = self.claim.updates.first()
+        self.assertIn('"found": false', entry.changes_summary)
+
+    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.find_candidate_flights', return_value=[])
+    @patch('apps.integrations.views.lookup_flight', return_value=[])
+    def test_not_found_plain_note(self, _ml, _mc, mock_post):
+        response = self._post()
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('candidates', response.json())
+        note_body = mock_post.call_args.args[1]
+        self.assertIn('was not found', note_body)
+
+    @patch('apps.integrations.views.post_zendesk_comment', side_effect=RuntimeError('zd down'))
+    @patch('apps.integrations.views.analyze_flight_match', return_value=None)
+    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
+    def test_note_failure_tolerated(self, _ml, _ma, _mp):
+        response = self._post()
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['note_posted'])
