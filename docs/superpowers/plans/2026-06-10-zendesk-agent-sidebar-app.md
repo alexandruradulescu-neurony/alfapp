@@ -896,3 +896,42 @@ git commit -m "docs(zendesk-app): dev/install/update workflow + deployment notes
 ## Notes / deferred
 - **Action buttons** (browser-use form-fill, dispute docs, PayPal submit) are intentionally not built here. They extend the same pattern: a new LORA endpoint + a button in `app.js`.
 - If you later want per-agent identity/audit instead of one shared token, that's a separate auth upgrade (OAuth/JWT between Zendesk and LORA).
+
+---
+
+## AS-BUILT ADDENDUM (2026-06-11) — what shipped beyond this plan
+
+The plan above was executed in full, then extended during live testing. The
+app is **installed in production** (app_id 1260824 on airportlf.zendesk.com).
+Current truth lives in `zendesk_app/README.md` + the code; summary of
+post-plan increments:
+
+1. **ZAF SDK URL fix** — the plan's SDK path was wrong (no such file);
+   correct: `static.zdassets.com/zendesk_app_framework_sdk/2.0/zaf_sdk.min.js`.
+2. **Secure-settings auth fix** — `{{setting.*}}` substitution requires
+   `secure: true` + `domainWhitelist` in the manifest; the zcli local server
+   doesn't support secure settings at all, so `app.js` falls back to the
+   locally-exposed value during dev.
+3. **Diagnosable errors** — panel failures show HTTP status + actionable hint.
+4. **Ticket-content chat** — `/zd/chat/` answers from ticket content when no
+   claim is linked (was: refusal).
+5. **Prompt/input overhaul** — comments sent as
+   `[{author, created_at, public, text}]` (30×1500, chronological, via Zendesk
+   REST from the app) + `ticket_created_at` + `requester_name`; shared
+   `ALF_BUSINESS_CONTEXT` business preamble in `apps/integrations/views.py`;
+   briefing leads with lifecycle stage; `mode='next_steps'` generates steps on
+   demand (NextSteps schema).
+6. **NAME tokenization** — `RegexTokenizer(known_names=...)`: full client name
+   any casing, Capitalized/ALL-CAPS parts ≥3 chars; views pass
+   `known_pii={'names': [requester_name, claim.client_name]}`. Bracket-less
+   placeholder echoes (NAME_xxxx without <>) are restored too.
+7. **Agent features** — `POST /zd/draft/` (client_update | institution_reply →
+   EmailDraft → inserted via `ticket.editor.insert`, never auto-sent);
+   "Needs attention" unresolved-emails block (response-only, kept OUT of the
+   trusted AI channel); `facts.next_update_due` (day 2/5/11/20 cadence);
+   chat translation capability.
+8. **Visual pass** — real logos (logo.png + logo-small.png), 2×2 SVG-icon
+   action grid, skeleton loading, chat layout with bottom composer + suggestion
+   chips, deadline urgency pills.
+
+Test coverage at install time: **280 passing** across integrations/ai/agent.

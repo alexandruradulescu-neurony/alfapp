@@ -193,7 +193,9 @@ Railway's managed Postgres takes daily backups automatically. Restore via dashbo
 
 ## 11. Zendesk sidebar app
 
-The agent sidebar app (AI briefing + claim-scoped chat) lives in [`zendesk_app/`](../zendesk_app/) and **deploys separately** from this Django backend. The backend ships to Railway on `git push`; the app ships to Zendesk via `zcli`. They are independent — changing the app does not redeploy LORA, and vice versa.
+The agent sidebar app (AI briefing + drafts + claim-scoped chat) lives in [`zendesk_app/`](../zendesk_app/) and **deploys separately** from this Django backend. The backend ships to Railway on `git push`; the app ships to Zendesk via `zcli`. They are independent — changing the app does not redeploy LORA, and vice versa.
+
+> **Installed 2026-06-11** as a private app on `airportlf.zendesk.com`, app_id `1260824` (kept in `zendesk_app/zcli.apps.config.json`). Day-to-day: backend changes need only `git push`; app-shell changes need `zcli apps:update`.
 
 **One-time install** (needs a Zendesk plan that allows private apps — Support **Team** and up):
 ```bash
