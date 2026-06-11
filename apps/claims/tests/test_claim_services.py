@@ -35,3 +35,29 @@ class ComputeDeadlineAtTests(TestCase):
     def test_12am_is_midnight(self):
         result = compute_deadline_at(date(2026, 7, 1), '12 AM', 'UTC')
         self.assertEqual(result.hour, 0)
+
+    def test_12pm_is_noon(self):
+        result = compute_deadline_at(date(2026, 7, 1), '12 PM', 'UTC')
+        self.assertEqual(result.hour, 12)
+
+
+class LegacyStatusMapTests(TestCase):
+    def test_all_legacy_values_map(self):
+        from apps.claims.legacy_status_map import map_legacy_status
+        expected = {
+            'Received': ('Investigation initiated', 'open'),
+            'Searching': ('Claim submitted', 'open'),
+            'Found': ('Object Found', 'open'),
+            'Shipped': ('Object Found', 'open'),
+            'Disputed': ('Open', 'open'),
+            'REFUND_REQUESTED': ('Refund Requested', 'open'),
+            'REFUNDED': ('Closed - Refunded', 'solved'),
+            'PARTIALLY_REFUNDED': ('Closed - Refunded', 'solved'),
+        }
+        for old, new in expected.items():
+            self.assertEqual(map_legacy_status(old), new)
+
+    def test_unknown_value_passes_through_with_open_family(self):
+        from apps.claims.legacy_status_map import map_legacy_status
+        self.assertEqual(map_legacy_status('Investigation initiated'),
+                         ('Investigation initiated', 'open'))

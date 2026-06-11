@@ -34,6 +34,7 @@ def parse_deadline_time(text: str) -> Optional[time]:
         hour += 12
     elif meridiem == 'am' and hour == 12:
         hour = 0
+    # 12 PM stays 12 — no adjustment needed
     if hour > 23 or minute > 59:
         return None
     return time(hour, minute)
