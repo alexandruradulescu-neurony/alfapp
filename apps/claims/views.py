@@ -108,14 +108,6 @@ class ClaimViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Validate status
-        valid_statuses = [choice[0] for choice in Claim.STATUS_CHOICES]
-        if new_status not in valid_statuses:
-            return Response(
-                {'detail': f'Invalid status. Must be one of: {", ".join(valid_statuses)}'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
         try:
             claim.status = new_status
             claim.save()

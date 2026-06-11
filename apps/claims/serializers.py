@@ -38,12 +38,10 @@ class ClaimSerializer(serializers.ModelSerializer):
         return obj.evidence.count()
 
     def validate_status(self, value):
-        """Validate status is a valid choice."""
-        valid_statuses = [choice[0] for choice in Claim.STATUS_CHOICES]
-        if value not in valid_statuses:
-            raise serializers.ValidationError(
-                f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
-            )
+        """Validate status is non-empty (mirrors Zendesk verbatim; no fixed vocabulary)."""
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError('Status cannot be empty.')
         return value
 
     def validate_client_email(self, value):
