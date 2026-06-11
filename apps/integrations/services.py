@@ -758,44 +758,21 @@ def match_alias_to_zendesk_ticket(alias: str) -> Optional[Dict[str, Any]]:
 def tag_zendesk_ticket_as_refunded(zd_ticket_id: str) -> bool:
     """
     Add 'refunded' tag to a Zendesk ticket.
-    
+
     This mimics the existing PHP logic for the "normal route" where
     WordPress processes a refund and tags the Zendesk ticket.
-    
+
+    Until 2026-06-12 this updated the ticket itself with a tags array —
+    which REPLACES the whole tag set in Zendesk, wiping every other tag off
+    the ticket on each refund. Delegates to the additive helper instead.
+
     Args:
         zd_ticket_id: The Zendesk ticket ID to tag
-    
+
     Returns:
         True if successful, False otherwise
     """
-    try:
-        base_url = _get_zendesk_base_url()
-        headers = _get_zendesk_auth_headers()
-        
-        url = f"{base_url}/tickets/{zd_ticket_id}.json"
-        
-        # Add 'refunded' tag to existing tags
-        payload = {
-            'ticket': {
-                'tags': ['refunded']  # This appends to existing tags
-            }
-        }
-        
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode('utf-8'),
-            headers=headers,
-            method='PUT'
-        )
-        
-        with urllib.request.urlopen(req, timeout=30) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            logger.info(f"Added 'refunded' tag to Zendesk ticket {zd_ticket_id}")
-            return True
-            
-    except Exception as e:
-        logger.error(f"Error tagging Zendesk ticket as refunded: {e}")
-        return False
+    return add_zendesk_ticket_tags(zd_ticket_id, ['refunded'])
 
 
 def add_refund_comment_to_zendesk(

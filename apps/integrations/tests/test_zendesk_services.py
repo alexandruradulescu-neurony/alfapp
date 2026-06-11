@@ -872,18 +872,22 @@ class TestTagZendeskTicketAsRefunded:
     """Tests for tag_zendesk_ticket_as_refunded function."""
 
     def test_tags_ticket_successfully(self, mock_system_settings, mock_urlopen_response):
-        """Ticket tagged with 'refunded' tag."""
-        mock_urlopen_response.read.return_value = json.dumps({'ticket': {}}).encode('utf-8')
+        """'refunded' is ADDED via PUT on /tags.json — never the ticket-update
+        endpoint, whose tags array REPLACES the whole set (wiped all other
+        tags on every refund until 2026-06-12)."""
+        mock_urlopen_response.read.return_value = json.dumps({'tags': ['refunded']}).encode('utf-8')
 
         with patch('urllib.request.urlopen', return_value=mock_urlopen_response) as mock_urlopen:
             result = services.tag_zendesk_ticket_as_refunded('12345')
 
         assert result is True
 
-        # Verify payload
+        # Verify the additive endpoint, verb and payload
         call_args = mock_urlopen.call_args[0][0]
+        assert call_args.full_url.endswith('/tickets/12345/tags.json')
+        assert call_args.get_method() == 'PUT'
         payload = json.loads(call_args.data.decode('utf-8'))
-        assert payload['ticket']['tags'] == ['refunded']
+        assert payload == {'tags': ['refunded']}
 
     def test_returns_false_on_exception(self, mock_system_settings):
         """Returns False when exception occurs."""
