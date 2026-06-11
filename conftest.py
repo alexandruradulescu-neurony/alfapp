@@ -91,7 +91,8 @@ def sample_claim():
         client_email='sample@example.com',
         flight_details='Flight AA100 from JFK to LAX',
         object_description='Black suitcase',
-        status='Received',
+        status='Investigation initiated',
+        status_category='open',
     )
 
 
@@ -99,20 +100,21 @@ def sample_claim():
 def sample_claims():
     """
     Creates multiple sample Claim objects for testing queries.
-    
+
     Usage:
         def test_claim_queries(sample_claims):
             assert Claim.objects.count() == 5
     """
     from apps.claims.models import Claim
-    
+
     claims = []
     for i in range(5):
         claim = Claim.objects.create(
             alf_claim_id=f'ALF000000{i}',
             zd_ticket_id=f'{10000 + i}',
             client_email=f'user{i}@example.com',
-            status='Received',
+            status='Investigation initiated',
+            status_category='open',
         )
         claims.append(claim)
     

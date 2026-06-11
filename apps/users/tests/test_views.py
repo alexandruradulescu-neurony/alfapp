@@ -226,7 +226,8 @@ class TestAgentDashboard:
         # Create exactly one claim assigned to this agent
         claim = Claim.objects.create(
             client_email=f'{test_prefix}client@example.com',
-            status='Received',
+            status='Investigation initiated',
+            status_category='open',
             assigned_to=agent,
             flight_details='Flight AA100'
         )
@@ -329,31 +330,33 @@ class TestAgentClaims:
             role='AGENT'
         )
         # Create claims with different statuses
-        claim_received = Claim.objects.create(
+        claim_initiated = Claim.objects.create(
             client_email=f'{test_prefix}received@example.com',
-            status='Received',
+            status='Investigation initiated',
+            status_category='open',
             assigned_to=agent,
             flight_details='Flight AA100'
         )
-        claim_searching = Claim.objects.create(
+        claim_submitted = Claim.objects.create(
             client_email=f'{test_prefix}searching@example.com',
-            status='Searching',
+            status='Claim submitted',
+            status_category='open',
             assigned_to=agent,
             flight_details='Flight AA101'
         )
 
         client = Client()
         client.login(username=f'{test_prefix}agent', password='testpass123')
-        response = client.get('/agent/claims/?status=Received')
+        response = client.get('/agent/claims/?status=Investigation+initiated')
 
-        # Verify filter works - only Received status should be shown
+        # Verify filter works - only 'Investigation initiated' status should be shown
         page_obj = response.context['page_obj']
         claims_on_page = list(page_obj.object_list)
         claim_ids = [c.id for c in claims_on_page]
-        
-        assert claim_received.id in claim_ids
-        assert claim_searching.id not in claim_ids
-        assert response.context['status_filter'] == 'Received'
+
+        assert claim_initiated.id in claim_ids
+        assert claim_submitted.id not in claim_ids
+        assert response.context['status_filter'] == 'Investigation initiated'
 
     def test_agent_claims_search(self):
         """Test agent claims search functionality."""
@@ -772,20 +775,23 @@ class TestManagerDashboard:
             password='testpass123',
             role='MANAGER'
         )
-        # Create test data with unique prefix
+        # Create test data with unique prefix (all open-family so active count >= 3)
         claim1 = Claim.objects.create(
             client_email=f'{test_prefix}1@example.com',
-            status='Received',
+            status='Investigation initiated',
+            status_category='open',
             flight_details='Flight AA100'
         )
         claim2 = Claim.objects.create(
             client_email=f'{test_prefix}2@example.com',
-            status='Searching',
+            status='Claim submitted',
+            status_category='open',
             flight_details='Flight AA101'
         )
         claim3 = Claim.objects.create(
             client_email=f'{test_prefix}3@example.com',
-            status='Disputed',
+            status='Object Found',
+            status_category='open',
             flight_details='Flight AA102'
         )
         agent = User.objects.create_user(
@@ -872,27 +878,29 @@ class TestManagerClaims:
             password='testpass123',
             role='MANAGER'
         )
-        claim_received = Claim.objects.create(
+        claim_initiated = Claim.objects.create(
             client_email=f'{test_prefix}received@example.com',
-            status='Received',
+            status='Investigation initiated',
+            status_category='open',
             flight_details='Flight AA100'
         )
-        claim_searching = Claim.objects.create(
+        claim_submitted = Claim.objects.create(
             client_email=f'{test_prefix}searching@example.com',
-            status='Searching',
+            status='Claim submitted',
+            status_category='open',
             flight_details='Flight AA101'
         )
 
         client = Client()
         client.login(username=f'{test_prefix}manager', password='testpass123')
-        response = client.get('/manager/claims/?status=Received')
+        response = client.get('/manager/claims/?status=Investigation+initiated')
 
         page_obj = response.context['page_obj']
         claims_on_page = list(page_obj.object_list)
         claim_ids = [c.id for c in claims_on_page]
-        
-        assert claim_received.id in claim_ids
-        assert claim_searching.id not in claim_ids
+
+        assert claim_initiated.id in claim_ids
+        assert claim_submitted.id not in claim_ids
 
     def test_manager_claims_search(self):
         """Test manager claims search functionality."""

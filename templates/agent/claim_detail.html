@@ -74,8 +74,8 @@
                     <span class="text-sm flex items-center gap-2">
                         <i class="bi bi-currency-dollar text-base-content/60"></i> Financial
                     </span>
-                    <span class="badge badge-sm {% if claim.refund_status == 'COMPLETED' %}badge-success{% elif claim.refund_status %}badge-warning{% else %}badge-neutral{% endif %}">
-                        {% if claim.refund_status == 'COMPLETED' %}Refunded{% elif claim.refund_status %}{{ claim.refund_status|title }}{% else %}No Action{% endif %}
+                    <span class="badge badge-sm {% if claim_refund_status == 'COMPLETED' %}badge-success{% elif claim_refund_status %}badge-warning{% else %}badge-neutral{% endif %}">
+                        {% if claim_refund_status == 'COMPLETED' %}Refunded{% elif claim_refund_status %}{{ claim_refund_status|title }}{% else %}No Action{% endif %}
                     </span>
                 </div>
 
@@ -90,7 +90,7 @@
             </div>
 
             <!-- Refund Action Button -->
-            {% if claim.refund_status != 'COMPLETED' %}
+            {% if claim_refund_status != 'COMPLETED' %}
             <div class="mt-4 pt-4 border-t border-base-200/60">
                 <button type="button" class="btn btn-warning rounded-xl w-full transition-all duration-200" onclick="openGrantRefundModal()">
                     <i class="bi bi-currency-exchange"></i> Grant Refund
@@ -160,7 +160,7 @@
                         <i class="bi bi-currency-exchange text-3xl text-base-content/40"></i>
                     </div>
                     <p class="text-base-content/60 text-sm mb-3">No refunds issued for this claim.</p>
-                    {% if claim.refund_status != 'COMPLETED' %}
+                    {% if claim_refund_status != 'COMPLETED' %}
                     <button type="button" class="btn btn-sm btn-warning" onclick="openGrantRefundModal()">
                         <i class="bi bi-plus-circle"></i> Grant First Refund
                     </button>
@@ -481,74 +481,100 @@
 <style>
 /* Enhanced Status Card Styles */
 .status-card-large {
-    @apply relative overflow-hidden rounded-2xl p-6 transition-all duration-300;
-    @apply flex items-center gap-4;
+    position: relative;
+    overflow: hidden;
+    border-radius: 1rem;
+    padding: 1.5rem;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
 }
 
 .status-card-large .status-icon {
-    @apply flex items-center justify-center w-16 h-16 rounded-full;
-    @apply text-3xl font-bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 4rem;
+    height: 4rem;
+    border-radius: 9999px;
+    font-size: 1.875rem;
+    font-weight: 700;
+    flex-shrink: 0;
 }
 
 .status-card-large .status-text {
-    @apply flex-1;
+    flex: 1;
 }
 
 .status-card-large .status-label {
-    @apply text-xl font-bold uppercase tracking-wide;
+    font-size: 1.25rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
 /* Family-based status card color variants (maps Zendesk status_category to palette) */
-/* new → neutral/base (Received-style) */
+/* new → neutral gray-blue tint */
 .status-card-large.family-new {
-    @apply bg-base-200/60 border-2 border-base-300;
+    background-color: color-mix(in oklab, var(--color-neutral) 8%, transparent);
+    border: 2px solid color-mix(in oklab, var(--color-neutral) 20%, transparent);
 }
 .status-card-large.family-new .status-icon {
-    @apply bg-base-300 text-base-content;
+    background-color: color-mix(in oklab, var(--color-neutral) 20%, transparent);
+    color: var(--color-neutral-content);
 }
 
-/* open → info (Searching-style — actively being worked) */
+/* open → info/blue tint (actively being worked) */
 .status-card-large.family-open {
-    @apply bg-info/10 border-2 border-info/30;
+    background-color: color-mix(in oklab, var(--color-info) 10%, transparent);
+    border: 2px solid color-mix(in oklab, var(--color-info) 25%, transparent);
 }
 .status-card-large.family-open .status-icon {
-    @apply bg-info text-info-content;
+    background-color: var(--color-info);
+    color: var(--color-info-content);
 }
 .status-card-large.family-open .status-label {
-    @apply text-info;
+    color: var(--color-info);
 }
 
-/* pending → warning (waiting on client/third-party) */
+/* pending → amber/warning tint (waiting on client/third-party) */
 .status-card-large.family-pending {
-    @apply bg-warning/10 border-2 border-warning/30;
+    background-color: color-mix(in oklab, var(--color-warning) 10%, transparent);
+    border: 2px solid color-mix(in oklab, var(--color-warning) 25%, transparent);
 }
 .status-card-large.family-pending .status-icon {
-    @apply bg-warning text-warning-content;
+    background-color: var(--color-warning);
+    color: var(--color-warning-content);
 }
 .status-card-large.family-pending .status-label {
-    @apply text-warning;
+    color: var(--color-warning);
 }
 
-/* hold → neutral (paused, no action expected) */
+/* hold → gray tint (paused, no action expected) */
 .status-card-large.family-hold {
-    @apply bg-base-200/60 border-2 border-base-300;
+    background-color: color-mix(in oklab, var(--color-neutral) 8%, transparent);
+    border: 2px solid color-mix(in oklab, var(--color-neutral) 20%, transparent);
 }
 .status-card-large.family-hold .status-icon {
-    @apply bg-base-300 text-base-content;
+    background-color: color-mix(in oklab, var(--color-neutral) 20%, transparent);
+    color: var(--color-neutral-content);
 }
 .status-card-large.family-hold .status-label {
-    @apply text-base-content/70;
+    opacity: 0.7;
 }
 
-/* solved → success (closed/refunded) */
+/* solved → green/success tint (closed/refunded) */
 .status-card-large.family-solved {
-    @apply bg-success/10 border-2 border-success/30;
+    background-color: color-mix(in oklab, var(--color-success) 10%, transparent);
+    border: 2px solid color-mix(in oklab, var(--color-success) 25%, transparent);
 }
 .status-card-large.family-solved .status-icon {
-    @apply bg-success text-success-content;
+    background-color: var(--color-success);
+    color: var(--color-success-content);
 }
 .status-card-large.family-solved .status-label {
-    @apply text-success;
+    color: var(--color-success);
 }
 </style>
 

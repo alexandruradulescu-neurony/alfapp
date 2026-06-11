@@ -47,7 +47,7 @@ def test_briefing_requires_auth(api_client, settings_obj):
 @pytest.mark.django_db
 def test_briefing_returns_summary_next_steps_and_facts(api_client, settings_obj):
     Claim.objects.create(alf_claim_id='ALF7000001', zd_ticket_id='70001',
-                         client_email='c@example.com', status='Searching')
+                         client_email='c@example.com', status='Claim submitted')
 
     with patch('apps.ai.client.OpenAI') as MockOpenAI:
         MockOpenAI.return_value.chat.completions.create.return_value = MagicMock(
@@ -64,7 +64,7 @@ def test_briefing_returns_summary_next_steps_and_facts(api_client, settings_obj)
     assert resp.status_code == 200
     assert 'Bag lost' in resp.data['summary']
     assert resp.data['next_steps'] == ['Chase airport']
-    assert resp.data['facts']['status'] == 'Searching'
+    assert resp.data['facts']['status'] == 'Claim submitted'
 
 
 @pytest.mark.django_db
@@ -87,7 +87,7 @@ def test_briefing_graceful_when_no_claim(api_client, settings_obj):
 @pytest.mark.django_db
 def test_briefing_tokenizes_pii_before_ai(api_client, settings_obj):
     Claim.objects.create(alf_claim_id='ALF7000001', zd_ticket_id='70001',
-                         client_email='c@example.com', status='Searching')
+                         client_email='c@example.com', status='Claim submitted')
     with patch('apps.ai.client.OpenAI') as MockOpenAI:
         MockOpenAI.return_value.chat.completions.create.return_value = MagicMock(
             choices=[MagicMock(message=MagicMock(content='{"summary":"s","next_steps":[]}'))],
@@ -112,7 +112,7 @@ def test_chat_requires_auth(api_client, settings_obj):
 @pytest.mark.django_db
 def test_chat_answers_scoped_to_claim(api_client, settings_obj):
     Claim.objects.create(alf_claim_id='ALF7000001', zd_ticket_id='70001',
-                         client_email='c@example.com', status='Searching')
+                         client_email='c@example.com', status='Claim submitted')
 
     with patch('apps.agent.services.AgentChatService.process_message') as mock_pm:
         mock_pm.return_value = MagicMock(answer='Status is Searching.', sources=['claim'])
@@ -350,7 +350,7 @@ def test_draft_tokenizes_pii_before_ai(api_client, settings_obj):
 def test_briefing_returns_attention_list(api_client, settings_obj):
     from apps.communications.models import EmailLog
     claim = Claim.objects.create(alf_claim_id='ALF7000001', zd_ticket_id='70001',
-                                 client_email='c@example.com', status='Searching')
+                                 client_email='c@example.com', status='Claim submitted')
     EmailLog.objects.create(claim=claim, subject='Airport needs more details',
                             body='', category='UNKNOWN',
                             action_required=True, auto_resolved=False)

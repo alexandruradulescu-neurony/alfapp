@@ -247,7 +247,7 @@ def agent_claims(request):
 def agent_claim_detail(request, claim_id):
     """Agent claim detail view."""
     claim = get_object_or_404(
-        Claim.objects.prefetch_related('evidence', 'emails', 'refunds').select_related('assigned_to'),
+        Claim.objects.prefetch_related('evidence', 'emails', 'refunds', 'disputes').select_related('assigned_to'),
         id=claim_id,
     )
 
@@ -267,6 +267,7 @@ def agent_claim_detail(request, claim_id):
     context = {
         'claim': claim,
         'zd_subdomain': zd_subdomain,
+        'claim_refund_status': claim.refund_status,
     }
 
     return render(request, 'agent/claim_detail.html', context)

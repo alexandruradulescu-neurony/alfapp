@@ -123,7 +123,7 @@ class Command(BaseCommand):
         """Create 4 claims with different statuses."""
         claims_data = [
             {
-                # Claim 1: Status=Received, has email logs, no dispute/refund yet
+                # Claim 1: active/open — initial investigation
                 "alf_claim_id": "ALF1000001",
                 "zd_ticket_id": "1001",
                 "client_email": "john.smith@example.com",
@@ -131,12 +131,13 @@ class Command(BaseCommand):
                 "alternate_email": "",
                 "flight_details": "Flight AA1234 from JFK to LAX on 2024-01-15",
                 "object_description": "Black leather wallet with brown interior, contains driver's license and credit cards",
-                "status": "Received",
+                "status": "Investigation initiated",
+                "status_category": "open",
                 "llm_extraction_failed": False,
                 "created_offset": -10,
             },
             {
-                # Claim 2: Status=Searching, has email logs, has dispute (RECEIVED status)
+                # Claim 2: open — claim submitted, being worked
                 "alf_claim_id": "ALF1000002",
                 "zd_ticket_id": "1002",
                 "client_email": "sarah.johnson@gmail.com",
@@ -144,12 +145,13 @@ class Command(BaseCommand):
                 "alternate_email": "s.johnson@work.com",
                 "flight_details": "Flight UA5678 from ORD to SFO on 2024-01-18",
                 "object_description": "Silver MacBook Pro 14-inch with apple logo sticker, in grey sleeve",
-                "status": "Searching",
+                "status": "Claim submitted",
+                "status_category": "open",
                 "llm_extraction_failed": False,
                 "created_offset": -8,
             },
             {
-                # Claim 3: Status=REFUND_REQUESTED, has email logs, has refund (REQUESTED status)
+                # Claim 3: open — object located, pending shipment
                 "alf_claim_id": "ALF1000003",
                 "zd_ticket_id": "1003",
                 "client_email": "michael.chen@outlook.com",
@@ -157,12 +159,13 @@ class Command(BaseCommand):
                 "alternate_email": "",
                 "flight_details": "Flight DL9012 from ATL to SEA on 2024-01-20",
                 "object_description": "Blue Samsonite carry-on suitcase with TSA lock, baggage tag attached",
-                "status": "REFUND_REQUESTED",
+                "status": "Object Found",
+                "status_category": "open",
                 "llm_extraction_failed": False,
                 "created_offset": -6,
             },
             {
-                # Claim 4: Status=REFUNDED, has email logs, has dispute, has refund (COMPLETED status)
+                # Claim 4: solved — closed with full refund
                 "alf_claim_id": "ALF1000004",
                 "zd_ticket_id": "1004",
                 "client_email": "emma.williams@yahoo.com",
@@ -170,7 +173,8 @@ class Command(BaseCommand):
                 "alternate_email": "emma.w@personal.com",
                 "flight_details": "Flight BA2468 from LHR to BOS on 2024-01-22",
                 "object_description": "Canon EOS R5 camera body with 24-70mm lens, black camera bag included",
-                "status": "REFUNDED",
+                "status": "Closed - Refunded",
+                "status_category": "solved",
                 "llm_extraction_failed": False,
                 "created_offset": -4,
             },

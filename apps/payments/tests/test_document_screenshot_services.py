@@ -153,7 +153,7 @@ def complete_dispute_setup(configured_system_settings):
         client_email='customer@example.com',
         flight_details='Flight AA100 from JFK to LAX on 2026-03-15',
         object_description='Black leather suitcase',
-        status='Received',
+        status='Investigation initiated',
     )
 
     # Create dispute

@@ -58,7 +58,7 @@ class TestGenerateDisputeNotificationEmail:
         """Test email generation with complete claim data."""
         claim = Claim.objects.create(
             client_email='customer@example.com',
-            status='Disputed',
+            status='Claim submitted',
             flight_details='Flight AA100 from JFK to LAX',
         )
         
@@ -68,7 +68,7 @@ class TestGenerateDisputeNotificationEmail:
         assert 'PayPal dispute has been opened' in email_body
         assert str(claim.id) in email_body
         assert 'customer@example.com' in email_body
-        assert 'Disputed' in email_body
+        assert 'Claim submitted' in email_body
         assert 'Flight AA100 from JFK to LAX' in email_body
         assert 'automated notification' in email_body
 
@@ -76,7 +76,7 @@ class TestGenerateDisputeNotificationEmail:
         """Test email generation when flight details not provided."""
         claim = Claim.objects.create(
             client_email='customer_noflight@example.com',
-            status='Disputed',
+            status='Claim submitted',
             flight_details='',  # Empty flight details
         )
         
@@ -97,7 +97,7 @@ class TestGenerateProofOfWorkPdf:
         """Test PDF generation with no evidence attached."""
         claim = Claim.objects.create(
             client_email='test_pdf@example.com',
-            status='Received',
+            status='Investigation initiated',
             flight_details='Flight AA100',
         )
         
@@ -118,7 +118,7 @@ class TestGenerateProofOfWorkPdf:
         """Test PDF generation with evidence images."""
         claim = Claim.objects.create(
             client_email='test_pdf_ev@example.com',
-            status='Received',
+            status='Investigation initiated',
             flight_details='Flight AA100',
         )
         
@@ -150,7 +150,7 @@ class TestGenerateProofOfWorkPdf:
         claim = Claim.objects.create(
             client_email='test_pdf_zd@example.com',
             zd_ticket_id='12345',
-            status='Received',
+            status='Investigation initiated',
             flight_details='Flight AA100',
         )
         
@@ -180,7 +180,7 @@ class TestGenerateProofOfWorkPdf:
         claim = Claim.objects.create(
             client_email='test_pdf_zderr@example.com',
             zd_ticket_id='12345',
-            status='Received',
+            status='Investigation initiated',
             flight_details='Flight AA100',
         )
         
@@ -203,7 +203,7 @@ class TestGenerateProofOfWorkPdf:
         claim = Claim.objects.create(
             client_email='test_pdf_nozd@example.com',
             zd_ticket_id='',  # No Zendesk ticket
-            status='Received',
+            status='Investigation initiated',
             flight_details='Flight AA100',
         )
         
@@ -222,7 +222,7 @@ class TestGenerateProofOfWorkPdf:
         """Test PDF generation returns None when WeasyPrint not available."""
         claim = Claim.objects.create(
             client_email='test_pdf_nowp@example.com',
-            status='Received',
+            status='Investigation initiated',
             flight_details='Flight AA100',
         )
         
@@ -238,7 +238,7 @@ class TestGenerateProofOfWorkPdf:
         """Test PDF generation handles WeasyPrint errors."""
         claim = Claim.objects.create(
             client_email='test_pdf_wperr@example.com',
-            status='Received',
+            status='Investigation initiated',
             flight_details='Flight AA100',
         )
         
@@ -258,7 +258,7 @@ class TestGenerateProofOfWorkPdf:
         """Test PDF generation continues when evidence processing fails."""
         claim = Claim.objects.create(
             client_email='test_pdf_everr@example.com',
-            status='Received',
+            status='Investigation initiated',
             flight_details='Flight AA100',
         )
         
@@ -289,7 +289,7 @@ class TestGenerateProofOfWorkPdf:
         """Test PDF generation rejects evidence files outside MEDIA_ROOT."""
         claim = Claim.objects.create(
             client_email='test_pdf_traversal@example.com',
-            status='Received',
+            status='Investigation initiated',
             flight_details='Flight AA100',
         )
         
@@ -321,7 +321,7 @@ class TestGenerateProofOfWorkPdf:
         """Test PDF generation passes correct context to template."""
         claim = Claim.objects.create(
             client_email='test_pdf_ctx@example.com',
-            status='Received',
+            status='Investigation initiated',
             flight_details='Flight AA100',
         )
         
@@ -352,7 +352,7 @@ class TestGenerateProofOfWorkPdf:
         """Test PDF generation logs successful generation."""
         claim = Claim.objects.create(
             client_email='test_pdf_log@example.com',
-            status='Received',
+            status='Investigation initiated',
             flight_details='Flight AA100',
         )
         
@@ -380,7 +380,7 @@ class TestGenerateProofOfWorkPdfIntegration:
         """Test PDF generation renders template correctly."""
         claim = Claim.objects.create(
             client_email='integration_pdf@example.com',
-            status='Searching',
+            status='Claim submitted',
             flight_details='Flight BA2490 from LHR to JFK',
             object_description='Black leather wallet',
         )

@@ -21,9 +21,9 @@ if not User.objects.filter(username='manager1').exists():
 
 # Create sample claims
 claims_data = [
-    {'client_email': 'john.doe@example.com', 'status': 'Received', 'flight_details': 'Flight AA123 from JFK to LAX on 2024-01-15'},
-    {'client_email': 'jane.smith@example.com', 'status': 'Searching', 'flight_details': 'Flight UA456 from ORD to SFO on 2024-01-16'},
-    {'client_email': 'bob.wilson@example.com', 'status': 'Found', 'zd_ticket_id': '12345', 'flight_details': 'Flight DL789 from ATL to SEA on 2024-01-17'},
+    {'client_email': 'john.doe@example.com', 'status': 'Investigation initiated', 'status_category': 'open', 'flight_details': 'Flight AA123 from JFK to LAX on 2024-01-15'},
+    {'client_email': 'jane.smith@example.com', 'status': 'Claim submitted', 'status_category': 'open', 'flight_details': 'Flight UA456 from ORD to SFO on 2024-01-16'},
+    {'client_email': 'bob.wilson@example.com', 'status': 'Object Found', 'status_category': 'open', 'zd_ticket_id': '12345', 'flight_details': 'Flight DL789 from ATL to SEA on 2024-01-17'},
 ]
 
 for data in claims_data:

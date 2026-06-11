@@ -41,8 +41,8 @@ if not claims.exists():
     print("\nCreating sample claims...")
     from apps.claims.models import Claim
     claims_data = [
-        {'client_email': 'john.doe@example.com', 'status': 'Received', 'flight_details': 'Flight AA123 from JFK to LAX on 2024-01-15'},
-        {'client_email': 'jane.smith@example.com', 'status': 'Searching', 'flight_details': 'Flight UA456 from ORD to SFO on 2024-01-16'},
+        {'client_email': 'john.doe@example.com', 'status': 'Investigation initiated', 'status_category': 'open', 'flight_details': 'Flight AA123 from JFK to LAX on 2024-01-15'},
+        {'client_email': 'jane.smith@example.com', 'status': 'Claim submitted', 'status_category': 'open', 'flight_details': 'Flight UA456 from ORD to SFO on 2024-01-16'},
     ]
     for data in claims_data:
         claim, _ = Claim.objects.get_or_create(client_email=data['client_email'], defaults=data)

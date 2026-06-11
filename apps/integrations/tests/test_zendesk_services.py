@@ -1456,7 +1456,7 @@ def test_build_claim_facts_returns_panel_facts():
 
     claim = Claim.objects.create(
         alf_claim_id='ALF7000001', zd_ticket_id='70001',
-        client_email='c@example.com', status='Searching',
+        client_email='c@example.com', status='Claim submitted',
         deadline_date=date(2026, 7, 1),
     )
     EmailLog.objects.create(claim=claim, subject='a', body='', category='UNKNOWN',
@@ -1465,7 +1465,7 @@ def test_build_claim_facts_returns_panel_facts():
                             action_required=False, auto_resolved=True)
 
     facts = build_claim_facts(claim)
-    assert facts['status'] == 'Searching'
+    assert facts['status'] == 'Claim submitted'
     assert facts['deadline'] == '2026-07-01'
     assert facts['emails_total'] == 2
     assert facts['emails_unresolved'] == 1
@@ -1512,7 +1512,7 @@ def test_build_claim_facts_includes_next_update_due():
 
     claim = Claim.objects.create(
         alf_claim_id='ALF7000002', zd_ticket_id='70002',
-        client_email='c2@example.com', status='Searching',
+        client_email='c2@example.com', status='Claim submitted',
     )
     facts = build_claim_facts(claim)
     # claim created just now -> day-2 update is the next one due

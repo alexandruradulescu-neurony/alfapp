@@ -31,7 +31,8 @@ class TestClaimModel:
             alternate_email='backup@gmail.com',
             flight_details='Flight AA123 from JFK to LAX on March 15, 2026',
             object_description='Black MacBook Pro laptop, 15-inch',
-            status='Received',
+            status='Investigation initiated',
+            status_category='open',
             llm_extraction_failed=False,
         )
 
@@ -43,7 +44,7 @@ class TestClaimModel:
         assert claim.alternate_email == 'backup@gmail.com'
         assert claim.flight_details == 'Flight AA123 from JFK to LAX on March 15, 2026'
         assert claim.object_description == 'Black MacBook Pro laptop, 15-inch'
-        assert claim.status == 'Received'
+        assert claim.status == 'Investigation initiated'
         assert claim.llm_extraction_failed is False
 
         # Verify timestamps are set
@@ -140,13 +141,13 @@ class TestClaimModel:
         claim = Claim.objects.create(
             alf_claim_id='ALF1234567',
             client_email='customer@example.com',
-            status='Received',
+            status='Investigation initiated',
         )
 
         str_repr = str(claim)
         assert 'ALF1234567' in str_repr
         assert 'customer@example.com' in str_repr
-        assert 'Received' in str_repr
+        assert 'Investigation initiated' in str_repr
         assert 'Claim #' in str_repr
 
     def test_claim_str_without_alf_id(self):
@@ -154,13 +155,13 @@ class TestClaimModel:
         claim = Claim.objects.create(
             alf_claim_id=None,
             client_email='customer@example.com',
-            status='Searching',
+            status='Claim submitted',
         )
 
         str_repr = str(claim)
         assert 'None' in str_repr  # Shows None when alf_claim_id is null
         assert 'customer@example.com' in str_repr
-        assert 'Searching' in str_repr
+        assert 'Claim submitted' in str_repr
 
     def test_claim_indexes_exist(self):
         """Database indexes created correctly."""
@@ -178,7 +179,8 @@ class TestClaimModel:
                 alf_claim_id='ALF1234567',
                 zd_ticket_id='12345',
                 client_email='customer@example.com',
-                status='Received',
+                status='Investigation initiated',
+                status_category='open',
             )
 
             # These queries should use indexes (verified via EXPLAIN in production)
@@ -195,7 +197,7 @@ class TestClaimModel:
             assert result == claim
 
             # Query by status with ordering
-            result = Claim.objects.filter(status='Received').order_by('-created_at').first()
+            result = Claim.objects.filter(status='Investigation initiated').order_by('-created_at').first()
             assert result == claim
 
             # Query by assigned_to with ordering (for None assigned_to)
@@ -220,39 +222,29 @@ class TestClaimModel:
         assert claims[1] == claim2
         assert claims[2] == claim1
 
-    def test_claim_status_choices(self):
-        """Claim accepts valid status choices."""
-        valid_statuses = [
-            'Received',
-            'Searching',
-            'Found',
-            'Shipped',
-            'Disputed',
-            'REFUND_REQUESTED',
-            'REFUNDED',
-            'PARTIALLY_REFUNDED',
-        ]
+    def test_status_stores_zendesk_names_verbatim(self):
+        """Status field mirrors Zendesk ticket-status names verbatim.
 
-        for i, status in enumerate(valid_statuses):
+        The vocabulary lives entirely in Zendesk; LORA accepts any non-empty
+        string and round-trips it unchanged.  The tests below cover the common
+        names that appear in production plus one edge-case name to confirm the
+        mirror contract is not restricted to a hard-coded list.
+        """
+        zendesk_names = [
+            'Investigation initiated',
+            'Claim submitted',
+            'Object Found',
+            'Closed - Object Not Found',
+            'Solved - Object Found',
+            'Closed - Refunded',
+            'Closed - Client Not Answering',
+        ]
+        for i, status in enumerate(zendesk_names):
             claim = Claim.objects.create(
-                client_email=f'test{i}@example.com',
+                client_email=f'zd_status_{i}@example.com',
                 status=status,
             )
-            assert claim.status == status
-
-    def test_claim_invalid_status(self):
-        """Claim accepts any status value (Django doesn't validate choices by default).
-        
-        Note: Django's choices parameter is only for documentation and form validation.
-        Database-level enforcement would require custom validators or constraints.
-        """
-        # Django doesn't enforce choices at the model/database level by default
-        # This test documents the actual behavior
-        claim = Claim.objects.create(
-            client_email='test@example.com',
-            status='INVALID_STATUS',
-        )
-        assert claim.status == 'INVALID_STATUS'
+            assert claim.status == status, f"Round-trip failed for {status!r}"
 
     def test_claim_default_status(self):
         """Claim default status is 'Investigation initiated'."""
@@ -575,20 +567,20 @@ class TestClaimModelQueries:
         # Use unique email to ensure we're filtering only our test data
         Claim.objects.create(
             client_email='filter_test_first@example.com',
-            status='Received',
+            status='Investigation initiated',
         )
         Claim.objects.create(
             client_email='filter_test_second@example.com',
-            status='Found',
+            status='Object Found',
         )
 
         # Filter by both status and our test email pattern to ensure isolation
-        received_claims = Claim.objects.filter(
-            status='Received',
+        initiated_claims = Claim.objects.filter(
+            status='Investigation initiated',
             client_email__startswith='filter_test_'
         )
-        assert received_claims.count() == 1
-        assert received_claims.first().client_email == 'filter_test_first@example.com'
+        assert initiated_claims.count() == 1
+        assert initiated_claims.first().client_email == 'filter_test_first@example.com'
 
     def test_claim_filter_by_llm_extraction_failed(self):
         """Can filter claims by LLM extraction failed flag."""
@@ -635,7 +627,7 @@ class TestClaimModelQueries:
             alf_claim_id='ALF1234567',
             defaults={
                 'client_email': 'test@example.com',
-                'status': 'Received',
+                'status': 'Investigation initiated',
             },
         )
         assert created is True
@@ -645,13 +637,13 @@ class TestClaimModelQueries:
             alf_claim_id='ALF1234567',
             defaults={
                 'client_email': 'updated@example.com',
-                'status': 'Found',
+                'status': 'Object Found',
             },
         )
         assert created2 is False
         assert claim2.id == claim.id
         assert claim2.client_email == 'updated@example.com'
-        assert claim2.status == 'Found'
+        assert claim2.status == 'Object Found'
 
 
 class ClaimUpdateTimelineStrTests(TestCase):
