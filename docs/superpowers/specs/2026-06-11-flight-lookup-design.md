@@ -78,10 +78,26 @@ sidebar endpoints. Body: `{ticket_id, refresh?: bool}`.
    `{'flight': …, 'cached': true, 'note_posted': false}`.
 4. `lookup_flight(...)`; None → 502 `{'error': 'Flight data provider
    unavailable'}` (transient — no note posted). Empty result list (provider
-   answered, flight genuinely not found) → post internal note "Flight
-   information was not found for <number> on <date>." + timeline entry, return
-   200 `{'error_message': 'No flight found for <number> on <date>.',
-   'note_posted': bool}`.
+   answered, flight genuinely not found) → **candidate rescue**: parse the
+   form's airport (the `Airport:` segment) and time hint from the claim; if an
+   airport is known, call `find_candidate_flights(airport, date, time_hint,
+   destination_hint)` — AeroDataBox airport-departures (FIDS) endpoint
+   `/flights/airports/iata/{code}/{fromLocal}/{toLocal}` (verify path against
+   the OpenAPI spec at implementation), window = stated time ±3h or the whole
+   day, filtered toward the stated destination when one is recognizable,
+   normalized + capped at 5 candidates `{number, destination, scheduled_local}`.
+   - Candidates found → run the AI analysis with the candidates in TRUSTED and
+     the client's text in UNTRUSTED ("which candidate best matches the client's
+     story?"); post an internal note "Flight <number> not found on <date> —
+     likely candidates: …" + the AI's read; timeline entry; return 200
+     `{'error_message': …, 'candidates': […], 'analysis': …, 'note_posted': bool}`.
+   - No airport parseable, FIDS call fails, or zero candidates → post the plain
+     "Flight information was not found for <number> on <date>." note + timeline
+     entry; return 200 `{'error_message': …, 'note_posted': bool}`.
+   Rescue calls cost a few AeroDataBox units each — only triggered on
+   not-found, so negligible at ~20 tickets/day. (User confirmed paid-tier
+   upgrade is acceptable when the free 600 units/mo run out; upgrade is
+   one click in RapidAPI.)
 5. Success: save `flight_data` + `flight_data_updated_at`; run
    `analyze_flight_match(claim, flight_data)` (best-effort — None on AI
    failure); ClaimUpdateTimeline entry (`INFO_UPDATED`, changes_summary
