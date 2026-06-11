@@ -52,6 +52,10 @@ class EmailLog(models.Model):
     # Raw data for debugging
     raw_headers = models.TextField(blank=True, default='', help_text='Full email headers')
 
+    # RFC 5322 Message-ID — the dedup key: an email is processed at most once,
+    # ever, regardless of its read/unread flag in the mailbox.
+    message_id = models.CharField(max_length=512, blank=True, default='', db_index=True)
+
     class Meta:
         ordering = ['-received_at']
         indexes = [

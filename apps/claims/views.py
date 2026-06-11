@@ -26,6 +26,7 @@ from apps.integrations.services import (
     fetch_zendesk_ticket,
     fetch_zendesk_comments,
     analyze_zendesk_ticket_for_claim,
+    get_ticket_email_alias,
     safe_date,
     safe_decimal,
 )
@@ -289,3 +290,64 @@ class ClaimUpdateFromZendeskView(APIView):
             'updated_fields': updated_fields,
             'summary_refreshed': summary_refreshed,
         })
+
+
+class ClaimCheckEmailView(APIView):
+    """POST /api/claims/{claim_id}/check-email/
+
+    Checks the shared mailbox for new mail addressed to THIS claim's email
+    alias only (unread, last 2 days, never processed before). New mail gets
+    AI categorization, an EmailLog row, an internal note on the Zendesk
+    ticket and additive ai_* tags. The rest of the inbox is untouched."""
+
+    authentication_classes = [CsrfExemptSessionAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, claim_id):
+        from apps.communications.services import (
+            EmailNotConfigured, InvalidAlias, check_email_for_ticket)
+
+        if not hasattr(request.user, 'role') or request.user.role not in ['AGENT', 'MANAGER']:
+            return Response({'error': 'Permission denied: AGENT or MANAGER role required'},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        claim = get_object_or_404(Claim, id=claim_id)
+        if not claim.zd_ticket_id:
+            return Response({'error': 'No Zendesk ticket linked to this claim'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        alias = claim.email_alias
+        if not alias:
+            ticket_data = fetch_zendesk_ticket(claim.zd_ticket_id)
+            if not ticket_data:
+                return Response({'error': 'Failed to fetch Zendesk ticket'},
+                                status=status.HTTP_502_BAD_GATEWAY)
+            alias = get_ticket_email_alias(ticket_data)
+            if not alias:
+                return Response(
+                    {'error': "This ticket has no email alias field in Zendesk — "
+                              "there is no address to check mail for."},
+                    status=status.HTTP_400_BAD_REQUEST)
+            claim.email_alias = alias
+            claim.save(update_fields=['email_alias', 'updated_at'])
+
+        try:
+            results = check_email_for_ticket(claim.zd_ticket_id, claim, alias)
+        except EmailNotConfigured:
+            return Response(
+                {'error': 'Mailbox (IMAP) credentials are not configured in System settings.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except InvalidAlias:
+            return Response(
+                {'error': "The ticket's email alias doesn't look like an email "
+                          "address — fix the Email Alias field in Zendesk."},
+                status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Email check failed for claim #{claim.id}: {e}", exc_info=True)
+            return Response({'error': 'Could not reach the mailbox. Try again.'},
+                            status=status.HTTP_502_BAD_GATEWAY)
+
+        new_count = len(results['processed'])
+        logger.info(f"Email check for claim #{claim.id} ({alias}): "
+                    f"{new_count} new, {results['already_processed']} already processed")
+        return Response({'message': f"{new_count} new email(s) processed", **results})

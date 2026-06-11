@@ -271,17 +271,22 @@
 
         <!-- Email Log -->
         <div class="card-modern p-6">
-            <h3 class="text-lg font-semibold flex items-center gap-2 mb-6">
-                <i class="bi bi-envelope"></i> Email Log ({{ claim.emails.count }})
-            </h3>
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-lg font-semibold flex items-center gap-2 m-0">
+                    <i class="bi bi-envelope"></i> Email Log ({{ claim.emails.count }})
+                </h3>
+                <button type="button" class="btn btn-sm btn-primary" onclick="checkEmail({{ claim.id }})"
+                        {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}
+                        title="Check the mailbox for new mail addressed to this claim's email alias">
+                    <i class="bi bi-envelope-arrow-down"></i> Check email
+                </button>
+            </div>
             {% for email in claim.emails.all %}
             <div class="rounded-2xl p-4 mb-3 border {% if email.action_required %}border-error/30 bg-error/5{% else %}border-base-200/60{% endif %} transition-all duration-200">
                 <div class="flex flex-col sm:flex-row justify-between items-start gap-2 mb-2">
                     <h4 class="font-medium m-0">{{ email.subject }}</h4>
                     <div class="flex gap-1 flex-wrap">
-                        <span class="badge sentiment-{{ email.sentiment }}">
-                            {{ email.sentiment|default:"Neutral" }}
-                        </span>
+                        <span class="badge badge-ghost">{{ email.get_category_display }}</span>
                         {% if email.action_required %}
                             <span class="badge badge-error">Action Required</span>
                         {% endif %}
@@ -612,6 +617,51 @@ function updateFromZendesk(claimId) {
     .catch(error => {
         console.error('Error:', error);
         showToast('Error', 'Failed to update from Zendesk', 'error');
+        button.disabled = false;
+        button.innerHTML = originalHTML;
+    });
+}
+
+function checkEmail(claimId) {
+    const button = event.target.closest('button');
+    const originalHTML = button.innerHTML;
+
+    button.disabled = true;
+    button.innerHTML = '<i class="bi bi-hourglass-split"></i> Checking mailbox...';
+
+    fetch(`/api/claims/${claimId}/check-email/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCsrfToken(),
+        },
+    })
+    .then(response => {
+        return response.json().then(data => ({ ok: response.ok, data }));
+    })
+    .then(({ ok, data }) => {
+        if (ok) {
+            const newCount = (data.processed || []).length;
+            const dups = data.already_processed || 0;
+            let detail = `${newCount} new email(s)`;
+            if (dups) detail += `, ${dups} already processed`;
+            if ((data.tags_added || []).length) detail += ` — tags: ${data.tags_added.join(', ')}`;
+            if (newCount > 0) {
+                showToast('Success', detail, 'success');
+                setTimeout(() => location.reload(), 2000);
+            } else {
+                showToast('Mailbox checked', `No new mail for ${data.alias || 'this alias'} (${detail})`, 'info');
+                button.disabled = false;
+                button.innerHTML = originalHTML;
+            }
+        } else {
+            showToast('Error', data.error || 'Email check failed', 'error');
+            button.disabled = false;
+            button.innerHTML = originalHTML;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showToast('Error', 'Email check failed', 'error');
         button.disabled = false;
         button.innerHTML = originalHTML;
     });

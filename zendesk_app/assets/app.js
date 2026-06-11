@@ -89,6 +89,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     const which = tab.dataset.tab;
     document.getElementById('panel-briefing').hidden = which !== 'briefing';
     document.getElementById('panel-chat').hidden = which !== 'chat';
+    document.getElementById('panel-email').hidden = which !== 'email';
   };
 });
 
@@ -327,6 +328,65 @@ function renderFlightResult(data) {
 }
 
 document.getElementById('btn-flight').onclick = () => flightLookup(false);
+
+// --- email check ---
+async function checkEmail() {
+  const btn = document.getElementById('btn-check-email');
+  const box = document.getElementById('email-result');
+  btn.disabled = true;
+  box.hidden = false;
+  box.innerHTML = '<div class="skel" style="width: 60%"></div><div class="skel" style="width: 45%"></div>';
+  try {
+    const data0 = await client.get(['ticket.id']);
+    const resp = await loraRequest('/api/integrations/zd/email-check/',
+      { ticket_id: String(data0['ticket.id']) });
+    const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
+    box.innerHTML = renderEmailResult(data);
+  } catch (e) {
+    const s = e && typeof e.status === 'number' ? e.status : null;
+    const server = e && e.responseJSON && (e.responseJSON.error || e.responseJSON.error_message);
+    const msg = (s === 401 || s === 403 || s === 429) ? diagnose(e) : (server || diagnose(e));
+    box.innerHTML = '<span class="error">' + escapeHtml(msg) + '</span>';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderEmailResult(data) {
+  if (data.error) return '<span class="error">' + escapeHtml(data.error) + '</span>';
+  if (data.error_message) return '<div class="em-head">' + escapeHtml(data.error_message) + '</div>';
+  let html = '';
+  const newOnes = data.processed || [];
+  if (!newOnes.length) {
+    html += `<div class="em-head">No new mail for ${escapeHtml(data.alias || 'this alias')}.</div>`;
+    if (data.already_processed) {
+      html += `<div class="muted">${data.already_processed} email(s) in the window were already processed earlier.</div>`;
+    }
+  } else {
+    html += `<div class="em-head">${newOnes.length} new email(s) for ${escapeHtml(data.alias || '')}:</div>`;
+    newOnes.forEach(em => {
+      html += '<div class="em-card">';
+      html += `<div class="em-subject">${escapeHtml(em.subject || '(No Subject)')}</div>`;
+      html += `<div class="muted">from ${escapeHtml(em.from_email || 'unknown')}</div>`;
+      const cat = (em.category || 'UNKNOWN').replace(/_/g, ' ').toLowerCase();
+      html += `<div class="em-chips"><span class="em-chip c-${escapeHtml(em.category || 'UNKNOWN')}">${escapeHtml(cat)}</span>`;
+      if (em.action_required) html += '<span class="em-chip c-attention">needs action</span>';
+      html += '</div>';
+      if (em.summary) html += `<div class="em-summary">${escapeHtml(em.summary)}</div>`;
+      if (em.note_posted) html += '<div class="muted">✓ Posted as internal note.</div>';
+      html += '</div>';
+    });
+  }
+  if (data.tags_added && data.tags_added.length) {
+    html += `<div class="muted" style="margin-top:6px">Tags added: ${data.tags_added.map(escapeHtml).join(', ')}</div>`;
+  }
+  if (data.capped) {
+    html += '<div class="muted">More mail is waiting — click again to continue.</div>';
+  }
+  return html || '<span class="muted">No result.</span>';
+}
+
+document.getElementById('btn-check-email').onclick = checkEmail;
 
 // init
 loadBriefing();

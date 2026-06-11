@@ -9,15 +9,21 @@ import email
 import json
 import re
 import logging
+from datetime import timedelta
 from email.header import decode_header
 from typing import Optional, Dict, Any, List, Tuple
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 from apps.claims.models import Claim
 from apps.config.models import SystemSettings
 from apps.communications.models import EmailLog
-from apps.integrations.services import match_alias_to_zendesk_ticket, post_zendesk_comment
+from apps.integrations.services import (
+    add_zendesk_ticket_tags,
+    match_alias_to_zendesk_ticket,
+    post_zendesk_comment,
+)
 from apps.ai.exceptions import AIResponseValidationError
 
 logger = logging.getLogger(__name__)
@@ -25,11 +31,49 @@ logger = logging.getLogger(__name__)
 # Maximum number of emails to process per run
 MAX_EMAILS_PER_RUN = 20
 
+# How far back any mailbox read ever looks. The inbox holds years of mail;
+# LORA's window is always the last two days, read or unread state untouched
+# beyond it.
+EMAIL_LOOKBACK_DAYS = 2
+
+# IMAP SINCE wants RFC 3501 dates (e.g. 10-Jun-2026) with fixed English
+# month names — strftime('%b') is locale-dependent, so spell them out.
+IMAP_MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+               'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+
 # Categories that can be auto-resolved
 AUTO_RESOLVABLE_CATEGORIES = [
     'SUBMISSION_CONFIRMATION',
     'OBJECT_NOT_FOUND',
 ]
+
+# Category → AI-added Zendesk tag. Routine categories (submission
+# confirmations, general correspondence, unknown) are deliberately untagged.
+AI_TAG_BY_CATEGORY = {
+    'OBJECT_FOUND': 'ai_object_found',
+    'OBJECT_NOT_FOUND': 'ai_object_not_found',
+    'RESUBMISSION_REQUIRED': 'ai_resubmission_required',
+}
+# Added whenever the AI says the email needs a human, regardless of category.
+AI_TAG_ATTENTION = 'ai_attention_needed'
+
+
+class EmailNotConfigured(Exception):
+    """IMAP credentials are missing from SystemSettings."""
+
+
+class InvalidAlias(Exception):
+    """The ticket's email alias field doesn't look like an email address.
+
+    Guards the IMAP search: the alias is interpolated into the search
+    command, so quotes/whitespace in a malformed field value must never
+    reach it."""
+
+
+def imap_since_date(today=None) -> str:
+    """The SINCE cutoff: everything from the last EMAIL_LOOKBACK_DAYS days."""
+    d = (today or timezone.localdate()) - timedelta(days=EMAIL_LOOKBACK_DAYS)
+    return f"{d.day:02d}-{IMAP_MONTHS[d.month - 1]}-{d.year}"
 
 
 def decode_mime_header(header: str) -> str:
@@ -488,6 +532,14 @@ def process_single_email(
         # Parse the email
         msg = email.message_from_bytes(msg_data)
 
+        # Dedup: an email is processed at most once, ever. Read flags can't
+        # guarantee that (unresolved mail is left UNSEEN on purpose), the
+        # Message-ID can.
+        message_id = (msg.get('Message-ID') or '').strip()[:512]
+        if message_id and EmailLog.objects.filter(message_id=message_id).exists():
+            logger.info(f"Skipping already-processed email UID {uid} (Message-ID match)")
+            return None
+
         # Extract sender email
         from_email = extract_from_email(msg)
         if not from_email:
@@ -595,6 +647,7 @@ def process_single_email(
             category=parsed['category'],
             auto_resolved=auto_resolved,
             raw_headers=raw_headers,
+            message_id=message_id,
         )
 
         logger.info(
@@ -648,6 +701,7 @@ def process_single_email(
             category='UNKNOWN',
             action_required=True,  # signals manual review
             auto_resolved=False,
+            message_id=message_id if 'message_id' in locals() else '',
             # All other EmailLog fields have model-level defaults
         )
         return email_log
@@ -729,8 +783,9 @@ def process_incoming_emails() -> Dict[str, Any]:
         imap_conn.select('INBOX')
         logger.info("INBOX selected")
 
-        # Step 2: Search for UNSEEN emails
-        status, messages = imap_conn.search(None, 'UNSEEN')
+        # Step 2: Search for UNSEEN emails from the last EMAIL_LOOKBACK_DAYS
+        # days only — the inbox holds years of mail; never sweep the backlog.
+        status, messages = imap_conn.search(None, 'UNSEEN', 'SINCE', imap_since_date())
 
         if status != 'OK':
             logger.warning("Failed to search for UNSEEN emails")
@@ -802,3 +857,202 @@ def process_incoming_emails() -> Dict[str, Any]:
                 logger.warning(f"Error closing IMAP connection: {e}")
 
     return stats
+
+
+# ---------------------------------------------------------------------------
+# Per-ticket email check (button-driven)
+# ---------------------------------------------------------------------------
+# Agents trigger this from the LORA claim page or the Zendesk sidebar Email
+# tab. It only ever touches mail addressed to ONE ticket's alias: unread,
+# from the last EMAIL_LOOKBACK_DAYS days, never processed before
+# (Message-ID dedup). Everything else in the shared inbox stays exactly as
+# it was — no reads, no flag changes, no logs, no notes.
+
+
+def open_inbox() -> imaplib.IMAP4_SSL:
+    """Connect, log in and select INBOX.
+
+    Raises EmailNotConfigured when credentials are absent; IMAP errors
+    propagate to the caller.
+    """
+    system_settings = SystemSettings.get_instance()
+    if not all([system_settings.imap_host, system_settings.imap_user,
+                system_settings.imap_pass]):
+        raise EmailNotConfigured('IMAP credentials not configured in System settings')
+    conn = imaplib.IMAP4_SSL(system_settings.imap_host,
+                             timeout=getattr(settings, 'IMAP_TIMEOUT', 30))
+    conn.login(system_settings.imap_user, system_settings.imap_pass)
+    conn.select('INBOX')
+    return conn
+
+
+def search_alias_uids(conn: imaplib.IMAP4_SSL, alias: str) -> List[bytes]:
+    """UIDs of unread mail from the window addressed to this alias.
+
+    Checks both the To header and Delivered-To (alias delivery commonly
+    surfaces only there); results are unioned.
+    """
+    since = imap_since_date()
+    quoted = f'"{alias}"'
+    uids = set()
+    for criteria in (('TO', quoted), ('HEADER', 'Delivered-To', quoted)):
+        status, messages = conn.search(None, 'UNSEEN', 'SINCE', since, *criteria)
+        if status == 'OK' and messages and messages[0]:
+            uids.update(messages[0].split())
+    return sorted(uids, key=int)
+
+
+def _ai_tags_for(category: str, action_required: bool) -> set:
+    tags = set()
+    if category in AI_TAG_BY_CATEGORY:
+        tags.add(AI_TAG_BY_CATEGORY[category])
+    if action_required:
+        tags.add(AI_TAG_ATTENTION)
+    return tags
+
+
+def _first_email_in_header(msg: email.message.Message, header_name: str) -> str:
+    value = decode_mime_header(msg.get(header_name, '') or '')
+    match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', value)
+    return match.group(0).lower() if match else ''
+
+
+def _process_ticket_email(
+    conn: imaplib.IMAP4_SSL,
+    uid: str,
+    msg: email.message.Message,
+    message_id: str,
+    ticket_id: str,
+    claim,
+    alias: str,
+    ai_prompt: str,
+) -> Dict[str, Any]:
+    """Process one email already known to belong to ticket_id: AI
+    categorization, EmailLog, internal note. Returns a UI-friendly entry."""
+    from_email = extract_from_email(msg) or ''
+    subject = decode_mime_header(msg.get('Subject', '(No Subject)'))
+    body = extract_email_body(msg) or '(No content extracted)'
+
+    ai_result = call_qwen_ai(ai_prompt, body, subject)
+    if ai_result.get('validation_failed'):
+        parsed = parse_ai_response(ai_result.get('raw_response', ''))
+    else:
+        parsed = ai_result
+
+    auto_resolved = (bool(parsed.get('auto_resolvable'))
+                     and parsed.get('category') in AUTO_RESOLVABLE_CATEGORIES)
+
+    email_log = EmailLog.objects.create(
+        claim=claim,
+        subject=subject[:500],
+        body=body,
+        ai_summary=parsed.get('summary', ''),
+        action_required=bool(parsed.get('action_required')),
+        from_email=from_email,
+        to_email=_first_email_in_header(msg, 'To'),
+        delivered_to=_first_email_in_header(msg, 'Delivered-To'),
+        alias_matched=alias,
+        zd_ticket_id=str(ticket_id),
+        category=parsed.get('category', 'UNKNOWN'),
+        auto_resolved=auto_resolved,
+        raw_headers=extract_raw_headers(msg),
+        message_id=message_id,
+    )
+
+    note_posted = post_ai_summary_to_zendesk(
+        zd_ticket_id=str(ticket_id),
+        parsed=parsed,
+        subject=subject,
+        from_email=from_email,
+        email_body=body,
+        alias=alias,
+    )
+
+    # Same inbox contract as the global flow: routine mail is marked read,
+    # anything needing a human stays unread for agent attention.
+    if auto_resolved:
+        mark_email_as_seen(conn, uid)
+
+    logger.info(
+        f"Email check: EmailLog #{email_log.id} for ticket {ticket_id} — "
+        f"category={email_log.category}, auto_resolved={auto_resolved}, "
+        f"note_posted={note_posted}"
+    )
+    return {
+        'email_log_id': email_log.id,
+        'subject': subject[:200],
+        'from_email': from_email,
+        'category': parsed.get('category', 'UNKNOWN'),
+        'summary': parsed.get('summary', ''),
+        'action_required': bool(parsed.get('action_required')),
+        'auto_resolved': auto_resolved,
+        'note_posted': note_posted,
+    }
+
+
+def check_email_for_ticket(ticket_id: str, claim, alias: str) -> Dict[str, Any]:
+    """Check the mailbox for new mail addressed to one ticket's alias.
+
+    Each new email gets: AI categorization, an EmailLog row (linked to the
+    claim when there is one), an internal note on the ticket, and — per
+    category — additive ai_* tags on the ticket.
+
+    Raises EmailNotConfigured when IMAP credentials are missing. IMAP
+    connection errors propagate; per-email failures are counted, not raised.
+    """
+    if not re.fullmatch(r'[\w.+-]+@[\w-]+(\.[\w-]+)+', alias or ''):
+        raise InvalidAlias(f"Alias {alias!r} doesn't look like an email address")
+
+    results = {
+        'alias': alias,
+        'found': 0,
+        'processed': [],
+        'already_processed': 0,
+        'tags_added': [],
+        'errors': 0,
+        'capped': False,
+    }
+    ai_prompt = SystemSettings.get_instance().email_analysis_prompt
+    conn = open_inbox()
+    try:
+        uids = search_alias_uids(conn, alias)
+        results['found'] = len(uids)
+        tags = set()
+        processed_count = 0
+        for uid in uids:
+            if processed_count >= MAX_EMAILS_PER_RUN:
+                # Cap counts AI-processed emails only — dedup skips are free,
+                # so a re-click continues where this run stopped.
+                results['capped'] = True
+                break
+            uid_str = uid.decode('utf-8') if isinstance(uid, bytes) else str(uid)
+            try:
+                status, msg_data = conn.fetch(uid, '(RFC822)')
+                if status != 'OK' or not msg_data or msg_data[0] is None:
+                    logger.warning(f"Email check: failed to fetch UID {uid_str}")
+                    results['errors'] += 1
+                    continue
+                msg = email.message_from_bytes(msg_data[0][1])
+                message_id = (msg.get('Message-ID') or '').strip()[:512]
+                if message_id and EmailLog.objects.filter(message_id=message_id).exists():
+                    results['already_processed'] += 1
+                    continue
+                entry = _process_ticket_email(
+                    conn, uid_str, msg, message_id, ticket_id, claim, alias, ai_prompt)
+                results['processed'].append(entry)
+                tags.update(_ai_tags_for(entry['category'], entry['action_required']))
+                processed_count += 1
+            except Exception as e:
+                logger.error(
+                    f"Email check: error on UID {uid_str} for ticket {ticket_id}: {e}",
+                    exc_info=True)
+                results['errors'] += 1
+        if tags and add_zendesk_ticket_tags(str(ticket_id), sorted(tags)):
+            results['tags_added'] = sorted(tags)
+    finally:
+        try:
+            conn.close()
+            conn.logout()
+        except Exception:
+            pass
+    return results

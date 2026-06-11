@@ -28,6 +28,7 @@ from apps.integrations.services import (
     add_refund_comment_to_zendesk,
     fetch_zendesk_ticket,
     fetch_zendesk_comments,
+    get_ticket_email_alias,
     post_zendesk_comment,
     resolve_custom_status,
     safe_date,
@@ -1395,3 +1396,83 @@ class ZendeskFlightLookupView(APIView):
         if not analysis:
             return None
         return {'summary': analysis.summary, 'mismatches': analysis.mismatches}
+
+
+class ZendeskEmailCheckView(APIView):
+    """POST /api/integrations/zd/email-check/
+    Body: {ticket_id}
+
+    The sidebar Email tab's button: checks the shared mailbox for new mail
+    addressed to THIS ticket's email alias only (unread, last 2 days, never
+    processed before). New mail gets AI categorization, an EmailLog row, an
+    internal note on the ticket and additive ai_* tags. The rest of the
+    inbox is untouched.
+
+    Claim-first, fields-fallback: a linked claim caches the alias; without
+    one the alias is read from the ticket's Email Alias custom field.
+    Auth: ZendeskSidebarAuth."""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        from apps.communications.services import (
+            EmailNotConfigured, InvalidAlias, check_email_for_ticket)
+
+        if not ZendeskSidebarAuth.authenticate(request):
+            ip = request.META.get('REMOTE_ADDR', '')
+            cache_key = f'sidebar_auth_fail_{ip}'
+            failed_attempts = cache.get(cache_key, 0)
+            cache.set(cache_key, failed_attempts + 1, 300)
+            logger.warning(f"Failed email-check auth attempt, IP: {ip}, attempt: {failed_attempts + 1}")
+            if failed_attempts >= 5:
+                return Response({'error': 'Too many failed attempts. Please try again later.'},
+                                status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+
+        ticket_id = str(request.data.get('ticket_id', '')).strip()
+        if not ticket_id:
+            return Response({'error_message': 'No ticket id received.'},
+                            status=status.HTTP_200_OK)
+
+        claim = Claim.objects.filter(zd_ticket_id=ticket_id).first()
+        alias = claim.email_alias if claim else ''
+        if not alias:
+            ticket_data = fetch_zendesk_ticket(ticket_id)
+            if ticket_data is None:
+                return Response(
+                    {'error_message': "Couldn't read this ticket's fields from Zendesk."},
+                    status=status.HTTP_200_OK)
+            alias = get_ticket_email_alias(ticket_data)
+            if not alias:
+                return Response(
+                    {'error_message': 'This ticket has no email alias field — '
+                                      'there is no address to check mail for.'},
+                    status=status.HTTP_200_OK)
+            if claim:
+                claim.email_alias = alias
+                claim.save(update_fields=['email_alias', 'updated_at'])
+
+        try:
+            results = check_email_for_ticket(ticket_id, claim, alias)
+        except EmailNotConfigured:
+            return Response(
+                {'error': 'Mailbox (IMAP) credentials are not configured in System settings.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except InvalidAlias:
+            return Response(
+                {'error_message': "The ticket's email alias doesn't look like an "
+                                  "email address — fix the Email Alias field."},
+                status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Email check failed for ticket {ticket_id}: {e}", exc_info=True)
+            return Response({'error': 'Could not reach the mailbox. Try again.'},
+                            status=status.HTTP_502_BAD_GATEWAY)
+
+        new_count = len(results['processed'])
+        subject = f"claim #{claim.id}" if claim else f"claimless ticket {ticket_id}"
+        logger.info(f"Email check for {subject} ({alias}): {new_count} new, "
+                    f"{results['already_processed']} already processed, "
+                    f"tags={results['tags_added']}")
+        return Response({'message': f"{new_count} new email(s) processed",
+                         'claimless': claim is None, **results},
+                        status=status.HTTP_200_OK)

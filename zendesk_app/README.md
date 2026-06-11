@@ -20,6 +20,16 @@ email drafts, and a claim-scoped chat — all backed by LORA.
 - Can translate institution emails on request ("translate the last email")
 - Empty state offers tap-to-ask suggestion chips
 
+**Email tab**
+- **Check email now**: checks the shared mailbox for new mail addressed to THIS
+  ticket's email alias only — unread, last 2 days, each email processed at most
+  once ever (Message-ID dedup). The rest of the inbox is untouched.
+- New mail is AI-categorized, logged in LORA, posted on the ticket as an
+  internal note, and the ticket gets additive AI tags: `ai_object_found`,
+  `ai_object_not_found`, `ai_resubmission_required`, `ai_attention_needed`.
+- Works on tickets without a LORA claim too (alias is read from the ticket's
+  Email Alias custom field; with a claim the alias is cached on the claim).
+
 ## Privacy model (do not break this)
 
 All ticket content goes to LORA, which **tokenizes client PII (names, emails,
@@ -36,6 +46,7 @@ LORA side — never a passthrough.
 | `POST /api/integrations/zd/chat/` | Chat | `{answer, sources[]}`; claim-linked tickets use LORA's AgentChatService, unlinked tickets answer from ticket content |
 | `POST /api/integrations/zd/draft/` | Email drafts | `draft_type: "client_update" \| "institution_reply"` → `{body}` |
 | `POST /api/integrations/zd/flight-lookup/` | Flight lookup (action button) | `{ticket_id, refresh?}` → `{flight, analysis, cached, note_posted}` or `{error_message, candidates?}`; needs `aerodatabox_api_key` in SystemSettings; posts an internal note on the ticket |
+| `POST /api/integrations/zd/email-check/` | Email tab | `{ticket_id}` → `{processed[], already_processed, tags_added[], alias, claimless, capped}`; needs IMAP credentials in SystemSettings; posts internal notes + adds ai_* tags on the ticket |
 
 **Payload the app sends** (built in `assets/app.js` → `ticketContext()`):
 `ticket_id`, `subject`, `description`, `requester_email`, `requester_name`,

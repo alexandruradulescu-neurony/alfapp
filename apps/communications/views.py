@@ -23,7 +23,9 @@ class EmailLogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = EmailLogSerializer
     permission_classes = [permissions.IsAuthenticated, IsAgentOrManager]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['claim', 'sentiment', 'action_required']
+    # NOTE: 'sentiment' was listed here for years but never existed on the
+    # model — django-filter raises on first request, 500ing this endpoint.
+    filterset_fields = ['claim', 'category', 'action_required']
     search_fields = ['subject', 'body', 'ai_summary']
     ordering_fields = ['received_at']
     ordering = ['-received_at']

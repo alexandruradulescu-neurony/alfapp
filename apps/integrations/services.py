@@ -680,25 +680,67 @@ def search_zendesk_ticket_for_dispute(
     return None
 
 
+# Zendesk custom field holding the per-ticket inbound email alias
+# (e.g. "client-123@mydomain.com"). See docs/ZENDESK_FIELDS.md.
+EMAIL_ALIAS_FIELD_ID = '13606076120860'
+
+
+def get_ticket_email_alias(ticket_data: Dict[str, Any]) -> str:
+    """Read the email alias custom field from a fetched Zendesk ticket payload.
+
+    Returns the alias lowercased, or '' when the field is absent/empty.
+    """
+    for field in ticket_data.get('custom_fields') or []:
+        if str(field.get('id')) == EMAIL_ALIAS_FIELD_ID:
+            value = (field.get('value') or '').strip().lower()
+            return value
+    return ''
+
+
+def add_zendesk_ticket_tags(zd_ticket_id: str, tags: List[str]) -> bool:
+    """Add tags to a Zendesk ticket WITHOUT touching its existing tags.
+
+    Uses the dedicated tags endpoint with PUT, which Zendesk defines as
+    additive (POST on the same endpoint would REPLACE the whole tag set —
+    never use it here). Does not work on closed tickets; failure is logged
+    and reported, never raised.
+    """
+    if not tags:
+        return True
+    try:
+        base_url = _get_zendesk_base_url()
+        headers = _get_zendesk_auth_headers()
+        url = f"{base_url}/tickets/{zd_ticket_id}/tags.json"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps({'tags': tags}).encode('utf-8'),
+            headers=headers,
+            method='PUT',
+        )
+        with urllib.request.urlopen(req, timeout=30):
+            logger.info(f"Added tags {tags} to Zendesk ticket {zd_ticket_id}")
+            return True
+    except Exception as e:
+        logger.error(f"Error adding tags {tags} to Zendesk ticket {zd_ticket_id}: {e}")
+        return False
+
+
 def match_alias_to_zendesk_ticket(alias: str) -> Optional[Dict[str, Any]]:
     """
     Search for a Zendesk ticket where custom field 13606076120860 contains the email alias.
-    
+
     This is the ONLY matching method - no fallback to other fields.
-    
+
     Args:
         alias: The email alias to search for (e.g., "client-123@mydomain.com")
-    
+
     Returns:
         Matching ticket data dict, None if no match
     """
     try:
-        # Hard-coded custom field ID as specified
-        custom_field_id = '13606076120860'
-        
         # Search for tickets where the custom field contains the alias
         # Zendesk search syntax: custom_fields_{id}:"value"
-        query = f'custom_fields_{custom_field_id}:"{alias}"'
+        query = f'custom_fields_{EMAIL_ALIAS_FIELD_ID}:"{alias}"'
         results = search_zendesk_tickets(query)
         
         if results:

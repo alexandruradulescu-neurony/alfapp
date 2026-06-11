@@ -9,6 +9,7 @@
   <div id="tabs">
     <button id="tab-briefing" class="tab active" data-tab="briefing">Briefing</button>
     <button id="tab-chat" class="tab" data-tab="chat">Chat</button>
+    <button id="tab-email" class="tab" data-tab="email">Email</button>
   </div>
 
   <section id="panel-briefing" class="panel">
@@ -51,6 +52,20 @@
       Couldn't load the briefing. <button id="briefing-retry">Retry</button>
       <div id="briefing-error-detail" class="muted"></div>
     </div>
+  </section>
+
+  <section id="panel-email" class="panel" hidden>
+    <p class="muted" id="email-hint">Checks the shared mailbox for new mail addressed to this
+      ticket's email alias — unread, last 2 days, each email processed once. New mail is
+      AI-categorized, posted on the ticket as an internal note, and tagged (ai_object_found,
+      ai_attention_needed, …). The rest of the inbox is untouched.</p>
+    <div class="actions">
+      <button id="btn-check-email" type="button" class="wide">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 6 10-6"/><path d="M12 11v6"/><path d="m9 14 3 3 3-3"/></svg>
+        Check email now
+      </button>
+    </div>
+    <div id="email-result" hidden></div>
   </section>
 
   <section id="panel-chat" class="panel" hidden>

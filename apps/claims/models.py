@@ -55,6 +55,12 @@ class Claim(models.Model):
         blank=True,
         help_text='Alternate contact email'
     )
+    email_alias = models.EmailField(
+        blank=True,
+        default='',
+        help_text='Per-ticket inbound email alias (Zendesk "Email Alias" field); '
+                  'cached here on first email check'
+    )
     billing_address = models.TextField(
         blank=True,
         default='',
