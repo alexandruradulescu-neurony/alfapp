@@ -407,7 +407,6 @@ def agent_emails(request):
     """Email list view with filters.
 
     Agents can filter emails by:
-    - Sentiment (Positive, Neutral, Frustrated, Urgent)
     - Category (OBJECT_FOUND, OBJECT_NOT_FOUND, etc.)
     - Action Required (True/False)
     - Auto Resolved (toggle to show/hide)
@@ -427,11 +426,6 @@ def agent_emails(request):
     show_auto_resolved = request.GET.get('show_auto_resolved', '') == '1'
     if not show_auto_resolved:
         emails = emails.filter(auto_resolved=False)
-
-    # Filter by sentiment
-    sentiment_filter = request.GET.get('sentiment', '')
-    if sentiment_filter:
-        emails = emails.filter(sentiment=sentiment_filter)
 
     # Filter by category
     category_filter = request.GET.get('category', '')
@@ -465,7 +459,6 @@ def agent_emails(request):
         'page_obj': page_obj,
         'emails': page_obj,
         'search_query': search_query,
-        'sentiment_filter': sentiment_filter,
         'category_filter': category_filter,
         'action_required_filter': action_required_filter,
         'show_auto_resolved': show_auto_resolved,
@@ -481,7 +474,7 @@ def agent_email_detail(request, email_id):
 
     Shows:
     - Full email body
-    - AI analysis (summary, sentiment, category, action_required)
+    - AI analysis (summary, category, action_required)
     - Linked Zendesk ticket (if any)
     - Linked Claim (if any)
     - Raw headers (toggle)

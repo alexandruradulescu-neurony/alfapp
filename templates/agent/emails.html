@@ -169,11 +169,11 @@
     <div class="flex justify-center p-6">
         <div class="flex items-center gap-2">
             {% if page_obj.has_previous %}
-            <a href="?page=1{% if search_query %}&search={{ search_query }}{% endif %}{% if sentiment_filter %}&sentiment={{ sentiment_filter }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
+            <a href="?page=1{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
                class="btn btn-sm rounded-xl transition-all duration-200">
                 <i class="bi bi-chevron-double-left"></i>
             </a>
-            <a href="?page={{ page_obj.previous_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}{% if sentiment_filter %}&sentiment={{ sentiment_filter }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
+            <a href="?page={{ page_obj.previous_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
                class="btn btn-sm rounded-xl transition-all duration-200">
                 <i class="bi bi-chevron-left"></i> Previous
             </a>
@@ -184,11 +184,11 @@
             </span>
 
             {% if page_obj.has_next %}
-            <a href="?page={{ page_obj.next_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}{% if sentiment_filter %}&sentiment={{ sentiment_filter }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
+            <a href="?page={{ page_obj.next_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
                class="btn btn-sm rounded-xl transition-all duration-200">
                 Next <i class="bi bi-chevron-right"></i>
             </a>
-            <a href="?page={{ page_obj.paginator.num_pages }}{% if search_query %}&search={{ search_query }}{% endif %}{% if sentiment_filter %}&sentiment={{ sentiment_filter }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
+            <a href="?page={{ page_obj.paginator.num_pages }}{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
                class="btn btn-sm rounded-xl transition-all duration-200">
                 <i class="bi bi-chevron-double-right"></i>
             </a>

@@ -510,30 +510,21 @@ class TestFetchCommunicationHistory:
 
     @pytest.mark.django_db
     def test_fetch_history_success(self, complete_dispute_setup):
-        """Test successful communication history fetch."""
+        """Fetches the claim's real EmailLog rows — no mocking.
+
+        (Until 2026-06-12 this had to mock around a `.sentiment` attribute
+        that never existed on EmailLog and crashed the real code path.)
+        """
         dispute = complete_dispute_setup['dispute']
 
-        # Mock the function to avoid the sentiment field issue in document_service.py
-        with patch('apps.payments.document_service.EmailLog') as mock_email_log:
-            mock_email = Mock()
-            mock_email.subject = 'Re: Lost Item Claim'
-            mock_email.body = 'Thank you for your response.'
-            mock_email.from_email = 'customer@example.com'
-            mock_email.received_at = datetime.now()
-            mock_email.category = 'GENERAL_CORRESPONDENCE'
-            # Note: document_service.py incorrectly references sentiment which doesn't exist
-            # This is a bug in the source code
-            type(mock_email).sentiment = PropertyMock(return_value='Positive')
-            
-            mock_queryset = Mock()
-            mock_queryset.order_by.return_value = [mock_email]
-            mock_email_log.objects.filter.return_value = mock_queryset
-            
-            result = _fetch_communication_history(dispute)
+        result = _fetch_communication_history(dispute)
 
-            assert len(result) >= 1
-            assert result[0]['subject'] == 'Re: Lost Item Claim'
-            assert result[0]['category'] == 'GENERAL_CORRESPONDENCE'
+        assert len(result) >= 1
+        entry = result[0]
+        assert entry['subject'] == 'Re: Lost Item Claim'
+        assert 'sentiment' not in entry
+        assert entry['category_display'] != ''
+        assert {'category', 'ai_summary', 'auto_resolved'} <= set(entry)
 
     @pytest.mark.django_db
     def test_fetch_history_no_claim(self):

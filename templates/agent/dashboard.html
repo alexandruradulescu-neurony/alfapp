@@ -113,7 +113,6 @@
                     <th>Subject</th>
                     <th>From</th>
                     <th>Category</th>
-                    <th>Sentiment</th>
                     <th>Claim</th>
                     <th>Received</th>
                     <th>Actions</th>
@@ -135,11 +134,6 @@
                             {% if email.action_required %}
                             <div class="badge badge-error badge-xs">!</div>
                             {% endif %}
-                        </div>
-                    </td>
-                    <td>
-                        <div class="badge {% if email.sentiment == 'Positive' %}badge-success{% elif email.sentiment == 'Frustrated' %}badge-warning{% elif email.sentiment == 'Urgent' %}badge-error{% else %}badge-ghost{% endif %}">
-                            {{ email.sentiment|default:'Neutral' }}
                         </div>
                     </td>
                     <td>

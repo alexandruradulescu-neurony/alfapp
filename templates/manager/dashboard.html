@@ -222,7 +222,7 @@
                     <tr>
                         <th>Claim</th>
                         <th>Subject</th>
-                        <th>Sentiment</th>
+                        <th>Category</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -235,8 +235,8 @@
                             </div>
                         </td>
                         <td>
-                            <div class="badge {% if email.sentiment == 'Positive' %}badge-soft-success{% elif email.sentiment == 'Frustrated' %}badge-soft-warning{% elif email.sentiment == 'Urgent' %}badge-soft-error{% else %}badge-soft-neutral{% endif %} rounded-full">
-                                {{ email.sentiment|default:'Neutral' }}
+                            <div class="badge {% if email.action_required %}badge-soft-error{% else %}badge-soft-neutral{% endif %} rounded-full">
+                                {{ email.get_category_display }}
                             </div>
                         </td>
                     </tr>

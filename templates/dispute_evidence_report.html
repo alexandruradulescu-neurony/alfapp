@@ -217,18 +217,6 @@
             gap: 8px;
         }
 
-        .email-sentiment {
-            font-size: 11px;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-weight: normal;
-        }
-
-        .email-sentiment.Positive { background: #d1fae5; color: #065f46; }
-        .email-sentiment.Neutral { background: #f3f4f6; color: #374151; }
-        .email-sentiment.Frustrated { background: #fef3c7; color: #92400e; }
-        .email-sentiment.Urgent { background: #fee2e2; color: #991b1b; }
-
         .email-meta {
             font-size: 12px;
             color: #6b7280;
@@ -492,15 +480,12 @@
             <div class="email-item">
                 <p class="email-subject">
                     {{ email.subject }}
-                    <span class="email-sentiment {{ email.sentiment|default:'Neutral' }}">
-                        {{ email.sentiment|default:'Neutral' }}
-                    </span>
                 </p>
                 <p class="email-meta">
                     <strong>From:</strong> {{ email.from_email }} |
                     <strong>Received:</strong> {{ email.received_at|date:"F d, Y H:i" }}
                     {% if email.category %}
-                    | <strong>Category:</strong> {{ email.get_category_display }}
+                    | <strong>Category:</strong> {{ email.category_display }}
                     {% endif %}
                     {% if email.auto_resolved %}
                     | <strong>Auto-Resolved:</strong> Yes

@@ -202,8 +202,10 @@ def _fetch_communication_history(dispute: Dispute) -> list:
                     'body': email_log.body,
                     'from_email': email_log.from_email,
                     'received_at': email_log.received_at,
-                    'sentiment': email_log.sentiment,
                     'category': email_log.category,
+                    'category_display': email_log.get_category_display(),
+                    'ai_summary': email_log.ai_summary,
+                    'auto_resolved': email_log.auto_resolved,
                 })
             logger.info(f"Fetched {len(emails)} emails for dispute {dispute.id}")
         except Exception as e:
@@ -442,20 +444,6 @@ def _render_to_pdf(html_string: str, filename_hint: str) -> Optional[bytes]:
                 color: #666;
                 margin-bottom: 8px;
             }
-            
-            .email-sentiment {
-                display: inline-block;
-                padding: 2px 8px;
-                border-radius: 3px;
-                font-size: 8pt;
-                font-weight: bold;
-                margin-left: 10px;
-            }
-            
-            .sentiment-Positive { background: #d4edda; color: #155724; }
-            .sentiment-Neutral { background: #e2e3e5; color: #383d41; }
-            .sentiment-Frustrated { background: #fff3cd; color: #856404; }
-            .sentiment-Urgent { background: #f8d7da; color: #721c24; }
             
             .evidence-item {
                 page-break-inside: avoid;

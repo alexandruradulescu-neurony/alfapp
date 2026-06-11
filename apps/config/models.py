@@ -292,15 +292,13 @@ Email Content:
 
 Analyze this email and provide:
 1. Summary: Brief summary of the email content
-2. Sentiment: Positive, Neutral, Frustrated, or Urgent
-3. Category: OBJECT_FOUND, OBJECT_NOT_FOUND, RESUBMISSION_REQUIRED, SUBMISSION_CONFIRMATION, GENERAL_CORRESPONDENCE, or UNKNOWN
-4. Action Required: true/false - Does this email require human agent attention?
-5. Auto Resolvable: true/false - Can this be automatically resolved without human intervention?
+2. Category: OBJECT_FOUND, OBJECT_NOT_FOUND, RESUBMISSION_REQUIRED, SUBMISSION_CONFIRMATION, GENERAL_CORRESPONDENCE, or UNKNOWN
+3. Action Required: true/false - Does this email require human agent attention?
+4. Auto Resolvable: true/false - Can this be automatically resolved without human intervention?
 
 Respond with JSON in this format:
 {
   "summary": "...",
-  "sentiment": "...",
   "category": "...",
   "action_required": true/false,
   "auto_resolvable": true/false
