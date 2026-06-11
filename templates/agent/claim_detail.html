@@ -584,16 +584,17 @@ function updateFromZendesk(claimId) {
             'X-CSRFToken': getCsrfToken(),
         },
     })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            // Show success toast
-            showToast('Success', data.summary || 'Claim updated from Zendesk', 'success');
+    .then(response => {
+        return response.json().then(data => ({ ok: response.ok, data }));
+    })
+    .then(({ ok, data }) => {
+        if (ok) {
+            const count = (data.updated_fields || []).length;
+            showToast('Success', `${data.message} — ${count} field(s) updated`, 'success');
             // Reload page to show updates
             setTimeout(() => location.reload(), 2000);
         } else {
-            // Show error toast
-            showToast('Error', data.error || 'Failed to update from Zendesk', 'error');
+            showToast('Error', data.error || 'Failed to refresh from Zendesk', 'error');
             button.disabled = false;
             button.innerHTML = originalHTML;
         }

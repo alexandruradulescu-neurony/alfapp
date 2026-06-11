@@ -71,3 +71,24 @@ class RefreshFromZendeskTests(TestCase):
         self._run()
         self.claim.refresh_from_db()
         self.assertEqual(self.claim.status, before)
+
+    def test_structured_fields_overwrite_and_fill_only_respected_email(self):
+        self._run()
+        self.claim.refresh_from_db()
+        self.assertEqual(self.claim.client_email, 'new@example.com')
+
+    def test_summary_failure_still_succeeds(self):
+        response = self._run(refresh_ok=False)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIs(data['summary_refreshed'], False)
+        from apps.claims.models import ClaimUpdateTimeline
+        entry = ClaimUpdateTimeline.objects.filter(claim=self.claim).first()
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry.llm_summary, '')
+
+    def test_second_run_reports_no_changes(self):
+        self._run()
+        response2 = self._run()
+        self.assertEqual(response2.status_code, 200)
+        self.assertEqual(response2.json()['updated_fields'], [])

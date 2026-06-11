@@ -40,8 +40,6 @@ from apps.integrations.briefing import ALF_BUSINESS_CONTEXT, refresh_claim_summa
 logger = logging.getLogger(__name__)
 
 
-
-
 class ZendeskSidebarAuth:
     """
     Custom authentication for Zendesk sidebar widget.

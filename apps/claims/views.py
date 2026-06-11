@@ -21,7 +21,7 @@ class CsrfExemptSessionAuthentication(SessionAuthentication):
 from apps.claims.models import Claim, ClaimEvidence, ClaimUpdateTimeline
 from apps.claims.serializers import ClaimSerializer, ClaimDetailSerializer, ClaimEvidenceSerializer
 from apps.claims.services import compute_deadline_at
-from apps.users.permissions import IsAgentOrManager, IsManager
+from apps.users.permissions import IsAgentOrManager
 from apps.integrations.services import (
     fetch_zendesk_ticket,
     fetch_zendesk_comments,
@@ -134,7 +134,7 @@ class ClaimViewSet(viewsets.ModelViewSet):
             response['Content-Disposition'] = f'attachment; filename="proof_of_work_claim_{claim.id}.pdf"'
             response['Content-Length'] = len(pdf_bytes)
             
-            log(f"Proof of work PDF downloaded for claim #{claim.id} by {request.user}")
+            logger.info(f"Proof of work PDF downloaded for claim #{claim.id} by {request.user}")
             return response
             
         except Exception as e:
@@ -225,7 +225,10 @@ class ClaimUpdateFromZendeskView(APIView):
         'lost_location', 'deadline_time', 'deadline_timezone',
         'payment_method', 'payment_status', 'woocommerce_id', 'tracking_info',
     ]
-    FILL_ONLY_FIELDS = ['object_description', 'alternate_email']
+    FILL_ONLY_FIELDS = [
+        'object_description',
+        'alternate_email',  # alternate_email: extractor returns '' today — reserved for when extraction adds it
+    ]
 
     def post(self, request, claim_id):
         if not hasattr(request.user, 'role') or request.user.role not in ['AGENT', 'MANAGER']:
@@ -268,7 +271,8 @@ class ClaimUpdateFromZendeskView(APIView):
 
         claim.deadline_at = compute_deadline_at(
             claim.deadline_date, claim.deadline_time, claim.deadline_timezone)
-        claim.save()
+        save_fields = set(updated_fields) | {'deadline_at', 'updated_at'}
+        claim.save(update_fields=list(save_fields))
 
         summary_refreshed = refresh_claim_summary(claim, ticket_data)
 
