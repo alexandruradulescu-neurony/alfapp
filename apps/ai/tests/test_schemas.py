@@ -114,9 +114,12 @@ def test_briefing_summary_next_steps_defaults_empty():
     assert obj.next_steps == []
 
 
-def test_briefing_summary_rejects_too_long_summary():
-    with pytest.raises(ValidationError):
-        BriefingSummary.model_validate({"summary": "x" * 601})
+def test_briefing_summary_trims_too_long_summary():
+    # Contract changed 2026-06-11: soft cap. A wordy reply is trimmed, never
+    # rejected — rejection cost us fresh summaries in production.
+    obj = BriefingSummary.model_validate({"summary": "x" * 601})
+    assert len(obj.summary) <= 600
+    assert obj.summary.endswith("…")
 
 
 def test_briefing_summary_caps_next_steps_count():
@@ -169,3 +172,25 @@ def test_email_draft_requires_body():
     from apps.ai.schemas import EmailDraft
     with pytest.raises(ValidationError):
         EmailDraft.model_validate({})
+
+
+def test_flight_check_trims_long_summary_instead_of_rejecting():
+    # Seen live: a correct ~900-char flight analysis was thrown away by a hard
+    # max_length. Long summaries must validate, trimmed with an ellipsis.
+    from apps.ai.schemas import FlightCheck
+    obj = FlightCheck.model_validate({"summary": "x" * 1000, "mismatches": []})
+    assert len(obj.summary) <= 800
+    assert obj.summary.endswith("…")
+
+
+def test_flight_check_short_summary_untouched():
+    from apps.ai.schemas import FlightCheck
+    obj = FlightCheck.model_validate({"summary": "All good.", "mismatches": []})
+    assert obj.summary == "All good."
+
+
+def test_briefing_summary_trims_long_summary():
+    from apps.ai.schemas import BriefingSummary
+    obj = BriefingSummary.model_validate({"summary": "y" * 900})
+    assert len(obj.summary) <= 600
+    assert obj.summary.endswith("…")

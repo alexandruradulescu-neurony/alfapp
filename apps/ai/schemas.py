@@ -8,7 +8,17 @@ replies raise AIResponseValidationError, which callers route to manual review.
 from __future__ import annotations
 
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _trim(value: str, limit: int) -> str:
+    """Soft length cap: a wordy-but-correct answer gets trimmed, never
+    rejected (a hard max_length throws the whole reply away — seen live
+    with flight_check, where a good 900-char analysis was discarded)."""
+    value = (value or '').strip()
+    if len(value) <= limit:
+        return value
+    return value[:limit - 1].rstrip() + '…'
 
 
 class EmailCategorization(BaseModel):
@@ -52,13 +62,20 @@ class DisputeLetter(BaseModel):
 
 
 class BriefingSummary(BaseModel):
-    """Schema for the Zendesk sidebar briefing (POST /zd/briefing/).
-    The LLM produces a short summary + a few suggested next steps. The
-    structured `facts` block is assembled by the view, not the LLM, so it is
-    not part of this schema."""
+    """Schema for the Zendesk sidebar briefing (POST /zd/briefing/) and the
+    stored claim summary engine. The LLM produces a short summary + a few
+    suggested next steps. The structured `facts` block is assembled by the
+    view, not the LLM, so it is not part of this schema. The summary is
+    soft-capped: trimmed, not rejected (same failure class as flight_check —
+    a wordy reply must not cost us a fresh summary)."""
 
-    summary: str = Field(max_length=600)
+    summary: str
     next_steps: list[str] = Field(default_factory=list, max_length=6)
+
+    @field_validator('summary')
+    @classmethod
+    def _cap_summary(cls, value: str) -> str:
+        return _trim(value, 600)
 
 
 class NextSteps(BaseModel):
@@ -79,7 +96,13 @@ class FlightCheck(BaseModel):
     """Schema for the flight-lookup AI cross-check (POST /zd/flight-lookup/).
     Validates fetched flight data (or candidate flights) against the client's
     report and says where the search should focus; `mismatches` lists concrete
-    discrepancies (wrong day, airport not on route, etc.)."""
+    discrepancies (wrong day, airport not on route, etc.). The summary is
+    soft-capped: trimmed, not rejected."""
 
-    summary: str = Field(max_length=600)
+    summary: str
     mismatches: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator('summary')
+    @classmethod
+    def _cap_summary(cls, value: str) -> str:
+        return _trim(value, 800)

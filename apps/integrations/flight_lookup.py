@@ -70,6 +70,7 @@ FLIGHT_CHECK_PROMPT = ALF_BUSINESS_CONTEXT + (
     "mismatches (wrong day, airport not on the route, flight not operating "
     "that date). Report a mismatch ONLY when the provided content genuinely "
     "contradicts itself — an empty mismatches list means everything fits. "
+    "Keep the summary to 2-4 short sentences, under 500 characters. "
     "Use ONLY the provided content; never invent flights, airports or times. "
     'Respond as JSON: {"summary": "...", "mismatches": ["..."]}.'
 )
