@@ -296,10 +296,8 @@ class FlightLookupEndpointTests(TestCase):
         response = self.api.post(self.url, {'ticket_id': '90001'}, format='json')
         self.assertEqual(response.status_code, 403)
 
-    def test_no_claim(self):
-        response = self._post({'ticket_id': '99999'})
-        self.assertEqual(response.status_code, 200)
-        self.assertIn('No LORA claim', response.json()['error_message'])
+    # NOTE: "no claim -> refuse" was removed 2026-06-11; claimless tickets now
+    # fall back to the structured Zendesk fields (see ClaimlessFlightLookupTests).
 
     def test_unparseable_flight(self):
         self.claim.flight_details = 'no flight info here'
@@ -540,3 +538,91 @@ class VerdictInEndpointTests(FlightLookupEndpointTests):
         self.assertEqual(response.json()['verdict']['level'], 'check')
         note_body = mock_post.call_args.args[1]
         self.assertIn('⚠️', note_body.splitlines()[0])
+
+
+class ClaimlessFlightLookupTests(TestCase):
+    """No LORA claim: flight details come from the ticket's structured
+    Zendesk fields (server-side fetch). Nothing is cached, no timeline rows
+    are written — the internal note is the record."""
+
+    TICKET_FIELDS = {'custom_fields': [
+        {'id': 13737630819996, 'value': 'DL2852'},               # Flight Number
+        {'id': 11761080032028, 'value': 'Delta Air Lines - DL'}, # Airline
+        {'id': 11761104069276, 'value': 'Tampa International Airport / TPA'},
+        {'id': 13737598795292, 'value': 'June 11, 2026 9:15 am'},  # Date & Time
+    ]}
+
+    def setUp(self):
+        ss = SystemSettings.get_instance()
+        ss.sidebar_secret_token = SECRET
+        ss.aerodatabox_api_key = 'k'
+        ss.save()
+        self.api = APIClient()
+        self.url = '/api/integrations/zd/flight-lookup/'
+
+    def _post(self, ticket_id='95001'):
+        return self.api.post(self.url, {'ticket_id': ticket_id},
+                             format='json', HTTP_AUTHORIZATION=f'Bearer {SECRET}')
+
+    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.analyze_flight_match', return_value=_fake_check())
+    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
+    @patch('apps.integrations.views.fetch_zendesk_ticket')
+    def test_claimless_lookup_from_ticket_fields(self, mock_fetch, mock_lookup,
+                                                 mock_analyze, mock_post):
+        from apps.claims.models import ClaimUpdateTimeline
+        timeline_before = ClaimUpdateTimeline.objects.count()  # shared fixtures seed rows
+        mock_fetch.return_value = dict(self.TICKET_FIELDS)
+        response = self._post()
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['claimless'])
+        self.assertEqual(data['flight']['number'], 'RO 301')
+        self.assertEqual(data['verdict']['level'], 'verified')
+        self.assertTrue(data['note_posted'])
+        # the lookup used the fields-composed details
+        mock_lookup.assert_called_once_with('DL2852', '2026-06-11')
+        # note went to THIS ticket
+        self.assertEqual(mock_post.call_args.args[0], '95001')
+        # nothing persisted anywhere (relative: shared fixtures pre-seed rows)
+        self.assertEqual(ClaimUpdateTimeline.objects.count(), timeline_before)
+        # claimless analysis got the composed details as client text
+        kwargs = mock_analyze.call_args.kwargs
+        self.assertIn('DL2852', kwargs['flight_details_text'])
+
+    @patch('apps.integrations.views.fetch_zendesk_ticket',
+           return_value={'custom_fields': []})
+    def test_claimless_empty_fields_message(self, _mock_fetch):
+        response = self._post()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('flight fields', response.json()['error_message'])
+
+    @patch('apps.integrations.views.fetch_zendesk_ticket', return_value=None)
+    def test_claimless_ticket_fetch_failure_message(self, _mock_fetch):
+        response = self._post()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Couldn't read this ticket's fields", response.json()['error_message'])
+
+    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.analyze_flight_match', return_value=_fake_check())
+    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
+    @patch('apps.integrations.views.fetch_zendesk_ticket')
+    def test_claimless_is_never_cached(self, mock_fetch, mock_lookup, *_mocks):
+        mock_fetch.return_value = dict(self.TICKET_FIELDS)
+        self._post()
+        self._post()
+        self.assertEqual(mock_lookup.call_count, 2)
+
+
+class ClaimlessAnalysisChannelTests(TestCase):
+    def test_claimless_analysis_uses_untrusted_channel_without_claim_facts(self):
+        from apps.integrations.flight_lookup import analyze_flight_match
+        with patch('apps.integrations.flight_lookup.AIClient.complete') as mock_complete:
+            mock_complete.return_value = _fake_check()
+            result = analyze_flight_match(None, {'number': 'DL2852', 'legs': []},
+                                          flight_details_text=COMPOSED)
+            self.assertIsNotNone(result)
+            kwargs = mock_complete.call_args.kwargs
+            self.assertIn('RO301', str(kwargs['untrusted']))
+            self.assertNotIn('claim_facts', kwargs['trusted'] or {})
+            self.assertEqual(kwargs['known_pii']['names'], [])

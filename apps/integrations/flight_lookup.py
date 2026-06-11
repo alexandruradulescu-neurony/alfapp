@@ -80,13 +80,18 @@ class FlightProviderNotConfigured(Exception):
     """Raised when the AeroDataBox API key is missing from SystemSettings."""
 
 
-def _segment(flight_details: str, label: str) -> str:
-    """Extract one labeled segment from the composed flight_details string
-    ('Flight: RO301 | Airline: TAROM | Date/Time: 2026-06-01 14:20')."""
-    for part in (flight_details or '').split('|'):
+def _segment(text: str, *labels: str) -> str:
+    """Extract one labeled segment from labeled text. Handles both the
+    composed claim string ('Flight: RO301 | Airline: TAROM | …', pipe-joined)
+    and raw ticket descriptions (one 'Label: value' per line). Accepts label
+    aliases ('Flight', 'Flight #')."""
+    parts = re.split(r'[|\n]', text or '')
+    for part in parts:
         part = part.strip()
-        if part.lower().startswith(label.lower() + ':'):
-            return part[len(label) + 1:].strip()
+        for label in labels:
+            prefix = label.lower() + ':'
+            if part.lower().startswith(prefix):
+                return part[len(prefix):].strip()
     return ''
 
 
@@ -298,29 +303,39 @@ def normalize_flight(raw_legs: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def analyze_flight_match(claim, flight_payload: Optional[Dict[str, Any]] = None,
-                         candidates: Optional[List[Dict[str, str]]] = None):
+                         candidates: Optional[List[Dict[str, str]]] = None,
+                         flight_details_text: str = ''):
     """ONE AIClient call cross-checking flight reality vs the client's report.
     Returns a FlightCheck or None on any AI failure — callers must treat the
-    analysis as optional (the lookup result stands on its own)."""
-    trusted = {'claim_facts': str(build_claim_facts(claim))}
+    analysis as optional (the lookup result stands on its own).
+
+    `claim` may be None (claimless tickets): pass the flight details composed
+    from the ticket's Zendesk fields as `flight_details_text` instead — it is
+    client-form data and stays in the untrusted channel."""
+    trusted = {}
+    if claim is not None:
+        trusted['claim_facts'] = str(build_claim_facts(claim))
     if flight_payload:
         trusted['verified_flight_data'] = json.dumps(flight_payload, ensure_ascii=False)
     if candidates:
         trusted['candidate_flights'] = json.dumps(candidates, ensure_ascii=False)
 
     untrusted = {}
-    if claim.flight_details:
-        untrusted['client_reported_flight'] = claim.flight_details
-    if claim.lost_location:
+    details = claim.flight_details if claim is not None else flight_details_text
+    if details:
+        untrusted['client_reported_flight'] = details
+    if claim is not None and claim.lost_location:
         untrusted['client_lost_location'] = claim.lost_location
-    if claim.incident_details:
+    if claim is not None and claim.incident_details:
         untrusted['client_incident_details'] = claim.incident_details
 
-    known_pii = {'aliases': [], 'names': [n for n in [claim.client_name] if n]}
+    names = [claim.client_name] if claim is not None and claim.client_name else []
+    known_pii = {'aliases': [], 'names': names}
+    subject = f"claim #{claim.id}" if claim is not None else "claimless ticket"
     try:
         return AIClient.complete(
             system_prompt=FLIGHT_CHECK_PROMPT,
-            trusted=trusted,
+            trusted=trusted or None,
             untrusted=untrusted or None,
             known_pii=known_pii,
             response_schema=FlightCheck,
@@ -329,7 +344,7 @@ def analyze_flight_match(claim, flight_payload: Optional[Dict[str, Any]] = None,
             max_tokens=400,
         )
     except Exception as e:
-        logger.warning(f"Flight cross-check failed for claim #{claim.id}: {e}")
+        logger.warning(f"Flight cross-check failed for {subject}: {e}")
         return None
 
 
