@@ -64,6 +64,16 @@ class EmailLog(models.Model):
             models.Index(fields=['category', 'auto_resolved']),
             models.Index(fields=['from_email', '-received_at']),
         ]
+        constraints = [
+            # The database itself refuses a second row for the same email —
+            # the check-then-create dedup alone loses a same-second race
+            # between two button presses. Blank ids (old rows) are exempt.
+            models.UniqueConstraint(
+                fields=['message_id'],
+                condition=~models.Q(message_id=''),
+                name='uniq_emaillog_message_id',
+            ),
+        ]
 
     def __str__(self):
         return f"EmailLog #{self.id} - {self.subject[:50]} (Claim #{self.claim_id if self.claim else 'None'})"

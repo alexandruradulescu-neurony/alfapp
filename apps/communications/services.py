@@ -14,7 +14,7 @@ from email.header import decode_header
 from typing import Optional, Dict, Any, List, Tuple
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from apps.claims.models import Claim
 from apps.config.models import SystemSettings
@@ -1042,6 +1042,11 @@ def check_email_for_ticket(ticket_id: str, claim, alias: str) -> Dict[str, Any]:
                 results['processed'].append(entry)
                 tags.update(_ai_tags_for(entry['category'], entry['action_required']))
                 processed_count += 1
+            except IntegrityError:
+                # A simultaneous press on the same ticket won the race — the
+                # unique message_id constraint bounced this copy before any
+                # note was posted. Same outcome as the dedup check.
+                results['already_processed'] += 1
             except Exception as e:
                 logger.error(
                     f"Email check: error on UID {uid_str} for ticket {ticket_id}: {e}",
