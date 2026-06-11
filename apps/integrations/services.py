@@ -12,6 +12,7 @@ import urllib.error
 from typing import List, Dict, Any, Optional
 
 from django.conf import settings
+from django.core.cache import cache
 
 from apps.config.models import SystemSettings
 
@@ -335,6 +336,50 @@ def fetch_zendesk_user(user_id: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Unexpected error fetching Zendesk user {user_id}: {e}")
         return None
+
+
+CUSTOM_STATUS_CACHE_KEY = 'zd_custom_statuses_v1'
+CUSTOM_STATUS_CACHE_TTL = 60 * 60 * 24  # 24h; unknown ids force a refresh anyway
+
+
+def _fetch_custom_statuses() -> Dict[str, Dict[str, str]]:
+    """GET /api/v2/custom_statuses.json -> {id: {'name', 'category'}}.
+    Raises on configuration/network errors (caller decides the fallback)."""
+    base_url = _get_zendesk_base_url()
+    headers = _get_zendesk_auth_headers()
+    req = urllib.request.Request(f"{base_url}/custom_statuses.json", headers=headers, method='GET')
+    timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        result = json.loads(response.read().decode('utf-8'))
+    mapping = {}
+    for cs in result.get('custom_statuses', []):
+        mapping[str(cs.get('id'))] = {
+            'name': cs.get('agent_label', '') or '',
+            'category': cs.get('status_category', '') or '',
+        }
+    logger.info(f"Fetched {len(mapping)} Zendesk custom statuses")
+    return mapping
+
+
+def resolve_custom_status(status_id) -> Dict[str, str]:
+    """Translate a Zendesk custom-status id to {'name', 'category'}.
+    Cached; an unknown id forces one refresh (covers statuses added in
+    Zendesk after the cache was filled). Total failure -> id as name,
+    empty category — the webhook still mirrors *something* traceable."""
+    sid = str(status_id)
+    mapping = cache.get(CUSTOM_STATUS_CACHE_KEY)
+    if mapping is None or sid not in mapping:
+        try:
+            mapping = _fetch_custom_statuses()
+            cache.set(CUSTOM_STATUS_CACHE_KEY, mapping, CUSTOM_STATUS_CACHE_TTL)
+        except Exception as e:
+            logger.error(f"Could not fetch Zendesk custom statuses: {e}")
+            mapping = mapping or {}
+    entry = mapping.get(sid)
+    if not entry:
+        logger.warning(f"Unknown Zendesk custom status id {sid}; mirroring id verbatim")
+        return {'name': sid, 'category': ''}
+    return entry
 
 
 def create_zendesk_ticket(

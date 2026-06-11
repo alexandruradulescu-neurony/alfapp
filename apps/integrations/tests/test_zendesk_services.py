@@ -22,6 +22,8 @@ from urllib.error import HTTPError, URLError
 from io import BytesIO
 
 from django.conf import settings
+from django.core.cache import cache
+from django.test import TestCase
 
 from apps.config.models import SystemSettings
 from apps.integrations import services
@@ -1516,3 +1518,38 @@ def test_build_claim_facts_includes_next_update_due():
     # claim created just now -> day-2 update is the next one due
     assert facts['next_update_due']['day'] == 2
     assert 'date' in facts['next_update_due']
+
+
+# =============================================================================
+# Test resolve_custom_status
+# =============================================================================
+
+
+class ResolveCustomStatusTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
+    @patch('apps.integrations.services._fetch_custom_statuses')
+    def test_resolves_known_id_and_caches(self, mock_fetch):
+        from apps.integrations.services import resolve_custom_status
+        mock_fetch.return_value = {
+            '111': {'name': 'Claim submitted', 'category': 'open'},
+        }
+        result = resolve_custom_status('111')
+        self.assertEqual(result, {'name': 'Claim submitted', 'category': 'open'})
+        resolve_custom_status('111')  # second call served from cache
+        self.assertEqual(mock_fetch.call_count, 1)
+
+    @patch('apps.integrations.services._fetch_custom_statuses')
+    def test_unknown_id_refreshes_then_falls_back(self, mock_fetch):
+        from apps.integrations.services import resolve_custom_status
+        mock_fetch.return_value = {'111': {'name': 'Open', 'category': 'open'}}
+        result = resolve_custom_status('999')
+        self.assertEqual(result, {'name': '999', 'category': ''})
+        self.assertEqual(mock_fetch.call_count, 1)
+
+    @patch('apps.integrations.services._fetch_custom_statuses', side_effect=ValueError('no creds'))
+    def test_fetch_failure_falls_back_to_id(self, mock_fetch):
+        from apps.integrations.services import resolve_custom_status
+        result = resolve_custom_status('123')
+        self.assertEqual(result, {'name': '123', 'category': ''})
