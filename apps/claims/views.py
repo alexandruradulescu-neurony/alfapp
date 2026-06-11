@@ -93,33 +93,6 @@ class ClaimViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    @action(detail=True, methods=['patch'])
-    def update_status(self, request, pk=None):
-        """
-        Update the status of a claim.
-        Only AGENT or MANAGER can update status.
-        """
-        claim = self.get_object()
-        new_status = request.data.get('status')
-
-        if not new_status:
-            return Response(
-                {'detail': 'Status is required.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            claim.status = new_status
-            claim.save()
-            serializer = self.get_serializer(claim)
-            return Response(serializer.data)
-        except Exception as e:
-            logger.error(f"Error updating claim status: {e}")
-            return Response(
-                {'detail': 'Error updating claim status.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
     @action(detail=True, methods=['get'], url_path='proof-of-work')
     def proof_of_work(self, request, pk=None):
         """

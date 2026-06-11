@@ -15,7 +15,6 @@ urlpatterns = [
     path('agent/', views.agent_dashboard, name='agent_dashboard'),
     path('agent/claims/', views.agent_claims, name='agent_claims'),
     path('agent/claims/<int:claim_id>/', views.agent_claim_detail, name='agent_claim_detail'),
-    path('agent/claims/<int:claim_id>/status/', views.agent_update_status, name='agent_update_status'),
     path('agent/claims/<int:claim_id>/upload/', views.agent_upload_evidence, name='agent_upload_evidence'),
     path('agent/emails/', views.agent_emails, name='agent_emails'),
     path('agent/emails/<int:email_id>/', views.agent_email_detail, name='agent_email_detail'),

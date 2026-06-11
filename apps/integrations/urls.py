@@ -7,7 +7,6 @@ from apps.integrations.views import (
     ZendeskChatView,
     ZendeskDraftView,
     RefundWebhookView,
-    ZendeskStatusWebhookView,
     ZendeskClaimWebhookView,
 )
 
@@ -18,6 +17,5 @@ urlpatterns = [
     path('zd/chat/', ZendeskChatView.as_view(), name='zendesk-sidebar-chat'),
     path('zd/draft/', ZendeskDraftView.as_view(), name='zendesk-sidebar-draft'),
     path('zd/refund-webhook/', RefundWebhookView.as_view(), name='zendesk-refund-webhook'),
-    path('zd/status-webhook/', ZendeskStatusWebhookView.as_view(), name='zendesk-status-webhook'),
     path('zd/claim-webhook/', ZendeskClaimWebhookView.as_view(), name='zendesk-claim-webhook'),
 ]

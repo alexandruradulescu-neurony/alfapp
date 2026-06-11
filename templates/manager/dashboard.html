@@ -29,8 +29,8 @@
             <i class="bi bi-inbox text-2xl text-base-content/60"></i>
         </div>
         <div>
-            <div class="stat-label">Received</div>
-            <div class="stat-value">{{ received }}</div>
+            <div class="stat-label">Active cases</div>
+            <div class="stat-value">{{ active }}</div>
         </div>
     </div>
 
@@ -39,8 +39,8 @@
             <i class="bi bi-search text-2xl text-secondary"></i>
         </div>
         <div>
-            <div class="stat-label">Searching</div>
-            <div class="stat-value text-secondary">{{ searching }}</div>
+            <div class="stat-label">Awaiting client</div>
+            <div class="stat-value text-secondary">{{ pending_client }}</div>
         </div>
     </div>
 
@@ -49,8 +49,8 @@
             <i class="bi bi-check-circle text-2xl text-success"></i>
         </div>
         <div>
-            <div class="stat-label">Found</div>
-            <div class="stat-value text-success">{{ found }}</div>
+            <div class="stat-label">Solved</div>
+            <div class="stat-value text-success">{{ solved }}</div>
         </div>
     </div>
 
@@ -59,7 +59,7 @@
             <i class="bi bi-exclamation-triangle text-2xl text-error"></i>
         </div>
         <div>
-            <div class="stat-label">Disputed</div>
+            <div class="stat-label">Open disputes</div>
             <div class="stat-value text-error">{{ disputed }}</div>
         </div>
     </div>

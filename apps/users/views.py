@@ -130,14 +130,13 @@ def agent_dashboard(request):
     # Get stats
     total_claims = Claim.objects.count()
     my_claims = Claim.objects.filter(
-        assigned_to=request.user, status__in=['Received', 'Searching']
-    ).count()
-    # Filter by action_required and category that indicates urgency
+        assigned_to=request.user
+    ).exclude(status_category='solved').count()
     urgent_emails = EmailLog.objects.filter(
         action_required=True,
         category__in=['RESUBMISSION_REQUIRED', 'OBJECT_NOT_FOUND']
     ).count()
-    disputed = Claim.objects.filter(status='Disputed').count()
+    disputed = Claim.objects.filter(disputes__isnull=False).distinct().count()
 
     # Consolidate email stats into single aggregate query
     from django.db.models import Case, When, IntegerField
@@ -231,9 +230,12 @@ def agent_claims(request):
         'claims': page_obj,  # For template compatibility
         'status_filter': status_filter,
         'search_query': search_query,
-        'status_choices': Claim.STATUS_CHOICES,
+        'status_choices': [
+            (s, s) for s in Claim.objects.exclude(status='')
+            .values_list('status', flat=True).distinct().order_by('status')
+        ],
     }
-    
+
     return render(request, 'agent/claims.html', context)
 
 
@@ -260,7 +262,6 @@ def agent_claim_detail(request, claim_id):
 
     context = {
         'claim': claim,
-        'status_choices': Claim.STATUS_CHOICES,
         'zd_subdomain': zd_subdomain,
     }
 
@@ -297,32 +298,6 @@ def agent_assign_claim(request, claim_id):
             messages.success(request, 'Claim unassigned.')
     
     return redirect('manager_claims')
-
-
-@agent_required
-@transaction.atomic
-def agent_update_status(request, claim_id):
-    """Update claim status."""
-    claim = get_object_or_404(Claim, id=claim_id)
-
-    # Agents can only update claims assigned to them (or unassigned)
-    if request.user.role == 'AGENT':
-        if claim.assigned_to and claim.assigned_to != request.user:
-            messages.error(request, 'You are not assigned to this claim.')
-            return redirect('agent_claims')
-
-    if request.method == 'POST':
-        new_status = request.POST.get('status')
-        
-        if new_status in [choice[0] for choice in Claim.STATUS_CHOICES]:
-            old_status = claim.status
-            claim.status = new_status
-            claim.save()
-            messages.success(request, f'Status updated from {old_status} to {new_status}.')
-        else:
-            messages.error(request, 'Invalid status selected.')
-    
-    return redirect('agent_claim_detail', claim_id=claim_id)
 
 
 @agent_required
@@ -531,17 +506,19 @@ def manager_dashboard(request):
 
     Optimized: Uses single query with annotations instead of 5 separate queries.
     """
-    from django.db.models import Case, When, IntegerField
+    from django.db.models import Case, When, IntegerField, Q
 
     # Get all stats in a single query using annotations
     from django.db.models import Count
 
     stats = Claim.objects.aggregate(
         total=Count('id'),
-        received=Count(Case(When(status='Received', then=1), output_field=IntegerField())),
-        searching=Count(Case(When(status='Searching', then=1), output_field=IntegerField())),
-        found=Count(Case(When(status='Found', then=1), output_field=IntegerField())),
-        disputed=Count(Case(When(status='Disputed', then=1), output_field=IntegerField())),
+        active=Count(Case(When(~Q(status_category='solved'), then=1),
+                          output_field=IntegerField())),
+        pending_client=Count(Case(When(status_category='pending', then=1),
+                                  output_field=IntegerField())),
+        solved=Count(Case(When(status_category='solved', then=1),
+                          output_field=IntegerField())),
     )
 
     # Agents count
@@ -584,10 +561,10 @@ def manager_dashboard(request):
 
     context = {
         'total_claims': stats['total'],
-        'received': stats['received'],
-        'searching': stats['searching'],
-        'found': stats['found'],
-        'disputed': stats['disputed'],
+        'active': stats['active'],
+        'pending_client': stats['pending_client'],
+        'solved': stats['solved'],
+        'disputed': dispute_stats['total'] - dispute_stats['resolved'],
         'agents_count': agents_count,
         'total_emails': email_stats['total'],
         'auto_resolved_emails': email_stats['auto_resolved'],
@@ -645,7 +622,10 @@ def manager_claims(request):
         'claims': page_obj,
         'status_filter': status_filter,
         'search_query': search_query,
-        'status_choices': Claim.STATUS_CHOICES,
+        'status_choices': [
+            (s, s) for s in Claim.objects.exclude(status='')
+            .values_list('status', flat=True).distinct().order_by('status')
+        ],
     }
 
     return render(request, 'manager/claims.html', context)

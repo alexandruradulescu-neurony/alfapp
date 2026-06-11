@@ -110,14 +110,7 @@ class RefundService:
             refund.paypal_refund_id = paypal_refund_id
             refund.metadata = paypal_result.get('metadata', {})
             refund.mark_processing()
-            
-            # Update claim status
-            if refund_type == 'FULL':
-                claim.status = 'REFUNDED'
-            else:
-                claim.status = 'PARTIALLY_REFUNDED'
-            claim.save()
-            
+
             logger.info(f"Refund initiated for Claim #{claim.id}: {paypal_refund_id}")
             
             return {
@@ -359,14 +352,6 @@ class RefundService:
                     'woocommerce_refund_id': refund_id,
                 },
             )
-            
-            # Update claim status
-            refund_type = 'FULL' if refund_amount >= self._get_claim_total(claim) else 'PARTIAL'
-            if refund_type == 'FULL':
-                claim.status = 'REFUNDED'
-            else:
-                claim.status = 'PARTIALLY_REFUNDED'
-            claim.save()
             
             logger.info(f"Processed WooCommerce refund {refund_id} for Claim #{claim.id}")
             
