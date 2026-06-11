@@ -183,13 +183,12 @@ Configure via Django admin (`/admin/`) or Manager → Configuration:
 
 ### Refund Request Flow
 
-1. Agent marks Zendesk ticket status as "refund requested"
-2. Zendesk webhook notifies LORA (`POST /api/integrations/zd/status-webhook/`)
-3. LORA updates claim status to `REFUND_REQUESTED`
-4. Creates refund record with status `REQUESTED`
-5. Manager processes refund via PayPal API
-6. Refund status updated to `COMPLETED`
-7. Zendesk ticket tagged as "refunded"
+1. Agent moves Zendesk ticket to "Refund Requested" custom status
+2. Zendesk webhook notifies LORA (`POST /api/integrations/zd/claim-webhook/`) — the claim webhook handles all status changes
+3. LORA mirrors the status on the claim (`Claim.status = 'Refund Requested'`) and records a timeline entry
+4. Manager creates a refund record and processes it via PayPal API
+5. Refund status updated to `COMPLETED`
+6. Zendesk ticket tagged as "refunded"
 
 ### Dispute Evidence Flow
 
@@ -236,8 +235,8 @@ GET    /api/payments/refunds/stats/        # Get statistics
 
 ### Integrations
 ```
-POST   /api/integrations/zd/refund-webhook/   # Refund notifications
-POST   /api/integrations/zd/status-webhook/   # Zendesk status changes
+POST   /api/integrations/zd/claim-webhook/    # Zendesk claim creation + status mirror (X-Webhook-Secret required)
+POST   /api/integrations/zd/refund-webhook/   # Refund notifications (X-Webhook-Secret required)
 ```
 
 ### AI Agent Chat ⭐ NEW
@@ -313,17 +312,12 @@ POST   /api/agent/chat/                 # Chat API
 3. System will automatically match future emails to this ticket
 
 ### Configure Zendesk Webhook
-1. Admin → Triggers → Create trigger
-2. Conditions: `Status` is `Refund Requested`
-3. Action: Notify webhook → `https://your-lora.com/api/integrations/zd/status-webhook/`
-4. Payload:
-```json
-{
-    "ticket_id": "{{ticket.id}}",
-    "status": "refund_requested",
-    "claim_id": "{{ticket.custom_fields.claim_id}}"
-}
-```
+1. Admin → Apps and Integrations → Webhooks → Create webhook
+2. URL: `https://your-lora.com/api/integrations/zd/claim-webhook/`
+3. Add header `X-Webhook-Secret: your-sidebar-secret-token` (mandatory — absent header returns 401)
+4. Trigger condition: ticket custom status changes (fires on all custom-status transitions including "Investigation initiated" which creates the claim)
+
+Note: the old `zd/status-webhook/` endpoint has been removed. Delete any Zendesk trigger pointing to it.
 
 ### Enable Email Processing
 1. Go to Manager → Configuration

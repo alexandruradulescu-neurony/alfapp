@@ -10,7 +10,7 @@ email drafts, and a claim-scoped chat — all backed by LORA.
 
 **Briefing tab**
 - AI summary of where the case stands (leads with lifecycle stage: searching / found / retrieval / delivered)
-- LORA facts: claim status, deadline (with urgency coloring), email counts, disputes, next client-update milestone (day 2/5/11/20 cadence)
+- LORA facts: claim status + status family (new/open/pending/hold/solved), deadline (with urgency coloring), email counts, disputes, next client-update milestone (day 2/5/11/20 cadence — stops once the case reaches a solved/closed status)
 - ⚠️ Needs attention: up to 5 unresolved action-required institution emails
 - Buttons: **Regenerate** · **Next steps** (generated on demand) · **Client update** / **Institution reply** (AI drafts the email and inserts it into the ticket reply box — the agent reviews and sends; nothing sends automatically)
 
@@ -90,6 +90,8 @@ Railway. Most behavior improvements are backend-only and need **no** app update.
   comments aren't visible to it.
 - Update cadence shows the next milestone from claim age; LORA doesn't yet track
   which updates were actually SENT.
+- The stored claim summary (`ai_summary`) now refreshes automatically on every
+  Zendesk status change (via the claim webhook) — no agent action required.
 - Unbuilt (discussed, not picked): open-in-LORA button + copy case summary;
   GitHub Action to auto-run `zcli apps:update` on release tags.
 - Action buttons (browser-use form fill, dispute docs, PayPal) extend the same

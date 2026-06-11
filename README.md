@@ -485,25 +485,7 @@ The following fields are encrypted at rest using Fernet symmetric encryption:
 }
 ```
 
-**2. Status Change Webhook:**
-
-| Setting | Value |
-|---------|-------|
-| **Name** | `LORA - Notify Status Change` |
-| **Conditions** | `Status` is `Refund Requested` |
-| **URL** | `https://your-lora.com/api/integrations/zd/status-webhook/` |
-| **Method** | POST |
-| **Headers** | `X-Webhook-Secret: your-sidebar-secret-token` |
-| **Payload** | See below |
-
-**Payload:**
-```json
-{
-  "ticket_id": "{{ticket.id}}",
-  "status": "refund_requested",
-  "claim_id": "{{ticket.custom_fields.claim_id}}"
-}
-```
+The claim webhook fires on **every custom-status change** — it creates the claim on "Investigation Initiated" and mirrors all later status changes automatically. The `X-Webhook-Secret` header is **mandatory** on this webhook (and on the refund webhook); a missing or wrong secret returns 401. The old `zd/status-webhook/` endpoint has been **removed** — delete any Zendesk trigger that pointed to it.
 
 ### PayPal Configuration
 
@@ -1063,9 +1045,8 @@ GET    /api/services/scheduler/info/       # Get scheduler info
 ### Webhook Endpoints
 
 ```
-POST   /api/integrations/zd/claim-webhook/       # Zendesk claim creation
-POST   /api/integrations/zd/refund-webhook/      # PayPal/WooCommerce refund notifications
-POST   /api/integrations/zd/status-webhook/      # Zendesk status changes
+POST   /api/integrations/zd/claim-webhook/       # Zendesk claim creation + status mirror (X-Webhook-Secret required)
+POST   /api/integrations/zd/refund-webhook/      # PayPal/WooCommerce refund notifications (X-Webhook-Secret required)
 POST   /api/payments/paypal/webhook/             # PayPal webhook endpoint
 ```
 
@@ -1078,15 +1059,6 @@ POST   /api/payments/paypal/webhook/             # PayPal webhook endpoint
     "email": "customer@example.com"
   },
   "status": "investigation_initiated"
-}
-```
-
-**Zendesk Status Webhook Payload:**
-```json
-{
-  "ticket_id": "12345",
-  "status": "refund_requested",
-  "claim_id": "678"
 }
 ```
 

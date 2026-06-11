@@ -92,7 +92,7 @@ These are standard Zendesk fields. LORA reads ticket status/type live from the A
 
 | Display name | Field ID | Type | Wired into LORA? | Notes |
 |---|---|---|---|---|
-| Ticket status | 11688533475740 | Drop-down | ⚙️ Zendesk-managed | Drives the webhook trigger (custom status "Investigation Initiated"). |
+| Ticket status | 11688533475740 | Drop-down | ⚙️ Zendesk-managed | Drives the webhook trigger (custom status "Investigation Initiated"). Note: casing here is informational — LORA resolves the live label via the custom-statuses API at runtime (id `11688538967068`), so renamed statuses flow through automatically without code changes. |
 | Assignee | 11688538946332 | Drop-down | ⚙️ Zendesk-managed | |
 | Group | 11688546130204 | Drop-down | ⚙️ Zendesk-managed | |
 | Priority | 11688523489308 | Drop-down | ⚙️ Zendesk-managed | |

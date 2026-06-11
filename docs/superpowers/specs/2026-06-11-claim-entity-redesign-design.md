@@ -1,7 +1,7 @@
 # Claim Entity Redesign — Status Mirror + Real Summary Engine
 
 **Date:** 2026-06-11
-**Status:** Approved by user (design conversation, this date)
+**Status:** Implemented 2026-06-11 (see docs/superpowers/plans/2026-06-11-claim-status-mirror.md)
 **Scope anchor:** Zendesk is the source of truth and where agents work. LORA is
 management's lens and the case's hub: it links refunds/evidence/emails/problems
 to one claim, keeps a truthful index of where every case stands, and produces

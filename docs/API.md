@@ -404,14 +404,7 @@ Update claim (full update).
 
 ### PATCH /api/claims/{id}/
 
-Update claim (partial update).
-
-**Request Body:**
-```json
-{
-  "status": "Shipped"
-}
-```
+Update claim (partial update). **Note: `status` is read-only via the API — claim stage is set exclusively by the Zendesk claim webhook (`POST /api/integrations/zd/claim-webhook/`). Sending `status` in a PATCH body has no effect.**
 
 ### DELETE /api/claims/{id}/
 
@@ -646,11 +639,7 @@ X-Webhook-Secret: your-sidebar-secret-token
 
 ### POST /api/integrations/zd/refund-webhook/
 
-Handle refund notifications from PayPal/WooCommerce.
-
-### POST /api/integrations/zd/status-webhook/
-
-Handle Zendesk ticket status changes.
+Handle refund notifications from PayPal/WooCommerce. **Requires `X-Webhook-Secret` header** (value = `SystemSettings.sidebar_secret_token`); missing or wrong secret returns 401.
 
 ### POST /api/payments/paypal/webhook/
 
