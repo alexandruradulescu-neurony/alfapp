@@ -745,7 +745,11 @@ class ZendeskTicketSyncView(APIView):
 class RefundWebhookView(APIView):
     """
     Webhook endpoint for receiving refund notifications from Zendesk/WordPress.
-    
+
+    Authentication: every request must carry a matching X-Webhook-Secret header
+    (compared against SystemSettings.sidebar_secret_token).  The secret is checked
+    before the request body is parsed.
+
     Expects POST request with JSON payload:
     {
         "event": "refund_processed",
@@ -757,18 +761,29 @@ class RefundWebhookView(APIView):
         "order_id": "789",
         "zd_ticket_id": "12345"
     }
-    
+
     Implements idempotency via Refund.paypal_refund_id unique constraint.
     """
-    permission_classes = [AllowAny]  # TODO: Add webhook signature verification
-    
+    permission_classes = [AllowAny]  # Webhook secret verification
+
     def post(self, request):
         """
         Process refund webhook from WordPress/Zendesk.
         """
         try:
+            # Auth is mandatory: a webhook without the correct shared secret
+            # is rejected before the body is parsed.
+            webhook_secret = request.headers.get('X-Webhook-Secret', '')
+            expected_secret = SystemSettings.get_instance().sidebar_secret_token or ''
+            if not (webhook_secret and expected_secret
+                    and hmac.compare_digest(webhook_secret.encode('utf-8'),
+                                            expected_secret.encode('utf-8'))):
+                logger.warning("Rejected refund webhook: missing or invalid X-Webhook-Secret")
+                return Response({'error': 'Invalid webhook secret'},
+                                status=status.HTTP_401_UNAUTHORIZED)
+
             data = request.data
-            
+
             # Validate required fields
             required_fields = ['claim_number', 'refund_id', 'refund_amount']
             for field in required_fields:
@@ -777,19 +792,6 @@ class RefundWebhookView(APIView):
                     return Response(
                         {'error': f'Missing required field: {field}'},
                         status=status.HTTP_400_BAD_REQUEST
-                    )
-            
-            # Verify webhook signature (TODO: Implement based on WordPress setup)
-            # For now, verify optional secret token
-            webhook_secret = request.headers.get('X-Webhook-Secret', '')
-            if webhook_secret:
-                system_settings = SystemSettings.get_instance()
-                expected_secret = system_settings.sidebar_secret_token
-                if not hmac.compare_digest(webhook_secret, expected_secret):
-                    logger.warning("Invalid webhook secret")
-                    return Response(
-                        {'error': 'Invalid webhook secret'},
-                        status=status.HTTP_401_UNAUTHORIZED
                     )
             
             # Process refund
