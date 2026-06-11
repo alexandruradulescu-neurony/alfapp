@@ -349,7 +349,8 @@ ALF_BUSINESS_CONTEXT = (
     "ones are visible to the client. Comments are listed in chronological order. Person "
     "names and contact details may appear as <NAME_...>/<EMAIL_...>/<PHONE_...> "
     "placeholders — treat each placeholder as that person or value and repeat it "
-    "verbatim when referring to them. "
+    "verbatim when referring to them, INCLUDING the angle brackets "
+    "(write <NAME_12ab34cd>, never NAME_12ab34cd). "
 )
 
 

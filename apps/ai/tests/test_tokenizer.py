@@ -327,3 +327,24 @@ def test_no_known_names_is_noop():
     mapping = {}
     text = "Charles Copeland asked for UPS."
     assert tok.tokenize(text, mapping) == text
+
+
+def test_untokenize_restores_bracketless_placeholders():
+    """LLMs often strip the angle brackets when echoing placeholders
+    (NAME_27f8b391 instead of <NAME_27f8b391>); the restore pass must
+    recognize both forms."""
+    tok = make_tokenizer_with_phones()
+    mapping = {
+        "<NAME_27f8b391>": "Dan",
+        "<NAME_a03ca3d8>": "Costello",
+        "<ALF_ID_94550153>": "ALF9455015",
+    }
+    out = tok.untokenize(
+        "Case ALF_ID_94550153 for NAME_27f8b391 NAME_a03ca3d8.", mapping)
+    assert out == "Case ALF9455015 for Dan Costello."
+
+
+def test_untokenize_bracketless_unknown_left_as_is():
+    tok = make_tokenizer_with_phones()
+    out = tok.untokenize("Random CODE_deadbeef stays.", {})
+    assert "CODE_deadbeef" in out

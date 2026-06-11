@@ -50,7 +50,12 @@ _EMAIL_PATTERN = re.compile(
     r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
 )
 
-_PLACEHOLDER_PATTERN = re.compile(r"<[A-Z_]+_[a-f0-9]{8}>")
+# Matches placeholders with brackets (<NAME_27f8b391>) AND without
+# (NAME_27f8b391) — LLMs routinely strip the angle brackets when echoing
+# placeholders, and the restore pass must catch both forms.
+_PLACEHOLDER_PATTERN = re.compile(
+    r"<[A-Z][A-Z_]*_[a-f0-9]{8}>|\b[A-Z][A-Z_]*_[a-f0-9]{8}\b"
+)
 
 _ALF_ID_PATTERN = re.compile(r"\bALF\d{7}\b")
 _FLIGHT_PATTERN = re.compile(r"\b[A-Z]{2}\d{2,4}\b")
@@ -238,7 +243,8 @@ class RegexTokenizer:
             return text
 
         def sub(match: re.Match) -> str:
-            placeholder = match.group(0)
-            return mapping.get(placeholder, placeholder)  # unknown → leave as-is
+            raw = match.group(0)
+            key = raw if raw.startswith("<") else f"<{raw}>"
+            return mapping.get(key, raw)  # unknown → leave as-is
 
         return _PLACEHOLDER_PATTERN.sub(sub, text)
