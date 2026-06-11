@@ -71,7 +71,7 @@
                     <td class="font-mono font-semibold text-primary">{{ claim.alf_claim_id|default:"-" }}</td>
                     <td>{{ claim.client_email }}</td>
                     <td>
-                        <span class="badge family-{{ claim.status_category|default:'open' }} rounded-full">
+                        <span class="badge {% if claim.status_category == 'solved' %}badge-soft-neutral{% elif claim.status_category == 'pending' %}badge-soft-warning{% elif claim.status_category == 'new' %}badge-soft-info{% elif claim.status_category == 'hold' %}badge-ghost{% else %}badge-soft-primary{% endif %} rounded-full">
                             {{ claim.status }}
                         </span>
                     </td>

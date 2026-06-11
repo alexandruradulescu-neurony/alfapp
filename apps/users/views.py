@@ -136,10 +136,9 @@ def agent_dashboard(request):
         action_required=True,
         category__in=['RESUBMISSION_REQUIRED', 'OBJECT_NOT_FOUND']
     ).count()
+    _ACTIVE_DISPUTE_STATUSES = ['RECEIVED', 'MATCHED', 'GATHERING_DATA', 'DOCUMENTS_READY', 'UNDER_REVIEW', 'EVIDENCE_SENT']
     disputed = Claim.objects.filter(
-        disputes__isnull=False
-    ).exclude(
-        disputes__status__in=['RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED']
+        disputes__status__in=_ACTIVE_DISPUTE_STATUSES
     ).distinct().count()
 
     # Consolidate email stats into single aggregate query
@@ -292,14 +291,14 @@ def agent_assign_claim(request, claim_id):
             try:
                 agent = User.objects.get(id=agent_id, role='AGENT')
                 claim.assigned_to = agent
-                claim.save()
+                claim.save(update_fields=['assigned_to', 'updated_at'])
                 messages.success(request, f'Claim assigned to {agent.username}.')
             except User.DoesNotExist:
                 messages.error(request, 'Invalid agent selected.')
         else:
             # Unassign claim
             claim.assigned_to = None
-            claim.save()
+            claim.save(update_fields=['assigned_to', 'updated_at'])
             messages.success(request, 'Claim unassigned.')
     
     return redirect('manager_claims')

@@ -1103,12 +1103,12 @@ class WebhookStatusMirrorTests(WebhookTestBase):
         """Unresolved status id: resolver returns the raw id as the name.
 
         The view must not overwrite a real named status with a numeric id.
-        Returns 200, status unchanged, zero timeline entries.
+        Returns 503 so Zendesk retries, status unchanged, zero timeline entries.
         """
         payload = json.dumps({'event': {'current': '424242'}, 'detail': {'id': '60001'}})
         response = self._post_webhook(payload)
-        self.assertEqual(response.status_code, 200)
-        self.assertIn('Ignored', response.json()['message'])
+        self.assertEqual(response.status_code, 503)
+        self.assertIn('could not be resolved', response.json()['error'])
         self.claim.refresh_from_db()
         self.assertEqual(self.claim.status, 'Investigation initiated')
         self.assertEqual(self.claim.updates.count(), 0)

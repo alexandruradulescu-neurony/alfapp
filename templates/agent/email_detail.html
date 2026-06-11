@@ -141,7 +141,7 @@
                 <div class="mt-3 space-y-1">
                     <div class="text-sm">
                         <span class="text-base-content/50">Status:</span>
-                        <span class="badge family-{{ email.claim.status_category|default:'open' }} ml-1">
+                        <span class="badge {% if email.claim.status_category == 'solved' %}badge-neutral{% elif email.claim.status_category == 'pending' %}badge-warning{% elif email.claim.status_category == 'new' %}badge-info{% elif email.claim.status_category == 'hold' %}badge-ghost{% else %}badge-primary{% endif %} ml-1">
                             {{ email.claim.status }}
                         </span>
                     </div>

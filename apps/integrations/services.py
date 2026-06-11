@@ -480,65 +480,6 @@ def create_zendesk_ticket(
         return None
 
 
-def update_zendesk_ticket_status(zd_ticket_id: str, status: str) -> Optional[Dict[str, Any]]:
-    """
-    Update the status of a Zendesk ticket.
-    
-    Args:
-        zd_ticket_id: The Zendesk ticket ID
-        status: New status (e.g., 'open', 'pending', 'solved', 'closed')
-    
-    Returns:
-        Ticket data dict on success, None on failure
-    """
-    try:
-        base_url = _get_zendesk_base_url()
-        headers = _get_zendesk_auth_headers()
-        
-        url = f"{base_url}/tickets/{zd_ticket_id}.json"
-        
-        payload = {
-            'ticket': {
-                'status': status,
-            }
-        }
-        
-        data = json.dumps(payload).encode('utf-8')
-        
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers=headers,
-            method='PUT'
-        )
-        
-        logger.info(f"Updating Zendesk ticket {zd_ticket_id} status to {status}")
-        
-        # Use configurable timeout
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            ticket = result.get('ticket', {})
-            
-            logger.info(f"Updated Zendesk ticket {zd_ticket_id} status to {status}")
-            return {
-                'id': ticket.get('id'),
-                'status': ticket.get('status'),
-            }
-            
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode('utf-8') if e.fp else ''
-        logger.error(f"HTTP error updating Zendesk ticket {zd_ticket_id}: {e.code} - {error_body}")
-        return None
-        
-    except urllib.error.URLError as e:
-        logger.error(f"URL error updating Zendesk ticket {zd_ticket_id}: {e.reason}")
-        return None
-        
-    except Exception as e:
-        logger.error(f"Unexpected error updating Zendesk ticket {zd_ticket_id}: {e}")
-        return None
-
 
 def search_zendesk_tickets(query: str) -> List[Dict[str, Any]]:
     """
@@ -1055,8 +996,10 @@ def build_claim_facts(claim) -> dict:
     Keys:
     - 'status': verbatim Zendesk status name (sidebar renders it as-is; do not rename).
     - 'status_family': claim.status_category ('new'/'open'/'pending'/'hold'/'solved').
-    - 'deadline': ISO date string.  When deadline_at (computed moment) exists it
-      wins over deadline_date; both are localtime'd before formatting.
+    - 'deadline': ISO date string for display.  The human-entered deadline_date wins
+      when present (exact date as entered); deadline_at (computed moment) is used
+      only as a fallback when deadline_date is absent.  deadline_at is for urgency
+      math only; displaying it avoids the one-day-late risk from timezone conversion.
     - 'disputes_total': count; no dependence on the Dispute status enum.
     - 'next_update_due': next client-update milestone (day 2/5/11/20 after claim
       creation) that hasn't passed yet; None when all milestones are past OR when
@@ -1078,10 +1021,10 @@ def build_claim_facts(claim) -> dict:
                 break
 
     deadline = None
-    if claim.deadline_at:
-        deadline = timezone.localtime(claim.deadline_at).date().isoformat()
-    elif claim.deadline_date:
+    if claim.deadline_date:
         deadline = claim.deadline_date.isoformat()
+    elif claim.deadline_at:
+        deadline = timezone.localtime(claim.deadline_at).date().isoformat()
 
     return {
         'status': claim.status,

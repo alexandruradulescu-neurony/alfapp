@@ -179,7 +179,7 @@ class Claim(models.Model):
     )
     ai_summary = models.TextField(
         blank=True,
-        help_text='AI-generated summary from Zendesk ticket analysis (generated once at creation)'
+        help_text='AI-generated case summary (regenerated at creation, on Zendesk status changes, and on manual refresh)'
     )
     ai_summary_updated_at = models.DateTimeField(
         null=True,

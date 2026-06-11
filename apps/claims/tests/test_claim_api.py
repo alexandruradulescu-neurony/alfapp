@@ -36,7 +36,7 @@ def api_client(agent):
 def claim(db):
     return Claim.objects.create(
         client_email="status-test@example.com",
-        status="Received",
+        status="Investigation initiated",
         alf_claim_id="ALF9990001",
     )
 
@@ -50,7 +50,7 @@ class TestClaimStatusReadOnly:
         PATCH with {"status": "Hacked"} must succeed (200) but leave
         claim.status exactly as it was — DRF drops read-only fields silently.
         """
-        original_status = claim.status  # "Received"
+        original_status = claim.status  # "Investigation initiated"
 
         response = api_client.patch(
             f"/api/claims/claims/{claim.id}/",
@@ -95,4 +95,4 @@ class TestClaimStatusReadOnly:
         claim.refresh_from_db()
         assert claim.flight_details == "AA100 JFK→LAX"
         # status untouched
-        assert claim.status == "Received"
+        assert claim.status == "Investigation initiated"

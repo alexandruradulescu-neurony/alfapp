@@ -73,7 +73,7 @@
                     <td class="font-mono text-sm">#{{ claim.id }}</td>
                     <td>{{ claim.client_email }}</td>
                     <td>
-                        <span class="badge family-{{ claim.status_category|default:'open' }}">
+                        <span class="badge {% if claim.status_category == 'solved' %}badge-neutral{% elif claim.status_category == 'pending' %}badge-warning{% elif claim.status_category == 'new' %}badge-info{% elif claim.status_category == 'hold' %}badge-ghost{% else %}badge-primary{% endif %}">
                             {{ claim.status }}
                         </span>
                     </td>

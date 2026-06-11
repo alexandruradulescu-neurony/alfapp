@@ -52,13 +52,11 @@ try:
         fetch_zendesk_comments,
         fetch_zendesk_ticket,
         create_zendesk_ticket,
-        update_zendesk_ticket_status,
     )
     print("   ✓ post_zendesk_comment - available")
     print("   ✓ fetch_zendesk_comments - available")
     print("   ✓ fetch_zendesk_ticket - available")
     print("   ✓ create_zendesk_ticket - available")
-    print("   ✓ update_zendesk_ticket_status - available")
 except ImportError as e:
     print(f"   ✗ Import error: {e}")
 

@@ -9,10 +9,9 @@ Handles refund processing via PayPal API:
 """
 
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from decimal import Decimal
 from django.db import transaction
-from django.utils import timezone
 from apps.payments.models import Refund
 from apps.claims.models import Claim
 from apps.config.models import SystemSettings

@@ -218,7 +218,7 @@ cd zendesk_app && zcli apps:update
 
 ### Claim status mirror (2026-06-11)
 
-The `POST /api/integrations/zd/claim-webhook/` endpoint is the **only** writer of `Claim.status`: it creates claims when Zendesk moves a ticket to "Investigation initiated" and mirrors every subsequent custom-status change. The old `zd/status-webhook/` endpoint has been **deleted** — remove any Zendesk webhook that targeted it. The `X-Webhook-Secret` header is now **mandatory** on both `zd/claim-webhook/` and `zd/refund-webhook/`; a missing or incorrect secret returns 401. On deploy, run migrations **0017** (schema: new fields `status_category`, `status_changed_at`, `deadline_at`, `ai_summary_updated_at`) and **0018** (data: remap old status values to Zendesk custom-status names) — both are included in the release and run automatically via the Railway release command.
+The `POST /api/integrations/zd/claim-webhook/` endpoint is the **only** writer of `Claim.status`: it creates claims when Zendesk moves a ticket to "Investigation initiated" and mirrors every subsequent custom-status change. The old `zd/status-webhook/` endpoint has been **deleted** — remove any Zendesk webhook that targeted it. The `X-Webhook-Secret` header is now **mandatory** on both `zd/claim-webhook/` and `zd/refund-webhook/`; a missing or incorrect secret returns 401. On deploy, run migrations **0017** (schema: new fields `status_category`, `status_changed_at`, `deadline_at`, `ai_summary_updated_at`) and **0018** (data: remap old status values to Zendesk custom-status names) — both are included in the release and run automatically via the Dockerfile start command (`migrate --noinput && exec gunicorn`).
 
 ---
 

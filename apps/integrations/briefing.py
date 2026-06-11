@@ -115,5 +115,5 @@ def refresh_claim_summary(claim, ticket_data) -> bool:
         return False
     claim.ai_summary = summary
     claim.ai_summary_updated_at = timezone.now()
-    claim.save(update_fields=['ai_summary', 'ai_summary_updated_at'])
+    claim.save(update_fields=['ai_summary', 'ai_summary_updated_at', 'updated_at'])
     return True

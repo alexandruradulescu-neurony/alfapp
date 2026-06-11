@@ -9,11 +9,11 @@ class ClaimAdmin(admin.ModelAdmin):
     list_filter = ('status', 'created_at')
     search_fields = ('client_email', 'zd_ticket_id', 'flight_details')
     ordering = ('-created_at',)
-    readonly_fields = ('created_at', 'updated_at')
+    readonly_fields = ('status', 'status_category', 'status_changed_at', 'created_at', 'updated_at')
 
     fieldsets = (
         ('Claim Information', {
-            'fields': ('client_email', 'status', 'zd_ticket_id', 'flight_details')
+            'fields': ('client_email', 'status', 'status_category', 'status_changed_at', 'zd_ticket_id', 'flight_details')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),

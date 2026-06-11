@@ -538,62 +538,6 @@ class TestCreateZendeskTicket:
         assert result is None
 
 
-# =============================================================================
-# Test update_zendesk_ticket_status
-# =============================================================================
-
-
-@pytest.mark.django_db
-class TestUpdateZendeskTicketStatus:
-    """Tests for update_zendesk_ticket_status function."""
-
-    def test_updates_status_successfully(self, mock_system_settings, mock_urlopen_response):
-        """Ticket status updated successfully."""
-        mock_urlopen_response.read.return_value = json.dumps({
-            'ticket': {'id': '12345', 'status': 'solved'}
-        }).encode('utf-8')
-
-        with patch('urllib.request.urlopen', return_value=mock_urlopen_response) as mock_urlopen:
-            result = services.update_zendesk_ticket_status('12345', 'solved')
-
-        assert result is not None
-        assert result['status'] == 'solved'
-
-        # Verify payload
-        call_args = mock_urlopen.call_args[0][0]
-        payload = json.loads(call_args.data.decode('utf-8'))
-        assert payload['ticket']['status'] == 'solved'
-
-    def test_returns_none_on_http_error(self, mock_system_settings):
-        """Returns None when HTTP error occurs."""
-        mock_response = MagicMock()
-        mock_response.fp = None
-
-        with patch('urllib.request.urlopen', side_effect=HTTPError(
-            url='https://test.zendesk.com',
-            code=404,
-            msg='Not Found',
-            hdrs={},
-            fp=mock_response
-        )):
-            result = services.update_zendesk_ticket_status('12345', 'solved')
-
-        assert result is None
-
-    def test_returns_none_on_url_error(self, mock_system_settings):
-        """Returns None when URL error occurs."""
-        with patch('urllib.request.urlopen', side_effect=URLError('Connection refused')):
-            result = services.update_zendesk_ticket_status('12345', 'solved')
-
-        assert result is None
-
-    def test_returns_none_on_generic_exception(self, mock_system_settings):
-        """Returns None when unexpected exception occurs."""
-        with patch('urllib.request.urlopen', side_effect=Exception('Unexpected error')):
-            result = services.update_zendesk_ticket_status('12345', 'solved')
-
-        assert result is None
-
 
 # =============================================================================
 # Test search_zendesk_tickets
@@ -1581,16 +1525,26 @@ class BuildClaimFactsFamilyTests(TestCase):
         facts = build_claim_facts(claim)
         self.assertIsNotNone(facts['next_update_due'])
 
-    def test_deadline_prefers_computed_moment(self):
-        # TIME_ZONE = 'UTC', so localtime(deadline_at) stays on 2026-07-01
+    def test_deadline_displays_entered_date(self):
+        """Human-entered deadline_date wins for display; deadline_at is urgency-math only."""
         from datetime import date, datetime
         from zoneinfo import ZoneInfo
         from apps.integrations.services import build_claim_facts
         from apps.claims.models import Claim
+        # Both fields set: deadline_date must win
         claim = Claim.objects.create(
             client_email='facts3@example.com',
             status='Claim submitted', status_category='open',
             deadline_date=date(2026, 7, 2),
             deadline_at=datetime(2026, 7, 1, 23, 59, 59, tzinfo=ZoneInfo('UTC')))
         facts = build_claim_facts(claim)
-        self.assertEqual(facts['deadline'], '2026-07-01')
+        self.assertEqual(facts['deadline'], '2026-07-02')
+
+        # Only deadline_at set: its localtime date is used as fallback
+        claim2 = Claim.objects.create(
+            client_email='facts3b@example.com',
+            status='Claim submitted', status_category='open',
+            deadline_date=None,
+            deadline_at=datetime(2026, 7, 1, 23, 59, 59, tzinfo=ZoneInfo('UTC')))
+        facts2 = build_claim_facts(claim2)
+        self.assertEqual(facts2['deadline'], '2026-07-01')

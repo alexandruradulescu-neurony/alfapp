@@ -13,10 +13,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 
-from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q, Aggregate, F
-from django.db.models.functions import TruncDate
+from django.db.models import Count
 
 from apps.claims.models import Claim, ClaimUpdateTimeline
 from apps.communications.models import EmailLog
@@ -701,7 +699,7 @@ class ZendeskTicketSyncView(APIView):
             if ticket_data:
                 # Update claim with ticket ID
                 claim.zd_ticket_id = str(ticket_data['id'])
-                claim.save()
+                claim.save(update_fields=['zd_ticket_id', 'updated_at'])
                 
                 return Response({
                     'message': 'Ticket created successfully',
@@ -1096,11 +1094,11 @@ class ZendeskClaimWebhookView(APIView):
         # Fix 4: never overwrite a real named status with a raw numeric id.
         if new_status == str(custom_status_id) and not (claim.status or '').isdigit():
             logger.warning(
-                f"Claim #{claim.id}: unresolved custom status {custom_status_id}; "
+                f"Claim #{claim.id}: custom status {custom_status_id} could not be resolved; "
                 f"keeping '{claim.status}'"
             )
-            return Response({'message': 'Ignored: unresolved custom status',
-                             'claim_id': claim.id}, status=status.HTTP_200_OK)
+            return Response({'error': 'Custom status could not be resolved',
+                             'claim_id': claim.id}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         if new_status == claim.status:
             return Response({'message': 'No change', 'claim_id': claim.id,
@@ -1115,7 +1113,7 @@ class ZendeskClaimWebhookView(APIView):
             claim.status = new_status
             claim.status_category = resolved['category']
             claim.status_changed_at = timezone.now()
-            claim.save(update_fields=['status', 'status_category', 'status_changed_at'])
+            claim.save(update_fields=['status', 'status_category', 'status_changed_at', 'updated_at'])
             entry = ClaimUpdateTimeline.objects.create(
                 claim=claim,
                 zendesk_ticket_id=claim.zd_ticket_id or '',
