@@ -626,3 +626,79 @@ class ClaimlessAnalysisChannelTests(TestCase):
             self.assertIn('RO301', str(kwargs['untrusted']))
             self.assertNotIn('claim_facts', kwargs['trusted'] or {})
             self.assertEqual(kwargs['known_pii']['names'], [])
+
+
+class BareFlightNumberTests(TestCase):
+    """Clients often type only the digits ('377'); the airline code comes
+    from the Airline field (verified live: AA + 377 found BOS->PHX)."""
+
+    BOSTON = ('Flight: 377 | Airline: American Airlines - AA | '
+              'Airport: Logan International Airport / BOS | '
+              'Date/Time: June 11, 2026 8:15 am')
+
+    def test_bare_number_borrows_airline_code(self):
+        from apps.integrations.flight_lookup import parse_flight_query
+        self.assertEqual(parse_flight_query(self.BOSTON),
+                         {'number': 'AA377', 'date': '2026-06-11'})
+
+    def test_airline_code_variants(self):
+        from apps.integrations.flight_lookup import _airline_code
+        self.assertEqual(_airline_code('American Airlines - AA'), 'AA')
+        self.assertEqual(_airline_code('Wizz Air W6'), 'W6')
+        self.assertIsNone(_airline_code('Lufthansa'))
+
+    def test_bare_number_without_airline_code_fails_closed(self):
+        from apps.integrations.flight_lookup import parse_flight_query
+        self.assertIsNone(parse_flight_query(
+            'Flight: 377 | Airline: Lufthansa | Date/Time: 2026-06-11'))
+
+
+class RateLimitRetryTests(TestCase):
+    def setUp(self):
+        ss = SystemSettings.get_instance()
+        ss.aerodatabox_api_key = 'k'
+        ss.save()
+
+    @patch('apps.integrations.flight_lookup.time.sleep')
+    @patch('apps.integrations.flight_lookup.urllib.request.urlopen')
+    def test_429_retries_once_then_succeeds(self, mock_urlopen, mock_sleep):
+        from apps.integrations.flight_lookup import _aerodatabox_get
+        ok = mock_urlopen.return_value.__enter__.return_value
+        ok.status = 200
+        ok.read.return_value = b'[]'
+        mock_urlopen.side_effect = [
+            urllib.error.HTTPError('u', 429, 'rate', {}, None),
+            mock_urlopen.return_value,
+        ]
+        self.assertEqual(_aerodatabox_get('/flights/number/AA377/2026-06-11'), [])
+        mock_sleep.assert_called_once()
+
+    @patch('apps.integrations.flight_lookup.time.sleep')
+    @patch('apps.integrations.flight_lookup.urllib.request.urlopen',
+           side_effect=urllib.error.HTTPError('u', 429, 'rate', {}, None))
+    def test_429_twice_propagates(self, _mock_urlopen, _mock_sleep):
+        from apps.integrations.flight_lookup import _aerodatabox_get
+        with self.assertRaises(urllib.error.HTTPError):
+            _aerodatabox_get('/flights/number/AA377/2026-06-11')
+
+
+class OldDateHintTests(TestCase):
+    def setUp(self):
+        ss = SystemSettings.get_instance()
+        ss.sidebar_secret_token = SECRET
+        ss.aerodatabox_api_key = 'k'
+        ss.save()
+        self.api = APIClient()
+        # Old flight, no Airport segment -> rescue skipped, plain not-found.
+        self.claim = Claim.objects.create(
+            client_email='old-flight@example.com', zd_ticket_id='97001',
+            flight_details='Flight: AA377 | Date/Time: 2026-04-01 08:15')
+
+    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.lookup_flight', return_value=[])
+    def test_old_date_not_found_mentions_history_window(self, _ml, _mp):
+        response = self.api.post('/api/integrations/zd/flight-lookup/',
+                                 {'ticket_id': '97001'}, format='json',
+                                 HTTP_AUTHORIZATION=f'Bearer {SECRET}')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('history window', response.json()['error_message'])

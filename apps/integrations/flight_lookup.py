@@ -15,6 +15,7 @@ webhook stays the only stage writer.
 import json
 import logging
 import re
+import time
 import urllib.error
 import urllib.request
 from datetime import time as dt_time
@@ -123,20 +124,38 @@ def _parse_date_text(text: str) -> Optional[str]:
     return None
 
 
+def _airline_code(airline_segment: str) -> Optional[str]:
+    """IATA airline designator from the form's Airline field
+    ('American Airlines - AA' -> 'AA', 'Wizz Air W6' -> 'W6'): the last
+    standalone two-character token."""
+    matches = re.findall(r'\b([A-Z][A-Z0-9])\b', (airline_segment or '').upper())
+    return matches[-1] if matches else None
+
+
 def parse_flight_query(flight_details: str) -> Optional[Dict[str, str]]:
     """{'number': 'RO301', 'date': '2026-06-01'} from the claim's flight
     details, or None when either piece is missing. Prefers the labeled
-    segments our extractor composes; falls back to scanning the whole string."""
+    segments our extractor composes; falls back to scanning the whole string.
+    A bare-digits Flight field ('377') borrows the airline code from the
+    Airline segment ('American Airlines - AA' -> AA377) — clients often type
+    just the number."""
     text = flight_details or ''
-    number_source = _segment(text, 'Flight') or text
-    number_match = _FLIGHT_NUMBER_PATTERN.search(number_source.upper())
+    flight_seg = _segment(text, 'Flight')
+    number = None
+    number_match = _FLIGHT_NUMBER_PATTERN.search((flight_seg or text).upper())
+    if number_match:
+        number = (number_match.group(1) + number_match.group(2)).replace(' ', '')
+    elif flight_seg:
+        bare = re.fullmatch(r'(\d{1,4})', flight_seg.strip())
+        code = _airline_code(_segment(text, 'Airline')) if bare else None
+        if bare and code:
+            number = code + bare.group(1)
 
     date_source = _segment(text, 'Date/Time') or text
     date = _parse_date_text(date_source) or _parse_date_text(text)
 
-    if not number_match or not date:
+    if not number or not date:
         return None
-    number = (number_match.group(1) + number_match.group(2)).replace(' ', '')
     return {'number': number, 'date': date}
 
 
@@ -177,7 +196,9 @@ def parse_time_hint(flight_details: str) -> Optional[dt_time]:
 def _aerodatabox_get(path: str) -> Any:
     """GET against AeroDataBox with the SystemSettings key. Raises
     FlightProviderNotConfigured when the key is missing; lets urllib errors
-    propagate (callers map them to their own semantics)."""
+    propagate (callers map them to their own semantics). Retries ONCE after a
+    short pause on HTTP 429 — the Basic plan rate-limits per SECOND (verified
+    live), and our lookup→departures rescue fires two calls back to back."""
     api_key = SystemSettings.get_instance().aerodatabox_api_key
     if not api_key:
         raise FlightProviderNotConfigured('AeroDataBox API key not set in SystemSettings')
@@ -192,12 +213,20 @@ def _aerodatabox_get(path: str) -> Any:
         },
         method='GET',
     )
-    with urllib.request.urlopen(req, timeout=AERODATABOX_TIMEOUT) as response:
-        body = response.read()
-        # AeroDataBox signals "no data" with HTTP 204 + empty body (NOT 404).
-        if response.status == 204 or not body:
-            return None
-        return json.loads(body.decode('utf-8'))
+    for attempt in (1, 2):
+        try:
+            with urllib.request.urlopen(req, timeout=AERODATABOX_TIMEOUT) as response:
+                body = response.read()
+                # AeroDataBox signals "no data" with HTTP 204 + empty body (NOT 404).
+                if response.status == 204 or not body:
+                    return None
+                return json.loads(body.decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt == 1:
+                logger.info("AeroDataBox per-second rate limit hit; retrying once")
+                time.sleep(1.3)
+                continue
+            raise
 
 
 def lookup_flight(number: str, date: str) -> Optional[List[Dict[str, Any]]]:

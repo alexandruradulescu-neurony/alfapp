@@ -1265,7 +1265,18 @@ class ZendeskFlightLookupView(APIView):
         departures from the client's stated airport so agents get leads
         instead of a dead end. Works with or without a claim — the hints come
         from the flight details either way."""
+        from datetime import date as date_cls, timedelta
+
         error_message = f"No flight found for {query['number']} on {query['date']}."
+        try:
+            # Empty answers for old dates are usually the data plan's history
+            # window, not proof the flight never existed (verified live:
+            # Basic serves ~3 weeks back; beyond that comes back empty).
+            if date_cls.fromisoformat(query['date']) < timezone.localdate() - timedelta(days=14):
+                error_message += (" Note: this date may be beyond the AeroDataBox plan's "
+                                  "history window — older flights need a higher plan.")
+        except ValueError:
+            pass
         airport = parse_airport_hint(flight_details)
         candidates = None
         if airport:
