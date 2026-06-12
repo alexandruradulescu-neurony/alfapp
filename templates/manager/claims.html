@@ -8,9 +8,15 @@
     <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
         <i class="bi bi-clipboard-data"></i> Claims Overview
     </h2>
-    <a href="{% url 'manager_dashboard' %}" class="btn btn-outline rounded-xl transition-all duration-200">
-        <i class="bi bi-arrow-left"></i> Back to Dashboard
-    </a>
+    <div class="flex gap-2">
+        <button type="button" id="bulk-delete-btn" class="btn btn-error rounded-xl transition-all duration-200"
+                onclick="bulkDeleteClaims()" hidden>
+            <i class="bi bi-trash"></i> Delete selected (<span id="bulk-count">0</span>)
+        </button>
+        <a href="{% url 'manager_dashboard' %}" class="btn btn-outline rounded-xl transition-all duration-200">
+            <i class="bi bi-arrow-left"></i> Back to Dashboard
+        </a>
+    </div>
 </div>
 
 <!-- Filters -->
@@ -55,6 +61,11 @@
         <table class="table-modern">
             <thead>
                 <tr>
+                    <th class="w-8">
+                        <input type="checkbox" id="select-all" class="checkbox checkbox-sm"
+                               title="Select all claims on this page"
+                               onchange="toggleSelectAll(this)">
+                    </th>
                     <th>ALF #</th>
                     <th>Customer Email</th>
                     <th>Status</th>
@@ -68,6 +79,10 @@
             <tbody>
                 {% for claim in claims %}
                 <tr>
+                    <td>
+                        <input type="checkbox" class="checkbox checkbox-sm row-check"
+                               value="{{ claim.id }}" onchange="updateBulkButton()">
+                    </td>
                     <td class="font-mono font-semibold text-primary">{{ claim.alf_claim_id|default:"-" }}</td>
                     <td>{{ claim.client_email }}</td>
                     <td>
@@ -98,7 +113,7 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="8" class="text-center py-8">
+                    <td colspan="9" class="text-center py-8">
                         <i class="bi bi-inbox text-4xl text-base-content/30"></i>
                         <p class="text-base-content/60 mt-2 mb-0">No claims found</p>
                     </td>
@@ -150,4 +165,57 @@
         a proof of work document for any claim. This includes claim details, Zendesk comments, and evidence gallery.
     </div>
 </div>
+
+<script>
+function toggleSelectAll(master) {
+    document.querySelectorAll('.row-check').forEach(cb => { cb.checked = master.checked; });
+    updateBulkButton();
+}
+
+function updateBulkButton() {
+    const checked = document.querySelectorAll('.row-check:checked');
+    const btn = document.getElementById('bulk-delete-btn');
+    document.getElementById('bulk-count').textContent = checked.length;
+    btn.hidden = checked.length === 0;
+    const all = document.querySelectorAll('.row-check');
+    document.getElementById('select-all').checked = all.length > 0 && checked.length === all.length;
+}
+
+function bulkDeleteClaims() {
+    const ids = Array.from(document.querySelectorAll('.row-check:checked')).map(cb => cb.value);
+    if (!ids.length) return;
+    if (!confirm(`Delete ${ids.length} claim(s) from LORA?\n\n` +
+                 'Their timeline and evidence records are removed; processed emails ' +
+                 'are kept but unlinked. Claims with refunds or disputes are skipped. ' +
+                 'Zendesk tickets are NOT touched.\n\nThis cannot be undone.')) {
+        return;
+    }
+    const btn = document.getElementById('bulk-delete-btn');
+    btn.disabled = true;
+    fetch('/api/claims/claims/bulk-delete/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            // The CSRF cookie is HttpOnly — the token must be rendered server-side.
+            'X-CSRFToken': '{{ csrf_token }}',
+        },
+        body: JSON.stringify({ ids: ids }),
+    })
+    .then(response => response.json().then(data => ({ ok: response.ok, data })))
+    .then(({ ok, data }) => {
+        if (ok) {
+            let msg = `${(data.deleted || []).length} claim(s) deleted`;
+            if ((data.blocked || []).length) {
+                msg += `; ${data.blocked.length} skipped (refunds/disputes attached)`;
+            }
+            alert(msg);
+            location.reload();
+        } else {
+            alert(data.detail || 'Bulk delete failed');
+            btn.disabled = false;
+        }
+    })
+    .catch(() => { alert('Bulk delete failed'); btn.disabled = false; });
+}
+</script>
 {% endblock %}
