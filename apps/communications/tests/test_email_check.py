@@ -104,15 +104,17 @@ class AiTagsTests(TestCase):
 class SearchAliasUidsTests(TestCase):
     def test_searches_to_and_delivered_to_unread_within_window(self):
         conn = MagicMock()
-        conn.search.side_effect = [('OK', [b'1 2']), ('OK', [b'2 3'])]
+        conn.search.side_effect = [('OK', [b'1 2']), ('OK', [b'2 3']), ('OK', [b'4'])]
         with patch('apps.communications.services.imap_since_date',
                    return_value='10-Jun-2026'):
             uids = search_alias_uids(conn, ALIAS)
-        self.assertEqual(uids, [b'1', b'2', b'3'])  # unioned, deduped, ordered
+        self.assertEqual(uids, [b'1', b'2', b'3', b'4'])  # unioned, deduped, ordered
         conn.search.assert_any_call(
             None, 'UNSEEN', 'SINCE', '10-Jun-2026', 'TO', f'"{ALIAS}"')
         conn.search.assert_any_call(
             None, 'UNSEEN', 'SINCE', '10-Jun-2026', 'HEADER', 'Delivered-To', f'"{ALIAS}"')
+        conn.search.assert_any_call(
+            None, 'UNSEEN', 'SINCE', '10-Jun-2026', 'HEADER', 'X-AnonAddy-Original-To', f'"{ALIAS}"')
 
     def test_failed_search_yields_empty(self):
         conn = MagicMock()

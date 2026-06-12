@@ -151,24 +151,66 @@ def extract_email_body(msg: email.message.Message) -> str:
     return ''
 
 
+# AnonAddy/addy.io forwards mail through per-ticket aliases and rewrites the
+# From into an encoded alias address (alias+real.local=real.domain@aliasdomain),
+# but preserves the true sender verbatim in these headers. Prefer them.
+ANONADDY_ORIGINAL_SENDER_HEADERS = (
+    'X-AnonAddy-Original-Sender',
+    'X-AnonAddy-Original-Envelope-From',
+    'X-Original-Sender',
+)
+_EMAIL_RE = re.compile(r'[\w.+=-]+@[\w.-]+\.\w+')
+_PLAIN_EMAIL_RE = re.compile(r'[\w.+-]+@[\w.-]+\.\w+')
+
+
+def decode_alias_encoded_address(addr: str) -> str:
+    """Recover the real sender from an AnonAddy-encoded alias address.
+
+    'andrei.deaconu+alexandru.radulescu=neurony.ro@mailapptoday.com'
+        -> 'alexandru.radulescu@neurony.ro'
+    The contact is the segment after the last '+' in the local part, with the
+    last '=' standing in for '@'. Returns '' if the address isn't encoded.
+    """
+    local, _, _domain = addr.rpartition('@')
+    if '=' not in local:
+        return ''
+    contact = local.split('+')[-1]  # drop an optional 'alias+' prefix
+    if '=' not in contact:
+        return ''
+    real_local, _, real_domain = contact.rpartition('=')
+    if real_local and '.' in real_domain:
+        return f'{real_local}@{real_domain}'.lower()
+    return ''
+
+
 def extract_from_email(msg: email.message.Message) -> Optional[str]:
+    """Extract the TRUE sender's email address.
+
+    For aliased/forwarded mail (AnonAddy unified inbox), the From header is an
+    encoded alias — the real sender lives in X-AnonAddy-Original-Sender. We
+    prefer that header, then fall back to decoding the encoded From, then to
+    the raw From address.
     """
-    Extract the sender's email address from the From header.
-    """
+    # 1. Trust AnonAddy's original-sender headers when present.
+    for header_name in ANONADDY_ORIGINAL_SENDER_HEADERS:
+        value = decode_mime_header(msg.get(header_name, '') or '')
+        match = _PLAIN_EMAIL_RE.search(value)
+        if match:
+            return match.group(0).lower()
+
     from_header = msg.get('From', '')
     if not from_header:
         return None
-
-    # Decode if necessary
     from_header = decode_mime_header(from_header)
 
-    # Parse email address from formats like:
-    # "John Doe <john@example.com>" or "john@example.com"
-    email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', from_header)
-    if email_match:
-        return email_match.group(0).lower()
+    # 2. Capture the full address (including + and = of an encoded alias) and,
+    #    if it is alias-encoded, decode it back to the real sender.
+    match = _EMAIL_RE.search(from_header)
+    if match:
+        addr = match.group(0).lower()
+        return decode_alias_encoded_address(addr) or addr
 
-    # If no angle bracket format, check if the whole thing is an email
+    # 3. Last resort: the header is bare text containing an address.
     if '@' in from_header:
         return from_header.strip().lower()
 
@@ -895,7 +937,12 @@ def search_alias_uids(conn: imaplib.IMAP4_SSL, alias: str) -> List[bytes]:
     since = imap_since_date()
     quoted = f'"{alias}"'
     uids = set()
-    for criteria in (('TO', quoted), ('HEADER', 'Delivered-To', quoted)):
+    # To + Delivered-To catch the common cases; X-AnonAddy-Original-To is the
+    # cleanest signal of which alias an AnonAddy-forwarded message was really
+    # for (the visible To can be the encoded alias+contact form).
+    for criteria in (('TO', quoted),
+                     ('HEADER', 'Delivered-To', quoted),
+                     ('HEADER', 'X-AnonAddy-Original-To', quoted)):
         status, messages = conn.search(None, 'UNSEEN', 'SINCE', since, *criteria)
         if status == 'OK' and messages and messages[0]:
             uids.update(messages[0].split())
