@@ -23,7 +23,8 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import models
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
+from django.utils import timezone
 from django.utils.text import get_valid_filename
 from django.views.generic import CreateView, UpdateView
 from django.urls import reverse_lazy
@@ -584,41 +585,101 @@ def manager_dashboard(request):
 
 @manager_required
 def manager_claims(request):
-    """Manager claim overview (same as agent but with PDF access).
+    """Manager claim overview — the management "one screen".
 
-    Includes pagination to prevent loading large datasets.
+    Built around what a manager scans for: who the client is, where the
+    case stands (family-colored status + how long it has sat there), the
+    deadline (nearest first, overdue on top), and which cases have
+    institution emails waiting on a human. Solved/closed cases are hidden
+    by default ('Active'); headline counters always reflect the whole book.
     """
-    claims = Claim.objects.annotate(
-        evidence_count=Count('evidence'),
-        email_count=Count('emails')
-    ).order_by('-created_at')
+    from django.core.paginator import Paginator
 
-    # Filter by status if provided
+    now = timezone.now()
+
+    # Headline numbers are unfiltered — the state of the whole book
+    active_qs = Claim.objects.exclude(status_category='solved')
+    stats = {
+        'active': active_qs.count(),
+        'overdue': active_qs.filter(deadline_at__lt=now).count(),
+        'attention': Claim.objects.filter(
+            emails__action_required=True, emails__auto_resolved=False,
+        ).distinct().count(),
+        'total': Claim.objects.count(),
+    }
+
+    claims = Claim.objects.annotate(
+        email_count=Count('emails', distinct=True),
+        attention_emails=Count(
+            'emails', distinct=True,
+            filter=Q(emails__action_required=True, emails__auto_resolved=False),
+        ),
+    )
+
+    # Family quick-filter; default hides solved/closed cases
+    family_filter = request.GET.get('family') or 'active'
+    if family_filter == 'active':
+        claims = claims.exclude(status_category='solved')
+    elif family_filter in ('new', 'open', 'pending', 'hold', 'solved'):
+        claims = claims.filter(status_category=family_filter)
+    else:
+        family_filter = 'all'
+
     status_filter = request.GET.get('status')
     if status_filter:
         claims = claims.filter(status=status_filter)
 
-    # Search
     search_query = request.GET.get('search')
     if search_query:
         claims = claims.filter(
+            Q(client_name__icontains=search_query) |
             Q(client_email__icontains=search_query) |
             Q(zd_ticket_id__icontains=search_query) |
             Q(flight_details__icontains=search_query) |
             Q(alf_claim_id__icontains=search_query)
         )
 
-    # Pagination (20 claims per page)
-    from django.core.paginator import Paginator
-    paginator = Paginator(claims, 20)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
+    # Urgency order: nearest deadline first (overdue leads), undated last
+    claims = claims.order_by(F('deadline_at').asc(nulls_last=True), '-created_at')
 
+    paginator = Paginator(claims, 20)
+    page_obj = paginator.get_page(request.GET.get('page'))
+
+    # Pre-compute display state — templates shouldn't do date math
+    for claim in page_obj:
+        claim.deadline_state = ''
+        claim.deadline_label = ''
+        if claim.deadline_at:
+            days = (claim.deadline_at - now).days
+            if claim.status_category == 'solved':
+                claim.deadline_state = 'done'
+            elif days < 0:
+                claim.deadline_state = 'overdue'
+                claim.deadline_label = f'{-days}d overdue'
+            elif days == 0:
+                claim.deadline_state = 'soon'
+                claim.deadline_label = 'due today'
+            elif days <= 7:
+                claim.deadline_state = 'soon'
+                claim.deadline_label = f'{days}d left'
+            else:
+                claim.deadline_state = 'ok'
+                claim.deadline_label = f'{days}d left'
+        claim.days_in_status = (
+            (now - claim.status_changed_at).days if claim.status_changed_at else None)
+        claim.stuck = (claim.days_in_status is not None and claim.days_in_status > 14
+                       and claim.status_category not in ('solved',))
+
+    zd_subdomain = SystemSettings.get_instance().zd_subdomain
     context = {
         'page_obj': page_obj,
         'claims': page_obj,
+        'stats': stats,
+        'family_filter': family_filter,
         'status_filter': status_filter,
         'search_query': search_query,
+        'zd_ticket_base': (f'https://{zd_subdomain}.zendesk.com/agent/tickets/'
+                           if zd_subdomain else ''),
         'status_choices': [
             (s, s) for s in Claim.objects.exclude(status='')
             .values_list('status', flat=True).distinct().order_by('status')

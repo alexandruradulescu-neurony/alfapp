@@ -19,15 +19,87 @@
     </div>
 </div>
 
+<!-- The state of the book, at a glance -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 animate-fade-in">
+    <div class="card-modern p-4 flex items-center gap-3">
+        <div class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10 text-primary">
+            <i class="bi bi-folder2-open text-lg"></i>
+        </div>
+        <div>
+            <div class="text-2xl font-semibold leading-none">{{ stats.active }}</div>
+            <div class="text-xs text-base-content/60 mt-1">Active cases</div>
+        </div>
+    </div>
+    <div class="card-modern p-4 flex items-center gap-3">
+        <div class="inline-flex items-center justify-center w-10 h-10 rounded-xl {% if stats.overdue %}bg-error/10 text-error{% else %}bg-base-200/60 text-base-content/40{% endif %}">
+            <i class="bi bi-alarm text-lg"></i>
+        </div>
+        <div>
+            <div class="text-2xl font-semibold leading-none {% if stats.overdue %}text-error{% endif %}">{{ stats.overdue }}</div>
+            <div class="text-xs text-base-content/60 mt-1">Past deadline</div>
+        </div>
+    </div>
+    <div class="card-modern p-4 flex items-center gap-3">
+        <div class="inline-flex items-center justify-center w-10 h-10 rounded-xl {% if stats.attention %}bg-warning/10 text-warning{% else %}bg-base-200/60 text-base-content/40{% endif %}">
+            <i class="bi bi-envelope-exclamation text-lg"></i>
+        </div>
+        <div>
+            <div class="text-2xl font-semibold leading-none {% if stats.attention %}text-warning{% endif %}">{{ stats.attention }}</div>
+            <div class="text-xs text-base-content/60 mt-1">Emails need a reply</div>
+        </div>
+    </div>
+    <div class="card-modern p-4 flex items-center gap-3">
+        <div class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-base-200/60 text-base-content/40">
+            <i class="bi bi-archive text-lg"></i>
+        </div>
+        <div>
+            <div class="text-2xl font-semibold leading-none">{{ stats.total }}</div>
+            <div class="text-xs text-base-content/60 mt-1">All claims ever</div>
+        </div>
+    </div>
+</div>
+
 <!-- Filters -->
 <div class="card-modern p-6 mb-6 animate-fade-in">
+    <!-- Family quick filters -->
+    <div class="flex flex-wrap gap-2 mb-4">
+        <a href="?family=active{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
+           class="btn btn-sm rounded-xl transition-all duration-200 {% if family_filter == 'active' %}btn-primary{% else %}btn-ghost{% endif %}">
+            Active
+        </a>
+        <a href="?family=new{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
+           class="btn btn-sm rounded-xl transition-all duration-200 {% if family_filter == 'new' %}btn-primary{% else %}btn-ghost{% endif %}">
+            New
+        </a>
+        <a href="?family=open{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
+           class="btn btn-sm rounded-xl transition-all duration-200 {% if family_filter == 'open' %}btn-primary{% else %}btn-ghost{% endif %}">
+            Open
+        </a>
+        <a href="?family=pending{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
+           class="btn btn-sm rounded-xl transition-all duration-200 {% if family_filter == 'pending' %}btn-primary{% else %}btn-ghost{% endif %}">
+            Pending
+        </a>
+        <a href="?family=hold{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
+           class="btn btn-sm rounded-xl transition-all duration-200 {% if family_filter == 'hold' %}btn-primary{% else %}btn-ghost{% endif %}">
+            On hold
+        </a>
+        <a href="?family=solved{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
+           class="btn btn-sm rounded-xl transition-all duration-200 {% if family_filter == 'solved' %}btn-primary{% else %}btn-ghost{% endif %}">
+            Solved &amp; closed
+        </a>
+        <a href="?family=all{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
+           class="btn btn-sm rounded-xl transition-all duration-200 {% if family_filter == 'all' %}btn-primary{% else %}btn-ghost{% endif %}">
+            All
+        </a>
+    </div>
     <form method="get" class="grid grid-cols-1 md:grid-cols-12 gap-4">
+        <input type="hidden" name="family" value="{{ family_filter }}">
         <div class="md:col-span-4">
             <label class="label">
                 <span class="label-text font-semibold">Search</span>
             </label>
             <input type="text" class="input-modern w-full" name="search"
-                   value="{{ search_query }}" placeholder="Email, ticket ID, flight...">
+                   value="{{ search_query|default:'' }}" placeholder="Name, email, ticket ID, ALF #, flight...">
         </div>
         <div class="md:col-span-3">
             <label class="label">
@@ -55,7 +127,7 @@
     </form>
 </div>
 
-<!-- Claims Table -->
+<!-- Claims Table — sorted by urgency: overdue first, nearest deadline next -->
 <div class="card-modern rounded-2xl overflow-hidden animate-fade-in">
     <div class="overflow-x-auto">
         <table class="table-modern">
@@ -67,12 +139,11 @@
                                onchange="toggleSelectAll(this)">
                     </th>
                     <th>ALF #</th>
-                    <th>Customer Email</th>
+                    <th>Client</th>
                     <th>Status</th>
-                    <th>ZD Ticket</th>
-                    <th>Evidence</th>
-                    <th>Emails</th>
-                    <th>Created</th>
+                    <th>Deadline</th>
+                    <th>Attention</th>
+                    <th>Zendesk</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -83,21 +154,64 @@
                         <input type="checkbox" class="checkbox checkbox-sm row-check"
                                value="{{ claim.id }}" onchange="updateBulkButton()">
                     </td>
-                    <td class="font-mono font-semibold text-primary">{{ claim.alf_claim_id|default:"-" }}</td>
-                    <td>{{ claim.client_email }}</td>
                     <td>
-                        <span class="badge {% if claim.status_category == 'solved' %}badge-soft-neutral{% elif claim.status_category == 'pending' %}badge-soft-warning{% elif claim.status_category == 'new' %}badge-soft-info{% elif claim.status_category == 'hold' %}badge-ghost{% else %}badge-soft-primary{% endif %} rounded-full">
+                        <a href="{% url 'agent_claim_detail' claim.id %}"
+                           class="font-mono font-semibold text-primary hover:underline">
+                            {{ claim.alf_claim_id|default:"(no number)" }}
+                        </a>
+                    </td>
+                    <td>
+                        <div class="font-medium">{{ claim.client_name|default:claim.client_email }}</div>
+                        {% if claim.client_name %}
+                        <div class="text-xs text-base-content/50">{{ claim.client_email }}</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="badge {% if claim.status_category == 'solved' %}badge-success{% elif claim.status_category == 'pending' %}badge-warning{% elif claim.status_category == 'new' %}badge-info{% elif claim.status_category == 'hold' %}badge-neutral{% elif claim.status_category == 'open' %}badge-primary{% else %}badge-ghost{% endif %} rounded-full whitespace-nowrap">
                             {{ claim.status }}
                         </span>
+                        {% if claim.days_in_status is not None and claim.status_category != 'solved' %}
+                        <div class="text-xs mt-1 {% if claim.stuck %}text-error font-semibold{% else %}text-base-content/40{% endif %}"
+                             {% if claim.stuck %}title="In this status for more than two weeks"{% endif %}>
+                            {% if claim.stuck %}<i class="bi bi-exclamation-triangle"></i>{% endif %}
+                            for {{ claim.days_in_status }}d
+                        </div>
+                        {% endif %}
                     </td>
-                    <td>{{ claim.zd_ticket_id|default:"-" }}</td>
                     <td>
-                        <span class="badge-soft-neutral rounded-full px-2 py-0.5 text-xs">{{ claim.evidence_count }}</span>
+                        {% if claim.deadline_at %}
+                            <div class="{% if claim.deadline_state == 'overdue' %}text-error font-semibold{% elif claim.deadline_state == 'soon' %}text-warning font-semibold{% elif claim.deadline_state == 'done' %}text-base-content/40{% endif %}">
+                                {{ claim.deadline_at|date:"M d, Y" }}
+                            </div>
+                            {% if claim.deadline_label %}
+                            <div class="text-xs {% if claim.deadline_state == 'overdue' %}text-error{% elif claim.deadline_state == 'soon' %}text-warning{% else %}text-base-content/40{% endif %}">
+                                {{ claim.deadline_label }}
+                            </div>
+                            {% endif %}
+                        {% else %}
+                            <span class="text-base-content/30">—</span>
+                        {% endif %}
                     </td>
                     <td>
-                        <span class="badge-soft-info rounded-full px-2 py-0.5 text-xs">{{ claim.email_count }}</span>
+                        {% if claim.attention_emails %}
+                        <span class="badge badge-error gap-1 rounded-full"
+                              title="Institution emails flagged by the AI as needing a human reply">
+                            <i class="bi bi-envelope-exclamation"></i> {{ claim.attention_emails }}
+                        </span>
+                        {% else %}
+                        <span class="text-base-content/30">—</span>
+                        {% endif %}
                     </td>
-                    <td class="text-base-content/60">{{ claim.created_at|date:"M d, Y" }}</td>
+                    <td>
+                        {% if claim.zd_ticket_id and zd_ticket_base %}
+                        <a href="{{ zd_ticket_base }}{{ claim.zd_ticket_id }}" target="_blank" rel="noopener"
+                           class="link link-primary text-sm whitespace-nowrap" title="Open the ticket in Zendesk">
+                            #{{ claim.zd_ticket_id }} <i class="bi bi-box-arrow-up-right text-xs"></i>
+                        </a>
+                        {% else %}
+                        <span class="text-base-content/40">{{ claim.zd_ticket_id|default:"—" }}</span>
+                        {% endif %}
+                    </td>
                     <td>
                         <div class="flex gap-1">
                             <a href="{% url 'agent_claim_detail' claim.id %}"
@@ -113,9 +227,12 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="9" class="text-center py-8">
+                    <td colspan="8" class="text-center py-8">
                         <i class="bi bi-inbox text-4xl text-base-content/30"></i>
-                        <p class="text-base-content/60 mt-2 mb-0">No claims found</p>
+                        <p class="text-base-content/60 mt-2 mb-0">No claims match these filters.</p>
+                        {% if family_filter != 'all' or status_filter or search_query %}
+                        <a href="{% url 'manager_claims' %}?family=all" class="link link-primary text-sm">Show all claims</a>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -128,11 +245,11 @@
     <div class="flex justify-center p-4">
         <div class="join">
             {% if page_obj.has_previous %}
-            <a href="?page=1{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
+            <a href="?page=1&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
                class="btn btn-sm join-item rounded-xl transition-all duration-200">
                 <i class="bi bi-chevron-double-left"></i> First
             </a>
-            <a href="?page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
+            <a href="?page={{ page_obj.previous_page_number }}&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
                class="btn btn-sm join-item rounded-xl transition-all duration-200">
                 <i class="bi bi-chevron-left"></i> Previous
             </a>
@@ -143,11 +260,11 @@
             </button>
 
             {% if page_obj.has_next %}
-            <a href="?page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
+            <a href="?page={{ page_obj.next_page_number }}&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
                class="btn btn-sm join-item rounded-xl transition-all duration-200">
                 Next <i class="bi bi-chevron-right"></i>
             </a>
-            <a href="?page={{ page_obj.paginator.num_pages }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
+            <a href="?page={{ page_obj.paginator.num_pages }}&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
                class="btn btn-sm join-item rounded-xl transition-all duration-200">
                 Last <i class="bi bi-chevron-double-right"></i>
             </a>
