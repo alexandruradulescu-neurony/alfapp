@@ -182,6 +182,49 @@ class IssueWooCommerceRefundTests(TestCase):
 
 # ---- endpoint ----
 
+class WooCommerceConnectionTestTests(TestCase):
+    """The read-only 'Test connection' button — verifies creds without refunding."""
+
+    def setUp(self):
+        from apps.config.services.connection_tester import ConnectionTester
+        self.tester = ConnectionTester()
+
+    def test_not_configured(self):
+        ss = SystemSettings.get_instance()
+        ss.woocommerce_store_url = ''
+        ss.save()
+        r = self.tester.test_woocommerce()
+        self.assertFalse(r['success'])
+        self.assertIn('not configured', r['message'])
+
+    def test_success_on_200(self):
+        _configure_wc()
+        with patch('apps.config.services.connection_tester.requests.get') as get:
+            get.return_value.status_code = 200
+            r = self.tester.test_woocommerce()
+        self.assertTrue(r['success'])
+        # hits an authenticated read endpoint, never a refund endpoint
+        called_url = get.call_args[0][0]
+        self.assertIn('/wp-json/wc/v3/orders', called_url)
+        self.assertNotIn('refund', called_url)
+
+    def test_bad_credentials_401(self):
+        _configure_wc()
+        with patch('apps.config.services.connection_tester.requests.get') as get:
+            get.return_value.status_code = 401
+            r = self.tester.test_woocommerce()
+        self.assertFalse(r['success'])
+        self.assertIn('credentials', r['message'])
+
+    def test_bad_url_404(self):
+        _configure_wc()
+        with patch('apps.config.services.connection_tester.requests.get') as get:
+            get.return_value.status_code = 404
+            r = self.tester.test_woocommerce()
+        self.assertFalse(r['success'])
+        self.assertIn('store URL', r['message'])
+
+
 class IssueEndpointTests(TestCase):
     URL = '/api/payments/refunds/issue/'
 

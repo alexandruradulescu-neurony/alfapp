@@ -342,6 +342,53 @@ class ConnectionTester:
             'service': service
         }
     
+    def test_woocommerce(self) -> Dict[str, Any]:
+        """Test the WooCommerce REST API connection (read-only — never refunds).
+
+        Hits an authenticated read endpoint so it verifies the store URL AND
+        that the consumer key/secret are valid with read access.
+        """
+        try:
+            settings = SystemSettings.objects.get(pk=1)
+            url = (settings.woocommerce_store_url or '').strip().rstrip('/')
+            key = (settings.woocommerce_consumer_key or '').strip()
+            secret = (settings.woocommerce_consumer_secret or '').strip()
+            if not (url and key and secret):
+                return self._update_status(
+                    'WOOCOMMERCE', 'disconnected', success=False,
+                    message='WooCommerce store URL and API credentials not configured')
+
+            response = requests.get(
+                f"{url}/wp-json/wc/v3/orders",
+                params={'per_page': 1},
+                auth=(key, secret),
+                timeout=self.timeout,
+            )
+            if response.status_code == 200:
+                return self._update_status(
+                    'WOOCOMMERCE', 'connected', success=True,
+                    message='WooCommerce connection successful')
+            elif response.status_code in (401, 403):
+                return self._update_status(
+                    'WOOCOMMERCE', 'error', success=False,
+                    message='WooCommerce rejected the credentials — check the '
+                            'consumer key/secret and that the key is Read/Write')
+            elif response.status_code == 404:
+                return self._update_status(
+                    'WOOCOMMERCE', 'error', success=False,
+                    message='WooCommerce REST API not found — check the store URL')
+            else:
+                return self._update_status(
+                    'WOOCOMMERCE', 'error', success=False,
+                    message=f'WooCommerce API error: HTTP {response.status_code}')
+        except SystemSettings.DoesNotExist:
+            return self._update_status(
+                'WOOCOMMERCE', 'disconnected', success=False,
+                message='System settings not configured')
+        except requests.RequestException as e:
+            return self._update_status(
+                'WOOCOMMERCE', 'error', success=False, message=str(e))
+
     def test_all_services(self) -> Dict[str, Dict[str, Any]]:
         """Test all services and return results."""
         results = {

@@ -14,6 +14,7 @@ class ServiceStatus(models.Model):
         ('IMAP', 'IMAP Email'),
         ('ZENDESK', 'Zendesk'),
         ('PAYPAL', 'PayPal'),
+        ('WOOCOMMERCE', 'WooCommerce'),
         ('SCHEDULER', 'Email Scheduler'),
         ('SCREENSHOT', 'Screenshot Service'),
     ]
