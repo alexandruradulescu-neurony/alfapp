@@ -595,13 +595,23 @@ def manager_claims(request):
     """
     from django.core.paginator import Paginator
 
+    from django.db.models.functions import Cast, Coalesce
+
     now = timezone.now()
+
+    # Older claims carry only the raw deadline_date — the computed
+    # deadline_at exists just for claims created/refreshed since the status
+    # mirror shipped. Everything here (sorting, overdue count, display)
+    # works off whichever the claim has.
+    deadline_eff = Coalesce(
+        'deadline_at', Cast('deadline_date', models.DateTimeField()))
 
     # Headline numbers are unfiltered — the state of the whole book
     active_qs = Claim.objects.exclude(status_category='solved')
     stats = {
         'active': active_qs.count(),
-        'overdue': active_qs.filter(deadline_at__lt=now).count(),
+        'overdue': active_qs.annotate(deadline_eff=deadline_eff)
+                            .filter(deadline_eff__lt=now).count(),
         'attention': Claim.objects.filter(
             emails__action_required=True, emails__auto_resolved=False,
         ).distinct().count(),
@@ -614,6 +624,7 @@ def manager_claims(request):
             'emails', distinct=True,
             filter=Q(emails__action_required=True, emails__auto_resolved=False),
         ),
+        deadline_eff=deadline_eff,
     )
 
     # Family quick-filter; default hides solved/closed cases
@@ -640,17 +651,21 @@ def manager_claims(request):
         )
 
     # Urgency order: nearest deadline first (overdue leads), undated last
-    claims = claims.order_by(F('deadline_at').asc(nulls_last=True), '-created_at')
+    claims = claims.order_by(F('deadline_eff').asc(nulls_last=True), '-created_at')
 
     paginator = Paginator(claims, 20)
     page_obj = paginator.get_page(request.GET.get('page'))
 
     # Pre-compute display state — templates shouldn't do date math
+    from apps.claims.services import compute_deadline_at as _deadline_at
     for claim in page_obj:
+        claim.deadline_show = claim.deadline_at or _deadline_at(
+            claim.deadline_date, claim.deadline_time or '',
+            claim.deadline_timezone or '')
         claim.deadline_state = ''
         claim.deadline_label = ''
-        if claim.deadline_at:
-            days = (claim.deadline_at - now).days
+        if claim.deadline_show:
+            days = (claim.deadline_show - now).days
             if claim.status_category == 'solved':
                 claim.deadline_state = 'done'
             elif days < 0:

@@ -179,9 +179,9 @@
                         {% endif %}
                     </td>
                     <td>
-                        {% if claim.deadline_at %}
+                        {% if claim.deadline_show %}
                             <div class="{% if claim.deadline_state == 'overdue' %}text-error font-semibold{% elif claim.deadline_state == 'soon' %}text-warning font-semibold{% elif claim.deadline_state == 'done' %}text-base-content/40{% endif %}">
-                                {{ claim.deadline_at|date:"M d, Y" }}
+                                {{ claim.deadline_show|date:"M d, Y" }}
                             </div>
                             {% if claim.deadline_label %}
                             <div class="text-xs {% if claim.deadline_state == 'overdue' %}text-error{% elif claim.deadline_state == 'soon' %}text-warning{% else %}text-base-content/40{% endif %}">

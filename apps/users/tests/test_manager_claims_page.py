@@ -85,3 +85,18 @@ class ManagerClaimsPageTests(TestCase):
         html = resp.content.decode()
         self.assertIn('Ana Popescu', html)
         self.assertNotIn('Done Client', html)
+
+    def test_raw_deadline_date_without_computed_moment_still_shows(self):
+        # Claims from before the status mirror carry only deadline_date;
+        # the computed deadline_at is null. The page must still show and
+        # urgency-label them (this was 'deadline shows nothing' in prod).
+        Claim.objects.create(
+            client_email='old@example.com', client_name='Old Style',
+            zd_ticket_id='93003', alf_claim_id='ALF9300003',
+            status='Claim submitted', status_category='open',
+            deadline_date=(timezone.now() + timedelta(days=3)).date(),
+        )
+        resp = self.web.get(self.URL)
+        html = resp.content.decode()
+        self.assertIn('Old Style', html)
+        self.assertIn('d left', html)
