@@ -243,6 +243,36 @@ def agent_claims(request):
     return render(request, 'agent/claims.html', context)
 
 
+def _annotate_deadline(claim, now):
+    """Attach deadline_show/state/label display fields to a claim.
+
+    Falls back to the raw deadline_date when the computed deadline_at is
+    null (claims from before the status mirror)."""
+    from apps.claims.services import compute_deadline_at
+    claim.deadline_show = claim.deadline_at or compute_deadline_at(
+        claim.deadline_date, claim.deadline_time or '',
+        claim.deadline_timezone or '')
+    claim.deadline_state = ''
+    claim.deadline_label = ''
+    if claim.deadline_show:
+        days = (claim.deadline_show - now).days
+        if claim.status_category == 'solved':
+            claim.deadline_state = 'done'
+        elif days < 0:
+            claim.deadline_state = 'overdue'
+            claim.deadline_label = f'{-days}d overdue'
+        elif days == 0:
+            claim.deadline_state = 'soon'
+            claim.deadline_label = 'due today'
+        elif days <= 7:
+            claim.deadline_state = 'soon'
+            claim.deadline_label = f'{days}d left'
+        else:
+            claim.deadline_state = 'ok'
+            claim.deadline_label = f'{days}d left'
+    return claim
+
+
 @agent_required
 def agent_claim_detail(request, claim_id):
     """Agent claim detail view."""
@@ -250,6 +280,7 @@ def agent_claim_detail(request, claim_id):
         Claim.objects.prefetch_related('evidence', 'emails', 'refunds', 'disputes').select_related('assigned_to'),
         id=claim_id,
     )
+    _annotate_deadline(claim, timezone.now())
 
     # Check if agent has permission to view this claim
     if request.user.role == 'AGENT':
@@ -657,29 +688,8 @@ def manager_claims(request):
     page_obj = paginator.get_page(request.GET.get('page'))
 
     # Pre-compute display state — templates shouldn't do date math
-    from apps.claims.services import compute_deadline_at as _deadline_at
     for claim in page_obj:
-        claim.deadline_show = claim.deadline_at or _deadline_at(
-            claim.deadline_date, claim.deadline_time or '',
-            claim.deadline_timezone or '')
-        claim.deadline_state = ''
-        claim.deadline_label = ''
-        if claim.deadline_show:
-            days = (claim.deadline_show - now).days
-            if claim.status_category == 'solved':
-                claim.deadline_state = 'done'
-            elif days < 0:
-                claim.deadline_state = 'overdue'
-                claim.deadline_label = f'{-days}d overdue'
-            elif days == 0:
-                claim.deadline_state = 'soon'
-                claim.deadline_label = 'due today'
-            elif days <= 7:
-                claim.deadline_state = 'soon'
-                claim.deadline_label = f'{days}d left'
-            else:
-                claim.deadline_state = 'ok'
-                claim.deadline_label = f'{days}d left'
+        _annotate_deadline(claim, now)
         claim.days_in_status = (
             (now - claim.status_changed_at).days if claim.status_changed_at else None)
         claim.stuck = (claim.days_in_status is not None and claim.days_in_status > 14

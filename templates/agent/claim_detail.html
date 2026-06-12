@@ -11,7 +11,9 @@
             <i class="bi bi-file-earmark-text"></i>
             Claim #<span class="text-primary font-mono">{{ claim.alf_claim_id|default:claim.id }}</span>
         </h2>
-        <span class="text-xs text-base-content/40">(Internal ID: {{ claim.id }})</span>
+        <span class="text-sm text-base-content/60">
+            {{ claim.client_name|default:claim.client_email }}{% if claim.object_description %} · {{ claim.object_description|truncatechars:60 }}{% endif %}
+        </span>
     </div>
     <div class="flex gap-2">
         <button type="button" class="btn btn-primary rounded-xl transition-all duration-200"
@@ -176,45 +178,167 @@
             {% endif %}
         </div>
 
-        <!-- Claim Information Card -->
+        <!-- Client Card -->
         <div class="card-modern p-6">
-            <h3 class="text-lg font-semibold flex items-center gap-2 mb-6">
-                <i class="bi bi-info-circle"></i> Claim Information
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-4">
+                <i class="bi bi-person-circle"></i> Client
             </h3>
-            <div class="space-y-4">
+            <p class="text-xl font-semibold mb-3">{{ claim.client_name|default:"(name not on file)" }}</p>
+            <div class="space-y-3">
                 <div>
-                    <span class="text-sm text-base-content/60">Customer Email</span>
-                    <p class="font-medium mt-0.5">{{ claim.client_email }}</p>
+                    <span class="text-sm text-base-content/60">Email</span>
+                    <p class="font-medium mt-0.5">
+                        <a href="mailto:{{ claim.client_email }}" class="hover:text-primary transition-colors">{{ claim.client_email }}</a>
+                    </p>
                 </div>
+                {% if claim.alternate_email %}
                 <div>
-                    <span class="text-sm text-base-content/60">Zendesk Ticket</span>
-                    <div class="mt-0.5">
-                        {% if claim.zd_ticket_id %}
-                            <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ claim.zd_ticket_id }}"
-                               target="_blank" class="text-primary hover:text-primary/80 transition-colors font-medium">#{{ claim.zd_ticket_id }}</a>
-                        {% else %}
-                            <span class="text-base-content/40">Not linked</span>
-                        {% endif %}
-                    </div>
+                    <span class="text-sm text-base-content/60">Alternate Email</span>
+                    <p class="font-medium mt-0.5">{{ claim.alternate_email }}</p>
                 </div>
+                {% endif %}
                 <div>
-                    <span class="text-sm text-base-content/60">Created</span>
-                    <p class="font-medium mt-0.5">{{ claim.created_at|date:"M d, Y H:i" }}</p>
+                    <span class="text-sm text-base-content/60">Phone</span>
+                    <p class="font-medium mt-0.5">
+                        {% if claim.phone %}<a href="tel:{{ claim.phone }}" class="hover:text-primary transition-colors">{{ claim.phone }}</a>{% else %}<span class="text-base-content/40">—</span>{% endif %}
+                    </p>
                 </div>
+                {% if claim.shipping_address %}
                 <div>
-                    <span class="text-sm text-base-content/60">Last Updated</span>
-                    <p class="font-medium mt-0.5">{{ claim.updated_at|date:"M d, Y H:i" }}</p>
+                    <span class="text-sm text-base-content/60">Ship found object to</span>
+                    <p class="font-medium mt-0.5 whitespace-pre-line">{{ claim.shipping_address }}</p>
                 </div>
+                {% endif %}
+                {% if claim.billing_address and claim.billing_address != claim.shipping_address %}
+                <div>
+                    <span class="text-sm text-base-content/60">Billing Address</span>
+                    <p class="font-medium mt-0.5 whitespace-pre-line">{{ claim.billing_address }}</p>
+                </div>
+                {% endif %}
+                {% if claim.email_alias %}
+                <div>
+                    <span class="text-sm text-base-content/60">Case email alias</span>
+                    <p class="font-mono text-sm mt-0.5">{{ claim.email_alias }}</p>
+                </div>
+                {% endif %}
             </div>
         </div>
 
-        <!-- Flight Details -->
+        <!-- Case Card -->
         <div class="card-modern p-6">
             <h3 class="text-lg font-semibold flex items-center gap-2 mb-4">
-                <i class="bi bi-airplane"></i> Flight Details
+                <i class="bi bi-box-seam"></i> The Case
             </h3>
-            {% if claim.flight_details %}
-                <p class="text-sm mb-0">{{ claim.flight_details|linebreaks }}</p>
+            <div class="space-y-3">
+                <div>
+                    <span class="text-sm text-base-content/60">Lost object</span>
+                    <p class="font-medium mt-0.5">{{ claim.object_description|default:"(no description)" }}</p>
+                </div>
+                {% if claim.lost_location %}
+                <div>
+                    <span class="text-sm text-base-content/60">Where it was lost</span>
+                    <p class="font-medium mt-0.5">{{ claim.lost_location }}</p>
+                </div>
+                {% endif %}
+                {% if claim.incident_details %}
+                <div>
+                    <span class="text-sm text-base-content/60">What happened</span>
+                    <p class="text-sm mt-0.5">{{ claim.incident_details }}</p>
+                </div>
+                {% endif %}
+                <div>
+                    <span class="text-sm text-base-content/60">Deadline</span>
+                    <p class="font-medium mt-0.5">
+                        {% if claim.deadline_show %}
+                            {{ claim.deadline_show|date:"M d, Y" }}
+                            {% if claim.deadline_label %}
+                            <span class="badge badge-sm {% if claim.deadline_state == 'overdue' %}badge-error{% elif claim.deadline_state == 'soon' %}badge-warning{% else %}badge-ghost{% endif %} ml-1">{{ claim.deadline_label }}</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="text-base-content/40">—</span>
+                        {% endif %}
+                    </p>
+                </div>
+                {% if claim.price_paid %}
+                <div>
+                    <span class="text-sm text-base-content/60">Service paid</span>
+                    <p class="font-medium mt-0.5">
+                        ${{ claim.price_paid|floatformat:2 }}
+                        {% if claim.payment_method %}<span class="text-sm text-base-content/50">via {{ claim.payment_method }}</span>{% endif %}
+                        {% if claim.payment_status %}<span class="badge badge-sm badge-ghost ml-1">{{ claim.payment_status }}</span>{% endif %}
+                    </p>
+                </div>
+                {% endif %}
+                {% if claim.tracking_info %}
+                <div>
+                    <span class="text-sm text-base-content/60">Shipment tracking</span>
+                    <p class="font-medium mt-0.5">{{ claim.tracking_info }}</p>
+                </div>
+                {% endif %}
+            </div>
+            <div class="mt-4 pt-4 border-t border-base-200/60 text-xs text-base-content/50 space-y-1">
+                <div>Ticket:
+                    {% if claim.zd_ticket_id %}
+                        <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ claim.zd_ticket_id }}"
+                           target="_blank" rel="noopener" class="text-primary hover:text-primary/80 transition-colors font-medium">#{{ claim.zd_ticket_id }}</a>
+                    {% else %}not linked{% endif %}
+                </div>
+                <div>Opened {{ claim.created_at|date:"M d, Y H:i" }} · last update {{ claim.updated_at|date:"M d, Y H:i" }}</div>
+            </div>
+        </div>
+
+        <!-- Flight Card -->
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold flex items-center gap-2 mb-4">
+                <i class="bi bi-airplane"></i> Flight
+            </h3>
+            {% if claim.flight_data %}
+                {% with verdict=claim.flight_data.verdict %}
+                {% if verdict %}
+                <span class="badge {% if verdict.level == 'verified' %}badge-success{% elif verdict.level == 'check' %}badge-warning{% elif verdict.level == 'not_found' %}badge-error{% else %}badge-neutral{% endif %} rounded-full mb-3">
+                    {{ verdict.label }}
+                </span>
+                {% endif %}
+                {% endwith %}
+                <p class="font-semibold mb-2">
+                    {{ claim.flight_data.number }}
+                    {% if claim.flight_data.airline %}— {{ claim.flight_data.airline }}{% endif %}
+                    {% if claim.flight_data.status %}<span class="badge badge-sm badge-ghost ml-1">{{ claim.flight_data.status }}</span>{% endif %}
+                </p>
+                {% for leg in claim.flight_data.legs %}
+                <div class="rounded-xl bg-base-200/50 p-3 mb-2 text-sm">
+                    <div class="font-medium">
+                        {{ leg.from_iata }}{% if leg.from_city %} ({{ leg.from_city }}){% endif %}
+                        → {{ leg.to_iata }}{% if leg.to_city %} ({{ leg.to_city }}){% endif %}
+                    </div>
+                    {% if leg.scheduled_departure_local or leg.scheduled_arrival_local %}
+                    <div class="text-base-content/60">
+                        {% if leg.scheduled_departure_local %}dep {{ leg.scheduled_departure_local }}{% endif %}
+                        {% if leg.scheduled_arrival_local %} · arr {{ leg.scheduled_arrival_local }}{% endif %}
+                    </div>
+                    {% endif %}
+                    {% if leg.from_terminal or leg.from_gate or leg.to_terminal or leg.to_gate or leg.to_baggage_belt %}
+                    <div class="text-base-content/60">
+                        {% if leg.from_terminal or leg.from_gate %}dep {% if leg.from_terminal %}Terminal {{ leg.from_terminal }}{% endif %}{% if leg.from_gate %}{% if leg.from_terminal %}, {% endif %}Gate {{ leg.from_gate }}{% endif %}{% endif %}
+                        {% if leg.to_terminal or leg.to_gate or leg.to_baggage_belt %} · arr {% if leg.to_terminal %}Terminal {{ leg.to_terminal }}{% endif %}{% if leg.to_gate %}{% if leg.to_terminal %}, {% endif %}Gate {{ leg.to_gate }}{% endif %}{% if leg.to_baggage_belt %}{% if leg.to_terminal or leg.to_gate %}, {% endif %}Belt {{ leg.to_baggage_belt }}{% endif %}{% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% if claim.flight_data_updated_at %}
+                <p class="text-xs text-base-content/40 mt-1 mb-0">Verified {{ claim.flight_data_updated_at|timesince }} ago via AeroDataBox</p>
+                {% endif %}
+                {% if claim.flight_details %}
+                <details class="mt-2">
+                    <summary class="text-xs text-primary cursor-pointer">Client-reported details</summary>
+                    <p class="text-sm mt-1 mb-0 text-base-content/70">{{ claim.flight_details|linebreaks }}</p>
+                </details>
+                {% endif %}
+            {% elif claim.flight_details %}
+                <p class="text-sm mb-2">{{ claim.flight_details|linebreaks }}</p>
+                <p class="text-xs text-base-content/40 mb-0">
+                    <i class="bi bi-info-circle"></i> Not verified yet — use <b>Find flight info</b> in the Zendesk sidebar to look it up and cross-check.
+                </p>
             {% else %}
                 <p class="text-base-content/40 text-sm mb-0">No flight details provided.</p>
             {% endif %}
