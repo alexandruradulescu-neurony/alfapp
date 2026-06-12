@@ -22,6 +22,13 @@
         <a href="{% url 'agent_claims' %}" class="btn btn-outline rounded-xl transition-all duration-200">
             <i class="bi bi-arrow-left"></i> Back to Claims
         </a>
+        {% if user.role == 'MANAGER' %}
+        <button type="button" class="btn btn-outline btn-error rounded-xl transition-all duration-200"
+                onclick="deleteClaim({{ claim.id }})"
+                title="Delete this claim from LORA (the Zendesk ticket is not touched)">
+            <i class="bi bi-trash"></i> Delete
+        </button>
+        {% endif %}
     </div>
 </div>
 
@@ -664,6 +671,34 @@ function checkEmail(claimId) {
         showToast('Error', 'Email check failed', 'error');
         button.disabled = false;
         button.innerHTML = originalHTML;
+    });
+}
+
+function deleteClaim(claimId) {
+    if (!confirm('Delete this claim from LORA?\n\n' +
+                 'Its timeline and evidence records are removed with it; processed ' +
+                 'emails are kept but unlinked. The Zendesk ticket is NOT touched.\n\n' +
+                 'This cannot be undone.')) {
+        return;
+    }
+    fetch(`/api/claims/claims/${claimId}/`, {
+        method: 'DELETE',
+        headers: {
+            'X-CSRFToken': getCsrfToken(),
+        },
+    })
+    .then(async response => {
+        if (response.status === 204) {
+            showToast('Deleted', 'Claim deleted', 'success');
+            setTimeout(() => { window.location.href = "{% url 'agent_claims' %}"; }, 1200);
+        } else {
+            const data = await response.json().catch(() => ({}));
+            showToast('Error', data.detail || 'Could not delete the claim', 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showToast('Error', 'Could not delete the claim', 'error');
     });
 }
 

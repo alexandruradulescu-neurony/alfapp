@@ -1,6 +1,7 @@
 import json
 import logging
-from django.db.models import Count
+from django.db import transaction
+from django.db.models import Count, ProtectedError
 from django.shortcuts import get_object_or_404
 
 from rest_framework import serializers, viewsets, permissions, status
@@ -89,20 +90,37 @@ class ClaimViewSet(viewsets.ModelViewSet):
         return super().create(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        """Only MANAGERs can delete claims."""
+        """Only MANAGERs can delete claims (e.g. junk tickets that slipped in).
+
+        Timeline and evidence rows cascade away with the claim. Processed
+        emails are kept for audit but detached (their claim link cleared).
+        Refunds and disputes PROTECT the claim — a claim with money records
+        attached refuses deletion with a clear message.
+        """
         if not hasattr(request.user, 'role') or request.user.role != 'MANAGER':
             return Response(
                 {'detail': 'Only MANAGERS can delete claims.'},
                 status=status.HTTP_403_FORBIDDEN
             )
+        claim = self.get_object()
         try:
-            return super().destroy(request, *args, **kwargs)
+            with transaction.atomic():
+                claim.emails.update(claim=None)
+                claim.delete()
+        except ProtectedError:
+            return Response(
+                {'detail': 'This claim has refunds or disputes attached and '
+                           'cannot be deleted.'},
+                status=status.HTTP_409_CONFLICT
+            )
         except Exception as e:
             logger.error(f"Error deleting claim: {e}")
             return Response(
                 {'detail': 'Error deleting claim.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+        logger.info(f"Claim #{kwargs.get('pk')} deleted by {request.user.username}")
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['get'], url_path='proof-of-work')
     def proof_of_work(self, request, pk=None):
