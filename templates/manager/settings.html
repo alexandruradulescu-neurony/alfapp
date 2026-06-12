@@ -276,6 +276,45 @@
         </div>
     </div>
 
+    <!-- WooCommerce (refunds) -->
+    <div class="card-modern p-6 lg:p-8 mb-6 animate-fade-in">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <i class="bi bi-bag-check"></i> WooCommerce (refunds)
+            </h3>
+        </div>
+        <p class="text-xs text-base-content/60 mb-4">
+            Used when LORA issues a refund: it asks WooCommerce to refund the order through PayPal.
+            Create a key under <span class="font-semibold">WooCommerce → Settings → Advanced → REST API</span>
+            with <span class="font-semibold">Read/Write</span> permission.
+        </p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text font-semibold">Store URL</span>
+                </label>
+                <input type="text" class="input-modern w-full" id="woocommerce_store_url" name="woocommerce_store_url"
+                       value="{{ settings.woocommerce_store_url }}" placeholder="https://store.example.com">
+            </div>
+            <div class="form-control">
+                <label class="label flex-col items-start">
+                    <span class="label-text font-semibold">Consumer Key</span>
+                    <span class="text-xs text-base-content/50">Leave blank to keep current</span>
+                </label>
+                <input type="password" class="input-modern w-full" id="woocommerce_consumer_key" name="woocommerce_consumer_key"
+                       placeholder="{% if settings.woocommerce_consumer_key %}••••••••••••{% else %}ck_…{% endif %}" autocomplete="off">
+            </div>
+            <div class="form-control">
+                <label class="label flex-col items-start">
+                    <span class="label-text font-semibold">Consumer Secret</span>
+                    <span class="text-xs text-base-content/50">Leave blank to keep current</span>
+                </label>
+                <input type="password" class="input-modern w-full" id="woocommerce_consumer_secret" name="woocommerce_consumer_secret"
+                       placeholder="{% if settings.woocommerce_consumer_secret %}••••••••••••{% else %}cs_…{% endif %}" autocomplete="off">
+            </div>
+        </div>
+    </div>
+
     <!-- Sidebar Authentication -->
     <div class="card-modern p-6 lg:p-8 mb-6 animate-fade-in">
         <div class="flex justify-between items-center mb-4">

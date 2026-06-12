@@ -98,8 +98,8 @@
                 </div>
             </div>
 
-            <!-- Refund Action Button -->
-            {% if claim_refund_status != 'COMPLETED' %}
+            <!-- Refund Action Button (managers only — issuing moves money) -->
+            {% if user.role == 'MANAGER' and claim_refund_status != 'COMPLETED' %}
             <div class="mt-4 pt-4 border-t border-base-200/60">
                 <button type="button" class="btn btn-warning rounded-xl w-full transition-all duration-200" onclick="openGrantRefundModal()">
                     <i class="bi bi-currency-exchange"></i> Grant Refund
@@ -169,7 +169,7 @@
                         <i class="bi bi-currency-exchange text-3xl text-base-content/40"></i>
                     </div>
                     <p class="text-base-content/60 text-sm mb-3">No refunds issued for this claim.</p>
-                    {% if claim_refund_status != 'COMPLETED' %}
+                    {% if user.role == 'MANAGER' and claim_refund_status != 'COMPLETED' %}
                     <button type="button" class="btn btn-sm btn-warning" onclick="openGrantRefundModal()">
                         <i class="bi bi-plus-circle"></i> Grant First Refund
                     </button>
@@ -535,7 +535,7 @@
             Grant Refund for Claim #{{ claim.alf_claim_id|default:claim.id }}
         </h3>
 
-        <form id="grantRefundForm" method="POST" action="/api/payments/refunds/process/">
+        <form id="grantRefundForm" method="POST" action="/api/payments/refunds/issue/">
             {% csrf_token %}
             
             <!-- Hidden claim ID -->
@@ -571,8 +571,8 @@
                 </div>
                 <label class="label">
                     <span class="label-text-alt text-base-content/60">
-                        <i class="bi bi-info-circle"></i> 
-                        Full refund amount will be auto-filled. Edit for partial refund.
+                        <i class="bi bi-info-circle"></i>
+                        Pre-filled with the remaining refundable amount. Choose Partial to enter less.
                     </span>
                 </label>
             </div>
@@ -826,27 +826,27 @@ function deleteClaim(claimId) {
     });
 }
 
+// Remaining refundable = what the client paid minus what's already refunded.
+const REFUND_PAID = parseFloat('{{ claim.price_paid|default:0 }}') || 0;
+const REFUND_DONE = parseFloat('{{ claim.refund_total|default:0 }}') || 0;
+const REFUND_REMAINING = Math.max(0, (REFUND_PAID - REFUND_DONE)).toFixed(2);
+
 function openGrantRefundModal() {
-    const modal = document.getElementById('grant_refund_modal');
     const amountInput = document.getElementById('refund_amount');
-    
-    // TODO: Fetch claim data to auto-fill amount if needed
-    // For now, set a default or fetch from backend
-    amountInput.value = '0.00';
-    
-    modal.showModal();
+    // Full refund pre-fills the actual remaining amount (no more fake 0.00).
+    amountInput.value = REFUND_REMAINING;
+    document.getElementById('grant_refund_modal').showModal();
 }
 
 function toggleRefundType() {
     const refundType = document.querySelector('input[name="refund_type"]:checked').value;
     const amountInput = document.getElementById('refund_amount');
-    
     if (refundType === 'FULL') {
-        // TODO: Auto-fill with actual claim amount if available
-        amountInput.value = '0.00';
-        amountInput.readOnly = false;
+        amountInput.value = REFUND_REMAINING;
+        amountInput.readOnly = true;
     } else {
         amountInput.readOnly = false;
+        amountInput.value = '';
         amountInput.focus();
     }
 }
@@ -896,7 +896,7 @@ document.getElementById('grantRefundForm').addEventListener('submit', async func
     submitButton.innerHTML = '<i class="bi bi-hourglass-split"></i> Processing...';
 
     try {
-        const response = await fetch('/api/payments/refunds/process/', {
+        const response = await fetch('/api/payments/refunds/issue/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -908,12 +908,19 @@ document.getElementById('grantRefundForm').addEventListener('submit', async func
         const result = await response.json();
 
         if (response.ok) {
-            showToast('Success', result.message || 'Refund processed successfully!', 'success');
+            showToast('Success', result.message || 'Refund issued via WooCommerce.', 'success');
             document.getElementById('grant_refund_modal').close();
             // Reload page to show updated refund history
             setTimeout(() => location.reload(), 1500);
+        } else if (result.indeterminate) {
+            // Timeout: the money may have moved — do NOT let them blindly retry.
+            showToast('Check WooCommerce',
+                      result.error || 'Could not confirm the refund — verify it in WooCommerce before retrying.',
+                      'warning');
+            // Leave the button disabled so a second click can't double-issue.
+            submitButton.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Verify in WooCommerce';
         } else {
-            showToast('Error', result.error || 'Failed to process refund', 'error');
+            showToast('Error', result.error || 'Failed to issue refund', 'error');
             submitButton.disabled = false;
             submitButton.innerHTML = originalHTML;
         }

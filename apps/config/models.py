@@ -235,6 +235,25 @@ Please analyze this claim and provide:
         help_text='AeroDataBox (RapidAPI) key for flight lookups (encrypted at rest)'
     )
 
+    # WooCommerce store (for LORA-initiated refunds → WooCommerce → PayPal → Zendesk)
+    woocommerce_store_url = models.URLField(
+        blank=True,
+        default='',
+        help_text='WooCommerce store base URL, e.g. https://store.example.com (no trailing path)'
+    )
+    woocommerce_consumer_key = EncryptedCharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='WooCommerce REST API consumer key (ck_…, Read/Write; encrypted at rest)'
+    )
+    woocommerce_consumer_secret = EncryptedCharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='WooCommerce REST API consumer secret (cs_…; encrypted at rest)'
+    )
+
     # Email Configuration
     email_domain = models.CharField(
         max_length=255,

@@ -32,6 +32,8 @@ class SystemSettingsForm(forms.ModelForm):
         'paypal_secret',
         'sidebar_secret_token',
         'zd_agent_password',
+        'woocommerce_consumer_key',
+        'woocommerce_consumer_secret',
     ]
 
     class Meta:
@@ -58,6 +60,8 @@ class SystemSettingsForm(forms.ModelForm):
             'zd_alias_custom_field_id',
             # Zendesk Browser Authentication (non-sensitive)
             'zd_agent_email',
+            # WooCommerce (non-sensitive part)
+            'woocommerce_store_url',
             # AI Prompt Templates
             'dispute_response_prompt',
             'email_analysis_prompt',

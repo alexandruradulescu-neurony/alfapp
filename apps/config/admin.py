@@ -33,6 +33,13 @@ class SystemSettingsAdmin(admin.ModelAdmin):
             'fields': ('aerodatabox_api_key',),
             'description': 'RapidAPI key for the AeroDataBox flight lookups.'
         }),
+        ('WooCommerce (refunds)', {
+            'fields': ('woocommerce_store_url', 'woocommerce_consumer_key',
+                       'woocommerce_consumer_secret'),
+            'description': 'WooCommerce REST API credentials for LORA-initiated refunds. '
+                           'Create under WooCommerce → Settings → Advanced → REST API '
+                           '(Read/Write).'
+        }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
             'classes': ('collapse',)

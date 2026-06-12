@@ -16,6 +16,10 @@ from apps.payments.models import Refund
 from apps.claims.models import Claim
 from apps.config.models import SystemSettings
 from apps.payments.paypal_disputes_service import get_paypal_access_token
+from apps.payments.woocommerce_service import (
+    WooCommerceNotConfigured,
+    create_woocommerce_refund,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -291,7 +295,107 @@ class RefundService:
                 'error': str(e),
             }
     
-    @transaction.atomic
+    # Refund states that "reserve" money for the over-refund cap (everything
+    # except an outright failure counts against the claim's remaining amount).
+    RESERVING_STATUSES = ('PENDING', 'PROCESSING', 'COMPLETED')
+
+    def issue_woocommerce_refund(
+        self,
+        claim: Claim,
+        amount: Decimal,
+        reason: str,
+        user,
+    ) -> Dict[str, Any]:
+        """LORA-initiated refund (the reverse lever, option B).
+
+        Asks WooCommerce to refund the claim's order through PayPal; the
+        existing cascade then closes Zendesk and notifies LORA's inbound
+        webhook. Safe by construction:
+        - hard cap: amount cannot exceed the claim's remaining (price_paid
+          minus everything already reserved/paid);
+        - a PENDING row is reserved inside a row-locked transaction BEFORE the
+          external call, so two concurrent clicks cannot both pass the cap;
+        - the external call runs OUTSIDE the transaction, so a timeout can
+          never roll back (and thus hide) a refund the gateway actually made;
+        - the reserved row carries the WooCommerce refund id on success, so
+          the cascade's inbound webhook reconciles to it (one record).
+        """
+        from django.db.models import Sum
+        from django.utils import timezone
+        import uuid
+
+        order_id = (claim.woocommerce_id or '').strip()
+        if not order_id:
+            return {'success': False,
+                    'error': 'This claim has no WooCommerce order id — cannot issue a refund.'}
+        try:
+            amount = Decimal(str(amount))
+        except Exception:
+            return {'success': False, 'error': 'Invalid refund amount.'}
+        if amount <= 0:
+            return {'success': False, 'error': 'Refund amount must be positive.'}
+
+        # Reserve atomically under a row lock so the cap can't be raced.
+        try:
+            with transaction.atomic():
+                locked = Claim.objects.select_for_update().get(pk=claim.pk)
+                reserved = locked.refunds.filter(
+                    status__in=self.RESERVING_STATUSES
+                ).aggregate(t=Sum('amount'))['t'] or Decimal('0')
+                if locked.price_paid:
+                    remaining = locked.price_paid - reserved
+                    if amount > remaining:
+                        return {'success': False,
+                                'error': f'Refund of {amount} exceeds the remaining '
+                                         f'refundable amount ({remaining}).'}
+                    refund_type = 'PARTIAL' if amount < locked.price_paid else 'FULL'
+                else:
+                    refund_type = 'FULL'
+                refund = Refund.objects.create(
+                    claim=locked,
+                    paypal_refund_id=f'WC-PENDING-{uuid.uuid4().hex[:12]}',
+                    amount=amount,
+                    currency='USD',
+                    status='PENDING',
+                    refund_type=refund_type,
+                    external_source='WOOCOMMERCE',
+                    reason=reason,
+                    created_by=user,
+                    metadata={'woocommerce_order_id': order_id, 'initiated_by': 'LORA'},
+                )
+        except Claim.DoesNotExist:
+            return {'success': False, 'error': 'Claim not found.'}
+
+        # External call OUTSIDE the transaction.
+        try:
+            wc = create_woocommerce_refund(order_id, amount, reason)
+        except WooCommerceNotConfigured as e:
+            refund.mark_failed(str(e))
+            return {'success': False, 'error': str(e), 'refund': refund}
+
+        if not wc.get('success'):
+            if wc.get('indeterminate'):
+                # Money may have moved — keep the row PENDING (still counts
+                # against the cap) for the inbound webhook to reconcile.
+                refund.metadata['last_error'] = wc.get('error', '')
+                refund.save(update_fields=['metadata'])
+                return {'success': False, 'error': wc.get('error'),
+                        'indeterminate': True, 'refund': refund}
+            refund.mark_failed(wc.get('error', 'WooCommerce refund failed'))
+            return {'success': False, 'error': wc.get('error'), 'refund': refund}
+
+        # Success — stamp the real WooCommerce refund id so the inbound webhook
+        # (WC-{id}) reconciles to this row instead of creating a duplicate.
+        refund.paypal_refund_id = f"WC-{wc['refund_id']}"
+        refund.status = 'COMPLETED'
+        refund.processed_at = timezone.now()
+        refund.metadata['woocommerce_refund_id'] = wc['refund_id']
+        refund.save(update_fields=['paypal_refund_id', 'status', 'processed_at', 'metadata'])
+        logger.info(f"LORA issued WooCommerce refund {refund.paypal_refund_id} "
+                    f"for Claim #{claim.id}")
+        return {'success': True, 'refund': refund,
+                'message': f'Refund issued via WooCommerce ({refund.paypal_refund_id})'}
+
     def _find_claim_for_refund(self, claim_number: str) -> Optional[Claim]:
         """Resolve the claim a refund notification refers to.
 
@@ -355,6 +459,31 @@ class RefundService:
                     'refund': existing_refund,
                     'message': 'Refund already processed',
                     'already_processed': True,
+                }
+
+            # Reconcile a LORA-initiated reservation: if this same refund was
+            # issued from LORA (a PENDING WC-PENDING-* row for this claim and
+            # amount), adopt it instead of creating a duplicate.
+            reservation = Refund.objects.filter(
+                claim=claim, external_source='WOOCOMMERCE',
+                status__in=('PENDING', 'PROCESSING'),
+                paypal_refund_id__startswith='WC-PENDING-',
+                amount=Decimal(str(refund_amount)),
+            ).order_by('created_at').first()
+            if reservation:
+                from django.utils import timezone
+                reservation.paypal_refund_id = f'WC-{refund_id}'
+                reservation.status = 'COMPLETED'
+                reservation.processed_at = timezone.now()
+                reservation.metadata['woocommerce_refund_id'] = refund_id
+                reservation.save(update_fields=['paypal_refund_id', 'status',
+                                                 'processed_at', 'metadata'])
+                logger.info(f"Reconciled LORA reservation to WooCommerce refund {refund_id}")
+                return {
+                    'success': True,
+                    'refund': reservation,
+                    'message': 'WooCommerce refund reconciled',
+                    'already_processed': False,
                 }
 
             # Determine full vs partial: trust an explicit payload value,

@@ -202,6 +202,38 @@ class RefundViewSet(viewsets.ModelViewSet):
                 'error': result.get('error', 'Processing failed'),
             }, status=status.HTTP_400_BAD_REQUEST)
     
+    @action(detail=False, methods=['post'])
+    def issue(self, request):
+        """Issue a refund via WooCommerce (manager only) — the reverse lever.
+
+        POST /api/payments/refunds/issue/  {claim_id, amount, reason}
+        LORA → WooCommerce → PayPal → Zendesk cascade. WooCommerce is the sole
+        executor; LORA records and reconciles. Manager-only (default perms).
+        """
+        serializer = RefundCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        claim = serializer.validated_data['claim_id']
+
+        service = RefundService()
+        result = service.issue_woocommerce_refund(
+            claim=claim,
+            amount=serializer.validated_data['amount'],
+            reason=serializer.validated_data['reason'],
+            user=request.user,
+        )
+        if result['success']:
+            return Response({
+                'message': result['message'],
+                'refund': RefundSerializer(result['refund']).data,
+            }, status=status.HTTP_201_CREATED)
+        # Indeterminate (timeout) => 502 so the UI tells the manager to verify
+        # in WooCommerce rather than blindly retry; definite failure => 400.
+        code = (status.HTTP_502_BAD_GATEWAY if result.get('indeterminate')
+                else status.HTTP_400_BAD_REQUEST)
+        return Response({'error': result.get('error', 'Refund failed'),
+                         'indeterminate': result.get('indeterminate', False)},
+                        status=code)
+
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
         """
