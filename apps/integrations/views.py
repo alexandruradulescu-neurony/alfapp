@@ -910,10 +910,12 @@ class ZendeskClaimWebhookView(APIView):
 
             # New ticket at investigation-initiated status — create the claim.
             from apps.integrations.services import (
+                ZENDESK_FIELD_CLAIM_NUMBER,
+                _get_custom_field_value,
                 analyze_zendesk_ticket_for_claim,
                 parse_alf_claim_id_from_subject,
             )
-            
+
             ticket_data = fetch_zendesk_ticket(ticket_id)
             if not ticket_data:
                 logger.error(f"Failed to fetch Zendesk ticket {ticket_id}")
@@ -921,18 +923,29 @@ class ZendeskClaimWebhookView(APIView):
                     {'error': 'Failed to fetch Zendesk ticket'},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
-            
+
+            # Form-ticket gate: only the WordPress claim form produces tickets
+            # carrying an ALF claim number (subject or the Claim # field).
+            # Phone calls and client emails auto-created as tickets never have
+            # one — they must not become claims or burn an AI extraction, even
+            # when Zendesk flips them to Investigation initiated (e.g. via the
+            # Open category's default status).
+            alf_claim_id = parse_alf_claim_id_from_subject(subject)
+            if not alf_claim_id:
+                claim_number_value = _get_custom_field_value(
+                    ticket_data.get('custom_fields') or [], ZENDESK_FIELD_CLAIM_NUMBER)
+                alf_claim_id = parse_alf_claim_id_from_subject(claim_number_value or '')
+            if not alf_claim_id:
+                logger.info(
+                    f"Ignoring webhook for ticket {ticket_id}: no ALF claim number "
+                    f"in subject or Claim # field — not a claim-form ticket")
+                return Response({
+                    'message': 'Ignored: no ALF claim number — not a claim form ticket',
+                }, status=status.HTTP_200_OK)
+
             # Fetch comments for LLM analysis
             comments = fetch_zendesk_comments(ticket_id)
             ticket_data['comments'] = comments
-
-            # Parse ALF claim ID from subject
-            alf_claim_id = parse_alf_claim_id_from_subject(subject)
-
-            if not alf_claim_id:
-                logger.warning(f"No ALF claim ID found in subject: {subject}")
-                # Generate a placeholder if not found (should not happen)
-                alf_claim_id = f"ALF{ticket_id.zfill(7)}"
 
             # Call LLM to extract claim data
             try:

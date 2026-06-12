@@ -277,25 +277,25 @@ class TestZendeskClaimWebhookView:
         assert claim.alf_claim_id == 'ALF1234567'
 
     def test_webhook_alf_id_not_found(self, api_client, system_settings):
-        """When parse_alf_claim_id_from_subject returns None, a placeholder is generated."""
+        """No ALF id in subject or Claim # field → ignored, no claim.
+
+        Contract changed 2026-06-12: the placeholder-id fallback admitted
+        phone-call/email tickets as junk claims. Tickets without a real ALF
+        claim number are not claim-form tickets and are ignored.
+        """
         mock_ticket_data = {
             'id': '67890',
             'subject': 'Lost Item Report',
             'description': 'Lost luggage',
             'status': 'investigation_initiated',
             'requester_id': 98765,
+            'custom_fields': [],
         }
-
-        mock_extracted_data = _full_extracted_data(client_email='customer@example.com')
 
         payload = _nested_webhook_payload(ticket_id='67890', subject='Lost Item Report')
 
-        # parse_alf_claim_id_from_subject returns None when no ALF ID found
         with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket_data), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=[]), \
-             patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted_data), \
-             patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value=None), \
-             patch('apps.integrations.views.refresh_claim_summary', return_value=False):
+             patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value=None):
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
@@ -304,12 +304,9 @@ class TestZendeskClaimWebhookView:
                 HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
             )
 
-        assert response.status_code == status.HTTP_201_CREATED
-        # Should generate placeholder: ALF + ticket_id zero-padded to 7 digits
-        assert response.data['alf_claim_id'] == 'ALF0067890'
-
-        claim = Claim.objects.get(zd_ticket_id='67890')
-        assert claim.alf_claim_id == 'ALF0067890'
+        assert response.status_code == status.HTTP_200_OK
+        assert 'not a claim form ticket' in response.data['message']
+        assert not Claim.objects.filter(zd_ticket_id='67890').exists()
 
     def test_webhook_llm_extraction_success(self, api_client, system_settings):
         """LLM extracts all fields correctly — llm_extraction_failed is False."""
@@ -516,24 +513,24 @@ class TestZendeskClaimWebhookEdgeCases:
     """Edge case tests for ZendeskClaimWebhookView."""
 
     def test_webhook_empty_subject(self, api_client, system_settings):
-        """Nested payload with empty subject generates a placeholder ALF ID."""
+        """Empty subject and no Claim # field → ignored, no claim.
+
+        Contract changed 2026-06-12: no more placeholder ALF ids — a ticket
+        without a real claim number is not a claim-form ticket.
+        """
         mock_ticket_data = {
             'id': '12345',
             'subject': '',
             'description': 'Lost item',
             'status': 'investigation_initiated',
             'requester_id': 98765,
+            'custom_fields': [],
         }
-
-        mock_extracted_data = _full_extracted_data(client_email='customer@example.com')
 
         payload = _nested_webhook_payload(ticket_id='12345', subject='')
 
         with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket_data), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=[]), \
-             patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted_data), \
-             patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value=None), \
-             patch('apps.integrations.views.refresh_claim_summary', return_value=False):
+             patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value=None):
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
@@ -542,9 +539,9 @@ class TestZendeskClaimWebhookEdgeCases:
                 HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
             )
 
-        assert response.status_code == status.HTTP_201_CREATED
-        # Should generate placeholder ALF ID from ticket_id
-        assert response.data['alf_claim_id'] == 'ALF0012345'
+        assert response.status_code == status.HTTP_200_OK
+        assert 'not a claim form ticket' in response.data['message']
+        assert not Claim.objects.filter(zd_ticket_id='12345').exists()
 
     def test_webhook_special_characters_in_subject(self, api_client, system_settings):
         """Nested payload with special characters in subject is handled gracefully."""
@@ -1121,3 +1118,79 @@ class WebhookStatusMirrorTests(WebhookTestBase):
                     {'event': {'current': '333'}, 'detail': {'id': '99999'}}))
         self.assertEqual(response.status_code, 200)
         self.assertIn('Ignored', response.json()['message'])
+
+
+@pytest.mark.django_db
+class TestFormTicketGate:
+    """Only claim-form tickets become claims (added 2026-06-12).
+
+    Phone calls and client emails auto-created as Zendesk tickets carry no
+    ALF claim number — when Zendesk flips them to Investigation initiated
+    (e.g. the Open category's default status), the webhook must ignore them
+    BEFORE any AI extraction runs. The placeholder-id fallback
+    (ALF + zero-padded ticket id) that used to admit them is gone.
+    """
+
+    def _post(self, api_client, system_settings, ticket_id, subject):
+        return api_client.post(
+            reverse('zendesk-claim-webhook'),
+            data=_nested_webhook_payload(ticket_id=ticket_id, subject=subject),
+            format='json',
+            HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
+        )
+
+    def test_phone_ticket_without_alf_number_is_ignored_without_ai(
+            self, api_client, system_settings):
+        ticket = {'id': '55001', 'subject': 'Incoming call from +40 721 000 000',
+                  'custom_fields': []}
+        with patch('apps.integrations.views.fetch_zendesk_ticket',
+                   return_value=ticket), \
+             patch('apps.integrations.views.fetch_zendesk_comments') as mock_comments, \
+             patch('apps.integrations.services.analyze_zendesk_ticket_for_claim') as mock_ai:
+            response = self._post(api_client, system_settings,
+                                  '55001', 'Incoming call from +40 721 000 000')
+
+        assert response.status_code == 200
+        assert 'not a claim form ticket' in response.data['message']
+        assert not Claim.objects.filter(zd_ticket_id='55001').exists()
+        mock_ai.assert_not_called()
+        mock_comments.assert_not_called()
+
+    def test_alf_number_in_claim_field_still_creates(
+            self, api_client, system_settings):
+        """Subject has no ALF id but the structured Claim # field does."""
+        from apps.integrations.services import ZENDESK_FIELD_CLAIM_NUMBER
+        ticket = {'id': '55002', 'subject': 'Lost laptop',
+                  'custom_fields': [
+                      {'id': ZENDESK_FIELD_CLAIM_NUMBER, 'value': 'ALF7654321'}]}
+        with patch('apps.integrations.views.fetch_zendesk_ticket',
+                   return_value=ticket), \
+             patch('apps.integrations.views.fetch_zendesk_comments',
+                   return_value=[]), \
+             patch('apps.integrations.services.analyze_zendesk_ticket_for_claim',
+                   return_value=_full_extracted_data()), \
+             patch('apps.integrations.views.refresh_claim_summary',
+                   return_value=False):
+            response = self._post(api_client, system_settings, '55002', 'Lost laptop')
+
+        assert response.status_code == 201
+        claim = Claim.objects.get(zd_ticket_id='55002')
+        assert claim.alf_claim_id == 'ALF7654321'
+
+    def test_alf_number_in_subject_still_creates(
+            self, api_client, system_settings):
+        ticket = {'id': '55003', 'subject': 'Lost Item - ALF1112223',
+                  'custom_fields': []}
+        with patch('apps.integrations.views.fetch_zendesk_ticket',
+                   return_value=ticket), \
+             patch('apps.integrations.views.fetch_zendesk_comments',
+                   return_value=[]), \
+             patch('apps.integrations.services.analyze_zendesk_ticket_for_claim',
+                   return_value=_full_extracted_data()), \
+             patch('apps.integrations.views.refresh_claim_summary',
+                   return_value=False):
+            response = self._post(api_client, system_settings,
+                                  '55003', 'Lost Item - ALF1112223')
+
+        assert response.status_code == 201
+        assert Claim.objects.get(zd_ticket_id='55003').alf_claim_id == 'ALF1112223'
