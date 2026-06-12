@@ -1,6 +1,8 @@
 import logging
 
-from rest_framework import viewsets, permissions
+from rest_framework import viewsets, permissions, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
 
@@ -51,3 +53,25 @@ class EmailLogViewSet(viewsets.ReadOnlyModelViewSet):
                 logger.warning(f"Invalid claim_id parameter: {claim_id}")
 
         return queryset
+
+    @action(detail=True, methods=['post'])
+    def resolve(self, request, pk=None):
+        """Mark an email handled, or reopen it (agent/manager).
+
+        POST /api/communications/email-logs/{id}/resolve/  {resolved: bool}
+        Clears (or restores) the 'action required' flag — purely a LORA-side
+        housekeeping toggle so handled institution mail stops showing as
+        needing attention and drops out of the manager dashboard's
+        "Emails need a reply" count. Does NOT touch the ticket, the claim
+        status, or the email's read state in the shared inbox.
+        """
+        email_log = self.get_object()
+        resolved = request.data.get('resolved', True)
+        email_log.action_required = not bool(resolved)
+        email_log.save(update_fields=['action_required'])
+        logger.info(
+            f"EmailLog #{email_log.id} marked "
+            f"{'resolved' if resolved else 'needs-attention'} by {request.user.username}")
+        return Response({'id': email_log.id,
+                         'action_required': email_log.action_required},
+                        status=status.HTTP_200_OK)

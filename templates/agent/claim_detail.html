@@ -420,11 +420,14 @@
                         <span class="badge badge-ghost">{{ email.get_category_display }}</span>
                         {% if email.action_required %}
                             <span class="badge badge-error">Action Required</span>
+                        {% elif email.auto_resolved %}
+                            <span class="badge badge-success badge-soft">Auto-resolved</span>
                         {% endif %}
                     </div>
                 </div>
                 <p class="text-xs text-base-content/40 mb-2">
                     <i class="bi bi-clock"></i> {{ email.received_at|date:"M d, Y H:i" }}
+                    {% if email.from_email %} · from {{ email.from_email }}{% endif %}
                 </p>
                 {% if email.ai_summary %}
                 <div class="rounded-xl bg-info/10 p-3 mb-2 flex items-start gap-2">
@@ -432,12 +435,19 @@
                     <span class="text-sm">{{ email.ai_summary }}</span>
                 </div>
                 {% endif %}
-                <details class="mt-2">
-                    <summary class="cursor-pointer text-primary hover:text-primary/80 transition-colors text-sm">View original email</summary>
-                    <div class="mt-2 rounded-xl bg-base-200/50 p-4">
-                        <pre class="text-sm whitespace-pre-wrap">{{ email.body|escape }}</pre>
-                    </div>
-                </details>
+                <div class="flex items-center justify-between mt-2">
+                    <details>
+                        <summary class="cursor-pointer text-primary hover:text-primary/80 transition-colors text-sm">View original email</summary>
+                        <div class="mt-2 rounded-xl bg-base-200/50 p-4">
+                            <pre class="text-sm whitespace-pre-wrap">{{ email.body|escape }}</pre>
+                        </div>
+                    </details>
+                    {% if email.action_required %}
+                    <button type="button" class="btn btn-xs btn-success rounded-lg" onclick="resolveEmail({{ email.id }}, true)">
+                        <i class="bi bi-check2"></i> Mark resolved
+                    </button>
+                    {% endif %}
+                </div>
             </div>
             {% empty %}
             <div class="text-center py-12">
@@ -830,6 +840,26 @@ function deleteClaim(claimId) {
 const REFUND_PAID = parseFloat('{{ claim.price_paid|default:0 }}') || 0;
 const REFUND_DONE = parseFloat('{{ claim.refund_total|default:0 }}') || 0;
 const REFUND_REMAINING = Math.max(0, (REFUND_PAID - REFUND_DONE)).toFixed(2);
+
+function resolveEmail(emailId, resolved) {
+    fetch(`/api/communications/email-logs/${emailId}/resolve/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken(),
+        },
+        body: JSON.stringify({ resolved: resolved }),
+    })
+    .then(response => {
+        if (response.ok) {
+            showToast('Done', 'Email marked resolved', 'success');
+            setTimeout(() => location.reload(), 800);
+        } else {
+            showToast('Error', 'Could not update the email', 'error');
+        }
+    })
+    .catch(() => showToast('Error', 'Could not update the email', 'error'));
+}
 
 function openGrantRefundModal() {
     const amountInput = document.getElementById('refund_amount');
