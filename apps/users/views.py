@@ -722,7 +722,15 @@ def manager_refunds(request):
     """
     from apps.payments.models import Refund
     from django.db.models import Sum
-    
+
+    # Claims awaiting a refund decision — Zendesk status 'Refund Requested',
+    # mirrored onto the claim. This is the manager's action queue: cases that
+    # need someone to issue (or decline) the refund.
+    refund_requested = list(
+        Claim.objects.filter(status='Refund Requested')
+        .order_by(F('deadline_at').asc(nulls_last=True), '-status_changed_at')
+    )
+
     refunds = Refund.objects.select_related('claim', 'created_by').order_by('-created_at')
     
     # Filter by status
@@ -759,17 +767,21 @@ def manager_refunds(request):
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
     
+    zd_subdomain = SystemSettings.get_instance().zd_subdomain
     context = {
         'page_obj': page_obj,
         'refunds': page_obj,
+        'refund_requested': refund_requested,
         'status_filter': status_filter,
         'source_filter': source_filter,
         'search_query': search_query,
         'stats': stats,
         'status_choices': Refund.STATUS_CHOICES,
         'source_choices': Refund.SOURCE_CHOICES,
+        'zd_ticket_base': (f'https://{zd_subdomain}.zendesk.com/agent/tickets/'
+                           if zd_subdomain else ''),
     }
-    
+
     return render(request, 'manager/refunds.html', context)
 
 

@@ -2,6 +2,7 @@
 DRF ViewSets for Refund API.
 """
 
+import hmac
 import logging
 import json
 from decimal import Decimal
@@ -16,6 +17,7 @@ from django.db.models import Q, Sum
 from django_filters.rest_framework import DjangoFilterBackend
 from django.conf import settings
 
+from apps.config.models import SystemSettings
 from apps.payments.models import Refund
 from apps.payments.serializers import (
     RefundSerializer,
@@ -32,14 +34,32 @@ logger = logging.getLogger(__name__)
 class PayPalWebhookView(APIView):
     """
     PayPal webhook endpoint for refund notifications.
-    
+
     Handles PAYMENT.CAPTURE.REFUNDED and related events.
+
+    Auth (added 2026-06-12): a mandatory X-Webhook-Secret header, checked in
+    constant time against SystemSettings.sidebar_secret_token, before the
+    body is parsed. This endpoint previously accepted anonymous requests and
+    would record COMPLETED refunds from them — a forgery hole. In LORA's
+    actual flow refunds arrive via the WooCommerce webhook, not here; this
+    endpoint stays only as a secured fallback. (If you genuinely subscribe
+    PayPal to post here, replace this with real PayPal signature verification
+    using paypal_webhook_id.)
     """
-    permission_classes = [AllowAny]
-    
+    permission_classes = [AllowAny]  # secret-header verification below
+
     def post(self, request):
         """Process PayPal webhook notification."""
         try:
+            webhook_secret = request.headers.get('X-Webhook-Secret', '')
+            expected_secret = SystemSettings.get_instance().sidebar_secret_token or ''
+            if not (webhook_secret and expected_secret
+                    and hmac.compare_digest(webhook_secret.encode('utf-8'),
+                                            expected_secret.encode('utf-8'))):
+                logger.warning("Rejected PayPal webhook: missing or invalid X-Webhook-Secret")
+                return Response({'error': 'Invalid webhook secret'},
+                                status=status.HTTP_401_UNAUTHORIZED)
+
             # Get webhook event data
             data = request.data
             event_type = data.get('event_type', '')
@@ -88,6 +108,12 @@ class RefundViewSet(viewsets.ModelViewSet):
     search_fields = ['paypal_refund_id', 'claim__client_email', 'reason']
     ordering_fields = ['created_at', 'amount', 'processed_at']
     ordering = ['-created_at']
+    # Refunds are the money audit trail. Allow GET (list/retrieve/stats) and
+    # POST (manual create + process + update_status actions) only — never the
+    # raw PUT/PATCH that could rewrite a COMPLETED refund's amount, nor DELETE
+    # that could erase a record of money paid. (Status changes go through the
+    # explicit update_status action.)
+    http_method_names = ['get', 'post', 'head', 'options']
 
     def get_permissions(self):
         """
@@ -116,9 +142,10 @@ class RefundViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
+        import uuid
         refund = Refund.objects.create(
             claim=serializer.validated_data.get('claim'),
-            paypal_refund_id=f'MANUAL-{Refund.objects.count() + 1}',
+            paypal_refund_id=f'MANUAL-{uuid.uuid4().hex[:12]}',
             amount=serializer.validated_data['amount'],
             currency=serializer.validated_data.get('currency', 'USD'),
             status='COMPLETED',

@@ -793,6 +793,7 @@ class RefundWebhookView(APIView):
                     )
             
             # Process refund
+            currency = str(data.get('currency', 'USD'))
             service = RefundService()
             result = service.process_woocommerce_refund(
                 claim_number=str(data['claim_number']),
@@ -800,20 +801,25 @@ class RefundWebhookView(APIView):
                 refund_id=str(data['refund_id']),
                 order_id=str(data.get('order_id', '')),
                 reason=data.get('reason', ''),
+                currency=currency,
+                refund_type=data.get('refund_type'),
             )
-            
+
             if result['success']:
-                # Tag Zendesk ticket if provided
-                zd_ticket_id = data.get('zd_ticket_id')
-                if zd_ticket_id:
+                # Tag Zendesk ticket only on a FRESH refund — a retry of an
+                # already-processed refund must not post duplicate notes.
+                # Prefer the claim's own ticket id over the payload's.
+                zd_ticket_id = (result['refund'].claim.zd_ticket_id
+                                if result['refund'].claim else '') or data.get('zd_ticket_id')
+                if zd_ticket_id and not result.get('already_processed'):
                     tag_zendesk_ticket_as_refunded(zd_ticket_id)
                     add_refund_comment_to_zendesk(
                         zd_ticket_id=zd_ticket_id,
-                        refund_amount=f"{data['currency']} {data['refund_amount']}",
+                        refund_amount=f"{currency} {data['refund_amount']}",
                         refund_id=str(data['refund_id']),
                         reason=data.get('reason', ''),
                     )
-                
+
                 return Response({
                     'message': 'Refund processed successfully',
                     'refund_id': result['refund'].paypal_refund_id,

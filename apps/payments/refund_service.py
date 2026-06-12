@@ -292,6 +292,23 @@ class RefundService:
             }
     
     @transaction.atomic
+    def _find_claim_for_refund(self, claim_number: str) -> Optional[Claim]:
+        """Resolve the claim a refund notification refers to.
+
+        Robust to whichever identifier WordPress sends as `claim_number`:
+        the business ALF claim id ('ALF1234567') OR LORA's internal row id.
+        ALF is tried first (it's the real cross-system identifier); a purely
+        numeric value falls back to the internal pk.
+        """
+        if not claim_number:
+            return None
+        claim = Claim.objects.filter(alf_claim_id__iexact=claim_number).first()
+        if claim:
+            return claim
+        if str(claim_number).isdigit():
+            return Claim.objects.filter(id=int(claim_number)).first()
+        return None
+
     def process_woocommerce_refund(
         self,
         claim_number: str,
@@ -299,51 +316,63 @@ class RefundService:
         refund_id: str,
         order_id: str,
         reason: str = '',
+        currency: str = 'USD',
+        refund_type: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Process a refund notification from WooCommerce/WordPress.
-        
+
         Args:
-            claim_number: Claim ID/reference from WordPress
+            claim_number: Claim reference from WordPress (ALF id or internal id)
             refund_amount: Refund amount
             refund_id: WooCommerce refund ID
             order_id: WooCommerce order ID
             reason: Refund reason
-        
+            currency: Currency code from the payload (defaults USD)
+            refund_type: 'FULL'/'PARTIAL' if WordPress states it; otherwise
+                inferred from amount vs the claim's price_paid
+
         Returns:
             Dict with success status and refund object
         """
         try:
-            # Find claim by claim number (may need to adjust based on your schema)
-            try:
-                claim = Claim.objects.get(id=claim_number)
-            except Claim.DoesNotExist:
+            claim = self._find_claim_for_refund(claim_number)
+            if claim is None:
                 return {
                     'success': False,
                     'error': f'Claim {claim_number} not found',
                 }
-            
-            # Check for existing refund (idempotency)
+
+            # Check for existing refund (idempotency under webhook retries)
             existing_refund = Refund.objects.filter(
                 paypal_refund_id=f'WC-{refund_id}'
             ).first()
-            
+
             if existing_refund:
                 logger.info(f"WooCommerce refund {refund_id} already processed")
                 return {
                     'success': True,
                     'refund': existing_refund,
                     'message': 'Refund already processed',
+                    'already_processed': True,
                 }
-            
-            # Create refund record
+
+            # Determine full vs partial: trust an explicit payload value,
+            # else compare the refunded amount to what the client paid.
+            resolved_type = (refund_type or '').upper()
+            if resolved_type not in ('FULL', 'PARTIAL'):
+                if claim.price_paid and Decimal(str(refund_amount)) < claim.price_paid:
+                    resolved_type = 'PARTIAL'
+                else:
+                    resolved_type = 'FULL'
+
             refund = Refund.objects.create(
                 claim=claim,
                 paypal_refund_id=f'WC-{refund_id}',  # Prefix to distinguish from PayPal
                 amount=refund_amount,
-                currency='USD',
+                currency=(currency or 'USD').upper()[:3],
                 status='COMPLETED',
-                refund_type='FULL',  # May need to determine from amount
+                refund_type=resolved_type,
                 external_source='WOOCOMMERCE',
                 reason=reason,
                 metadata={
@@ -351,15 +380,16 @@ class RefundService:
                     'woocommerce_refund_id': refund_id,
                 },
             )
-            
+
             logger.info(f"Processed WooCommerce refund {refund_id} for Claim #{claim.id}")
-            
+
             return {
                 'success': True,
                 'refund': refund,
                 'message': 'WooCommerce refund processed',
+                'already_processed': False,
             }
-            
+
         except Exception as e:
             logger.error(f"Error processing WooCommerce refund: {e}", exc_info=True)
             return {
