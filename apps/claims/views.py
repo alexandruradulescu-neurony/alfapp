@@ -122,6 +122,41 @@ class ClaimViewSet(viewsets.ModelViewSet):
         logger.info(f"Claim #{kwargs.get('pk')} deleted by {request.user.username}")
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(detail=False, methods=['post'], url_path='bulk-delete')
+    def bulk_delete(self, request):
+        """POST /api/claims/claims/bulk-delete/  Body: {ids: [..]}
+
+        Manager-only bulk cleanup (junk phone/email-ticket claims). Same
+        semantics as single delete, per claim: emails detached, timeline and
+        evidence cascade, refunds/disputes block — blocked claims are skipped
+        and reported back, never silently kept or silently lost.
+        """
+        if not hasattr(request.user, 'role') or request.user.role != 'MANAGER':
+            return Response(
+                {'detail': 'Only MANAGERS can delete claims.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        ids = request.data.get('ids')
+        if not isinstance(ids, list) or not ids or \
+                not all(str(i).isdigit() for i in ids):
+            return Response({'detail': 'Send {"ids": [claim ids]}.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        ids = [int(i) for i in ids]
+
+        deleted, blocked = [], []
+        for claim in Claim.objects.filter(id__in=ids):
+            claim_id = claim.id
+            try:
+                with transaction.atomic():
+                    claim.emails.update(claim=None)
+                    claim.delete()
+                deleted.append(claim_id)
+            except ProtectedError:
+                blocked.append(claim_id)
+        logger.info(f"Bulk claim delete by {request.user.username}: "
+                    f"deleted={deleted}, blocked={blocked}")
+        return Response({'deleted': deleted, 'blocked': blocked})
+
     @action(detail=True, methods=['get'], url_path='proof-of-work')
     def proof_of_work(self, request, pk=None):
         """

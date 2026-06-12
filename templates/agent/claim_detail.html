@@ -728,11 +728,10 @@ function toggleRefundType() {
 }
 
 function getCsrfToken() {
-    const cookieValue = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('csrftoken='))
-        ?.split('=')[1];
-    return cookieValue || '';
+    // The CSRF cookie is HttpOnly (CSRF_COOKIE_HTTPONLY) — JavaScript can't
+    // read it, so reading document.cookie silently returns ''. Render the
+    // token server-side instead (same pattern as manager/refunds.html).
+    return '{{ csrf_token }}';
 }
 
 function showToast(title, message, type = 'info') {
