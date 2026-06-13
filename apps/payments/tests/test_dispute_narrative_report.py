@@ -254,8 +254,9 @@ class NarrateEvidenceTests(TestCase):
         ss.save()
 
         class _Msg:
-            content = ('{"items":[{"index":0,"section":"FLIGHT_IDENTIFICATION",'
-                       '"explanation":"Confirms the flight."}]}')
+            # Model wraps JSON in a markdown fence — AIClient must strip it.
+            content = ('```json\n{"items":[{"index":0,"section":"FLIGHT_IDENTIFICATION",'
+                       '"explanation":"Confirms the flight."}]}\n```')
 
         class _Choice:
             message = _Msg()

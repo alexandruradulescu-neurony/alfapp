@@ -67,6 +67,26 @@ def test_complete_returns_validated_typed_object(fake_settings):
 
 
 @pytest.mark.django_db
+def test_complete_strips_markdown_code_fence(fake_settings):
+    """Models that wrap JSON in ```json ... ``` must still validate (Qwen does)."""
+    with patch('apps.ai.client.OpenAI') as MockOpenAI:
+        instance = MockOpenAI.return_value
+        instance.chat.completions.create.return_value = _mock_openai_response(
+            '```json\n{"category": "A", "note": "ok"}\n```'
+        )
+
+        result = AIClient.complete(
+            system_prompt="You are a test.",
+            trusted=None,
+            untrusted={"email_body": "hello"},
+            response_schema=_DummyReply,
+            call_site="test",
+        )
+    assert result.category == "A"
+    assert result.note == "ok"
+
+
+@pytest.mark.django_db
 def test_complete_raises_validation_error_on_bad_output(fake_settings):
     with patch('apps.ai.client.OpenAI') as MockOpenAI:
         instance = MockOpenAI.return_value

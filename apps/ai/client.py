@@ -9,6 +9,7 @@ back out.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import TypeVar, Type
 
@@ -48,6 +49,20 @@ def _resolve_salt() -> bytes:
         "PII_TOKENIZATION_SALT is not configured (neither SystemSettings nor env var). "
         "Refusing to call the LLM without a tokenization salt."
     )
+
+
+_CODE_FENCE_RE = re.compile(r"^```[a-zA-Z0-9]*\s*\n?|\n?```\s*$")
+
+
+def _strip_code_fence(text: str) -> str:
+    """Strip a leading/trailing markdown code fence (```json ... ```) that some
+    models wrap JSON in — otherwise schema JSON-parsing fails on the backticks.
+    No-op when no fence is present."""
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = _CODE_FENCE_RE.sub("", t)
+        t = _CODE_FENCE_RE.sub("", t)  # second pass removes the closing fence
+    return t.strip()
 
 
 def _build_tokenizer(known_pii: dict | None) -> RegexTokenizer:
@@ -133,7 +148,7 @@ class AIClient:
             raise AIClientError(f"LLM call failed: {e}") from e
 
         latency_ms = int((time.monotonic() - start) * 1000)
-        raw_reply = completion.choices[0].message.content or ""
+        raw_reply = _strip_code_fence(completion.choices[0].message.content or "")
 
         # Validate against the caller's schema.
         try:
