@@ -86,7 +86,18 @@ class Command(BaseCommand):
         if not pdf_bytes:
             raise CommandError("PDF rendering failed (is WeasyPrint installed in this environment?).")
 
-        out_path = opts['out'] or f"/tmp/dispute_report_{key}.pdf"
-        with open(out_path, 'wb') as f:
-            f.write(pdf_bytes)
-        self.stdout.write(self.style.SUCCESS(f"Wrote {len(pdf_bytes)} bytes → {out_path}"))
+        if opts['out']:
+            # Explicit local path (use when running where you can read the file).
+            with open(opts['out'], 'wb') as f:
+                f.write(pdf_bytes)
+            self.stdout.write(self.style.SUCCESS(f"Wrote {len(pdf_bytes)} bytes → {opts['out']}"))
+        else:
+            # Default: save into media storage and print a URL you can open in a
+            # browser (handy when running inside a container, e.g. Railway).
+            from django.core.files.base import ContentFile
+            from django.core.files.storage import default_storage
+            name = default_storage.save(f"dispute_previews/{key}.pdf", ContentFile(pdf_bytes))
+            self.stdout.write(self.style.SUCCESS(
+                f"Wrote {len(pdf_bytes)} bytes → media: {name}"))
+            self.stdout.write(
+                f"Open at your site's media URL: {default_storage.url(name)}")
