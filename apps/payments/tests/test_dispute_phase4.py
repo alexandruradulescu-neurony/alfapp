@@ -1,0 +1,66 @@
+"""Phase 4 — reason enum fix, category dropdown, stage gating (2026-06-13)."""
+
+from datetime import datetime, timezone as dt_tz
+
+from django.contrib.auth import get_user_model
+from django.test import Client, TestCase
+
+from apps.payments.models import Dispute
+
+User = get_user_model()
+
+
+def _dispute(**kw):
+    base = dict(paypal_dispute_id='PP-D-4001', buyer_email='b@example.com',
+                transaction_id='TX', transaction_date=datetime(2026, 6, 1, tzinfo=dt_tz.utc),
+                status='DOCUMENTS_READY', dispute_life_cycle_stage='CHARGEBACK')
+    base.update(kw)
+    return Dispute.objects.create(**base)
+
+
+class ReasonEnumTests(TestCase):
+    def test_uses_paypal_british_unauthorised(self):
+        codes = dict(Dispute.REASON_CHOICES)
+        self.assertIn('UNAUTHORISED', codes)
+        self.assertNotIn('UNAUTHORIZED_TRANSACTION', codes)
+        # the newer PayPal reasons are present
+        self.assertIn('PAYMENT_BY_OTHER_MEANS', codes)
+        self.assertIn('CANCELED_RECURRING_BILLING', codes)
+
+
+class SetCategoryTests(TestCase):
+    def setUp(self):
+        self.manager = User.objects.create_user(username='disp_mgr', password='x', role='MANAGER')
+        self.agent = User.objects.create_user(username='disp_agent', password='x', role='AGENT')
+        self.web = Client()
+        self.web.force_login(self.manager)
+        self.dispute = _dispute()
+        self.url = f'/manager/disputes/{self.dispute.id}/set-category/'
+
+    def test_manager_sets_category(self):
+        resp = self.web.post(self.url, {'category': 'UNAUTHORISED'})
+        self.assertEqual(resp.status_code, 302)
+        self.dispute.refresh_from_db()
+        self.assertEqual(self.dispute.dispute_reason, 'UNAUTHORISED')
+
+    def test_unknown_category_rejected(self):
+        resp = self.web.post(self.url, {'category': 'BOGUS'})
+        self.assertEqual(resp.status_code, 302)
+        self.dispute.refresh_from_db()
+        self.assertNotEqual(self.dispute.dispute_reason, 'BOGUS')
+
+
+class StageGatingActionTests(TestCase):
+    def setUp(self):
+        self.manager = User.objects.create_user(username='gate_mgr', password='x', role='MANAGER')
+        self.web = Client()
+        self.web.force_login(self.manager)
+
+    def test_send_evidence_blocked_at_inquiry_stage(self):
+        d = _dispute(paypal_dispute_id='PP-D-4002', dispute_life_cycle_stage='INQUIRY')
+        resp = self.web.post(f'/manager/disputes/{d.id}/send-evidence/', follow=True)
+        self.assertEqual(resp.status_code, 200)
+        # blocked before reaching PayPal; status unchanged
+        d.refresh_from_db()
+        self.assertEqual(d.status, 'DOCUMENTS_READY')
+        self.assertContains(resp, 'chargeback stage')

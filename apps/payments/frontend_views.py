@@ -145,7 +145,7 @@ def dispute_generate_documents(request, dispute_id):
     # Validate dispute has Zendesk ticket
     if not dispute.zd_ticket_id:
         messages.error(request, f"Cannot generate documents: Dispute #{dispute_id} has no Zendesk ticket linked.")
-        return redirect('dispute_detail', dispute_id=dispute_id)
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
     try:
         # Generate response letter
@@ -166,7 +166,7 @@ def dispute_generate_documents(request, dispute_id):
         logger.error(f"Error generating documents for Dispute #{dispute_id}: {e}")
         messages.error(request, f"Error generating documents: {str(e)}")
 
-    return redirect('dispute_detail', dispute_id=dispute_id)
+    return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
 
 @manager_required
@@ -202,7 +202,7 @@ def dispute_edit_document(request, document_id):
         )
 
         messages.success(request, f"Document #{document_id} updated successfully (v{document.version})")
-        return redirect('dispute_detail', dispute_id=document.dispute_id)
+        return redirect('disputes:dispute_detail', dispute_id=document.dispute_id)
 
     context = {
         'document': document,
@@ -238,7 +238,7 @@ def dispute_accept_document(request, document_id):
     )
 
     messages.success(request, f"Document #{document_id} accepted and ready for submission.")
-    return redirect('dispute_detail', dispute_id=document.dispute_id)
+    return redirect('disputes:dispute_detail', dispute_id=document.dispute_id)
 
 
 @manager_required
@@ -265,7 +265,29 @@ def dispute_delete_document(request, document_id):
     document.delete()
 
     messages.success(request, f"Document #{document_id} deleted successfully.")
-    return redirect('dispute_detail', dispute_id=dispute_id)
+    return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
+
+@manager_required
+@require_POST
+def dispute_set_category(request, dispute_id):
+    """Set the dispute's category (PayPal reason) — the human's pick that
+    drives which evidence report is used.
+
+    POST /manager/disputes/<id>/set-category/  {category}
+    """
+    dispute = get_object_or_404(Dispute, pk=dispute_id)
+    category = request.POST.get('category', '').strip()
+    if category not in dict(Dispute.REASON_CHOICES):
+        messages.error(request, "Unknown dispute category.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+    dispute.dispute_reason = category
+    dispute.save(update_fields=['dispute_reason', 'updated_at'])
+    DisputeActivityLog.objects.create(
+        dispute=dispute, action='STATUS_CHANGED', performed_by=request.user,
+        details=f"Category set to {dispute.get_dispute_reason_display()}.")
+    messages.success(request, f"Category set to {dispute.get_dispute_reason_display()}.")
+    return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
 
 @manager_required
@@ -280,6 +302,17 @@ def dispute_send_evidence(request, dispute_id):
     """
     dispute = get_object_or_404(Dispute, pk=dispute_id)
 
+    # Stage gate: PayPal rejects evidence at the INQUIRY stage (message-only)
+    # and once the case is resolved. Refuse before calling PayPal.
+    if not dispute.can_submit_evidence:
+        messages.error(
+            request,
+            "Evidence can't be submitted yet: PayPal only accepts it once the "
+            "dispute reaches the chargeback stage (it's currently "
+            f"'{dispute.dispute_life_cycle_stage or 'unknown'}'), and not after "
+            "the case is resolved.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
     # Get all accepted documents
     accepted_documents = DisputeDocument.objects.filter(
         dispute=dispute,
@@ -288,7 +321,7 @@ def dispute_send_evidence(request, dispute_id):
 
     if not accepted_documents.exists():
         messages.error(request, "No accepted documents to submit. Please generate and accept documents first.")
-        return redirect('dispute_detail', dispute_id=dispute_id)
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
     # Build response text from document content
     response_texts = []
@@ -315,7 +348,7 @@ def dispute_send_evidence(request, dispute_id):
         logger.error(f"Error sending evidence for Dispute #{dispute_id}: {e}")
         messages.error(request, f"Error submitting evidence: {str(e)}")
 
-    return redirect('dispute_detail', dispute_id=dispute_id)
+    return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
 
 @manager_required
@@ -349,7 +382,7 @@ def dispute_accept_claim(request, dispute_id):
         logger.error(f"Error accepting claim for Dispute #{dispute_id}: {e}")
         messages.error(request, f"Error accepting claim: {str(e)}")
 
-    return redirect('dispute_detail', dispute_id=dispute_id)
+    return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
 
 @manager_required
@@ -367,7 +400,7 @@ def dispute_capture_screenshots(request, dispute_id):
     # Validate dispute has Zendesk ticket
     if not dispute.zd_ticket_id:
         messages.error(request, f"Cannot capture screenshots: Dispute #{dispute_id} has no Zendesk ticket linked.")
-        return redirect('dispute_detail', dispute_id=dispute_id)
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
     try:
         # Call screenshot service
@@ -382,4 +415,4 @@ def dispute_capture_screenshots(request, dispute_id):
         logger.error(f"Error capturing screenshots for Dispute #{dispute_id}: {e}")
         messages.error(request, f"Error capturing screenshots: {str(e)}")
 
-    return redirect('dispute_detail', dispute_id=dispute_id)
+    return redirect('disputes:dispute_detail', dispute_id=dispute_id)

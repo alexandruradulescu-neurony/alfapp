@@ -173,13 +173,18 @@ class Dispute(models.Model):
         ('ACCEPTED', 'Accepted/Refunded'),
     ]
 
+    # Must match PayPal's exact `reason` enum (British 'UNAUTHORISED', etc.) —
+    # any drift breaks prefill from the webhook. This is the human's category.
     REASON_CHOICES = [
-        ('MERCHANDISE_OR_SERVICE_NOT_RECEIVED', 'Merchandise/Service Not Received'),
-        ('MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED', 'Merchandise/Service Not As Described'),
-        ('UNAUTHORIZED_TRANSACTION', 'Unauthorized Transaction'),
+        ('MERCHANDISE_OR_SERVICE_NOT_RECEIVED', 'Item/Service Not Received'),
+        ('MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED', 'Not As Described'),
+        ('UNAUTHORISED', 'Unauthorised Transaction'),
         ('CREDIT_NOT_PROCESSED', 'Credit Not Processed'),
         ('DUPLICATE_TRANSACTION', 'Duplicate Transaction'),
         ('INCORRECT_AMOUNT', 'Incorrect Amount'),
+        ('PAYMENT_BY_OTHER_MEANS', 'Paid By Other Means'),
+        ('CANCELED_RECURRING_BILLING', 'Cancelled Recurring Billing'),
+        ('PROBLEM_WITH_REMITTANCE', 'Problem With Remittance'),
         ('OTHER', 'Other'),
     ]
     VALID_REASONS = dict(REASON_CHOICES)

@@ -303,6 +303,23 @@
                 <i class="bi bi-lightning"></i> Quick Actions
             </h3>
 
+            <!-- Category — the human's pick that drives the evidence report -->
+            <form method="post" action="{% url 'disputes:dispute_set_category' dispute.id %}" class="mb-4">
+                {% csrf_token %}
+                <label class="label"><span class="label-text font-semibold">Dispute category</span></label>
+                <select name="category" class="select select-bordered w-full rounded-xl mb-2">
+                    {% for value, label in dispute.REASON_CHOICES %}
+                    <option value="{{ value }}" {% if dispute.dispute_reason == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-outline btn-sm w-full rounded-xl">
+                    <i class="bi bi-tag"></i> Set category
+                </button>
+                <span class="text-xs text-base-content/50 mt-1 block">Prefilled from PayPal; change if the human review disagrees.</span>
+            </form>
+
+            <div class="divider"></div>
+
             <!-- Generate Documents -->
             <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" class="mb-3">
                 {% csrf_token %}
@@ -329,15 +346,20 @@
 
             <div class="divider"></div>
 
-            <!-- Send Evidence -->
+            <!-- Send Evidence (stage-gated: PayPal rejects evidence before CHARGEBACK) -->
             <form method="post" action="{% url 'disputes:dispute_send_evidence' dispute.id %}" class="mb-3">
                 {% csrf_token %}
                 <button type="submit" class="btn btn-info w-full rounded-xl transition-all duration-200 mb-2 text-white"
-                        {% if dispute.status == 'EVIDENCE_SENT' or dispute.status == 'RESOLVED_WON' or dispute.status == 'RESOLVED_LOST' %}disabled{% endif %}>
+                        {% if dispute.status == 'EVIDENCE_SENT' or not dispute.can_submit_evidence %}disabled{% endif %}>
                     <i class="bi bi-send"></i> Send Evidence to PayPal
                 </button>
                 {% if dispute.status == 'EVIDENCE_SENT' %}
                 <span class="text-xs text-base-content/60">Evidence already sent</span>
+                {% elif not dispute.can_submit_evidence %}
+                <span class="text-xs text-base-content/60">
+                    PayPal accepts evidence only at the chargeback stage
+                    (currently “{{ dispute.dispute_life_cycle_stage|default:'unknown' }}”).
+                </span>
                 {% endif %}
             </form>
 
