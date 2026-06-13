@@ -25,6 +25,22 @@ from apps.payments.screenshot_service import capture_screenshots_manual
 
 logger = logging.getLogger(__name__)
 
+# Allowlist for rendering AI-generated document HTML. The AI's output is shown
+# with |safe in the preview, so strip anything executable (scripts, event
+# handlers, styles) while keeping document formatting.
+_SAFE_HTML_TAGS = ['p', 'br', 'b', 'strong', 'i', 'em', 'u', 'ul', 'ol', 'li',
+                   'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead', 'tbody',
+                   'tr', 'td', 'th', 'span', 'div', 'a', 'blockquote', 'hr', 'pre']
+_SAFE_HTML_ATTRS = {'a': ['href', 'title'], '*': ['class']}
+
+
+def sanitize_document_html(html: str) -> str:
+    """Strip executable content from AI-generated HTML before it is rendered
+    with |safe (defense against prompt-injection producing <script>/onerror)."""
+    import bleach
+    return bleach.clean(html or '', tags=_SAFE_HTML_TAGS, attributes=_SAFE_HTML_ATTRS,
+                        strip=True)
+
 
 @manager_required
 def dispute_list(request):
@@ -207,6 +223,7 @@ def dispute_edit_document(request, document_id):
     context = {
         'document': document,
         'dispute': document.dispute,
+        'safe_preview': sanitize_document_html(document.content_html),
     }
 
     return render(request, 'manager/dispute_edit_document.html', context)
@@ -362,6 +379,14 @@ def dispute_accept_claim(request, dispute_id):
     Accepts the dispute and issues a refund to the buyer.
     """
     dispute = get_object_or_404(Dispute, pk=dispute_id)
+
+    # State guard: don't accept an already-resolved/accepted dispute (would be
+    # a no-op at best, a confusing double-action at worst).
+    if dispute.status in ('RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED'):
+        messages.error(
+            request,
+            f"This dispute is already {dispute.get_status_display()} — nothing to accept.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
     # Get optional note from POST data
     note = request.POST.get('note', '')
