@@ -873,17 +873,33 @@ def _build_timeline(dispute, comments: list) -> list:
     return [{'when': t.strftime('%b %d, %Y'), 'label': label} for t, label in events]
 
 
-def _bottom_line(dispute, identity: dict) -> list:
+def _consent_clause(consent: dict) -> str:
+    """' when they submitted the claim on <date>, from IP <ip>' — built from the
+    Zendesk ticket-creation time (the form is filed the instant it's submitted,
+    so that IS the consent moment) and the submission IP. Blank when unknown."""
+    consent = consent or {}
+    when, ip = consent.get('when'), consent.get('ip')
+    if when and ip:
+        return f" when they submitted the claim on {when}, from IP {ip}"
+    if when:
+        return f" when they submitted the claim on {when}"
+    if ip:
+        return f" from IP {ip}"
+    return ""
+
+
+def _bottom_line(dispute, identity: dict, consent: dict = None) -> list:
     """Reason-specific 'bottom line up front' bullets — the single strongest
     argument for THIS dispute reason, stated plainly for a skimming reviewer."""
     claim = dispute.claim
     name = (claim.client_name if claim else '') or dispute.buyer_name or 'The customer'
     reason = dispute.dispute_reason
+    clause = _consent_clause(consent)
     bullets = []
     if reason == 'UNAUTHORISED':
         bullets.append(f"{name} submitted this claim themselves on our website, providing their own "
                        "flight, contact and lost-item details.")
-        bullets.append("They accepted our Terms & Conditions and the 24-hour refund window before paying.")
+        bullets.append(f"They accepted our Terms & Conditions and the 24-hour refund window{clause}.")
         if identity.get('matched'):
             bullets.append("They later contacted us from the very same IP address used to submit the "
                            f"claim ({identity['submission_ip']}) — confirming this was the same person.")
@@ -893,15 +909,15 @@ def _bottom_line(dispute, identity: dict) -> list:
     elif reason in ('MERCHANDISE_OR_SERVICE_NOT_RECEIVED', 'MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED'):
         bullets.append("The service was performed: we reported the lost item to the airline and the "
                        "airport lost-&-found offices and kept the customer updated throughout.")
-        bullets.append(f"{name} accepted our Terms and the 24-hour refund window before paying; the "
+        bullets.append(f"{name} accepted our Terms and the 24-hour refund window{clause}; the "
                        "service fee is non-refundable after that window.")
     elif reason == 'CREDIT_NOT_PROCESSED':
-        bullets.append(f"{name} accepted our refund policy at purchase, including the 24-hour window.")
+        bullets.append(f"{name} accepted our refund policy, including the 24-hour window{clause}.")
         bullets.append("We performed the search service they paid for; no further credit is due under "
                        "that policy.")
     else:
         bullets.append(f"{name} authorised this purchase and we performed the search service they paid for.")
-        bullets.append("They accepted our Terms and the 24-hour refund window before paying.")
+        bullets.append(f"They accepted our Terms and the 24-hour refund window{clause}.")
     return bullets
 
 
@@ -1170,6 +1186,9 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
 
     identity = _identity_context(dispute, ticket)
     claim = dispute.claim
+    # The Zendesk ticket is created the instant the form is submitted, so its
+    # creation time is the consent moment; pair it with the submission IP.
+    consent = {'when': _fmt_zd_time(ticket.get('created_at')), 'ip': identity.get('submission_ip', '')}
 
     return {
         'dispute': dispute,
@@ -1181,9 +1200,10 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
         'sections': sections,
         'narrative': _narrative_fields(dispute),
         'framing': framing,
-        'bottom_line': _bottom_line(dispute, identity),
+        'bottom_line': _bottom_line(dispute, identity, consent),
         'timeline': _build_timeline(dispute, comments),
         'identity': identity,
+        'consent': consent,
         'alias_used': bool(getattr(claim, 'email_alias', '')) if claim else False,
         'assets': {
             'homepage': _asset_data_uri('homepage.jpg'),

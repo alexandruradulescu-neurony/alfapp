@@ -347,6 +347,25 @@ class BottomLineAndTimelineTests(TestCase):
         self.assertTrue(tl)
         self.assertTrue(all('when' in e and 'label' in e for e in tl))
 
+    def test_bottom_line_includes_consent_timestamp_and_ip(self):
+        d = _dispute(claim=None, buyer_name='Lee', dispute_reason='UNAUTHORISED')
+        bl = ds._bottom_line(d, {'matched': False, 'client_msg_count': 0},
+                             {'when': 'Jun 11, 2026 07:30', 'ip': '203.0.113.7'})
+        joined = ' '.join(bl)
+        self.assertIn('Jun 11, 2026 07:30', joined)
+        self.assertIn('203.0.113.7', joined)
+
+    def test_bundle_consent_from_ticket_creation_time(self):
+        claim = Claim.objects.create(client_email='b@example.com', zd_ticket_id='97001')
+        d = _dispute(claim=claim, zd_ticket_id='97001')
+        ticket = {'created_at': '2026-02-03T21:14:00Z',
+                  'custom_fields': [{'id': ds.SUBMISSION_IP_FIELD_ID, 'value': '203.0.113.7'}]}
+        with patch.object(ds, '_fetch_zendesk_ticket_full',
+                          return_value={'ticket': ticket, 'comments': []}):
+            bundle = ds.build_dispute_evidence_bundle(d, use_ai=False)
+        self.assertEqual(bundle['consent']['when'], 'Feb 03, 2026 21:14')
+        self.assertEqual(bundle['consent']['ip'], '203.0.113.7')
+
 
 class SectionOrderingTests(TestCase):
     def test_unauthorised_leads_with_service_initiation(self):

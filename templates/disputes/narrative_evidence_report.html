@@ -138,7 +138,7 @@
 <p class="narr" style="margin-left:14px;">&bull; the fee for our service{% if narrative.fee %} ({{ narrative.fee }} {{ narrative.currency }}){% endif %}<br>
 &bull; that they could request a refund within the first 24 hours under our Refund Policy (per our Terms and Conditions, linked in the footer of every page): <span style="color:#0070d2;">{{ narrative.terms_url }}</span></p>
 
-<p class="narr">The client also expressly authorised us to search for their lost item on their behalf, and accepted our Terms and Conditions before paying — see the checkout below:</p>
+<p class="narr">The client also expressly authorised us to search for their lost item on their behalf, and accepted our Terms and Conditions{% if consent.when %} when they submitted the claim on {{ consent.when }}{% endif %}{% if consent.ip %}, from IP address {{ consent.ip }}{% endif %} — see the checkout below:</p>
 
 {% if assets.checkout %}<img class="doc-img" src="{{ assets.checkout }}" alt="Annotated checkout showing fee, refund period, terms acceptance and authorisation">
 <p class="cap">Checkout flow — fee, clearly stated refund period, Terms acceptance, and the customer's authorisation to search on their behalf.</p>{% endif %}
