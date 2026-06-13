@@ -295,10 +295,18 @@ def agent_claim_detail(request, claim_id):
     except Exception:
         zd_subdomain = ''
 
+    # Split emails so the log shows only what still needs attention; handled
+    # ones (resolved by an agent or auto-resolved) collapse out of the way.
+    all_emails = list(claim.emails.all())  # prefetched
+    emails_open = [e for e in all_emails if e.action_required]
+    emails_handled = [e for e in all_emails if not e.action_required]
+
     context = {
         'claim': claim,
         'zd_subdomain': zd_subdomain,
         'claim_refund_status': claim.refund_status,
+        'emails_open': emails_open,
+        'emails_handled': emails_handled,
     }
 
     return render(request, 'agent/claim_detail.html', context)

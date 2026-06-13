@@ -404,7 +404,8 @@
         <div class="card-modern p-6">
             <div class="flex items-center justify-between mb-6">
                 <h3 class="text-lg font-semibold flex items-center gap-2 m-0">
-                    <i class="bi bi-envelope"></i> Email Log ({{ claim.emails.count }})
+                    <i class="bi bi-envelope"></i> Email Log
+                    {% if emails_open %}<span class="badge badge-error">{{ emails_open|length }} need action</span>{% endif %}
                 </h3>
                 <button type="button" class="btn btn-sm btn-primary" onclick="checkEmail({{ claim.id }})"
                         {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}
@@ -412,17 +413,15 @@
                     <i class="bi bi-envelope-arrow-down"></i> Check email
                 </button>
             </div>
-            {% for email in claim.emails.all %}
-            <div class="rounded-2xl p-4 mb-3 border {% if email.action_required %}border-error/30 bg-error/5{% else %}border-base-200/60{% endif %} transition-all duration-200">
+
+            {% comment %}Emails needing attention — shown by default.{% endcomment %}
+            {% for email in emails_open %}
+            <div class="rounded-2xl p-4 mb-3 border border-error/30 bg-error/5 transition-all duration-200">
                 <div class="flex flex-col sm:flex-row justify-between items-start gap-2 mb-2">
                     <h4 class="font-medium m-0">{{ email.subject }}</h4>
                     <div class="flex gap-1 flex-wrap">
                         <span class="badge badge-ghost">{{ email.get_category_display }}</span>
-                        {% if email.action_required %}
-                            <span class="badge badge-error">Action Required</span>
-                        {% elif email.auto_resolved %}
-                            <span class="badge badge-success badge-soft">Auto-resolved</span>
-                        {% endif %}
+                        <span class="badge badge-error">Action Required</span>
                     </div>
                 </div>
                 <p class="text-xs text-base-content/40 mb-2">
@@ -442,21 +441,71 @@
                             <pre class="text-sm whitespace-pre-wrap">{{ email.body|escape }}</pre>
                         </div>
                     </details>
-                    {% if email.action_required %}
                     <button type="button" class="btn btn-xs btn-success rounded-lg" onclick="resolveEmail({{ email.id }}, true)">
                         <i class="bi bi-check2"></i> Mark resolved
                     </button>
-                    {% endif %}
                 </div>
             </div>
             {% empty %}
-            <div class="text-center py-12">
-                <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
-                    <i class="bi bi-inbox text-3xl text-base-content/40"></i>
+            <div class="text-center py-8">
+                <div class="inline-flex items-center justify-center w-14 h-14 bg-success/10 rounded-full mb-3">
+                    <i class="bi bi-check2-circle text-2xl text-success"></i>
                 </div>
-                <p class="text-base-content/60 mt-2 mb-0">No emails processed for this claim.</p>
+                <p class="text-base-content/60 mt-1 mb-0">
+                    {% if emails_handled %}No emails need attention.{% else %}No emails processed for this claim yet.{% endif %}
+                </p>
             </div>
             {% endfor %}
+
+            {% comment %}Handled / auto-resolved — collapsed out of the way.{% endcomment %}
+            {% if emails_handled %}
+            <details class="mt-2">
+                <summary class="cursor-pointer text-sm text-base-content/60 hover:text-base-content transition-colors">
+                    <i class="bi bi-archive"></i> Handled ({{ emails_handled|length }})
+                </summary>
+                <div class="mt-3">
+                    {% for email in emails_handled %}
+                    <div class="rounded-2xl p-4 mb-3 border border-base-200/60 transition-all duration-200">
+                        <div class="flex flex-col sm:flex-row justify-between items-start gap-2 mb-2">
+                            <h4 class="font-medium m-0 text-base-content/80">{{ email.subject }}</h4>
+                            <div class="flex gap-1 flex-wrap">
+                                <span class="badge badge-ghost">{{ email.get_category_display }}</span>
+                                {% if email.auto_resolved %}
+                                    <span class="badge badge-success badge-soft">Auto-resolved</span>
+                                {% else %}
+                                    <span class="badge badge-ghost badge-soft">Resolved</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <p class="text-xs text-base-content/40 mb-2">
+                            <i class="bi bi-clock"></i> {{ email.received_at|date:"M d, Y H:i" }}
+                            {% if email.from_email %} · from {{ email.from_email }}{% endif %}
+                        </p>
+                        {% if email.ai_summary %}
+                        <div class="rounded-xl bg-base-200/40 p-3 mb-2 flex items-start gap-2">
+                            <i class="bi bi-robot text-base-content/40 mt-0.5"></i>
+                            <span class="text-sm text-base-content/70">{{ email.ai_summary }}</span>
+                        </div>
+                        {% endif %}
+                        <div class="flex items-center justify-between mt-2">
+                            <details>
+                                <summary class="cursor-pointer text-primary hover:text-primary/80 transition-colors text-sm">View original email</summary>
+                                <div class="mt-2 rounded-xl bg-base-200/50 p-4">
+                                    <pre class="text-sm whitespace-pre-wrap">{{ email.body|escape }}</pre>
+                                </div>
+                            </details>
+                            {% if not email.auto_resolved %}
+                            <button type="button" class="btn btn-xs btn-ghost rounded-lg" onclick="resolveEmail({{ email.id }}, false)"
+                                    title="Move back to needs-attention">
+                                <i class="bi bi-arrow-counterclockwise"></i> Reopen
+                            </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </details>
+            {% endif %}
         </div>
 
 

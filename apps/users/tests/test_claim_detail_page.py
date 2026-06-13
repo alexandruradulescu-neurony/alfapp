@@ -74,3 +74,21 @@ class ClaimDetailPageTests(TestCase):
         html = resp.content.decode()
         self.assertIn('Aegean Airlines - A3', html)
         self.assertIn('Not verified yet', html)
+
+    def test_email_log_separates_open_from_handled(self):
+        from apps.communications.models import EmailLog
+        EmailLog.objects.create(
+            claim=self.claim, subject='Needs a reply', body='please respond',
+            category='OBJECT_FOUND', action_required=True, auto_resolved=False)
+        EmailLog.objects.create(
+            claim=self.claim, subject='Auto handled', body='not found',
+            category='OBJECT_NOT_FOUND', action_required=False, auto_resolved=True)
+        resp = self.web.get(self.url)
+        html = resp.content.decode()
+        # Open email is shown with its resolve control; handled section exists
+        self.assertIn('Needs a reply', html)
+        self.assertIn('Mark resolved', html)
+        self.assertIn('need action', html)
+        self.assertIn('Handled (1)', html)
+        # The handled (auto-resolved) one is present but tucked in the section
+        self.assertIn('Auto handled', html)
