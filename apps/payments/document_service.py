@@ -812,7 +812,11 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True) -> di
     comments = zd_data.get('comments', [])
 
     screenshots = []
-    for screenshot in DisputeScreenshot.objects.filter(dispute=dispute).order_by('-captured_at'):
+    # A transient (unsaved) dispute — used by the --zd-ticket preview — has no
+    # pk, so it can't have attached screenshots; skip the related lookup.
+    screenshot_qs = (DisputeScreenshot.objects.filter(dispute=dispute).order_by('-captured_at')
+                     if dispute.pk else DisputeScreenshot.objects.none())
+    for screenshot in screenshot_qs:
         data_uri = _encode_screenshot_to_base64(screenshot)
         if data_uri:
             screenshots.append({

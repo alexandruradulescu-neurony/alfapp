@@ -141,3 +141,23 @@ class TemplateRenderTests(TestCase):
         self.assertIn('CLT', html)
         # conclusion present
         self.assertIn('Conclusion', html)
+
+
+class TransientDisputePreviewTests(TestCase):
+    """--zd-ticket preview builds an UNSAVED dispute; the bundle must not try to
+    query related screenshots by it (Django rejects unsaved related filters)."""
+
+    def test_bundle_works_for_unsaved_dispute(self):
+        claim = Claim.objects.create(client_email='b@example.com', zd_ticket_id='97001',
+                                     flight_data=FLIGHT_DATA)
+        dispute = Dispute(claim=claim, zd_ticket_id='97001', paypal_dispute_id='PREVIEW-97001',
+                          dispute_reason='UNAUTHORISED', buyer_email='b@example.com',
+                          transaction_id='PREVIEW',
+                          transaction_date=datetime(2026, 2, 3, tzinfo=dt_tz.utc), status='RECEIVED')
+        self.assertIsNone(dispute.pk)  # transient
+        with patch.object(ds, '_fetch_zendesk_ticket_full',
+                          return_value={'ticket': {}, 'comments': COMMENTS}):
+            bundle = ds.build_dispute_evidence_bundle(dispute, embed_attachments=False)
+        self.assertEqual(bundle['screenshots'], [])
+        self.assertTrue(bundle['flight_card'])
+        self.assertEqual(len(bundle['panels']), 2)
