@@ -306,8 +306,10 @@ def dispute_edit_document(request, document_id):
         content_html = request.POST.get('content_html', '')
         version_increment = request.POST.get('version_increment', 'on')
 
-        # Update document content
-        document.content_html = content_html
+        # Don't wipe the document if the editor posted empty content (e.g. the
+        # in-place editor's JS failed to serialise the iframe).
+        if content_html.strip():
+            document.content_html = content_html
 
         # Increment version if requested
         if version_increment:

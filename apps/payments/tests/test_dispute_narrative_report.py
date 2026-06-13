@@ -446,6 +446,41 @@ class ManualDisputeCreateTests(TestCase):
         self.assertRedirects(resp, '/manager/disputes/', fetch_redirect_response=False)
 
 
+class ReportEditorRenderTests(TestCase):
+    """Evidence reports use the in-place WYSIWYG (iframe) editor; other docs
+    keep the plain textarea editor."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from django.test import Client
+        from django.urls import reverse
+        from apps.payments.models import DisputeDocument
+        self.reverse = reverse
+        User = get_user_model()
+        self.mgr = User.objects.create_user(username='ed_mgr', password='x', role='MANAGER')
+        self.web = Client()
+        self.web.force_login(self.mgr)
+        d = _dispute()
+        self.report = DisputeDocument.objects.create(
+            dispute=d, doc_type='EVIDENCE_REPORT', status='DRAFT', generated_by='MANUAL',
+            content_html='<html><body><p>Hi &amp; "bye"</p></body></html>', version=1)
+        self.letter = DisputeDocument.objects.create(
+            dispute=d, doc_type='RESPONSE_LETTER', status='DRAFT', generated_by='AI',
+            content_html='Subject\n\nBody', version=1)
+
+    def test_report_uses_inplace_iframe_editor(self):
+        resp = self.web.get(self.reverse('disputes:dispute_edit_document', args=[self.report.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'reportFrame')
+        self.assertContains(resp, 'srcdoc')
+
+    def test_letter_uses_textarea_editor(self):
+        resp = self.web.get(self.reverse('disputes:dispute_edit_document', args=[self.letter.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'name="content_html"')
+        self.assertNotContains(resp, 'reportFrame')
+
+
 class GroupedTemplateRenderTests(TestCase):
     def test_sections_and_explanations_render(self):
         claim = Claim.objects.create(client_email='b@example.com', client_name='Lee Foley',

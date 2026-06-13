@@ -3,177 +3,139 @@
 {% block title %}Edit Document #{{ document.id }}{% endblock %}
 
 {% block content %}
-<!-- Page Header -->
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
     <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-        <i class="bi bi-pencil"></i> Edit Document
+        <i class="bi bi-pencil"></i> Edit {{ document.get_doc_type_display }}
+        <span class="text-sm font-normal text-base-content/60">v{{ document.version }} · Dispute #{{ dispute.id }}</span>
     </h2>
     <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="btn btn-outline rounded-xl transition-all duration-200">
         <i class="bi bi-arrow-left"></i> Back to Dispute
     </a>
 </div>
 
+{% if document.doc_type == 'EVIDENCE_REPORT' %}
+<!-- ============ In-place WYSIWYG editor (evidence report) ============ -->
+<form method="post" id="wysiwygForm" action="{% url 'disputes:dispute_edit_document' document.id %}">
+    {% csrf_token %}
+    <input type="hidden" name="content_html" id="content_html_field">
+    <input type="hidden" name="version_increment" value="on">
+
+    <div class="card-modern p-3 mb-4 flex flex-wrap items-center gap-2 sticky top-2 z-10">
+        <span class="text-sm text-base-content/70 mr-2"><i class="bi bi-cursor-text"></i> Click any text to edit it.</span>
+        <div class="join">
+            <button type="button" class="btn btn-sm join-item" title="Bold" onclick="exec('bold')"><i class="bi bi-type-bold"></i></button>
+            <button type="button" class="btn btn-sm join-item" title="Italic" onclick="exec('italic')"><i class="bi bi-type-italic"></i></button>
+            <button type="button" class="btn btn-sm join-item" title="Underline" onclick="exec('underline')"><i class="bi bi-type-underline"></i></button>
+            <button type="button" class="btn btn-sm join-item" title="Undo" onclick="exec('undo')"><i class="bi bi-arrow-counterclockwise"></i></button>
+            <button type="button" class="btn btn-sm join-item" title="Redo" onclick="exec('redo')"><i class="bi bi-arrow-clockwise"></i></button>
+        </div>
+        <div class="flex-1"></div>
+        <button type="button" class="btn btn-primary btn-sm rounded-xl" onclick="saveReport()">
+            <i class="bi bi-save"></i> Save &amp; regenerate PDF
+        </button>
+        <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="btn btn-outline btn-sm rounded-xl">Cancel</a>
+    </div>
+
+    <div class="rounded-xl border border-base-300 bg-white overflow-hidden">
+        <iframe id="reportFrame" title="Evidence report editor"
+                srcdoc="{{ document.content_html }}"
+                style="width:100%; border:0; min-height:600px;"></iframe>
+    </div>
+    <p class="text-xs text-base-content/60 mt-2">
+        <i class="bi bi-info-circle"></i> What you see is exactly what the PDF will contain. Images and layout are locked;
+        edit the text, then "Save &amp; regenerate PDF". You can re-edit anytime.
+    </p>
+</form>
+{% else %}
+<!-- ============ Plain HTML editor (response letter, etc.) ============ -->
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-    <!-- Editor Column -->
     <div class="lg:col-span-2">
-        <div class="card-modern p-6 animate-fade-in">
-            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
-                <div>
-                    <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 m-0">
-                        <i class="bi bi-file-earmark-text"></i>
-                        {{ document.get_doc_type_display }} - Version {{ document.version }}
-                    </h3>
-                    <span class="text-sm text-base-content/60">
-                        Dispute #{{ dispute.id }} - {{ dispute.paypal_dispute_id }}
-                    </span>
-                </div>
-                <span class="{% if document.status == 'ACCEPTED' %}badge-soft-success{% elif document.status == 'SENT' %}badge-soft-info{% elif document.status == 'REVIEW' %}badge-soft-warning{% else %}badge-soft-neutral{% endif %} rounded-full px-3 py-1 text-xs">
-                    {{ document.get_status_display }}
-                </span>
-            </div>
+        <div class="card-modern p-6">
             <form method="post" action="{% url 'disputes:dispute_edit_document' document.id %}">
                 {% csrf_token %}
-
                 <div class="form-control mb-4">
                     <label class="label flex-col items-start">
-                        <span class="label-text font-semibold">Document Content</span>
+                        <span class="label-text font-semibold">Document content</span>
                         <span class="text-xs text-base-content/60">HTML supported</span>
                     </label>
-                    <textarea class="rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full font-mono text-sm p-4" id="content_html" name="content_html"
-                              rows="20">{{ document.content_html }}</textarea>
-                    <span class="text-xs text-base-content/60 mt-2">
-                        You can use HTML tags for formatting: &lt;p&gt;, &lt;strong&gt;, &lt;em&gt;, &lt;ul&gt;, &lt;li&gt;, etc.
-                    </span>
+                    <textarea class="rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full font-mono text-sm p-4"
+                              id="content_html" name="content_html" rows="20">{{ document.content_html }}</textarea>
                 </div>
-
                 <div class="form-control mb-4">
                     <label class="label cursor-pointer justify-start gap-3">
-                        <input type="checkbox" class="checkbox checkbox-primary rounded-lg" id="version_increment"
-                               name="version_increment" checked>
+                        <input type="checkbox" class="checkbox checkbox-primary rounded-lg" name="version_increment" checked>
                         <span class="label-text">Increment version number (current: v{{ document.version }})</span>
                     </label>
                 </div>
-
                 <div class="flex gap-2">
-                    <button type="submit" class="btn btn-primary rounded-xl transition-all duration-200">
-                        <i class="bi bi-save"></i> Save Changes
-                    </button>
-                    <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="btn btn-outline rounded-xl transition-all duration-200">
-                        <i class="bi bi-x-circle"></i> Cancel
-                    </a>
+                    <button type="submit" class="btn btn-primary rounded-xl"><i class="bi bi-save"></i> Save Changes</button>
+                    <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="btn btn-outline rounded-xl">Cancel</a>
                 </div>
             </form>
         </div>
     </div>
-
-    <!-- Preview Column -->
     <div class="lg:col-span-1">
-        <div class="card-modern p-6 mb-6 animate-fade-in">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-4">
-                <i class="bi bi-eye"></i> Quick Preview
-            </h3>
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold mb-4"><i class="bi bi-eye"></i> Quick Preview</h3>
             <div class="rounded-xl border border-base-200/50 bg-white p-4 min-h-[400px] max-h-[600px] overflow-y-auto">
-                <div id="preview-pane">
-                    {{ safe_preview|safe }}
-                </div>
-            </div>
-            <span class="text-xs text-base-content/60 mt-2 block">
-                <i class="bi bi-info-circle"></i> This is a live preview of the HTML content.
-            </span>
-        </div>
-
-        <!-- Document Info Card -->
-        <div class="card-modern p-6 mb-6 animate-fade-in">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-4">
-                <i class="bi bi-info-circle"></i> Document Info
-            </h3>
-            <div class="space-y-2">
-                <div class="flex justify-between">
-                    <span class="text-sm text-base-content/60">Type:</span>
-                    <span class="text-sm font-medium">{{ document.get_doc_type_display }}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-sm text-base-content/60">Status:</span>
-                    <span class="{% if document.status == 'ACCEPTED' %}badge-soft-success{% elif document.status == 'SENT' %}badge-soft-info{% elif document.status == 'REVIEW' %}badge-soft-warning{% else %}badge-soft-neutral{% endif %} rounded-full px-3 py-1 text-xs">
-                        {{ document.get_status_display }}
-                    </span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-sm text-base-content/60">Version:</span>
-                    <span class="text-sm font-medium">{{ document.version }}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-sm text-base-content/60">Generated By:</span>
-                    <span class="text-sm font-medium">{{ document.get_generated_by_display }}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-sm text-base-content/60">Created:</span>
-                    <span class="text-sm font-medium">{{ document.created_at|date:"M d, Y H:i" }}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-sm text-base-content/60">Last Updated:</span>
-                    <span class="text-sm font-medium">{{ document.updated_at|date:"M d, Y H:i" }}</span>
-                </div>
-                {% if document.accepted_at %}
-                <div class="flex justify-between">
-                    <span class="text-sm text-base-content/60">Accepted:</span>
-                    <span class="text-sm font-medium">
-                        {{ document.accepted_at|date:"M d, Y H:i" }}
-                        {% if document.accepted_by %}
-                        <br><span class="text-xs text-base-content/60">by {{ document.accepted_by.username }}</span>
-                        {% endif %}
-                    </span>
-                </div>
-                {% endif %}
-            </div>
-
-            {% if document.file_path %}
-            <div class="divider"></div>
-            <a href="{{ document.file_path.url }}" class="btn btn-outline btn-primary w-full rounded-xl transition-all duration-200" target="_blank">
-                <i class="bi bi-download"></i> Download PDF
-            </a>
-            {% endif %}
-        </div>
-
-        <!-- Tips Card -->
-        <div class="card-modern p-6 animate-fade-in">
-            <div class="bg-primary/5 rounded-xl p-4">
-                <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-2">
-                    <i class="bi bi-lightbulb"></i> Editing Tips
-                </h3>
-                <ul class="text-sm text-base-content/60 space-y-1">
-                    <li>Use <code>&lt;p&gt;</code> tags for paragraphs</li>
-                    <li>Use <code>&lt;strong&gt;</code> for bold text</li>
-                    <li>Use <code>&lt;em&gt;</code> for italic text</li>
-                    <li>Use <code>&lt;ul&gt;&lt;li&gt;</code> for bullet lists</li>
-                    <li>Use <code>&lt;h3&gt;</code> for section headings</li>
-                    <li>Keep the tone professional and courteous</li>
-                    <li>Include factual information only</li>
-                </ul>
+                <div id="preview-pane">{{ safe_preview|safe }}</div>
             </div>
         </div>
     </div>
 </div>
+{% endif %}
+
+{% if document.file_path %}
+<div class="mt-4">
+    <a href="{{ document.file_path.url }}" target="_blank" class="btn btn-outline btn-primary rounded-xl">
+        <i class="bi bi-download"></i> Download current PDF
+    </a>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
 <script>
-    // Live preview update
-    document.getElementById('content_html').addEventListener('input', function() {
-        document.getElementById('preview-pane').innerHTML = this.value;
+{% if document.doc_type == 'EVIDENCE_REPORT' %}
+    const frame = document.getElementById('reportFrame');
+
+    function resizeFrame() {
+        try {
+            const doc = frame.contentDocument;
+            frame.style.height = Math.max(600, doc.body.scrollHeight + 40) + 'px';
+        } catch (e) { /* ignore */ }
+    }
+
+    frame.addEventListener('load', function () {
+        const doc = frame.contentDocument;
+        // Make the document editable, but lock images so they can't be moved/altered.
+        doc.designMode = 'on';
+        doc.querySelectorAll('img').forEach(function (img) {
+            img.setAttribute('contenteditable', 'false');
+            img.setAttribute('draggable', 'false');
+        });
+        doc.addEventListener('input', resizeFrame);
+        resizeFrame();
     });
 
-    // Add some basic syntax highlighting (optional enhancement)
-    const textarea = document.getElementById('content_html');
-    textarea.addEventListener('keydown', function(e) {
-        // Tab support for indentation
-        if (e.key === 'Tab') {
-            e.preventDefault();
-            const start = this.selectionStart;
-            const end = this.selectionEnd;
-            this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
-            this.selectionStart = this.selectionEnd = start + 4;
-        }
-    });
+    function exec(cmd) {
+        frame.contentDocument.execCommand(cmd, false, null);
+        frame.focus();
+    }
+
+    function saveReport() {
+        const doc = frame.contentDocument;
+        document.getElementById('content_html_field').value =
+            '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+        document.getElementById('wysiwygForm').submit();
+    }
+{% else %}
+    const ta = document.getElementById('content_html');
+    if (ta) {
+        ta.addEventListener('input', function () {
+            document.getElementById('preview-pane').innerHTML = this.value;
+        });
+    }
+{% endif %}
 </script>
 {% endblock %}
