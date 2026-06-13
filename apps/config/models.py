@@ -219,6 +219,13 @@ Please analyze this claim and provide:
         default='',
         help_text='PayPal Webhook ID for event notifications'
     )
+    paypal_mode = models.CharField(
+        max_length=10,
+        choices=[('sandbox', 'Sandbox (test — no real money)'), ('live', 'Live (real money)')],
+        default='sandbox',
+        help_text='Which PayPal environment dispute/refund API calls hit. '
+                  'Defaults to SANDBOX — set to Live only when ready to move real money.'
+    )
 
     # Zendesk Sidebar Authentication (ENCRYPTED - sensitive credential)
     sidebar_secret_token = EncryptedCharField(

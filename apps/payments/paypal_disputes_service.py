@@ -8,7 +8,9 @@ Provides functions for interacting with PayPal's Customer Disputes API:
 - Accepting claims (refunds)
 - Sending messages to buyers
 
-All API calls use the live PayPal API (production environment).
+Environment (sandbox vs live) is controlled by SystemSettings.paypal_mode and
+resolved by paypal_api_base() — defaults to SANDBOX so no dispute action moves
+real money until explicitly switched to live.
 """
 
 import base64
@@ -28,6 +30,57 @@ from apps.payments.models import Dispute, DisputeDocument, DisputeActivityLog
 from apps.config.models import SystemSettings
 
 logger = logging.getLogger(__name__)
+
+# PayPal REST hosts. Default to SANDBOX so no dispute action can move real
+# money until SystemSettings.paypal_mode is explicitly set to 'live'.
+_PAYPAL_HOSTS = {
+    'sandbox': 'https://api-m.sandbox.paypal.com',
+    'live': 'https://api-m.paypal.com',
+}
+
+# Allowed PayPal evidence types (subset most relevant to a service concierge).
+# NOTE: exact accepted values + the multipart wire format below must be
+# confirmed against the PayPal sandbox before going live (Phase 1 gate).
+DEFAULT_EVIDENCE_TYPE = 'PROOF_OF_FULFILLMENT'
+
+
+def paypal_api_base() -> str:
+    """Base REST URL for the configured PayPal environment (sandbox by default)."""
+    mode = (SystemSettings.get_instance().paypal_mode or 'sandbox').strip().lower()
+    return _PAYPAL_HOSTS.get(mode, _PAYPAL_HOSTS['sandbox'])
+
+
+def _encode_multipart(input_json: dict, files: List[dict]):
+    """Build a multipart/form-data body for PayPal's provide-evidence call.
+
+    files: [{'name','filename','content'(bytes),'content_type'}]. Returns
+    (body_bytes, content_type_header). PayPal expects a JSON 'input' part
+    describing the evidences plus one part per uploaded file.
+    """
+    import uuid
+    boundary = f"----LORA{uuid.uuid4().hex}"
+    crlf = b'\r\n'
+    parts = []
+
+    parts.append(b'--' + boundary.encode())
+    parts.append(b'Content-Disposition: form-data; name="input"')
+    parts.append(b'Content-Type: application/json')
+    parts.append(b'')
+    parts.append(json.dumps(input_json).encode('utf-8'))
+
+    for f in files:
+        parts.append(b'--' + boundary.encode())
+        parts.append(
+            f'Content-Disposition: form-data; name="{f["name"]}"; '
+            f'filename="{f["filename"]}"'.encode('utf-8'))
+        parts.append(f'Content-Type: {f.get("content_type", "application/pdf")}'.encode('utf-8'))
+        parts.append(b'')
+        parts.append(f['content'])
+
+    parts.append(b'--' + boundary.encode() + b'--')
+    parts.append(b'')
+    body = crlf.join(parts)
+    return body, f'multipart/form-data; boundary={boundary}'
 
 
 @retry(
@@ -72,7 +125,7 @@ def get_paypal_access_token() -> Optional[str]:
             return access_token
 
         # Build OAuth2 token request
-        base_url = "https://api.paypal.com"  # Always use live API
+        base_url = paypal_api_base()
         token_url = f"{base_url}/v1/oauth2/token"
 
         # Encode credentials for Basic auth
@@ -156,8 +209,8 @@ def fetch_dispute_details(dispute_id: str) -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        base_url = "https://api.paypal.com"  # Always use live API
-        dispute_url = f"{base_url}/v1/customer-disputes/{dispute_id}"
+        base_url = paypal_api_base()
+        dispute_url = f"{base_url}/v1/customer/disputes/{dispute_id}"
 
         # Create request with proper headers
         request = urllib.request.Request(
@@ -200,7 +253,8 @@ def fetch_dispute_details(dispute_id: str) -> Optional[Dict[str, Any]]:
 def provide_evidence(
     dispute_id: str,
     documents: List[DisputeDocument],
-    response_text: str
+    response_text: str,
+    evidence_type: str = DEFAULT_EVIDENCE_TYPE,
 ) -> bool:
     """
     Provide evidence to PayPal for a dispute.
@@ -230,60 +284,51 @@ def provide_evidence(
             logger.error(f"Local Dispute record not found for PayPal dispute {dispute_id}")
             return False
 
-        base_url = "https://api.paypal.com"  # Always use live API
-        evidence_url = f"{base_url}/v1/customer-disputes/{dispute_id}/provide-evidence"
+        base_url = paypal_api_base()
+        evidence_url = f"{base_url}/v1/customer/disputes/{dispute_id}/provide-evidence"
 
-        # Build evidence payload
-        # PayPal expects evidence in a specific format with notes and supporting_files
-        evidence_payload = {
-            "notes": response_text,
-            "supporting_files": []
-        }
-
-        # Process each document
+        # PayPal's provide-evidence is a MULTIPART upload: a JSON 'input' part
+        # describing the evidences (each with an evidence_type), plus one part
+        # per real file. (The previous base64-in-JSON form was rejected by
+        # PayPal.) Exact field shape to be confirmed in sandbox.
+        files = []
         for doc in documents:
             if not doc.file_path:
                 logger.warning(f"Document {doc.id} has no file_path, skipping")
                 continue
-
             try:
-                # Read the PDF file content
                 doc.file_path.open('rb')
-                file_content = doc.file_path.read()
-                file_content_base64 = base64.b64encode(file_content).decode('utf-8')
-
-                # Determine file name from the file path
+                content = doc.file_path.read()
                 file_name = doc.file_path.name.split('/')[-1]
-
-                # Add to supporting files
-                evidence_payload["supporting_files"].append({
-                    "file_name": file_name,
-                    "file_type": "PDF",
-                    "file_content": file_content_base64,
-                    "notes": f"{doc.get_doc_type_display()} - Version {doc.version}"
+                files.append({
+                    'name': file_name,
+                    'filename': file_name,
+                    'content': content,
+                    'content_type': 'application/pdf',
                 })
-
-                logger.info(f"Added document {doc.id} ({file_name}) to evidence payload")
-
+                logger.info(f"Attached document {doc.id} ({file_name}) to evidence upload")
             except Exception as e:
-                logger.error(f"Error processing document {doc.id}: {e}")
+                logger.error(f"Error reading document {doc.id}: {e}")
                 continue
 
-        if not evidence_payload["supporting_files"]:
-            logger.warning(f"No valid documents to submit for dispute {dispute_id}")
-            # Still allow submission with just notes if response_text is provided
-            if not response_text:
-                logger.error("No evidence (documents or response text) to submit")
-                return False
+        if not files:
+            logger.error(f"No valid document files to submit for dispute {dispute_id}")
+            return False
 
-        # Create request
-        request_data = json.dumps(evidence_payload).encode('utf-8')
+        input_json = {
+            "evidences": [{
+                "evidence_type": evidence_type,
+                "notes": response_text or '',
+                "document_ids": [f['filename'] for f in files],
+            }]
+        }
+        request_data, content_type = _encode_multipart(input_json, files)
         request = urllib.request.Request(
             evidence_url,
             data=request_data,
             headers={
                 'Authorization': f'Bearer {access_token}',
-                'Content-Type': 'application/json',
+                'Content-Type': content_type,
             },
             method='POST'
         )
@@ -363,8 +408,8 @@ def accept_claim(dispute_id: str, note: str = '') -> bool:
             logger.error(f"Local Dispute record not found for PayPal dispute {dispute_id}")
             return False
 
-        base_url = "https://api.paypal.com"  # Always use live API
-        accept_url = f"{base_url}/v1/customer-disputes/{dispute_id}/accept-claim"
+        base_url = paypal_api_base()
+        accept_url = f"{base_url}/v1/customer/disputes/{dispute_id}/accept-claim"
 
         # Build acceptance payload
         accept_payload = {}
@@ -456,8 +501,8 @@ def send_message(dispute_id: str, message: str) -> bool:
             logger.error(f"Local Dispute record not found for PayPal dispute {dispute_id}")
             return False
 
-        base_url = "https://api.paypal.com"  # Always use live API
-        message_url = f"{base_url}/v1/customer-disputes/{dispute_id}/message"
+        base_url = paypal_api_base()
+        message_url = f"{base_url}/v1/customer/disputes/{dispute_id}/send-message"
 
         # Build message payload
         message_payload = {
