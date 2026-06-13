@@ -1528,3 +1528,47 @@ class ZendeskEmailCheckView(APIView):
         return Response({'message': f"{new_count} new email(s) processed",
                          'claimless': claim is None, **results},
                         status=status.HTTP_200_OK)
+
+
+class ZendeskTicketEmailsView(APIView):
+    """POST /api/integrations/zd/emails/  Body: {ticket_id}
+
+    Read-only window onto the SAME stored EmailLog rows the LORA app shows —
+    so the sidebar's Email tab lists the ticket's real email history, not just
+    the last check's results. No doubling: one store, two views.
+    Auth: ZendeskSidebarAuth."""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        if not ZendeskSidebarAuth.authenticate(request):
+            ip = request.META.get('REMOTE_ADDR', '')
+            cache_key = f'sidebar_auth_fail_{ip}'
+            failed_attempts = cache.get(cache_key, 0)
+            cache.set(cache_key, failed_attempts + 1, 300)
+            logger.warning(f"Failed emails-list auth attempt, IP: {ip}, attempt: {failed_attempts + 1}")
+            if failed_attempts >= 5:
+                return Response({'error': 'Too many failed attempts. Please try again later.'},
+                                status=status.HTTP_429_TOO_MANY_REQUESTS)
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+
+        ticket_id = str(request.data.get('ticket_id', '')).strip()
+        if not ticket_id:
+            return Response({'emails': []}, status=status.HTTP_200_OK)
+
+        # Match the claim's emails when linked, else by ticket id (claimless).
+        claim = Claim.objects.filter(zd_ticket_id=ticket_id).first()
+        qs = (claim.emails.all() if claim
+              else EmailLog.objects.filter(zd_ticket_id=ticket_id))
+        emails = [{
+            'id': e.id,
+            'subject': e.subject,
+            'from_email': e.from_email,
+            'category': e.get_category_display(),
+            'summary': e.ai_summary,
+            'action_required': e.action_required,
+            'auto_resolved': e.auto_resolved,
+            'received_at': e.received_at.isoformat() if e.received_at else None,
+        } for e in qs.order_by('-received_at')[:50]]
+        return Response({'emails': emails, 'claimless': claim is None},
+                        status=status.HTTP_200_OK)

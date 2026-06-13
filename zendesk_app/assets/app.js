@@ -90,20 +90,47 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.getElementById('panel-briefing').hidden = which !== 'briefing';
     document.getElementById('panel-chat').hidden = which !== 'chat';
     document.getElementById('panel-email').hidden = which !== 'email';
+    if (which === 'email') loadEmails();
   };
 });
 
+function timeAgo(iso) {
+  const then = new Date(iso).getTime();
+  if (!then) return '';
+  const mins = Math.round((Date.now() - then) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + ' min ago';
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  return Math.round(hrs / 24) + 'd ago';
+}
+
 // --- briefing ---
-async function loadBriefing() {
+// regen=false: read the ONE stored summary (no AI cost, instant, same text the
+// LORA app shows). regen=true (Regenerate button): regenerate AND persist, so
+// the refresh shows up in the app too.
+async function loadBriefing(regen) {
   const loading = document.getElementById('briefing-loading');
   const content = document.getElementById('briefing-content');
   const errorEl = document.getElementById('briefing-error');
   loading.hidden = false; content.hidden = true; errorEl.hidden = true;
   try {
     const ctx = await ticketContext();
-    const resp = await loraRequest('/api/integrations/zd/briefing/', ctx);
+    const body = regen ? Object.assign({}, ctx, { refresh: true }) : ctx;
+    const resp = await loraRequest('/api/integrations/zd/briefing/', body);
     const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
-    document.getElementById('summary').textContent = data.summary || '';
+    const sum = document.getElementById('summary');
+    sum.textContent = data.summary || '';
+    const note = document.createElement('div');
+    note.className = 'muted';
+    note.style.marginTop = '4px';
+    if (data.summary_updated_at) {
+      note.textContent = 'Updated ' + timeAgo(data.summary_updated_at);
+      sum.appendChild(note);
+    } else if (data.stored === false) {
+      note.textContent = 'Live briefing — no linked LORA claim to save against.';
+      sum.appendChild(note);
+    }
     document.getElementById('next-steps').innerHTML = ''; // generated on demand
     const f = data.facts || {};
     document.getElementById('facts').innerHTML = renderFacts(f);
@@ -143,8 +170,8 @@ function renderAttention(items) {
   return `<div class="attention"><strong>⚠️ Needs attention</strong><ul>${rows}</ul></div>`;
 }
 
-document.getElementById('briefing-retry').onclick = loadBriefing;
-document.getElementById('btn-regen').onclick = loadBriefing;
+document.getElementById('briefing-retry').onclick = () => loadBriefing(false);
+document.getElementById('btn-regen').onclick = () => loadBriefing(true);
 
 document.getElementById('btn-next-steps').onclick = async () => {
   const btn = document.getElementById('btn-next-steps');
@@ -329,7 +356,43 @@ function renderFlightResult(data) {
 
 document.getElementById('btn-flight').onclick = () => flightLookup(false);
 
-// --- email check ---
+// --- email tab: a window onto the SAME stored emails the LORA app shows ---
+async function loadEmails() {
+  const box = document.getElementById('email-result');
+  box.hidden = false;
+  box.innerHTML = '<div class="skel" style="width: 60%"></div><div class="skel" style="width: 45%"></div>';
+  try {
+    const data0 = await client.get(['ticket.id']);
+    const resp = await loraRequest('/api/integrations/zd/emails/',
+      { ticket_id: String(data0['ticket.id']) });
+    const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
+    box.innerHTML = renderEmailList(data.emails || []);
+  } catch (e) {
+    const s = e && typeof e.status === 'number' ? e.status : null;
+    box.innerHTML = '<span class="error">' + escapeHtml(diagnose(e)) + '</span>';
+  }
+}
+
+function renderEmailList(emails) {
+  if (!emails.length) {
+    return '<div class="muted">No emails recorded for this ticket yet. '
+      + 'Use “Check email now” to pull any waiting in the mailbox.</div>';
+  }
+  return emails.map(em => {
+    let html = '<div class="em-card">';
+    html += `<div class="em-subject">${escapeHtml(em.subject || '(No Subject)')}</div>`;
+    const when = em.received_at ? ' · ' + timeAgo(em.received_at) : '';
+    html += `<div class="muted">from ${escapeHtml(em.from_email || 'unknown')}${when}</div>`;
+    const cat = (em.category || '').toString();
+    html += `<div class="em-chips"><span class="em-chip">${escapeHtml(cat)}</span>`;
+    if (em.action_required) html += '<span class="em-chip c-attention">needs action</span>';
+    else if (em.auto_resolved) html += '<span class="em-chip c-OBJECT_NOT_FOUND">auto-resolved</span>';
+    html += '</div>';
+    if (em.summary) html += `<div class="em-summary">${escapeHtml(em.summary)}</div>`;
+    return html + '</div>';
+  }).join('');
+}
+
 async function checkEmail() {
   const btn = document.getElementById('btn-check-email');
   const box = document.getElementById('email-result');
@@ -341,7 +404,19 @@ async function checkEmail() {
     const resp = await loraRequest('/api/integrations/zd/email-check/',
       { ticket_id: String(data0['ticket.id']) });
     const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
-    box.innerHTML = renderEmailResult(data);
+    if (data.error || data.error_message) {
+      box.innerHTML = '<div class="em-head">' + escapeHtml(data.error || data.error_message) + '</div>';
+      return;
+    }
+    // After checking, show the up-to-date stored list (single source).
+    await loadEmails();
+    const n = (data.processed || []).length;
+    if (n) {
+      const head = document.createElement('div');
+      head.className = 'em-head'; head.style.marginBottom = '6px';
+      head.textContent = `${n} new email(s) pulled.`;
+      box.insertBefore(head, box.firstChild);
+    }
   } catch (e) {
     const s = e && typeof e.status === 'number' ? e.status : null;
     const server = e && e.responseJSON && (e.responseJSON.error || e.responseJSON.error_message);
@@ -352,41 +427,7 @@ async function checkEmail() {
   }
 }
 
-function renderEmailResult(data) {
-  if (data.error) return '<span class="error">' + escapeHtml(data.error) + '</span>';
-  if (data.error_message) return '<div class="em-head">' + escapeHtml(data.error_message) + '</div>';
-  let html = '';
-  const newOnes = data.processed || [];
-  if (!newOnes.length) {
-    html += `<div class="em-head">No new mail for ${escapeHtml(data.alias || 'this alias')}.</div>`;
-    if (data.already_processed) {
-      html += `<div class="muted">${data.already_processed} email(s) in the window were already processed earlier.</div>`;
-    }
-  } else {
-    html += `<div class="em-head">${newOnes.length} new email(s) for ${escapeHtml(data.alias || '')}:</div>`;
-    newOnes.forEach(em => {
-      html += '<div class="em-card">';
-      html += `<div class="em-subject">${escapeHtml(em.subject || '(No Subject)')}</div>`;
-      html += `<div class="muted">from ${escapeHtml(em.from_email || 'unknown')}</div>`;
-      const cat = (em.category || 'UNKNOWN').replace(/_/g, ' ').toLowerCase();
-      html += `<div class="em-chips"><span class="em-chip c-${escapeHtml(em.category || 'UNKNOWN')}">${escapeHtml(cat)}</span>`;
-      if (em.action_required) html += '<span class="em-chip c-attention">needs action</span>';
-      html += '</div>';
-      if (em.summary) html += `<div class="em-summary">${escapeHtml(em.summary)}</div>`;
-      if (em.note_posted) html += '<div class="muted">✓ Posted as internal note.</div>';
-      html += '</div>';
-    });
-  }
-  if (data.tags_added && data.tags_added.length) {
-    html += `<div class="muted" style="margin-top:6px">Tags added: ${data.tags_added.map(escapeHtml).join(', ')}</div>`;
-  }
-  if (data.capped) {
-    html += '<div class="muted">More mail is waiting — click again to continue.</div>';
-  }
-  return html || '<span class="muted">No result.</span>';
-}
-
 document.getElementById('btn-check-email').onclick = checkEmail;
 
 // init
-loadBriefing();
+loadBriefing(false);

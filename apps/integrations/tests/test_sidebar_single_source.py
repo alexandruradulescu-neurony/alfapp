@@ -69,6 +69,25 @@ class BriefingSingleSourceTests(TestCase):
             self.api.post(self.URL, {'ticket_id': '81001'}, format='json', **self.auth)
         refresh.assert_called_once()  # no stored summary yet → generate+store
 
+    def test_emails_endpoint_lists_the_stored_emails(self):
+        from apps.communications.models import EmailLog
+        EmailLog.objects.create(
+            claim=self.claim, subject='Found it', body='b', from_email='lf@x.com',
+            category='OBJECT_FOUND', action_required=True, auto_resolved=False)
+        resp = self.api.post('/api/integrations/zd/emails/',
+                             {'ticket_id': '81001'}, format='json', **self.auth)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data['emails']), 1)
+        e = resp.data['emails'][0]
+        self.assertEqual(e['subject'], 'Found it')
+        self.assertTrue(e['action_required'])
+        self.assertFalse(resp.data['claimless'])
+
+    def test_emails_endpoint_requires_secret(self):
+        resp = self.api.post('/api/integrations/zd/emails/', {'ticket_id': '81001'},
+                             format='json')
+        self.assertEqual(resp.status_code, 403)
+
     def test_claimless_ticket_still_gets_transient_briefing(self):
         from apps.ai.schemas import BriefingSummary
         with patch('apps.ai.client.AIClient.complete',

@@ -62,9 +62,16 @@ def test_briefing_returns_summary_next_steps_and_facts(api_client, settings_obj)
         )
 
     assert resp.status_code == 200
+    # New contract (2026-06-13): summary mode returns the stored claim summary
+    # (single source of truth); next steps are fetched on demand via
+    # mode='next_steps', so they are empty here. The first open with no stored
+    # summary generates and persists it.
     assert 'Bag lost' in resp.data['summary']
-    assert resp.data['next_steps'] == ['Chase airport']
+    assert resp.data['next_steps'] == []
     assert resp.data['facts']['status'] == 'Claim submitted'
+    assert resp.data['stored'] is True
+    from apps.claims.models import Claim as _C
+    assert 'Bag lost' in _C.objects.get(zd_ticket_id='70001').ai_summary
 
 
 @pytest.mark.django_db
