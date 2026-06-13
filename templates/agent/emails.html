@@ -143,10 +143,18 @@
                         <span class="text-sm text-base-content/60">{{ email.received_at|date:"M d, Y H:i" }}</span>
                     </td>
                     <td>
-                        <a href="{% url 'agent_email_detail' email.id %}"
-                           class="btn btn-sm btn-outline btn-primary rounded-xl transition-all duration-200">
-                            <i class="bi bi-eye"></i> View
-                        </a>
+                        <div class="flex gap-1">
+                            <a href="{% url 'agent_email_detail' email.id %}"
+                               class="btn btn-sm btn-outline btn-primary rounded-xl transition-all duration-200">
+                                <i class="bi bi-eye"></i> View
+                            </a>
+                            {% if email.action_required %}
+                            <button type="button" class="btn btn-sm btn-success rounded-xl transition-all duration-200"
+                                    onclick="resolveEmail({{ email.id }}, true)" title="Mark resolved">
+                                <i class="bi bi-check2"></i>
+                            </button>
+                            {% endif %}
+                        </div>
                     </td>
                 </tr>
                 {% empty %}
@@ -198,4 +206,26 @@
     {% endif %}
 </div>
 </div>
+
+<script>
+function resolveEmail(emailId, resolved) {
+    fetch(`/api/communications/email-logs/${emailId}/resolve/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            // CSRF cookie is HttpOnly — render the token server-side.
+            'X-CSRFToken': '{{ csrf_token }}',
+        },
+        body: JSON.stringify({ resolved: resolved }),
+    })
+    .then(response => {
+        if (response.ok) {
+            window.location.reload();
+        } else {
+            alert('Could not update the email. Please try again.');
+        }
+    })
+    .catch(() => alert('Could not update the email. Please try again.'));
+}
+</script>
 {% endblock %}

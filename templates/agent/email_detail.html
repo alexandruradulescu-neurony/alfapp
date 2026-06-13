@@ -9,9 +9,20 @@
     <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
         <i class="bi bi-envelope-open"></i> Email Detail
     </h2>
-    <a href="{% url 'agent_emails' %}" class="btn btn-outline rounded-xl transition-all duration-200">
-        <i class="bi bi-arrow-left"></i> Back to Email List
-    </a>
+    <div class="flex gap-2">
+        {% if email.action_required %}
+        <button type="button" class="btn btn-success rounded-xl transition-all duration-200" onclick="resolveEmail({{ email.id }}, true)">
+            <i class="bi bi-check2"></i> Mark resolved
+        </button>
+        {% else %}
+        <button type="button" class="btn btn-outline rounded-xl transition-all duration-200" onclick="resolveEmail({{ email.id }}, false)">
+            <i class="bi bi-arrow-counterclockwise"></i> Mark as needs attention
+        </button>
+        {% endif %}
+        <a href="{% url 'agent_emails' %}" class="btn btn-outline rounded-xl transition-all duration-200">
+            <i class="bi bi-arrow-left"></i> Back to Email List
+        </a>
+    </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -173,4 +184,26 @@
     </div>
 </div>
 </div>
+
+<script>
+function resolveEmail(emailId, resolved) {
+    fetch(`/api/communications/email-logs/${emailId}/resolve/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            // CSRF cookie is HttpOnly — render the token server-side.
+            'X-CSRFToken': '{{ csrf_token }}',
+        },
+        body: JSON.stringify({ resolved: resolved }),
+    })
+    .then(response => {
+        if (response.ok) {
+            window.location.reload();
+        } else {
+            alert('Could not update the email. Please try again.');
+        }
+    })
+    .catch(() => alert('Could not update the email. Please try again.'));
+}
+</script>
 {% endblock %}
