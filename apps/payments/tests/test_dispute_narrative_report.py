@@ -244,6 +244,40 @@ class NarrateEvidenceTests(TestCase):
         self.assertEqual(mapping[1]['section'], 'SERVICE_INITIATION')
         self.assertEqual(mapping[1]['explanation'], 'The intake note.')
 
+    def test_full_path_through_real_prompt_fence(self):
+        """Exercise tokenizer + prompt fence for real (only the network call is
+        faked) so an invalid fence tag fails here, not silently in prod."""
+        from apps.config.models import SystemSettings
+        ss = SystemSettings.get_instance()
+        ss.ai_api_key = 'test-key'
+        ss.pii_tokenization_salt = 'unit-test-salt'
+        ss.save()
+
+        class _Msg:
+            content = ('{"items":[{"index":0,"section":"FLIGHT_IDENTIFICATION",'
+                       '"explanation":"Confirms the flight."}]}')
+
+        class _Choice:
+            message = _Msg()
+
+        class _Completion:
+            choices = [_Choice()]
+
+        class _FakeClient:
+            class chat:
+                class completions:
+                    @staticmethod
+                    def create(**kwargs):
+                        return _Completion()
+
+        d = _dispute()
+        items = [{'index': 0, 'kind': 'comment', 'channel': 'internal',
+                  'has_image': False, 'text': 'Intake for John Smith at 17706 130th Ave.'}]
+        with patch('apps.ai.client._build_openai_client', return_value=_FakeClient()):
+            mapping = ds._narrate_evidence(d, items, None)
+        self.assertIsNotNone(mapping)  # no fence error → real path succeeded
+        self.assertEqual(mapping[0]['section'], 'FLIGHT_IDENTIFICATION')
+
 
 class GroupedTemplateRenderTests(TestCase):
     def test_sections_and_explanations_render(self):

@@ -902,7 +902,9 @@ def _narrate_evidence(dispute, items: list, claim) -> Optional[dict]:
         return None
 
     trusted = {'dispute_reason': dispute.dispute_reason or 'uncategorised'}
-    untrusted = {'evidence_records': [
+    # Fence the records under the approved 'zendesk_comment' tag (prompt_fence
+    # ALLOWED_TAGS); the [index] prefix inside each tells the AI which record.
+    untrusted = {'zendesk_comment': [
         f"[{it['index']}] ({'public reply' if it['channel'] == 'public' else 'internal note'}"
         f"{', has image' if it.get('has_image') else ''}): {it['text']}"
         for it in items
