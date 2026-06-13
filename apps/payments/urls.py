@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from apps.payments.views import (
     PayPalWebhookView,
+    PayPalDisputeWebhookView,
     ProofOfWorkPDFView,
     DisputeScreenshotCaptureView,
     RefundViewSet,
@@ -14,6 +15,7 @@ router.register(r'refunds', RefundViewSet, basename='refund')
 urlpatterns = [
     # API endpoints
     path('paypal/webhook/', PayPalWebhookView.as_view(), name='paypal-webhook'),
+    path('paypal/dispute-webhook/', PayPalDisputeWebhookView.as_view(), name='paypal-dispute-webhook'),
     path('proof-of-work/<int:claim_id>/', ProofOfWorkPDFView.as_view(), name='proof-of-work-pdf'),
     path('disputes/<int:dispute_id>/capture-screenshot/', DisputeScreenshotCaptureView.as_view(), name='dispute-screenshot-capture'),
     # Refund API

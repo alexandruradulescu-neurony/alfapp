@@ -550,3 +550,128 @@ def send_message(dispute_id: str, message: str) -> bool:
     except Exception as e:
         logger.error(f"Unexpected error sending message for dispute {dispute_id}: {e}")
         return False
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — inbound: verify PayPal's signature, then ingest the dispute
+# ---------------------------------------------------------------------------
+
+def verify_webhook_signature(request_headers, event: dict) -> bool:
+    """Verify a PayPal webhook is genuinely from PayPal.
+
+    Uses PayPal's verify-webhook-signature API with the transmission headers
+    PayPal sent + our configured webhook id. Fail-closed: any error, a missing
+    webhook id, or a non-SUCCESS verdict returns False (reject the event).
+    """
+    webhook_id = (SystemSettings.get_instance().paypal_webhook_id or '').strip()
+    if not webhook_id:
+        logger.error("Cannot verify PayPal webhook: paypal_webhook_id not configured")
+        return False
+    access_token = get_paypal_access_token()
+    if not access_token:
+        return False
+
+    def h(name):
+        return request_headers.get(name, '')
+
+    payload = {
+        'auth_algo': h('Paypal-Auth-Algo'),
+        'cert_url': h('Paypal-Cert-Url'),
+        'transmission_id': h('Paypal-Transmission-Id'),
+        'transmission_sig': h('Paypal-Transmission-Sig'),
+        'transmission_time': h('Paypal-Transmission-Time'),
+        'webhook_id': webhook_id,
+        'webhook_event': event,
+    }
+    url = f"{paypal_api_base()}/v1/notifications/verify-webhook-signature"
+    try:
+        req = urllib.request.Request(
+            url, data=json.dumps(payload).encode('utf-8'),
+            headers={'Authorization': f'Bearer {access_token}',
+                     'Content-Type': 'application/json'},
+            method='POST')
+        timeout = getattr(settings, 'PAYPAL_TIMEOUT', 30)
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            result = json.loads(response.read().decode('utf-8'))
+        verified = result.get('verification_status') == 'SUCCESS'
+        if not verified:
+            logger.warning(f"PayPal webhook signature verification: {result.get('verification_status')}")
+        return verified
+    except Exception as e:
+        logger.error(f"Error verifying PayPal webhook signature: {e}")
+        return False
+
+
+def _parse_paypal_time(value):
+    """Parse a PayPal ISO timestamp; None on failure."""
+    if not value:
+        return None
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    except Exception:
+        return None
+
+
+def ingest_dispute(dispute_id: str, raw_event: dict = None):
+    """Fetch a dispute from PayPal and create the local Dispute (idempotent).
+
+    Best-effort matches to a Claim by buyer email; captures the response
+    deadline. Returns (dispute, created) or (None, False) if PayPal couldn't
+    be read.
+    """
+    from django.utils import timezone
+
+    existing = Dispute.objects.filter(paypal_dispute_id=dispute_id).first()
+    if existing:
+        return existing, False
+
+    details = fetch_dispute_details(dispute_id)
+    if not details:
+        logger.error(f"Cannot ingest dispute {dispute_id}: PayPal returned no details")
+        return None, False
+
+    txns = details.get('disputed_transactions') or [{}]
+    txn = txns[0] if txns else {}
+    buyer = txn.get('buyer') or details.get('buyer') or {}
+    buyer_email = (buyer.get('email') or txn.get('buyer_email') or '').strip().lower()
+    buyer_name = buyer.get('name') or txn.get('buyer_name') or ''
+
+    amount = details.get('dispute_amount') or {}
+    reason = (details.get('reason') or '').strip()
+
+    claim = None
+    if buyer_email:
+        from apps.claims.models import Claim
+        claim = Claim.objects.filter(client_email__iexact=buyer_email).first()
+
+    dispute = Dispute.objects.create(
+        paypal_dispute_id=dispute_id,
+        paypal_case_id=details.get('case_id', '') or '',
+        claim=claim,
+        zd_ticket_id=(claim.zd_ticket_id if claim else ''),
+        status='MATCHED' if claim else 'RECEIVED',
+        # Only set reason if it matches our enum; Phase 4 fixes the enum
+        # (incl. British UNAUTHORISED). The raw reason is kept in the payload.
+        dispute_reason=reason if reason in Dispute.VALID_REASONS else '',
+        dispute_amount=amount.get('value') or None,
+        dispute_currency=(amount.get('currency_code') or '')[:3],
+        buyer_email=buyer_email,  # '' allowed when claim is None (model constraint)
+        buyer_name=buyer_name[:255],
+        transaction_id=txn.get('seller_transaction_id', '') or '',
+        transaction_date=(_parse_paypal_time(txn.get('create_time'))
+                          or _parse_paypal_time(details.get('create_time'))
+                          or timezone.now()),
+        seller_response_due=_parse_paypal_time(details.get('seller_response_due_date')),
+        raw_webhook_payload=details,
+    )
+    DisputeActivityLog.objects.create(
+        dispute=dispute, action='DISPUTE_CREATED',
+        details=f"Ingested from PayPal ({details.get('dispute_life_cycle_stage', '?')} stage, "
+                f"reason={reason or '?'}). {'Matched claim #%s' % claim.id if claim else 'No claim matched'}.")
+    if claim:
+        DisputeActivityLog.objects.create(
+            dispute=dispute, action='DISPUTE_MATCHED',
+            details=f"Matched to claim #{claim.id} by buyer email.")
+    logger.info(f"Ingested dispute {dispute_id} (claim={'#%s' % claim.id if claim else 'none'})")
+    return dispute, True

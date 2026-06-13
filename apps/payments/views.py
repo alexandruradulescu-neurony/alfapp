@@ -82,6 +82,66 @@ class PayPalWebhookView(APIView):
             return Response({'error': str(e)}, status=500)
 
 
+class PayPalDisputeWebhookView(APIView):
+    """PayPal DISPUTE webhook — the inbound door (Phase 2).
+
+    POST /api/payments/paypal/dispute-webhook/
+
+    PayPal posts here directly (no shared secret), so authenticity is proven
+    by PayPal's own SIGNATURE verification (verify-webhook-signature using the
+    configured webhook id) — fail-closed. On CUSTOMER.DISPUTE.CREATED we fetch
+    full details, create the local Dispute, match it to a claim, and capture
+    the response deadline. UPDATED/RESOLVED are acknowledged here and handled
+    by Phase 3 (status sync). Idempotent via ProcessedWebhookEvent.
+    """
+    permission_classes = [AllowAny]  # PayPal signature verification below
+
+    def post(self, request):
+        from apps.payments.paypal_disputes_service import (
+            verify_webhook_signature, ingest_dispute)
+        from apps.payments.models import ProcessedWebhookEvent
+
+        event = request.data
+        event_type = str(event.get('event_type', ''))
+        event_id = str(event.get('id', ''))
+
+        # 1. Authenticity — reject anything PayPal didn't sign.
+        if not verify_webhook_signature(request.headers, event):
+            logger.warning(f"Rejected PayPal dispute webhook (bad signature), event {event_id}")
+            return Response({'error': 'Signature verification failed'},
+                            status=status.HTTP_401_UNAUTHORIZED)
+
+        # 2. Idempotency — never process the same event twice.
+        if event_id and ProcessedWebhookEvent.objects.filter(event_id=event_id).exists():
+            return Response({'message': 'Already processed'}, status=status.HTTP_200_OK)
+
+        resource = event.get('resource') or {}
+        dispute_id = resource.get('dispute_id') or resource.get('id') or ''
+
+        if event_type == 'CUSTOMER.DISPUTE.CREATED' and dispute_id:
+            dispute, created = ingest_dispute(dispute_id, raw_event=event)
+            if dispute is None:
+                # Couldn't reach PayPal to fetch details — 503 so PayPal retries.
+                return Response({'error': 'Could not fetch dispute details'},
+                                status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            if event_id:
+                ProcessedWebhookEvent.objects.create(
+                    event_id=event_id, event_type=event_type,
+                    resource_type=event.get('resource_type', 'dispute'),
+                    resource_id=dispute_id)
+            return Response({'message': 'Dispute ingested', 'created': created,
+                             'dispute_id': dispute.id}, status=status.HTTP_200_OK)
+
+        # UPDATED / RESOLVED / others: acknowledge (Phase 3 handles status sync).
+        if event_id:
+            ProcessedWebhookEvent.objects.create(
+                event_id=event_id, event_type=event_type,
+                resource_type=event.get('resource_type', ''),
+                resource_id=dispute_id)
+        logger.info(f"PayPal dispute webhook {event_type} acknowledged (event {event_id})")
+        return Response({'message': 'Acknowledged'}, status=status.HTTP_200_OK)
+
+
 class RefundViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing refunds.
