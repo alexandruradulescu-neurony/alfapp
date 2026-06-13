@@ -635,6 +635,63 @@ def generate_response_letter(dispute_or_id):
         return None
 
 
+# Category → evidence-report template. Each dispute category can have its own
+# layout; until the per-category report models are provided they all use the
+# generic Zendesk-styled report. Register a new template here (and add the
+# file) when a category's model arrives — no other code changes needed.
+GENERIC_EVIDENCE_TEMPLATE = 'dispute_evidence_report.html'
+CATEGORY_REPORT_TEMPLATES = {
+    # 'MERCHANDISE_OR_SERVICE_NOT_RECEIVED': 'disputes/not_received_report.html',
+    # 'UNAUTHORISED': 'disputes/unauthorised_report.html',
+}
+
+
+def report_template_for(dispute) -> str:
+    """The evidence-report template for this dispute's category (Phase 5)."""
+    return CATEGORY_REPORT_TEMPLATES.get(dispute.dispute_reason, GENERIC_EVIDENCE_TEMPLATE)
+
+
+def build_dispute_evidence_bundle(dispute) -> dict:
+    """Gather EVERYTHING an evidence report could need for a dispute, once,
+    into a structured context — independent of how any report lays it out.
+
+    A report template just arranges this bundle; assembling it is the
+    report-independent core (Phase 5). Includes the Zendesk ticket + full
+    comment thread, captured screenshots, claim evidence images, and the
+    communication (email) history.
+    """
+    zd_data = _fetch_zendesk_ticket_full(dispute.zd_ticket_id)
+    ticket = zd_data.get('ticket', {})
+    comments = zd_data.get('comments', [])
+
+    screenshots = []
+    for screenshot in DisputeScreenshot.objects.filter(dispute=dispute).order_by('-captured_at'):
+        data_uri = _encode_screenshot_to_base64(screenshot)
+        if data_uri:
+            screenshots.append({
+                'id': screenshot.id,
+                'description': screenshot.description,
+                'page_url': screenshot.page_url,
+                'captured_at': screenshot.captured_at,
+                'data_uri': data_uri,
+            })
+
+    evidence_list = _fetch_claim_evidence_base64(dispute.claim) if dispute.claim else []
+    communication_history = _fetch_communication_history(dispute)
+
+    return {
+        'dispute': dispute,
+        'ticket': ticket,
+        'comments': comments,
+        'screenshots': screenshots,
+        'claim_evidence': evidence_list,
+        'communication_history': communication_history,
+        'category': dispute.dispute_reason,
+        'category_label': dispute.get_dispute_reason_display() if dispute.dispute_reason else '',
+        'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    }
+
+
 @transaction.atomic
 def generate_evidence_report(dispute_id: int) -> Optional[DisputeDocument]:
     """
@@ -672,48 +729,18 @@ def generate_evidence_report(dispute_id: int) -> Optional[DisputeDocument]:
         return None
     
     try:
-        # Fetch Zendesk ticket data
-        zd_data = _fetch_zendesk_ticket_full(dispute.zd_ticket_id)
-        ticket = zd_data.get('ticket', {})
-        comments = zd_data.get('comments', [])
-        
-        # Fetch screenshots for the dispute
-        screenshots = []
-        for screenshot in DisputeScreenshot.objects.filter(dispute=dispute).order_by('-captured_at'):
-            data_uri = _encode_screenshot_to_base64(screenshot)
-            if data_uri:
-                screenshots.append({
-                    'id': screenshot.id,
-                    'description': screenshot.description,
-                    'page_url': screenshot.page_url,
-                    'captured_at': screenshot.captured_at,
-                    'data_uri': data_uri,
-                })
-        logger.info(f"Fetched {len(screenshots)} screenshots for Dispute #{dispute_id}")
-        
-        # Fetch claim evidence images
-        evidence_list = []
-        if dispute.claim:
-            evidence_list = _fetch_claim_evidence_base64(dispute.claim)
-        logger.info(f"Fetched {len(evidence_list)} claim evidence items for Dispute #{dispute_id}")
-        
-        # Fetch communication history (emails)
-        communication_history = _fetch_communication_history(dispute)
-        
-        # Prepare template context
-        template_context = {
-            'dispute': dispute,
-            'ticket': ticket,
-            'comments': comments,
-            'screenshots': screenshots,
-            'claim_evidence': evidence_list,
-            'communication_history': communication_history,
-            'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        }
-        
-        # Render HTML template
-        html_string = render_to_string('dispute_evidence_report.html', template_context)
-        
+        # Assemble the full evidence bundle (report-independent) and render the
+        # category's report template (Phase 5).
+        template_context = build_dispute_evidence_bundle(dispute)
+        screenshots = template_context['screenshots']
+        evidence_list = template_context['claim_evidence']
+        communication_history = template_context['communication_history']
+        logger.info(
+            f"Bundle for Dispute #{dispute_id}: {len(screenshots)} screenshots, "
+            f"{len(evidence_list)} evidence, {len(communication_history)} emails")
+
+        html_string = render_to_string(report_template_for(dispute), template_context)
+
         # Generate PDF
         pdf_bytes = _render_to_pdf(html_string, f"Dispute #{dispute_id} Evidence Report")
         
