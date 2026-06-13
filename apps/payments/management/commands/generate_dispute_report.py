@@ -33,6 +33,8 @@ class Command(BaseCommand):
                             help='With --dispute: persist a DisputeDocument via the real generator.')
         parser.add_argument('--no-attachments', action='store_true',
                             help='Skip downloading/embedding Zendesk attachment images (faster preview).')
+        parser.add_argument('--no-ai', action='store_true',
+                            help='Skip the AI narrative grouping/explanations (deterministic, ungrouped).')
 
     def handle(self, *args, **opts):
         if not opts['dispute'] and not opts['zd_ticket']:
@@ -74,12 +76,15 @@ class Command(BaseCommand):
             key = f"ticket_{ticket}"
 
         bundle = docsvc.build_dispute_evidence_bundle(
-            dispute, embed_attachments=not opts['no_attachments'])
+            dispute, embed_attachments=not opts['no_attachments'], use_ai=not opts['no_ai'])
+        section_summary = ", ".join(
+            f"{s['title']}×{len(s['items'])}" for s in bundle['sections']) or "none"
         self.stdout.write(
             f"Bundle: {len(bundle['panels'])} panels, "
             f"{sum(len(p['images']) for p in bundle['panels'])} embedded images, "
             f"flight_card={'yes' if bundle['flight_card'] else 'no'}, "
             f"framing='{bundle['framing']['headline']}'")
+        self.stdout.write(f"Sections: {section_summary}")
 
         html_string = render_to_string(docsvc.report_template_for(dispute), bundle)
         pdf_bytes = docsvc._render_to_pdf(html_string, f"Preview {key}")

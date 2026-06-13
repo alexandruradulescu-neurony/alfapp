@@ -199,26 +199,35 @@ def fetch_zendesk_comments(zd_ticket_id: str) -> List[Dict[str, Any]]:
         base_url = _get_zendesk_base_url()
         headers = _get_zendesk_auth_headers()
         
-        url = f"{base_url}/tickets/{zd_ticket_id}/comments.json"
-        
+        # Sideload users so we can resolve comment author_id → name (the
+        # comments endpoint returns author_id, not a nested author object).
+        url = f"{base_url}/tickets/{zd_ticket_id}/comments.json?include=users"
+
         req = urllib.request.Request(
             url,
             headers=headers,
             method='GET'
         )
-        
+
         logger.info(f"Fetching comments from Zendesk ticket {zd_ticket_id}")
-        
+
         # Use configurable timeout
         timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
         with urllib.request.urlopen(req, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
             comments_data = result.get('comments', [])
-            
+            users_by_id = {u.get('id'): u for u in result.get('users', [])}
+
             # Transform to simplified format
             comments = []
             for comment in comments_data:
-                author = comment.get('author', {})
+                # Prefer a nested author object if present (some payloads/tests
+                # include it); otherwise resolve author_id via the users sideload.
+                author = comment.get('author') or {}
+                author_id = comment.get('author_id') or author.get('id')
+                sideloaded = users_by_id.get(author_id, {})
+                resolved_name = author.get('name') or sideloaded.get('name') or 'Unknown'
+                resolved_email = author.get('email') or sideloaded.get('email') or ''
                 # Attachments carry the pasted images (airline confirmations,
                 # lost-&-found forms, flight cards) that evidence reports embed.
                 attachments = []
@@ -234,9 +243,9 @@ def fetch_zendesk_comments(zd_ticket_id: str) -> List[Dict[str, Any]]:
                 comments.append({
                     'id': comment.get('id'),
                     'author': {
-                        'id': author.get('id'),
-                        'name': author.get('name', 'Unknown'),
-                        'email': author.get('email', ''),
+                        'id': author_id,
+                        'name': resolved_name,
+                        'email': resolved_email,
                     },
                     'body': comment.get('body', ''),
                     'html_body': comment.get('html_body', ''),

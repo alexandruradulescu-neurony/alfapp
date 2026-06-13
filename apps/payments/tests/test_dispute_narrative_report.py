@@ -63,7 +63,8 @@ class PanelBuilderTests(TestCase):
             panels = ds._zendesk_comment_panels(comments)
             net.assert_not_called()
         self.assertEqual(panels[0]['images'], [])
-        self.assertEqual(panels[0]['author'], 'Unknown')
+        # empty author on a public comment now falls back to a presentable label
+        self.assertEqual(panels[0]['author'], 'Support agent')
 
 
 class FlightCardTests(TestCase):
@@ -124,7 +125,7 @@ class TemplateRenderTests(TestCase):
         with patch.object(ds, '_fetch_zendesk_ticket_full',
                           return_value={'ticket': {'id': '97001'}, 'comments': COMMENTS}), \
              patch.object(ds, '_attachment_data_uri', return_value='data:image/png;base64,AAAA'):
-            bundle = ds.build_dispute_evidence_bundle(d)
+            bundle = ds.build_dispute_evidence_bundle(d, use_ai=False)
             html = render_to_string(ds.report_template_for(d), bundle)
         # narrative header + identity
         self.assertIn('Dispute Settlement Support Information', html)
@@ -157,7 +158,111 @@ class TransientDisputePreviewTests(TestCase):
         self.assertIsNone(dispute.pk)  # transient
         with patch.object(ds, '_fetch_zendesk_ticket_full',
                           return_value={'ticket': {}, 'comments': COMMENTS}):
-            bundle = ds.build_dispute_evidence_bundle(dispute, embed_attachments=False)
+            bundle = ds.build_dispute_evidence_bundle(dispute, embed_attachments=False, use_ai=False)
         self.assertEqual(bundle['screenshots'], [])
         self.assertTrue(bundle['flight_card'])
         self.assertEqual(len(bundle['panels']), 2)
+
+
+class CommentCleanupTests(TestCase):
+    def test_strips_internal_ai_trailer_and_markdown(self):
+        body = ("**From:** someone@x.com\n**Subject:** Object enquiry\n"
+                "We are sorry to inform you, the item has not been found.\n"
+                "---\n"
+                "**AI Analysis**\n**Category:** OBJECT_NOT_FOUND\n**Auto-Resolved:** Yes")
+        clean = ds._clean_comment_body(body)
+        self.assertIn('the item has not been found', clean)
+        self.assertNotIn('AI Analysis', clean)
+        self.assertNotIn('OBJECT_NOT_FOUND', clean)
+        self.assertNotIn('**', clean)
+        self.assertNotIn('---', clean)
+
+    def test_time_format(self):
+        self.assertEqual(ds._fmt_zd_time('2026-02-03T21:14:00Z'), 'Feb 03, 2026 21:14')
+        self.assertEqual(ds._fmt_zd_time(''), '')
+
+    def test_author_fallback_when_unknown(self):
+        comments = [
+            {'author': {'name': 'Unknown'}, 'public': False, 'body': 'x', 'attachments': []},
+            {'author': {}, 'public': True, 'body': 'y', 'attachments': []},
+        ]
+        panels = ds._zendesk_comment_panels(comments, embed_images=False)
+        self.assertEqual(panels[0]['author'], 'Airport Lost & Found team')  # internal
+        self.assertEqual(panels[1]['author'], 'Support agent')              # public
+
+
+class GroupingTests(TestCase):
+    def _items(self):
+        return [
+            {'index': 0, 'kind': 'flight_card', 'flight_card': {'number': 'AA1'}},
+            {'index': 1, 'kind': 'comment', 'panel': {'author': 'A'}},
+            {'index': 2, 'kind': 'comment', 'panel': {'author': 'B'}},
+        ]
+
+    def test_no_narrative_single_section(self):
+        sections = ds._group_into_sections(self._items(), None)
+        self.assertEqual(len(sections), 1)
+        self.assertEqual(sections[0]['title'], 'Case record')
+        self.assertEqual(len(sections[0]['items']), 3)
+
+    def test_narrative_groups_orders_and_excludes(self):
+        narrative = {
+            0: {'section': 'FLIGHT_IDENTIFICATION', 'explanation': 'Verified flight.'},
+            1: {'section': 'SERVICE_INITIATION', 'explanation': 'Their own claim.'},
+            2: {'section': 'EXCLUDE', 'explanation': 'internal noise'},
+        }
+        sections = ds._group_into_sections(self._items(), narrative)
+        titles = [s['title'] for s in sections]
+        # ordered per SECTION_ORDER (service initiation before flight identification)
+        self.assertEqual(titles, ['Service initiation', 'Flight identification'])
+        # excluded item dropped entirely
+        self.assertEqual(sum(len(s['items']) for s in sections), 2)
+
+
+class NarrateEvidenceTests(TestCase):
+    def test_returns_none_when_ai_not_configured(self):
+        from apps.config.models import SystemSettings
+        ss = SystemSettings.get_instance()
+        ss.ai_api_key = ''
+        ss.save()
+        d = _dispute()
+        items = [{'index': 1, 'kind': 'comment', 'channel': 'internal', 'text': 'hi'}]
+        self.assertIsNone(ds._narrate_evidence(d, items, None))
+
+    def test_maps_ai_placements(self):
+        from apps.ai.schemas import EvidenceNarrative, EvidencePlacement
+        from apps.config.models import SystemSettings
+        ss = SystemSettings.get_instance()
+        ss.ai_api_key = 'test-key'
+        ss.save()
+        d = _dispute()
+        items = [{'index': 1, 'kind': 'comment', 'channel': 'internal', 'text': 'intake'}]
+        fake = EvidenceNarrative(items=[EvidencePlacement(
+            index=1, section='SERVICE_INITIATION', explanation='The intake note.')])
+        with patch('apps.ai.client.AIClient.complete', return_value=fake):
+            mapping = ds._narrate_evidence(d, items, None)
+        self.assertEqual(mapping[1]['section'], 'SERVICE_INITIATION')
+        self.assertEqual(mapping[1]['explanation'], 'The intake note.')
+
+
+class GroupedTemplateRenderTests(TestCase):
+    def test_sections_and_explanations_render(self):
+        claim = Claim.objects.create(client_email='b@example.com', client_name='Lee Foley',
+                                     zd_ticket_id='97001', flight_data=FLIGHT_DATA)
+        d = _dispute(claim=claim, zd_ticket_id='97001')
+        narrative = {
+            0: {'section': 'FLIGHT_IDENTIFICATION', 'explanation': 'Confirms the route and arrival.'},
+            1: {'section': 'SERVICE_INITIATION', 'explanation': 'The customer filed this claim themselves.'},
+            2: {'section': 'INTERACTIONS', 'explanation': 'We kept the customer updated.'},
+        }
+        with patch.object(ds, '_fetch_zendesk_ticket_full',
+                          return_value={'ticket': {}, 'comments': COMMENTS}), \
+             patch.object(ds, '_attachment_data_uri', return_value=None), \
+             patch.object(ds, '_narrate_evidence', return_value=narrative):
+            bundle = ds.build_dispute_evidence_bundle(d)
+            html = render_to_string(ds.report_template_for(d), bundle)
+        self.assertIn('Service initiation', html)
+        self.assertIn('Flight identification', html)
+        self.assertIn('Interactions with the client', html)
+        self.assertIn('Why this matters:', html)
+        self.assertIn('The customer filed this claim themselves.', html)

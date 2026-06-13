@@ -57,6 +57,12 @@
   .fdetail { width:100%; margin-top:10px; font-size:11px; color:#5f6368; }
   .ftime { color:#137333; font-weight:700; font-size:13px; }
 
+  /* ---- narrative sub-section heading + AI relevance note ---- */
+  .sub-h { font-weight:700; font-size:12.5px; margin:20px 0 4px; color:#0070d2; }
+  .why { font-size:11px; color:#374151; background:#f0f6ff; border-left:3px solid #0070d2;
+         border-radius:0; padding:6px 10px; margin:12px 0 4px; }
+  .why b { color:#0c447c; }
+
   .conclusion p { margin:8px 0; }
   .footer { margin-top:36px; padding-top:12px; border-top:1px solid #e5e7eb;
             text-align:center; font-size:10px; color:#9ca3af; }
@@ -103,47 +109,50 @@
 {% if assets.checkout %}<img class="doc-img" src="{{ assets.checkout }}" alt="Annotated checkout showing fee, refund period, terms acceptance and authorisation">
 <p class="cap">Checkout flow — fee, clearly stated refund period, Terms acceptance, and the customer's authorisation to search on their behalf.</p>{% endif %}
 
-<!-- Evidence from the case file -->
-<div class="sec-h">Service Initiation &amp; case record</div>
-<p class="narr">After payment, a ticket was automatically opened on our support platform and the client received a confirmation email that the search had started. The following records are taken directly from our support system for this case.</p>
+<!-- Evidence from the case file, grouped into narrative sections -->
+<div class="sec-h">Service initiation &amp; case record</div>
+<p class="narr">After payment, a ticket was automatically opened on our support platform and the client received a confirmation email that the search had started. The records below are taken directly from our support system, grouped by their role in the case.</p>
 
-{% if flight_card %}
-<div style="font-weight:700; font-size:12px; margin:14px 0 4px; color:#374151;">Flight Identification</div>
-<p class="cap">We verified the client's flight independently from airline data.</p>
-<div class="zd-panel">
-  <div class="zd-head"><span class="zd-avatar">&#9787;</span><span class="zd-name">Flight record</span></div>
-  <div class="fcard">
-    <div class="ftitle">{{ flight_card.airline }} {{ flight_card.number }}</div>
-    <div class="froute">{{ flight_card.from_city|default:flight_card.from_iata }} to {{ flight_card.to_city|default:flight_card.to_iata }}{% if flight_card.status %} &nbsp; <span class="farr">{{ flight_card.status|upper }}</span>{% endif %}</div>
-    <table class="fbig"><tr>
-      <td><span class="fcode">{{ flight_card.from_iata }}</span></td>
-      <td align="center" class="fline">&#9992;</td>
-      <td align="right"><span class="fcode">{{ flight_card.to_iata }}</span></td>
-    </tr></table>
-    <table class="fdetail"><tr>
-      <td valign="top">{{ flight_card.from_city|default:flight_card.from_iata }}<br>Departed<br><span class="ftime">{{ flight_card.dep_local|default:"—" }}</span>{% if flight_card.from_gate %}<br>Gate {{ flight_card.from_gate }}{% endif %}</td>
-      <td valign="top" align="right">{{ flight_card.to_city|default:flight_card.to_iata }}<br>Arrived<br><span class="ftime">{{ flight_card.arr_local|default:"—" }}</span>{% if flight_card.to_gate %}<br>Gate {{ flight_card.to_gate }}{% endif %}</td>
-    </tr></table>
-  </div>
-</div>
-{% endif %}
-
-{% if panels %}
-{% for panel in panels %}
-<div class="zd-panel">
-  <div class="zd-head">
-    <span class="zd-avatar">&#9787;</span><span class="zd-name">{{ panel.author }}</span>{% if panel.public %}<span class="zd-badge public">Public reply</span>{% else %}<span class="zd-badge internal">Internal note</span>{% endif %}<span class="zd-time">&middot; {{ panel.created_at }}</span>
-  </div>
-  <div class="zd-body {% if panel.public %}public{% else %}internal{% endif %}">
-    {{ panel.body|escape|linebreaks }}
-    {% for img in panel.images %}<img class="zd-att" src="{{ img.data_uri }}" alt="{{ img.file_name }}">{% endfor %}
-  </div>
-</div>
-{% endfor %}
-{% else %}
+{% for section in sections %}
+  {% if section.title != 'Case record' %}<div class="sub-h">{{ section.title }}</div>{% endif %}
+  {% for item in section.items %}
+    {% if item.explanation %}<div class="why"><b>Why this matters:</b> {{ item.explanation }}</div>{% endif %}
+    {% if item.flight_card %}
+    <div class="zd-panel">
+      <div class="zd-head"><span class="zd-avatar">&#9787;</span><span class="zd-name">Flight record</span><span class="zd-badge internal">Verified from airline data</span></div>
+      <div class="fcard">
+        <div class="ftitle">{{ item.flight_card.airline }} {{ item.flight_card.number }}</div>
+        <div class="froute">{{ item.flight_card.from_city|default:item.flight_card.from_iata }} to {{ item.flight_card.to_city|default:item.flight_card.to_iata }}{% if item.flight_card.status %} &nbsp; <span class="farr">{{ item.flight_card.status|upper }}</span>{% endif %}</div>
+        <table class="fbig"><tr>
+          <td><span class="fcode">{{ item.flight_card.from_iata }}</span></td>
+          <td align="center" class="fline">&#9992;</td>
+          <td align="right"><span class="fcode">{{ item.flight_card.to_iata }}</span></td>
+        </tr></table>
+        <table class="fdetail"><tr>
+          <td valign="top">{{ item.flight_card.from_city|default:item.flight_card.from_iata }}<br>Departed<br><span class="ftime">{{ item.flight_card.dep_local|default:"—" }}</span>{% if item.flight_card.from_gate %}<br>Gate {{ item.flight_card.from_gate }}{% endif %}</td>
+          <td valign="top" align="right">{{ item.flight_card.to_city|default:item.flight_card.to_iata }}<br>Arrived<br><span class="ftime">{{ item.flight_card.arr_local|default:"—" }}</span>{% if item.flight_card.to_gate %}<br>Gate {{ item.flight_card.to_gate }}{% endif %}</td>
+        </tr></table>
+      </div>
+    </div>
+    {% endif %}
+    {% if item.panel %}
+    <div class="zd-panel">
+      <div class="zd-head">
+        <span class="zd-avatar">&#9787;</span><span class="zd-name">{{ item.panel.author }}</span>{% if item.panel.public %}<span class="zd-badge public">Public reply</span>{% else %}<span class="zd-badge internal">Internal note</span>{% endif %}<span class="zd-time">&middot; {{ item.panel.created_at }}</span>
+      </div>
+      <div class="zd-body {% if item.panel.public %}public{% else %}internal{% endif %}">
+        {{ item.panel.body|escape|linebreaks }}
+        {% for img in item.panel.images %}<img class="zd-att" src="{{ img.data_uri }}" alt="{{ img.file_name }}">{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  {% endfor %}
+{% empty %}
 <p class="cap">No support-system records were available for this case at generation time.</p>
-{% endif %}
+{% endfor %}
 
+{% if screenshots %}
+<div class="sub-h">Additional attached evidence</div>
 {% for shot in screenshots %}
 <div class="zd-panel">
   <div class="zd-head"><span class="zd-avatar">&#9787;</span><span class="zd-name">Attached evidence</span><span class="zd-time">&middot; {{ shot.captured_at|date:"M j, Y H:i" }}</span></div>
@@ -151,6 +160,7 @@
   {% if shot.description %}<p class="cap">{{ shot.description }}</p>{% endif %}
 </div>
 {% endfor %}
+{% endif %}
 
 {% if claim_evidence %}
 <div class="sec-h">Evidence submitted by the customer</div>

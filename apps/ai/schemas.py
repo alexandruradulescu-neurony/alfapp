@@ -61,6 +61,36 @@ class DisputeLetter(BaseModel):
     body: str = Field(max_length=5000)
 
 
+class EvidencePlacement(BaseModel):
+    """One evidence record's placement in the dispute report narrative."""
+
+    index: int
+    section: Literal[
+        "SERVICE_INITIATION",
+        "FLIGHT_IDENTIFICATION",
+        "INTERACTIONS",
+        "SUBMISSIONS",
+        "CLAIM_UPDATES",
+        "OTHER",
+        "EXCLUDE",
+    ]
+    explanation: str = ""
+
+    @field_validator("explanation")
+    @classmethod
+    def _cap_explanation(cls, value: str) -> str:
+        return _trim(value, 280)
+
+
+class EvidenceNarrative(BaseModel):
+    """Schema for `_narrate_evidence` in payments/document_service.py — the LLM
+    sorts each numbered evidence record into a narrative section (or EXCLUDE)
+    and writes a one-line relevance note. Facts come only from the record text;
+    the LLM never invents content."""
+
+    items: list[EvidencePlacement] = Field(default_factory=list)
+
+
 class BriefingSummary(BaseModel):
     """Schema for the Zendesk sidebar briefing (POST /zd/briefing/) and the
     stored claim summary engine. The LLM produces a short summary + a few

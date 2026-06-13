@@ -8,6 +8,7 @@ Uses Qwen AI for response letter generation and template-based rendering for evi
 import base64
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Optional, Tuple
 
@@ -733,15 +734,55 @@ def _zendesk_comment_panels(comments: list, embed_images: bool = True,
                     images.append({'data_uri': uri, 'file_name': att.get('file_name', '')})
                     embedded += 1
         author = c.get('author', {}) or {}
+        public = c.get('public', False)
+        name = author.get('name') or ''
+        if not name or name == 'Unknown':
+            name = 'Support agent' if public else 'Airport Lost & Found team'
         panels.append({
-            'author': author.get('name', 'Unknown'),
+            'author': name,
             'author_email': author.get('email', ''),
-            'public': c.get('public', False),
-            'created_at': c.get('created_at'),
-            'body': c.get('body', ''),
+            'public': public,
+            'created_at': _fmt_zd_time(c.get('created_at')),
+            'body': _clean_comment_body(c.get('body', '')),
             'images': images,
         })
     return panels
+
+
+# Marks the start of LORA's internal email-processing trailer that some notes
+# carry ("**AI Analysis** / Category: / Action Required: / Auto-Resolved:").
+# That is internal automation metadata and must never face PayPal — strip it.
+_AI_TRAILER_RE = re.compile(r'\*{0,2}\s*AI Analysis', re.IGNORECASE)
+_HR_LINE_RE = re.compile(r'(?m)^\s*-{3,}\s*$')
+_ENVELOPE_RE = re.compile(r'[\U0001F4E7\U0001F4E8\U0001F4E9✉️]')
+
+
+def _clean_comment_body(body: str) -> str:
+    """Make a Zendesk comment body presentable in a client-facing PDF: drop the
+    internal AI-analysis trailer, markdown bold/HR markers, and envelope icons."""
+    if not body:
+        return ''
+    text = _AI_TRAILER_RE.split(body, maxsplit=1)[0]
+    text = text.replace('**', '').replace('__', '')
+    text = _HR_LINE_RE.sub('', text)
+    text = _ENVELOPE_RE.sub('', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
+def _fmt_zd_time(value) -> str:
+    """Format a Zendesk ISO timestamp ('2026-06-11T07:30:46Z') as 'Jun 11, 2026 07:30'."""
+    if not value:
+        return ''
+    if not isinstance(value, str):
+        try:
+            return value.strftime('%b %d, %Y %H:%M')
+        except Exception:
+            return str(value)
+    try:
+        return datetime.fromisoformat(value.replace('Z', '+00:00')).strftime('%b %d, %Y %H:%M')
+    except Exception:
+        return value
 
 
 def _flight_card(claim) -> Optional[dict]:
@@ -793,19 +834,144 @@ def _narrative_fields(dispute) -> dict:
     }
 
 
+# Narrative sections, in the order the report presents them (mirrors the
+# business's Word template). 'OTHER' catches anything the AI can't place.
+SECTION_ORDER = [
+    ('SERVICE_INITIATION', 'Service initiation'),
+    ('FLIGHT_IDENTIFICATION', 'Flight identification'),
+    ('INTERACTIONS', 'Interactions with the client'),
+    ('SUBMISSIONS', 'Submission of claims to lost & found offices'),
+    ('CLAIM_UPDATES', 'Claim updates'),
+    ('OTHER', 'Additional case records'),
+]
+
+EVIDENCE_NARRATIVE_SYSTEM_PROMPT = (
+    "You organise evidence for a PayPal dispute defence on behalf of a paid "
+    "lost-item recovery service (the merchant). You are given numbered evidence "
+    "records taken from the merchant's support system for one case. For EACH "
+    "record, decide:\n"
+    "1. section — the best fit from: SERVICE_INITIATION (the customer's own "
+    "claim submission / intake), FLIGHT_IDENTIFICATION (verifying the flight), "
+    "INTERACTIONS (the merchant contacting the customer by phone/email), "
+    "SUBMISSIONS (reporting the lost item to airline/airport lost-&-found "
+    "offices), CLAIM_UPDATES (status updates, item-found / return options), "
+    "OTHER (relevant but uncategorised), or EXCLUDE.\n"
+    "Use EXCLUDE for internal automation logs, system noise (e.g. abandoned-cart "
+    "notices), duplicates, or anything that does NOT help the merchant's defence.\n"
+    "2. explanation — ONE concise sentence stating what the record shows and why "
+    "it supports the merchant (that the customer authorised the service and that "
+    "the service was performed). Base it ONLY on the record text; never invent "
+    "facts. Neutral, factual tone.\n"
+    "Return JSON: {\"items\": [{\"index\": <int>, \"section\": <enum>, "
+    "\"explanation\": <str>}, ...]} with one entry per record."
+)
+
+
+def _known_pii_for(claim) -> dict:
+    """PII strings to force-mask before the LLM sees any evidence text — the
+    client's name and addresses (not regex-detectable) plus alias/email/phone."""
+    if not claim:
+        return {}
+    names = [getattr(claim, 'client_name', ''),
+             getattr(claim, 'billing_address', ''),
+             getattr(claim, 'shipping_address', '')]
+    aliases = [getattr(claim, 'email_alias', ''),
+               getattr(claim, 'client_email', ''),
+               getattr(claim, 'alternate_email', ''),
+               getattr(claim, 'phone', '') or '']
+    return {
+        'names': [str(n).strip() for n in names if n and str(n).strip()],
+        'aliases': [str(a).strip() for a in aliases if a and str(a).strip()],
+    }
+
+
+def _narrate_evidence(dispute, items: list, claim) -> Optional[dict]:
+    """Ask the AI to sort each evidence record into a narrative section and
+    write a one-line relevance note. Returns {index: {'section','explanation'}},
+    or None on any failure / when AI is not configured (caller falls back to an
+    ungrouped list). PII is force-masked via known_pii before the LLM sees text."""
+    if not items:
+        return None
+    try:
+        ss = SystemSettings.get_instance()
+        if not getattr(ss, 'ai_api_key', ''):
+            return None  # AI not configured — skip the call entirely (tests, etc.)
+        from apps.ai.client import AIClient
+        from apps.ai.schemas import EvidenceNarrative
+    except Exception:
+        return None
+
+    trusted = {'dispute_reason': dispute.dispute_reason or 'uncategorised'}
+    untrusted = {'evidence_records': [
+        f"[{it['index']}] ({'public reply' if it['channel'] == 'public' else 'internal note'}"
+        f"{', has image' if it.get('has_image') else ''}): {it['text']}"
+        for it in items
+    ]}
+    try:
+        result = AIClient.complete(
+            system_prompt=EVIDENCE_NARRATIVE_SYSTEM_PROMPT,
+            trusted=trusted,
+            untrusted=untrusted,
+            known_pii=_known_pii_for(claim),
+            response_schema=EvidenceNarrative,
+            call_site='dispute_evidence_narrative',
+            temperature=0.2,
+            max_tokens=900,
+        )
+    except Exception as e:
+        logger.warning(f"Evidence narrative AI unavailable; using ungrouped fallback: {e}")
+        return None
+    return {p.index: {'section': p.section, 'explanation': p.explanation} for p in result.items}
+
+
+def _item_entry(item: dict, explanation: str = '') -> dict:
+    """One rendered evidence entry (a panel or the flight card) + its note."""
+    entry = {'explanation': explanation}
+    if item['kind'] == 'flight_card':
+        entry['flight_card'] = item['flight_card']
+    else:
+        entry['panel'] = item['panel']
+    return entry
+
+
+def _group_into_sections(items: list, narrative: Optional[dict]) -> list:
+    """Group evidence items into ordered narrative sections. With a narrative
+    mapping, place/caption/exclude per the AI; without one, return a single
+    ungrouped 'Case record' section (graceful fallback)."""
+    if not items:
+        return []
+    if not narrative:
+        return [{'key': 'ALL', 'title': 'Case record',
+                 'items': [_item_entry(it) for it in items]}]
+
+    buckets = {key: [] for key, _ in SECTION_ORDER}
+    for it in items:
+        placement = narrative.get(it['index']) or {}
+        section = placement.get('section') or 'OTHER'
+        if section == 'EXCLUDE':
+            continue
+        if section not in buckets:
+            section = 'OTHER'
+        buckets[section].append(_item_entry(it, placement.get('explanation', '')))
+    return [{'key': key, 'title': title, 'items': buckets[key]}
+            for key, title in SECTION_ORDER if buckets[key]]
+
+
 def report_template_for(dispute) -> str:
     """The evidence-report template for this dispute's category (Phase 5)."""
     return CATEGORY_REPORT_TEMPLATES.get(dispute.dispute_reason, GENERIC_EVIDENCE_TEMPLATE)
 
 
-def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True) -> dict:
+def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
+                                  use_ai: bool = True) -> dict:
     """Gather EVERYTHING an evidence report could need for a dispute, once,
     into a structured context — independent of how any report lays it out.
 
-    Includes the Zendesk ticket + full comment thread (as both raw comments and
-    rendered Zendesk-styled panels with embedded attachment images), the
-    reconstructed flight card, captured/uploaded screenshots, claim evidence
-    images, the email history, the fixed report assets, and category framing.
+    The case records (Zendesk comments + the flight card) are sorted by the AI
+    into ordered narrative `sections`, each item carrying a one-line relevance
+    note. When AI is unavailable/disabled they collapse into a single ungrouped
+    section. Also includes captured/uploaded screenshots, claim evidence images,
+    the email history, the fixed report assets, and category framing.
     """
     zd_data = _fetch_zendesk_ticket_full(dispute.zd_ticket_id)
     ticket = zd_data.get('ticket', {})
@@ -830,7 +996,29 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True) -> di
     evidence_list = _fetch_claim_evidence_base64(dispute.claim) if dispute.claim else []
     communication_history = _fetch_communication_history(dispute)
     panels = _zendesk_comment_panels(comments, embed_images=embed_attachments)
+    flight_card = _flight_card(dispute.claim)
     framing = CATEGORY_FRAMING.get(dispute.dispute_reason, DEFAULT_FRAMING)
+
+    # Assemble the evidence items the report can show, then let the AI sort them
+    # into narrative sections with relevance notes (or fall back to ungrouped).
+    items = []
+    if flight_card:
+        items.append({
+            'index': 0, 'kind': 'flight_card', 'channel': 'internal', 'has_image': False,
+            'text': (f"Independent airline-data flight record: {flight_card['airline']} "
+                     f"{flight_card['number']}, {flight_card['from_iata']}→{flight_card['to_iata']}, "
+                     f"status {flight_card['status']}."),
+            'flight_card': flight_card,
+        })
+    for i, p in enumerate(panels, start=1):
+        items.append({
+            'index': i, 'kind': 'comment',
+            'channel': 'public' if p['public'] else 'internal',
+            'has_image': bool(p['images']), 'text': (p['body'] or '')[:700], 'panel': p,
+        })
+
+    narrative = _narrate_evidence(dispute, items, dispute.claim) if use_ai else None
+    sections = _group_into_sections(items, narrative)
 
     return {
         'dispute': dispute,
@@ -838,7 +1026,8 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True) -> di
         'ticket': ticket,
         'comments': comments,
         'panels': panels,
-        'flight_card': _flight_card(dispute.claim),
+        'flight_card': flight_card,
+        'sections': sections,
         'narrative': _narrative_fields(dispute),
         'framing': framing,
         'assets': {
