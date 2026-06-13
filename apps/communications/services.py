@@ -1107,4 +1107,20 @@ def check_email_for_ticket(ticket_id: str, claim, alias: str) -> Dict[str, Any]:
             conn.logout()
         except Exception:
             pass
+
+    # A new email is real new information about the case → refresh the one
+    # stored summary so the LORA app and the Zendesk sidebar both reflect it.
+    # Best-effort: never let a summary hiccup affect the email result.
+    if claim and results['processed']:
+        try:
+            from apps.integrations.services import (
+                fetch_zendesk_ticket, fetch_zendesk_comments)
+            from apps.integrations.briefing import refresh_claim_summary
+            ticket_data = fetch_zendesk_ticket(str(ticket_id)) or {}
+            ticket_data['comments'] = fetch_zendesk_comments(str(ticket_id))
+            refresh_claim_summary(claim, ticket_data)
+        except Exception as e:
+            logger.warning(
+                f"Email check: summary refresh failed for claim #{claim.id}: {e}")
+
     return results

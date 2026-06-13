@@ -419,6 +419,37 @@ class ZendeskBriefingView(APIView):
             known_names.append(claim.client_name)
         known_pii = {'aliases': [], 'names': [n for n in known_names if n]}
 
+        # SUMMARY (default mode), claim linked → SINGLE SOURCE OF TRUTH.
+        # The sidebar shows the SAME stored summary the LORA app shows
+        # (claim.ai_summary), written by the one shared engine. It is NOT
+        # regenerated on every open. We regenerate + persist only when the
+        # agent explicitly asks (refresh=true, the Regenerate button) or when
+        # there is no stored summary yet — so a refresh in the sidebar and a
+        # refresh in the app update the one copy everyone sees.
+        if mode != 'next_steps' and claim:
+            from apps.integrations.briefing import refresh_claim_summary
+            refresh = bool(data.get('refresh'))
+            if refresh or not (claim.ai_summary or '').strip():
+                ticket_data = {
+                    'subject': data.get('subject', ''),
+                    'description': data.get('description', ''),
+                    'created_at': data.get('ticket_created_at', ''),
+                    'comments': data.get('comments') or [],
+                }
+                refresh_claim_summary(claim, ticket_data)  # best-effort; persists
+                claim.refresh_from_db(fields=['ai_summary', 'ai_summary_updated_at'])
+            summary = (claim.ai_summary or '').strip() or \
+                'No summary yet — click Regenerate to create one.'
+            updated = (claim.ai_summary_updated_at.isoformat()
+                       if claim.ai_summary_updated_at else None)
+            return Response(
+                {'summary': summary, 'next_steps': [], 'facts': facts,
+                 'attention': attention, 'summary_updated_at': updated, 'stored': True},
+                status=status.HTTP_200_OK,
+            )
+
+        # next_steps (on-demand, derived — not stored), OR a claimless ticket
+        # summary (no claim to store against → transient briefing).
         if mode == 'next_steps':
             prompt, schema = self.NEXT_STEPS_PROMPT, NextSteps
         else:
@@ -441,7 +472,8 @@ class ZendeskBriefingView(APIView):
                 return Response({'next_steps': []}, status=status.HTTP_200_OK)
             return Response(
                 {'summary': 'Briefing unavailable right now. Please use the Chat tab or retry.',
-                 'next_steps': [], 'facts': facts, 'attention': attention},
+                 'next_steps': [], 'facts': facts, 'attention': attention,
+                 'summary_updated_at': None, 'stored': False},
                 status=status.HTTP_200_OK,
             )
 
@@ -449,7 +481,8 @@ class ZendeskBriefingView(APIView):
             return Response({'next_steps': result.next_steps}, status=status.HTTP_200_OK)
         return Response(
             {'summary': result.summary, 'next_steps': result.next_steps,
-             'facts': facts, 'attention': attention},
+             'facts': facts, 'attention': attention,
+             'summary_updated_at': None, 'stored': False},
             status=status.HTTP_200_OK,
         )
 

@@ -248,6 +248,23 @@ class CheckEmailForTicketTests(TestCase):
                     check_email_for_ticket('80001', self.claim, bad)
                 mock_open.assert_not_called()
 
+    def test_new_email_refreshes_the_stored_summary(self, mock_ai, mock_note, mock_tags):
+        # A new email is new case information → the one stored summary refreshes
+        # so the app and the sidebar both reflect it.
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value={'id': '80001'}), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
+             patch('apps.integrations.briefing.refresh_claim_summary', return_value=True) as refresh:
+            self.run_check(mock_conn())
+        refresh.assert_called_once()
+        self.assertEqual(refresh.call_args[0][0], self.claim)
+
+    def test_no_new_email_does_not_refresh_summary(self, mock_ai, mock_note, mock_tags):
+        # An already-processed email (nothing new) must NOT trigger a refresh.
+        EmailLog.objects.create(subject='x', body='x', message_id='<m1@mail.example>')
+        with patch('apps.integrations.briefing.refresh_claim_summary') as refresh:
+            self.run_check(mock_conn())
+        refresh.assert_not_called()
+
 
 # ---- LORA claim page endpoint ----
 
