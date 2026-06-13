@@ -25,6 +25,7 @@ from django.contrib import messages
 from django.db import models
 from django.db.models import Count, F, Q
 from django.utils import timezone
+from datetime import timedelta
 from django.utils.text import get_valid_filename
 from django.views.generic import CreateView, UpdateView
 from django.urls import reverse_lazy
@@ -590,6 +591,14 @@ def manager_dashboard(request):
         evidence_sent=Count(Case(When(status='EVIDENCE_SENT', then=1), output_field=IntegerField())),
         resolved=Count(Case(When(status__in=['RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED'], then=1), output_field=IntegerField())),
     )
+    # Disputes with a response deadline in the next 3 days (or already past),
+    # still open — the highest-stakes "act now" number. Missing the deadline
+    # auto-loses the dispute.
+    _open_dispute = ~models.Q(status__in=['RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED'])
+    dispute_stats['due_soon'] = Dispute.objects.filter(
+        _open_dispute, seller_response_due__isnull=False,
+        seller_response_due__lte=timezone.now() + timedelta(days=3),
+    ).count()
 
     # Recent activity (optimized with select_related)
     recent_claims = Claim.objects.select_related('assigned_to').order_by('-created_at')[:10]
@@ -614,6 +623,7 @@ def manager_dashboard(request):
         'dispute_under_review': dispute_stats['under_review'],
         'dispute_evidence_sent': dispute_stats['evidence_sent'],
         'dispute_resolved': dispute_stats['resolved'],
+        'dispute_due_soon': dispute_stats['due_soon'],
         'recent_claims': recent_claims,
         'recent_emails': recent_emails,
         'recent_disputes': recent_disputes,

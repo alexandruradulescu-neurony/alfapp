@@ -13,6 +13,20 @@
     </a>
 </div>
 
+<!-- Deadline banner — missing PayPal's response deadline auto-loses the dispute -->
+{% if dispute.seller_response_due and dispute.deadline_state %}
+<div class="rounded-2xl border-0 p-4 flex items-center gap-3 mb-4 {% if dispute.deadline_state == 'overdue' %}bg-error/15 text-error{% elif dispute.deadline_state == 'soon' %}bg-warning/15 text-warning{% else %}bg-base-200/60 text-base-content{% endif %}">
+    <i class="bi bi-alarm text-lg"></i>
+    <div>
+        <span class="font-semibold">
+            {% if dispute.deadline_state == 'overdue' %}Response deadline PASSED{% elif dispute.deadline_state == 'soon' %}Response due soon{% else %}Respond to PayPal by{% endif %}:
+        </span>
+        {{ dispute.seller_response_due|date:"M d, Y H:i" }}
+        {% if dispute.deadline_state == 'overdue' %}<span class="ml-1">— PayPal may have auto-closed this in the buyer's favour.</span>{% endif %}
+    </div>
+</div>
+{% endif %}
+
 <!-- Status Banner -->
 <div class="rounded-2xl border-0 p-4 flex items-start gap-3 mb-6 {% if dispute.status == 'RESOLVED_WON' %}bg-success/10 text-success{% elif dispute.status == 'RESOLVED_LOST' %}bg-error/10 text-error{% elif dispute.status == 'ACCEPTED' %}bg-warning/10 text-warning{% elif dispute.status == 'EVIDENCE_SENT' %}bg-info/10 text-info{% else %}bg-base-200/60 text-base-content{% endif %}">
     <i class="bi bi-info-circle text-lg mt-0.5"></i>

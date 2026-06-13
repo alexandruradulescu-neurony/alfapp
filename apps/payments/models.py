@@ -212,6 +212,14 @@ class Dispute(models.Model):
         choices=REASON_CHOICES,
         blank=True,
     )
+    # PayPal lifecycle stage (INQUIRY → CHARGEBACK → PRE_ARBITRATION →
+    # ARBITRATION). Evidence can only be submitted from CHARGEBACK onward.
+    dispute_life_cycle_stage = models.CharField(
+        max_length=30,
+        blank=True,
+        default='',
+        help_text='PayPal dispute_life_cycle_stage; gates evidence submission',
+    )
     dispute_amount = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -265,6 +273,37 @@ class Dispute(models.Model):
 
     def __str__(self):
         return f"Dispute #{self.id} - {self.buyer_email} ({self.status})"
+
+    # Stages from which PayPal accepts an evidence upload (INQUIRY is
+    # message-only — PayPal rejects provide-evidence there).
+    EVIDENCE_STAGES = ('CHARGEBACK', 'PRE_ARBITRATION', 'ARBITRATION')
+    OPEN_STATUSES = ('RECEIVED', 'MATCHED', 'GATHERING_DATA', 'DOCUMENTS_READY',
+                     'UNDER_REVIEW', 'EVIDENCE_SENT')
+
+    @property
+    def can_submit_evidence(self) -> bool:
+        """Evidence upload is allowed only from CHARGEBACK stage onward and
+        while the case is still open. Unknown stage → allow (don't block on
+        missing data; PayPal is the final gate)."""
+        if self.status not in self.OPEN_STATUSES:
+            return False
+        if not self.dispute_life_cycle_stage:
+            return True
+        return self.dispute_life_cycle_stage.upper() in self.EVIDENCE_STAGES
+
+    @property
+    def deadline_state(self) -> str:
+        """'' | overdue | soon | ok — for colour-coding the response deadline."""
+        if not self.seller_response_due or self.status in (
+                'RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED'):
+            return ''
+        from django.utils import timezone
+        days = (self.seller_response_due - timezone.now()).days
+        if days < 0:
+            return 'overdue'
+        if days <= 3:
+            return 'soon'
+        return 'ok'
 
 
 class DisputeDocument(models.Model):

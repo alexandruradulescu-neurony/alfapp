@@ -663,6 +663,7 @@ def ingest_dispute(dispute_id: str, raw_event: dict = None):
                           or _parse_paypal_time(details.get('create_time'))
                           or timezone.now()),
         seller_response_due=_parse_paypal_time(details.get('seller_response_due_date')),
+        dispute_life_cycle_stage=details.get('dispute_life_cycle_stage', '') or '',
         raw_webhook_payload=details,
     )
     DisputeActivityLog.objects.create(
@@ -675,3 +676,55 @@ def ingest_dispute(dispute_id: str, raw_event: dict = None):
             details=f"Matched to claim #{claim.id} by buyer email.")
     logger.info(f"Ingested dispute {dispute_id} (claim={'#%s' % claim.id if claim else 'none'})")
     return dispute, True
+
+
+def sync_dispute_from_paypal(dispute_id: str):
+    """Refresh a local Dispute from PayPal (Phase 3 — UPDATED/RESOLVED events).
+
+    Updates stage, deadline, amount and reason; on a RESOLVED dispute maps
+    PayPal's outcome to RESOLVED_WON / RESOLVED_LOST. Does NOT clobber the
+    human workflow status (DOCUMENTS_READY etc.) on a mere UPDATE — only a
+    resolution changes the LORA status. Returns the Dispute or None.
+    """
+    from django.utils import timezone
+
+    dispute = Dispute.objects.filter(paypal_dispute_id=dispute_id).first()
+    if dispute is None:
+        # Unknown dispute updated before we ever ingested it — ingest now.
+        dispute, _ = ingest_dispute(dispute_id)
+        return dispute
+
+    details = fetch_dispute_details(dispute_id)
+    if not details:
+        return dispute
+
+    update_fields = []
+    stage = details.get('dispute_life_cycle_stage', '') or ''
+    if stage and stage != dispute.dispute_life_cycle_stage:
+        dispute.dispute_life_cycle_stage = stage
+        update_fields.append('dispute_life_cycle_stage')
+    due = _parse_paypal_time(details.get('seller_response_due_date'))
+    if due and due != dispute.seller_response_due:
+        dispute.seller_response_due = due
+        update_fields.append('seller_response_due')
+    reason = (details.get('reason') or '').strip()
+    if reason in Dispute.VALID_REASONS and reason != dispute.dispute_reason:
+        dispute.dispute_reason = reason
+        update_fields.append('dispute_reason')
+
+    pp_status = (details.get('status') or '').upper()
+    if pp_status == 'RESOLVED':
+        outcome = (details.get('dispute_outcome') or {}).get('outcome_code', '') or ''
+        won = 'SELLER' in outcome.upper()  # e.g. RESOLVED_SELLER_FAVOUR
+        new_status = 'RESOLVED_WON' if won else 'RESOLVED_LOST'
+        if dispute.status != new_status:
+            dispute.status = new_status
+            update_fields.append('status')
+            DisputeActivityLog.objects.create(
+                dispute=dispute, action='DISPUTE_RESOLVED',
+                details=f"PayPal resolved the dispute: {new_status} (outcome={outcome or '?'}).")
+
+    if update_fields:
+        dispute.save(update_fields=list(set(update_fields)) + ['updated_at'])
+        logger.info(f"Synced dispute {dispute_id}: {update_fields}")
+    return dispute

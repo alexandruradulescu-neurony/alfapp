@@ -98,7 +98,7 @@ class PayPalDisputeWebhookView(APIView):
 
     def post(self, request):
         from apps.payments.paypal_disputes_service import (
-            verify_webhook_signature, ingest_dispute)
+            verify_webhook_signature, ingest_dispute, sync_dispute_from_paypal)
         from apps.payments.models import ProcessedWebhookEvent
 
         event = request.data
@@ -132,7 +132,11 @@ class PayPalDisputeWebhookView(APIView):
             return Response({'message': 'Dispute ingested', 'created': created,
                              'dispute_id': dispute.id}, status=status.HTTP_200_OK)
 
-        # UPDATED / RESOLVED / others: acknowledge (Phase 3 handles status sync).
+        # UPDATED / RESOLVED: refresh the local dispute (stage, deadline, and
+        # won/lost on resolution).
+        if event_type in ('CUSTOMER.DISPUTE.UPDATED', 'CUSTOMER.DISPUTE.RESOLVED') and dispute_id:
+            sync_dispute_from_paypal(dispute_id)
+
         if event_id:
             ProcessedWebhookEvent.objects.create(
                 event_id=event_id, event_type=event_type,
