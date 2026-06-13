@@ -9,6 +9,7 @@ from django.urls import path
 
 from apps.payments.frontend_views import (
     dispute_list,
+    dispute_create,
     dispute_detail,
     dispute_generate_documents,
     dispute_edit_document,
@@ -22,8 +23,9 @@ from apps.payments.frontend_views import (
 app_name = 'disputes'
 
 urlpatterns = [
-    # Dispute list and detail
+    # Dispute list, manual create, and detail
     path('', dispute_list, name='dispute_list'),
+    path('create/', dispute_create, name='dispute_create'),
     path('<int:dispute_id>/', dispute_detail, name='dispute_detail'),
 
     # Document management

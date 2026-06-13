@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+
+{% block title %}Create dispute — Claim #{{ claim.id }}{% endblock %}
+
+{% block content %}
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+        <i class="bi bi-shield-exclamation"></i> Mark claim as disputed
+    </h2>
+    <a href="{% url 'agent_claim_detail' claim.id %}" class="btn btn-outline rounded-xl transition-all duration-200">
+        <i class="bi bi-arrow-left"></i> Back to claim
+    </a>
+</div>
+
+<div class="card-modern p-6 max-w-2xl animate-fade-in">
+    <p class="text-sm text-base-content/70 mb-5">
+        Use this when a PayPal dispute did not arrive automatically. It creates a dispute case for
+        <strong>{{ claim.client_name|default:claim.client_email }}</strong>
+        (claim #{{ claim.id }}{% if claim.alf_claim_id %} · {{ claim.alf_claim_id }}{% endif %}). You can then generate the
+        evidence report and download it to upload to PayPal yourself, or send it through the API.
+    </p>
+
+    <form method="post" action="{% url 'disputes:dispute_create' %}">
+        {% csrf_token %}
+        <input type="hidden" name="claim_id" value="{{ claim.id }}">
+
+        <div class="form-control mb-4">
+            <label class="label"><span class="label-text font-semibold">Dispute category</span></label>
+            <select name="dispute_reason" class="select select-bordered rounded-xl w-full">
+                <option value="">— Set later on the dispute page —</option>
+                {% for code, label in reason_choices %}
+                <option value="{{ code }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+            <span class="text-xs text-base-content/60 mt-1">Drives the report's framing. You can change it later.</span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <div class="form-control">
+                <label class="label"><span class="label-text font-semibold">Buyer email</span></label>
+                <input type="email" name="buyer_email" value="{{ claim.client_email }}"
+                       class="input input-bordered rounded-xl w-full" required>
+            </div>
+            <div class="form-control">
+                <label class="label"><span class="label-text font-semibold">Amount</span></label>
+                <div class="flex gap-2">
+                    <input type="text" name="dispute_amount" value="{{ claim.price_paid|default_if_none:'' }}"
+                           class="input input-bordered rounded-xl w-full" placeholder="e.g. 74.00">
+                    <input type="text" name="dispute_currency" value="USD"
+                           class="input input-bordered rounded-xl w-24" maxlength="3">
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            <div class="form-control">
+                <label class="label"><span class="label-text font-semibold">PayPal dispute ID <span class="text-base-content/50">(optional)</span></span></label>
+                <input type="text" name="paypal_dispute_id" class="input input-bordered rounded-xl w-full"
+                       placeholder="PP-D-… (leave blank to auto-generate)">
+            </div>
+            <div class="form-control">
+                <label class="label"><span class="label-text font-semibold">PayPal case ID <span class="text-base-content/50">(optional)</span></span></label>
+                <input type="text" name="paypal_case_id" class="input input-bordered rounded-xl w-full">
+            </div>
+        </div>
+
+        <div class="form-control mb-6">
+            <label class="label"><span class="label-text font-semibold">Respond by <span class="text-base-content/50">(optional)</span></span></label>
+            <input type="date" name="seller_response_due" class="input input-bordered rounded-xl w-full sm:w-64">
+            <span class="text-xs text-base-content/60 mt-1">PayPal's evidence deadline, if you know it.</span>
+        </div>
+
+        <div class="flex gap-2">
+            <button type="submit" class="btn btn-primary rounded-xl transition-all duration-200">
+                <i class="bi bi-shield-exclamation"></i> Create dispute
+            </button>
+            <a href="{% url 'agent_claim_detail' claim.id %}" class="btn btn-outline rounded-xl transition-all duration-200">
+                <i class="bi bi-x-circle"></i> Cancel
+            </a>
+        </div>
+    </form>
+</div>
+{% endblock %}

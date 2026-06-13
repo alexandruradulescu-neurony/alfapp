@@ -17,7 +17,13 @@ from django.db.models import Q, Count
 from django.core.paginator import Paginator
 from django.views.decorators.http import require_POST
 
+from decimal import Decimal, InvalidOperation
+from django.db import IntegrityError
+from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
+
 from apps.users.decorators import manager_required
+from apps.claims.models import Claim
 from apps.payments.models import Dispute, DisputeDocument, DisputeScreenshot, DisputeActivityLog
 from apps.payments.document_service import generate_response_letter, generate_evidence_report
 from apps.payments.paypal_disputes_service import provide_evidence, accept_claim
@@ -50,6 +56,95 @@ def strip_active_html(html: str) -> str:
     html = re.sub(r'<script[^>]*>.*?</script>', '', html or '', flags=re.IGNORECASE | re.DOTALL)
     html = re.sub(r'\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', html, flags=re.IGNORECASE)
     return html
+
+
+def _parse_due(raw: str):
+    """Parse a date or datetime string from the form into an aware datetime."""
+    raw = (raw or '').strip()
+    if not raw:
+        return None
+    dt = parse_datetime(raw)
+    if dt is None:
+        d = parse_date(raw)
+        if d:
+            from datetime import datetime, time
+            dt = datetime.combine(d, time(23, 59))
+    if dt is not None and timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone.get_current_timezone())
+    return dt
+
+
+@manager_required
+def dispute_create(request):
+    """Manually create a dispute from a claim — the fallback for when PayPal's
+    webhook never delivered the dispute. Prefills from the claim; the manager
+    picks the category and (optionally) the real PayPal IDs / response deadline.
+    Then the normal flow (Generate Documents → edit → download/send) takes over.
+
+    GET  /manager/disputes/create/?claim=<id>  - prefilled form
+    POST /manager/disputes/create/             - create and redirect to detail
+    """
+    claim_id = request.GET.get('claim') or request.POST.get('claim_id')
+    claim = Claim.objects.filter(pk=claim_id).first() if claim_id else None
+    if not claim:
+        messages.error(request, "Pick a claim to create a dispute from.")
+        return redirect('disputes:dispute_list')
+
+    if request.method == 'POST':
+        reason = request.POST.get('dispute_reason', '')
+        reason = reason if reason in Dispute.VALID_REASONS else ''
+
+        buyer_email = (request.POST.get('buyer_email', '') or claim.client_email or '').strip()
+        if not buyer_email:
+            messages.error(request, "This claim has no client email; enter a buyer email to create the dispute.")
+            return redirect(f"{request.path}?claim={claim.id}")
+
+        ppid = (request.POST.get('paypal_dispute_id', '') or '').strip()
+        if not ppid:
+            ppid = f"MANUAL-{claim.zd_ticket_id or claim.id}-{int(timezone.now().timestamp())}"
+
+        amount = claim.price_paid
+        raw_amount = (request.POST.get('dispute_amount', '') or '').strip()
+        if raw_amount:
+            try:
+                amount = Decimal(raw_amount)
+            except (InvalidOperation, ValueError):
+                amount = claim.price_paid
+
+        currency = ((request.POST.get('dispute_currency', '') or 'USD').strip()[:3] or 'USD').upper()
+
+        try:
+            dispute = Dispute.objects.create(
+                paypal_dispute_id=ppid,
+                paypal_case_id=(request.POST.get('paypal_case_id', '') or '').strip(),
+                claim=claim,
+                zd_ticket_id=claim.zd_ticket_id or '',
+                status='MATCHED',
+                dispute_reason=reason,
+                dispute_amount=amount,
+                dispute_currency=currency,
+                buyer_email=buyer_email,
+                buyer_name=claim.client_name or '',
+                transaction_id=claim.woocommerce_id or 'MANUAL',
+                transaction_date=claim.created_at or timezone.now(),
+                seller_response_due=_parse_due(request.POST.get('seller_response_due', '')),
+                notes='Manually created in LORA (PayPal dispute did not arrive via webhook).',
+            )
+        except IntegrityError:
+            messages.error(request, f"A dispute with PayPal ID '{ppid}' already exists.")
+            return redirect(f"{request.path}?claim={claim.id}")
+
+        DisputeActivityLog.objects.create(
+            dispute=dispute, action='STATUS_CHANGED',
+            details=f"Dispute manually created from claim #{claim.id} "
+                    f"({claim.alf_claim_id or 'no ALF id'}).")
+        messages.success(
+            request,
+            f"Dispute #{dispute.id} created. Generate the evidence report below, then download or send it.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute.id)
+
+    context = {'claim': claim, 'reason_choices': Dispute.REASON_CHOICES}
+    return render(request, 'manager/dispute_create.html', context)
 
 
 @manager_required

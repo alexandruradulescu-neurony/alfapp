@@ -25,6 +25,19 @@
             <i class="bi bi-arrow-left"></i> Back to Claims
         </a>
         {% if user.role == 'MANAGER' %}
+        {% with dispute=claim.disputes.first %}
+        {% if dispute %}
+        <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="btn btn-outline btn-warning rounded-xl transition-all duration-200"
+           title="This claim already has a dispute case">
+            <i class="bi bi-shield-exclamation"></i> View dispute
+        </a>
+        {% else %}
+        <a href="{% url 'disputes:dispute_create' %}?claim={{ claim.id }}" class="btn btn-outline btn-warning rounded-xl transition-all duration-200"
+           title="Manually create a PayPal dispute case for this claim">
+            <i class="bi bi-shield-exclamation"></i> Mark as disputed
+        </a>
+        {% endif %}
+        {% endwith %}
         <button type="button" class="btn btn-outline btn-error rounded-xl transition-all duration-200"
                 onclick="deleteClaim({{ claim.id }})"
                 title="Delete this claim from LORA (the Zendesk ticket is not touched)">

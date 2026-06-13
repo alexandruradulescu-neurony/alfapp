@@ -398,6 +398,54 @@ class StripActiveHtmlTests(TestCase):
         self.assertNotIn('onerror', clean)
 
 
+class ManualDisputeCreateTests(TestCase):
+    """The fallback path: manually create a dispute from a claim when PayPal's
+    webhook never delivered it."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from django.test import Client
+        User = get_user_model()
+        self.mgr = User.objects.create_user(username='mc_mgr', password='x', role='MANAGER')
+        self.web = Client()
+        self.web.force_login(self.mgr)
+        self.claim = Claim.objects.create(
+            client_email='lee@example.com', client_name='Lee Foley', alf_claim_id='ALF1',
+            zd_ticket_id='97001', price_paid=Decimal('74.00'))
+
+    def test_get_form_renders_prefilled(self):
+        resp = self.web.get(f'/manager/disputes/create/?claim={self.claim.id}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Mark claim as disputed')
+        self.assertContains(resp, 'lee@example.com')
+
+    def test_post_creates_dispute_linked_to_claim(self):
+        resp = self.web.post('/manager/disputes/create/', {
+            'claim_id': self.claim.id, 'dispute_reason': 'UNAUTHORISED',
+            'buyer_email': 'lee@example.com', 'dispute_amount': '74.00', 'dispute_currency': 'usd',
+            'seller_response_due': '2026-07-01',
+        })
+        d = Dispute.objects.get(claim=self.claim)
+        self.assertRedirects(resp, f'/manager/disputes/{d.id}/', fetch_redirect_response=False)
+        self.assertEqual(d.dispute_reason, 'UNAUTHORISED')
+        self.assertEqual(d.status, 'MATCHED')
+        self.assertEqual(d.dispute_currency, 'USD')           # normalised
+        self.assertEqual(d.zd_ticket_id, '97001')             # carried from claim
+        self.assertTrue(d.paypal_dispute_id.startswith('MANUAL-'))  # auto-generated
+        self.assertIsNotNone(d.seller_response_due)
+
+    def test_post_uses_provided_paypal_id(self):
+        self.web.post('/manager/disputes/create/', {
+            'claim_id': self.claim.id, 'dispute_reason': '', 'buyer_email': 'lee@example.com',
+            'paypal_dispute_id': 'PP-D-REAL-1'})
+        self.assertTrue(
+            Dispute.objects.filter(paypal_dispute_id='PP-D-REAL-1', claim=self.claim).exists())
+
+    def test_missing_claim_redirects_to_list(self):
+        resp = self.web.get('/manager/disputes/create/')
+        self.assertRedirects(resp, '/manager/disputes/', fetch_redirect_response=False)
+
+
 class GroupedTemplateRenderTests(TestCase):
     def test_sections_and_explanations_render(self):
         claim = Claim.objects.create(client_email='b@example.com', client_name='Lee Foley',
