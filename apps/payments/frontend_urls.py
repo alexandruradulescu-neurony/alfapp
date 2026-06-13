@@ -16,7 +16,6 @@ from apps.payments.frontend_views import (
     dispute_delete_document,
     dispute_send_evidence,
     dispute_accept_claim,
-    dispute_capture_screenshots,
     dispute_set_category,
 )
 
@@ -32,7 +31,6 @@ urlpatterns = [
     path('<int:dispute_id>/set-category/', dispute_set_category, name='dispute_set_category'),
     path('<int:dispute_id>/send-evidence/', dispute_send_evidence, name='dispute_send_evidence'),
     path('<int:dispute_id>/accept-claim/', dispute_accept_claim, name='dispute_accept_claim'),
-    path('<int:dispute_id>/capture-screenshots/', dispute_capture_screenshots, name='dispute_capture_screenshots'),
 
     # Document actions (separate URL namespace for documents)
     path('documents/<int:document_id>/edit/', dispute_edit_document, name='dispute_edit_document'),

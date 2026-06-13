@@ -143,15 +143,8 @@
         <div class="card-modern p-6 animate-fade-in">
             <div class="flex justify-between items-center mb-4">
                 <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 m-0">
-                    <i class="bi bi-images"></i> Screenshots
+                    <i class="bi bi-images"></i> Attached evidence images
                 </h3>
-                <form method="post" action="{% url 'disputes:dispute_capture_screenshots' dispute.id %}" class="inline">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-sm btn-success rounded-xl transition-all duration-200"
-                            {% if not dispute.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
-                        <i class="bi bi-camera"></i> Capture New
-                    </button>
-                </form>
             </div>
             {% if screenshots %}
             <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -170,8 +163,8 @@
             {% else %}
             <div class="text-center py-8">
                 <i class="bi bi-images text-4xl text-base-content/30"></i>
-                <p class="text-base-content/60 mt-2 mb-0">No screenshots captured yet</p>
-                <span class="text-xs text-base-content/60">Capture screenshots of the Zendesk ticket to include in evidence</span>
+                <p class="text-base-content/60 mt-2 mb-0">No attached evidence images</p>
+                <span class="text-xs text-base-content/60">The evidence report rebuilds Zendesk records automatically; upload extra images here only if needed.</span>
             </div>
             {% endif %}
         </div>
@@ -326,18 +319,6 @@
                 <button type="submit" class="btn btn-primary w-full rounded-xl transition-all duration-200 mb-2"
                         {% if not dispute.zd_ticket_id %}disabled{% endif %}>
                     <i class="bi bi-magic"></i> Generate Documents
-                </button>
-                {% if not dispute.zd_ticket_id %}
-                <span class="text-xs text-base-content/60">Requires Zendesk ticket linkage</span>
-                {% endif %}
-            </form>
-
-            <!-- Capture Screenshots -->
-            <form method="post" action="{% url 'disputes:dispute_capture_screenshots' dispute.id %}" class="mb-3">
-                {% csrf_token %}
-                <button type="submit" class="btn btn-success w-full rounded-xl transition-all duration-200 mb-2"
-                        {% if not dispute.zd_ticket_id %}disabled{% endif %}>
-                    <i class="bi bi-camera"></i> Capture Screenshots
                 </button>
                 {% if not dispute.zd_ticket_id %}
                 <span class="text-xs text-base-content/60">Requires Zendesk ticket linkage</span>

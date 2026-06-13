@@ -639,11 +639,158 @@ def generate_response_letter(dispute_or_id):
 # layout; until the per-category report models are provided they all use the
 # generic Zendesk-styled report. Register a new template here (and add the
 # file) when a category's model arrives — no other code changes needed.
-GENERIC_EVIDENCE_TEMPLATE = 'dispute_evidence_report.html'
+# The narrative report (matches the business's Word template) is the default.
+# The old metadata-dump template stays available under its name for fallback.
+GENERIC_EVIDENCE_TEMPLATE = 'disputes/narrative_evidence_report.html'
+LEGACY_EVIDENCE_TEMPLATE = 'dispute_evidence_report.html'
 CATEGORY_REPORT_TEMPLATES = {
-    # 'MERCHANDISE_OR_SERVICE_NOT_RECEIVED': 'disputes/not_received_report.html',
-    # 'UNAUTHORISED': 'disputes/unauthorised_report.html',
+    # Per-category layouts can override here; by default every category uses the
+    # narrative template and only its framing text (CATEGORY_FRAMING) changes.
 }
+
+# Fixed, case-independent images shipped with the report (canonical screenshots
+# of the public site + the annotated checkout flow). Lifted from the business's
+# own Word template so reports look identical to what the team sends today.
+REPORT_ASSETS_DIR = os.path.join(os.path.dirname(__file__), 'report_assets')
+TERMS_URL = 'https://airportlostfound.com/legal/terms-and-conditions/'
+
+# Per-category framing: the headline + lead paragraph that opens the evidence,
+# reordered to rebut the specific claim. Same evidence underneath.
+CATEGORY_FRAMING = {
+    'UNAUTHORISED': {
+        'headline': 'Evidence the customer authorised this transaction',
+        'lead': ('The buyer states the transaction was not authorised. The records below show '
+                 'the customer personally submitted this claim on our website, accepted our Terms '
+                 'and Conditions, and expressly authorised us to act on their behalf — after which '
+                 'we performed the search service they paid for.'),
+    },
+    'MERCHANDISE_OR_SERVICE_NOT_RECEIVED': {
+        'headline': 'Evidence the service was delivered',
+        'lead': ('The buyer states the service was not received. The records below show the search '
+                 'service began immediately after purchase: the lost item was reported to the airline '
+                 'and airport, and the customer was kept updated throughout.'),
+    },
+    'MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED': {
+        'headline': 'Evidence the service matched what was offered',
+        'lead': ('The buyer states the service was not as described. The records below show exactly '
+                 'what was offered at checkout and that the service performed matched that description.'),
+    },
+    'CREDIT_NOT_PROCESSED': {
+        'headline': 'Evidence of the refund policy the customer accepted',
+        'lead': ('The buyer expected a credit. The records below show the refund policy the customer '
+                 'accepted at checkout and the search service that was performed under it.'),
+    },
+}
+DEFAULT_FRAMING = {
+    'headline': 'Evidence of service delivered and authorisation given',
+    'lead': ("The records below document the customer's purchase, the authorisation they gave us, and "
+             'the search service we performed on their behalf.'),
+}
+
+
+def _asset_data_uri(filename: str) -> Optional[str]:
+    """Base64 data URI for a fixed report asset, or None if missing."""
+    try:
+        path = os.path.join(REPORT_ASSETS_DIR, filename)
+        with open(path, 'rb') as f:
+            data = f.read()
+        ext = filename.rsplit('.', 1)[-1].lower()
+        mime = {'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
+                'gif': 'image/gif', 'webp': 'image/webp'}.get(ext, 'image/jpeg')
+        return f"data:{mime};base64,{base64.b64encode(data).decode('utf-8')}"
+    except Exception as e:
+        logger.warning(f"Report asset {filename} unavailable: {e}")
+        return None
+
+
+def _attachment_data_uri(content_type: str, content_url: str) -> Optional[str]:
+    """Download an image attachment from Zendesk and return it as a data URI.
+    Non-images and failures return None (so the template just skips them)."""
+    if not (content_type or '').lower().startswith('image/'):
+        return None
+    from apps.integrations.services import fetch_zendesk_attachment_bytes
+    data = fetch_zendesk_attachment_bytes(content_url)
+    if not data:
+        return None
+    return f"data:{content_type};base64,{base64.b64encode(data).decode('utf-8')}"
+
+
+def _zendesk_comment_panels(comments: list, embed_images: bool = True,
+                            max_images: int = 14) -> list:
+    """Turn Zendesk comments into 'simulated screenshot' panels: author,
+    public/internal flag, timestamp, body text, and embedded attachment images
+    (the pasted airline confirmations, lost-&-found forms, etc.)."""
+    panels = []
+    embedded = 0
+    for c in comments:
+        images = []
+        if embed_images:
+            for att in c.get('attachments', []):
+                if embedded >= max_images:
+                    break
+                uri = _attachment_data_uri(att.get('content_type', ''), att.get('content_url', ''))
+                if uri:
+                    images.append({'data_uri': uri, 'file_name': att.get('file_name', '')})
+                    embedded += 1
+        author = c.get('author', {}) or {}
+        panels.append({
+            'author': author.get('name', 'Unknown'),
+            'author_email': author.get('email', ''),
+            'public': c.get('public', False),
+            'created_at': c.get('created_at'),
+            'body': c.get('body', ''),
+            'images': images,
+        })
+    return panels
+
+
+def _flight_card(claim) -> Optional[dict]:
+    """Compact flight-card context rebuilt from the claim's stored flight
+    lookup (claim.flight_data) — rendered natively, not screenshotted."""
+    fd = getattr(claim, 'flight_data', None) or {}
+    legs = fd.get('legs') or []
+    if not legs:
+        return None
+    first, last = legs[0], legs[-1]
+    return {
+        'number': fd.get('number', ''),
+        'airline': fd.get('airline', ''),
+        'status': fd.get('status', '') or first.get('status', ''),
+        'from_iata': first.get('from_iata', ''),
+        'from_city': first.get('from_city', '') or first.get('from_name', ''),
+        'to_iata': last.get('to_iata', ''),
+        'to_city': last.get('to_city', '') or last.get('to_name', ''),
+        'dep_local': first.get('scheduled_departure_local', ''),
+        'arr_local': last.get('scheduled_arrival_local', ''),
+        'from_terminal': first.get('from_terminal', ''),
+        'from_gate': first.get('from_gate', ''),
+        'to_terminal': last.get('to_terminal', ''),
+        'to_gate': last.get('to_gate', ''),
+    }
+
+
+def _narrative_fields(dispute) -> dict:
+    """The header/narrative values the template slots into the Word-template
+    prose. Missing pieces are left blank — never fabricated."""
+    claim = dispute.claim
+    fee = None
+    if claim and claim.price_paid is not None:
+        fee = claim.price_paid
+    elif dispute.dispute_amount is not None:
+        fee = dispute.dispute_amount
+    currency = dispute.dispute_currency or 'USD'
+    object_short = ''
+    if claim and claim.object_description:
+        object_short = claim.object_description.strip().splitlines()[0][:120]
+    return {
+        'client_name': (claim.client_name if claim else '') or dispute.buyer_name or 'the customer',
+        'alf_id': (claim.alf_claim_id if claim else '') or '',
+        'object': object_short,
+        'fee': fee,
+        'currency': currency,
+        'visit_date': (claim.created_at if claim else dispute.transaction_date),
+        'terms_url': TERMS_URL,
+    }
 
 
 def report_template_for(dispute) -> str:
@@ -651,14 +798,14 @@ def report_template_for(dispute) -> str:
     return CATEGORY_REPORT_TEMPLATES.get(dispute.dispute_reason, GENERIC_EVIDENCE_TEMPLATE)
 
 
-def build_dispute_evidence_bundle(dispute) -> dict:
+def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True) -> dict:
     """Gather EVERYTHING an evidence report could need for a dispute, once,
     into a structured context — independent of how any report lays it out.
 
-    A report template just arranges this bundle; assembling it is the
-    report-independent core (Phase 5). Includes the Zendesk ticket + full
-    comment thread, captured screenshots, claim evidence images, and the
-    communication (email) history.
+    Includes the Zendesk ticket + full comment thread (as both raw comments and
+    rendered Zendesk-styled panels with embedded attachment images), the
+    reconstructed flight card, captured/uploaded screenshots, claim evidence
+    images, the email history, the fixed report assets, and category framing.
     """
     zd_data = _fetch_zendesk_ticket_full(dispute.zd_ticket_id)
     ticket = zd_data.get('ticket', {})
@@ -678,11 +825,22 @@ def build_dispute_evidence_bundle(dispute) -> dict:
 
     evidence_list = _fetch_claim_evidence_base64(dispute.claim) if dispute.claim else []
     communication_history = _fetch_communication_history(dispute)
+    panels = _zendesk_comment_panels(comments, embed_images=embed_attachments)
+    framing = CATEGORY_FRAMING.get(dispute.dispute_reason, DEFAULT_FRAMING)
 
     return {
         'dispute': dispute,
+        'claim': dispute.claim,
         'ticket': ticket,
         'comments': comments,
+        'panels': panels,
+        'flight_card': _flight_card(dispute.claim),
+        'narrative': _narrative_fields(dispute),
+        'framing': framing,
+        'assets': {
+            'homepage': _asset_data_uri('homepage.jpg'),
+            'checkout': _asset_data_uri('checkout_annotated.jpg'),
+        },
         'screenshots': screenshots,
         'claim_evidence': evidence_list,
         'communication_history': communication_history,

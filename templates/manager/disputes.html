@@ -119,14 +119,6 @@
                                class="btn btn-sm btn-outline btn-primary rounded-xl transition-all duration-200" title="View Details">
                                 <i class="bi bi-eye"></i> View
                             </a>
-                            <form method="post" action="{% url 'disputes:dispute_capture_screenshots' dispute.id %}" class="inline">
-                                {% csrf_token %}
-                                <button type="submit" class="btn btn-sm btn-outline btn-success rounded-xl transition-all duration-200"
-                                        title="Capture Screenshot"
-                                        {% if not dispute.zd_ticket_id %}disabled{% endif %}>
-                                    <i class="bi bi-camera"></i>
-                                </button>
-                            </form>
                         </div>
                     </td>
                 </tr>

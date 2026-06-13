@@ -21,7 +21,6 @@ from apps.users.decorators import manager_required
 from apps.payments.models import Dispute, DisputeDocument, DisputeScreenshot, DisputeActivityLog
 from apps.payments.document_service import generate_response_letter, generate_evidence_report
 from apps.payments.paypal_disputes_service import provide_evidence, accept_claim
-from apps.payments.screenshot_service import capture_screenshots_manual
 
 logger = logging.getLogger(__name__)
 
@@ -406,38 +405,5 @@ def dispute_accept_claim(request, dispute_id):
     except Exception as e:
         logger.error(f"Error accepting claim for Dispute #{dispute_id}: {e}")
         messages.error(request, f"Error accepting claim: {str(e)}")
-
-    return redirect('disputes:dispute_detail', dispute_id=dispute_id)
-
-
-@manager_required
-@require_POST
-def dispute_capture_screenshots(request, dispute_id):
-    """
-    Trigger screenshot capture for a dispute.
-
-    POST /manager/disputes/<id>/capture-screenshots/
-
-    Calls the screenshot service to capture Zendesk ticket screenshots.
-    """
-    dispute = get_object_or_404(Dispute, pk=dispute_id)
-
-    # Validate dispute has Zendesk ticket
-    if not dispute.zd_ticket_id:
-        messages.error(request, f"Cannot capture screenshots: Dispute #{dispute_id} has no Zendesk ticket linked.")
-        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
-
-    try:
-        # Call screenshot service
-        success, message = capture_screenshots_manual(dispute_id)
-
-        if success:
-            messages.success(request, f"Screenshot captured: {message}")
-        else:
-            messages.error(request, f"Screenshot capture failed: {message}")
-
-    except Exception as e:
-        logger.error(f"Error capturing screenshots for Dispute #{dispute_id}: {e}")
-        messages.error(request, f"Error capturing screenshots: {str(e)}")
 
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)

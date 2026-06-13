@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Dispute Settlement Support Information — {{ dispute.paypal_dispute_id }}</title>
+<style>
+  /* Print-engine (WeasyPrint) safe: NO flexbox. Layout uses tables + inline-block. */
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Helvetica Neue', Arial, sans-serif; color:#1f2937; font-size:12px; line-height:1.55; }
+  h1 { font-size:18px; font-weight:700; color:#111827; margin-bottom:14px; }
+  .meta { font-size:12.5px; margin-bottom:4px; }
+  .meta .lab { font-weight:700; }
+
+  .stakes { background:#f3f4f6; border:1px solid #e5e7eb; border-radius:6px; padding:8px 12px;
+            font-size:11px; color:#374151; margin:12px 0 18px; }
+  .stakes span { display:inline-block; margin-right:18px; }
+  .stakes b { color:#111827; }
+  .stakes .overdue { color:#b91c1c; font-weight:700; }
+  .stakes .soon { color:#b45309; font-weight:700; }
+
+  .framing { background:#eef2ff; border:1px solid #c7d2fe; border-radius:6px; padding:12px 14px; margin:0 0 18px; }
+  .framing .hl { font-weight:700; color:#3730a3; font-size:13px; margin-bottom:4px; }
+  .framing p { font-size:12px; color:#312e81; }
+
+  .narr { margin:12px 0; }
+  .narr b { font-weight:700; }
+  .sec-h { font-weight:700; font-size:13.5px; margin:24px 0 8px; color:#111827;
+           border-bottom:2px solid #0070d2; padding-bottom:4px; }
+
+  .doc-img { max-width:100%; height:auto; border:1px solid #e5e7eb; border-radius:6px; margin:8px 0; }
+  .cap { font-size:10.5px; color:#6b7280; margin-bottom:10px; }
+
+  /* ---- simulated Zendesk panel (block, indented; avatar is inline in header) ---- */
+  .zd-panel { margin:12px 0 6px; padding-left:42px; page-break-inside:avoid; }
+  .zd-head { font-size:11.5px; margin-bottom:5px; margin-left:-42px; }
+  .zd-avatar { display:inline-block; width:30px; height:30px; border-radius:50%; background:#c7ccd1;
+               color:#fff; text-align:center; line-height:30px; font-size:14px; vertical-align:middle; margin-right:10px; }
+  .zd-name { font-weight:700; color:#2f3941; vertical-align:middle; }
+  .zd-badge { font-size:10px; font-weight:600; padding:1px 6px; border-radius:3px; vertical-align:middle; margin-left:6px; }
+  .zd-badge.internal { background:#fdf0d5; color:#ad5e00; }
+  .zd-badge.public { background:#dbeafe; color:#1e40af; }
+  .zd-time { color:#68737d; vertical-align:middle; margin-left:6px; }
+  .zd-body { border-radius:6px; padding:11px 13px; font-size:11px; line-height:1.5; }
+  .zd-body.internal { background:#fff8ec; border:1px solid #f2e2c4; }
+  .zd-body.public { background:#f4f7f9; border:1px solid #e3e9ed; color:#3b4a54; }
+  .zd-att { max-width:100%; height:auto; border:1px solid #d7dde2; border-radius:5px; margin:8px 0 0; }
+
+  /* ---- flight card (tables, no flex) ---- */
+  .fcard { background:#fff; border:1px solid #e3e9ed; border-radius:8px; padding:14px 16px; max-width:440px; }
+  .fcard .ftitle { font-size:15px; font-weight:700; color:#202124; }
+  .fcard .froute { font-size:11px; color:#5f6368; margin-top:2px; }
+  .fcard .farr { background:#e6f4ea; color:#137333; font-size:10px; font-weight:600; padding:1px 6px; border-radius:3px; }
+  .fbig { width:100%; border:1px solid #eceff1; border-radius:6px; margin-top:10px; border-collapse:separate; }
+  .fbig td { padding:12px; }
+  .fcode { font-size:26px; font-weight:700; color:#202124; letter-spacing:1px; }
+  .fline { color:#5f6368; font-size:11px; }
+  .fdetail { width:100%; margin-top:10px; font-size:11px; color:#5f6368; }
+  .ftime { color:#137333; font-weight:700; font-size:13px; }
+
+  .conclusion p { margin:8px 0; }
+  .footer { margin-top:36px; padding-top:12px; border-top:1px solid #e5e7eb;
+            text-align:center; font-size:10px; color:#9ca3af; }
+</style>
+</head>
+<body>
+
+<h1>Dispute Settlement Support Information</h1>
+<p class="meta"><span class="lab">Client's name:</span> {{ narrative.client_name }}</p>
+{% if narrative.alf_id %}<p class="meta"><span class="lab">Internal Registration ID:</span> {{ narrative.alf_id }}</p>{% endif %}
+
+<div class="stakes">
+  <span><b>PayPal case:</b> {{ dispute.paypal_dispute_id }}</span>
+  {% if dispute.dispute_amount %}<span><b>Amount:</b> {{ dispute.dispute_amount }} {{ dispute.dispute_currency|default:"USD" }}</span>{% endif %}
+  <span><b>Reason:</b> {{ dispute.get_dispute_reason_display|default:"Not categorised" }}</span>
+  {% if dispute.seller_response_due %}
+  <span class="{{ dispute.deadline_state }}"><b>Respond by:</b> {{ dispute.seller_response_due|date:"M j, Y H:i" }}{% if dispute.deadline_state == 'overdue' %} (OVERDUE){% elif dispute.deadline_state == 'soon' %} (due soon){% endif %}</span>
+  {% endif %}
+</div>
+
+<div class="framing">
+  <div class="hl">{{ framing.headline }}</div>
+  <p>{{ framing.lead }}</p>
+</div>
+
+<!-- Intro narrative -->
+<p class="narr">We have conducted a detailed review of the case for our client, {{ narrative.client_name }}, and present the following updated information:</p>
+
+<p class="narr">{{ narrative.client_name }} visited our website airportlostfound.com{% if narrative.visit_date %} on {{ narrative.visit_date|date:"F j, Y" }}{% endif %}. On the website we clearly state that we offer support services for travellers who lost their items in airports, airlines, or the TSA area — searching on the client's behalf, providing updates, and arranging retrieval of recovered objects.</p>
+
+{% if assets.homepage %}<img class="doc-img" src="{{ assets.homepage }}" alt="airportlostfound.com homepage">{% endif %}
+
+<p class="narr">Here the client chose to file a claim using the "File a claim" button.</p>
+
+<p class="narr"><b>Initial Report:</b> {{ narrative.client_name }} reported on our website www.airportlostfound.com{% if narrative.object %} a lost {{ narrative.object }}{% else %} a lost item{% endif %}{% if claim.lost_location %}, at {{ claim.lost_location|striptags }}{% endif %}.{% if claim.flight_details %} The flight information and specific details regarding the incident were documented{% else %} The specific details regarding the incident were documented{% endif %}{% if narrative.alf_id %} under Registration ID: {{ narrative.alf_id }}{% endif %}.</p>
+
+<!-- Fee + authorization -->
+<p class="narr">During the process of filing the claim, the client reached the final step where they were informed about:</p>
+<p class="narr" style="margin-left:14px;">&bull; the fee for our service{% if narrative.fee %} ({{ narrative.fee }} {{ narrative.currency }}){% endif %}<br>
+&bull; that they could request a refund within the first 24 hours under our Refund Policy (per our Terms and Conditions, linked in the footer of every page): <span style="color:#0070d2;">{{ narrative.terms_url }}</span></p>
+
+<p class="narr">The client also expressly authorised us to search for their lost item on their behalf, and accepted our Terms and Conditions before paying — see the checkout below:</p>
+
+{% if assets.checkout %}<img class="doc-img" src="{{ assets.checkout }}" alt="Annotated checkout showing fee, refund period, terms acceptance and authorisation">
+<p class="cap">Checkout flow — fee, clearly stated refund period, Terms acceptance, and the customer's authorisation to search on their behalf.</p>{% endif %}
+
+<!-- Evidence from the case file -->
+<div class="sec-h">Service Initiation &amp; case record</div>
+<p class="narr">After payment, a ticket was automatically opened on our support platform and the client received a confirmation email that the search had started. The following records are taken directly from our support system for this case.</p>
+
+{% if flight_card %}
+<div style="font-weight:700; font-size:12px; margin:14px 0 4px; color:#374151;">Flight Identification</div>
+<p class="cap">We verified the client's flight independently from airline data.</p>
+<div class="zd-panel">
+  <div class="zd-head"><span class="zd-avatar">&#9787;</span><span class="zd-name">Flight record</span></div>
+  <div class="fcard">
+    <div class="ftitle">{{ flight_card.airline }} {{ flight_card.number }}</div>
+    <div class="froute">{{ flight_card.from_city|default:flight_card.from_iata }} to {{ flight_card.to_city|default:flight_card.to_iata }}{% if flight_card.status %} &nbsp; <span class="farr">{{ flight_card.status|upper }}</span>{% endif %}</div>
+    <table class="fbig"><tr>
+      <td><span class="fcode">{{ flight_card.from_iata }}</span></td>
+      <td align="center" class="fline">&#9992;</td>
+      <td align="right"><span class="fcode">{{ flight_card.to_iata }}</span></td>
+    </tr></table>
+    <table class="fdetail"><tr>
+      <td valign="top">{{ flight_card.from_city|default:flight_card.from_iata }}<br>Departed<br><span class="ftime">{{ flight_card.dep_local|default:"—" }}</span>{% if flight_card.from_gate %}<br>Gate {{ flight_card.from_gate }}{% endif %}</td>
+      <td valign="top" align="right">{{ flight_card.to_city|default:flight_card.to_iata }}<br>Arrived<br><span class="ftime">{{ flight_card.arr_local|default:"—" }}</span>{% if flight_card.to_gate %}<br>Gate {{ flight_card.to_gate }}{% endif %}</td>
+    </tr></table>
+  </div>
+</div>
+{% endif %}
+
+{% if panels %}
+{% for panel in panels %}
+<div class="zd-panel">
+  <div class="zd-head">
+    <span class="zd-avatar">&#9787;</span><span class="zd-name">{{ panel.author }}</span>{% if panel.public %}<span class="zd-badge public">Public reply</span>{% else %}<span class="zd-badge internal">Internal note</span>{% endif %}<span class="zd-time">&middot; {{ panel.created_at }}</span>
+  </div>
+  <div class="zd-body {% if panel.public %}public{% else %}internal{% endif %}">
+    {{ panel.body|escape|linebreaks }}
+    {% for img in panel.images %}<img class="zd-att" src="{{ img.data_uri }}" alt="{{ img.file_name }}">{% endfor %}
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<p class="cap">No support-system records were available for this case at generation time.</p>
+{% endif %}
+
+{% for shot in screenshots %}
+<div class="zd-panel">
+  <div class="zd-head"><span class="zd-avatar">&#9787;</span><span class="zd-name">Attached evidence</span><span class="zd-time">&middot; {{ shot.captured_at|date:"M j, Y H:i" }}</span></div>
+  <img class="doc-img" src="{{ shot.data_uri }}" alt="{{ shot.description }}">
+  {% if shot.description %}<p class="cap">{{ shot.description }}</p>{% endif %}
+</div>
+{% endfor %}
+
+{% if claim_evidence %}
+<div class="sec-h">Evidence submitted by the customer</div>
+{% for ev in claim_evidence %}
+<img class="doc-img" src="{{ ev.data_uri }}" alt="Customer evidence">
+{% if ev.description %}<p class="cap">{{ ev.description }}</p>{% endif %}
+{% endfor %}
+{% endif %}
+
+<!-- Conclusion -->
+<div class="sec-h">Conclusion</div>
+<div class="conclusion">
+  <p>In accordance with our Refund Policy, which the customer accepted at the time of purchase, refunds within 24 hours are available where the case was not worked on, or the item was not found within that window due to our involvement with third-party collaborators.</p>
+  <p><b>a. Service delivery:</b> all services were delivered according to our policies, with immediate action taken following the initial report. The service included a detailed investigation and multiple communication attempts with the client, the airline and the airport.</p>
+  <p><b>b. Refund policy:</b> our immediate action on this claim involved considerable effort. The service fee is non-refundable after 24 hours, as it covers the extensive search performed by our team. A full refund is available within the first 24 hours unless a third-party claim has been filed, or the search initiated by our involvement does not result in the item being found.</p>
+</div>
+
+<div class="footer">
+  Prepared by LORA for {{ narrative.client_name }} &mdash; PayPal dispute {{ dispute.paypal_dispute_id }} &mdash; generated {{ generated_at }}
+</div>
+
+</body>
+</html>

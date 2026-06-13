@@ -219,6 +219,18 @@ def fetch_zendesk_comments(zd_ticket_id: str) -> List[Dict[str, Any]]:
             comments = []
             for comment in comments_data:
                 author = comment.get('author', {})
+                # Attachments carry the pasted images (airline confirmations,
+                # lost-&-found forms, flight cards) that evidence reports embed.
+                attachments = []
+                for att in (comment.get('attachments') or []):
+                    attachments.append({
+                        'id': att.get('id'),
+                        'file_name': att.get('file_name', ''),
+                        'content_url': att.get('content_url', ''),
+                        'content_type': att.get('content_type', ''),
+                        'size': att.get('size'),
+                        'inline': att.get('inline', False),
+                    })
                 comments.append({
                     'id': comment.get('id'),
                     'author': {
@@ -227,8 +239,11 @@ def fetch_zendesk_comments(zd_ticket_id: str) -> List[Dict[str, Any]]:
                         'email': author.get('email', ''),
                     },
                     'body': comment.get('body', ''),
+                    'html_body': comment.get('html_body', ''),
                     'public': comment.get('public', False),
                     'created_at': comment.get('created_at'),
+                    'attachments': attachments,
+                    'channel': (comment.get('via') or {}).get('channel', ''),
                 })
             
             logger.info(f"Fetched {len(comments)} comments from ticket {zd_ticket_id}")
@@ -252,13 +267,37 @@ def fetch_zendesk_comments(zd_ticket_id: str) -> List[Dict[str, Any]]:
         return []
 
 
+def fetch_zendesk_attachment_bytes(content_url: str, max_bytes: int = 5_000_000) -> Optional[bytes]:
+    """Download a Zendesk comment attachment's raw bytes (authenticated).
+
+    Used by the evidence-report builder to embed pasted images (airline
+    confirmations, lost-&-found forms) directly in the PDF. Returns None on any
+    failure or if the payload exceeds ``max_bytes`` (keeps PDFs bounded)."""
+    if not content_url:
+        return None
+    try:
+        headers = _get_zendesk_auth_headers()
+        # content_url is already a fully-qualified Zendesk URL.
+        req = urllib.request.Request(content_url, headers=headers, method='GET')
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            data = response.read(max_bytes + 1)
+            if len(data) > max_bytes:
+                logger.warning(f"Zendesk attachment exceeds {max_bytes} bytes; skipping embed: {content_url}")
+                return None
+            return data
+    except Exception as e:
+        logger.warning(f"Could not download Zendesk attachment {content_url}: {e}")
+        return None
+
+
 def fetch_zendesk_ticket(zd_ticket_id: str) -> Optional[Dict[str, Any]]:
     """
     Fetch a single Zendesk ticket by ID.
-    
+
     Args:
         zd_ticket_id: The Zendesk ticket ID
-    
+
     Returns:
         Ticket data dict on success, None on failure
     """
