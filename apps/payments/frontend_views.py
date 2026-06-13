@@ -41,6 +41,17 @@ def sanitize_document_html(html: str) -> str:
                         strip=True)
 
 
+def strip_active_html(html: str) -> str:
+    """Remove only executable content (<script> blocks and on*= handlers) while
+    PRESERVING layout (tables, images, inline styles). Used when re-rendering an
+    edited EVIDENCE_REPORT to PDF — the strict allowlist sanitizer would destroy
+    the report's tables/images/styles. Manager-only edit → PDF, so this is enough."""
+    import re
+    html = re.sub(r'<script[^>]*>.*?</script>', '', html or '', flags=re.IGNORECASE | re.DOTALL)
+    html = re.sub(r'\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', html, flags=re.IGNORECASE)
+    return html
+
+
 @manager_required
 def dispute_list(request):
     """
@@ -209,14 +220,37 @@ def dispute_edit_document(request, document_id):
 
         document.save()
 
+        # Re-render the PDF from the edited HTML so the file we submit to PayPal
+        # reflects the manager's edits. Evidence reports are full HTML we can
+        # render directly (strip only scripts/handlers, preserve layout).
+        regenerated = False
+        if document.doc_type == 'EVIDENCE_REPORT' and content_html.strip():
+            try:
+                from apps.payments.document_service import _render_to_pdf
+                from django.core.files.base import ContentFile
+                pdf_bytes = _render_to_pdf(
+                    strip_active_html(content_html),
+                    f"Dispute #{document.dispute_id} Evidence Report (edited)")
+                if pdf_bytes:
+                    document.file_path.save(
+                        f"evidence_report_dispute_{document.dispute_id}_v{document.version}_edited.pdf",
+                        ContentFile(pdf_bytes), save=True)
+                    regenerated = True
+            except Exception as e:
+                logger.error(f"Failed to re-render edited PDF for document #{document.id}: {e}")
+
         # Log the activity
         DisputeActivityLog.objects.create(
             dispute=document.dispute,
             action='NOTE_ADDED',
-            details=f"Document #{document.id} edited. New version: {document.version}",
+            details=f"Document #{document.id} edited (v{document.version}); "
+                    f"PDF {'regenerated' if regenerated else 'not regenerated'}.",
         )
 
-        messages.success(request, f"Document #{document_id} updated successfully (v{document.version})")
+        if regenerated:
+            messages.success(request, f"Document #{document_id} updated and PDF regenerated (v{document.version}).")
+        else:
+            messages.success(request, f"Document #{document_id} updated successfully (v{document.version}).")
         return redirect('disputes:dispute_detail', dispute_id=document.dispute_id)
 
     context = {

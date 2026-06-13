@@ -9,8 +9,10 @@ from django.template.loader import render_to_string
 from django.test import TestCase
 
 from apps.claims.models import Claim
+from apps.communications.models import EmailLog
 from apps.payments.models import Dispute
 from apps.payments import document_service as ds
+from apps.payments import frontend_views
 
 
 def _dispute(**kw):
@@ -280,6 +282,103 @@ class NarrateEvidenceTests(TestCase):
         self.assertEqual(mapping[0]['section'], 'FLIGHT_IDENTIFICATION')
 
 
+SUBMISSION_TICKET = {'custom_fields': [{'id': ds.SUBMISSION_IP_FIELD_ID, 'value': '203.0.113.7'}]}
+
+
+class IdentityCrossCheckTests(TestCase):
+    def _claim(self):
+        return Claim.objects.create(client_email='lee@example.com', zd_ticket_id='97001')
+
+    def test_match_when_submission_ip_in_client_email_headers(self):
+        claim = self._claim()
+        EmailLog.objects.create(claim=claim, from_email='lee@example.com', subject='re',
+                                body='hi', raw_headers='Received: from x (1.2.3.4)\nX-Originating-IP: [203.0.113.7]')
+        d = _dispute(claim=claim)
+        ident = ds._identity_context(d, SUBMISSION_TICKET)
+        self.assertTrue(ident['matched'])
+        self.assertEqual(ident['submission_ip'], '203.0.113.7')
+        self.assertEqual(ident['client_msg_count'], 1)
+
+    def test_no_match_when_ip_differs(self):
+        claim = self._claim()
+        EmailLog.objects.create(claim=claim, from_email='lee@example.com', subject='re',
+                                body='hi', raw_headers='X-Originating-IP: [198.51.100.9]')
+        d = _dispute(claim=claim)
+        ident = ds._identity_context(d, SUBMISSION_TICKET)
+        self.assertFalse(ident['matched'])
+        self.assertEqual(ident['client_msg_count'], 1)  # still counts their message
+
+    def test_ignores_emails_not_from_client(self):
+        claim = self._claim()
+        EmailLog.objects.create(claim=claim, from_email='airport@den.gov', subject='re',
+                                body='hi', raw_headers='X-Originating-IP: [203.0.113.7]')
+        d = _dispute(claim=claim)
+        ident = ds._identity_context(d, SUBMISSION_TICKET)
+        self.assertFalse(ident['matched'])
+        self.assertEqual(ident['client_msg_count'], 0)
+
+    def test_private_ips_never_match(self):
+        claim = self._claim()
+        EmailLog.objects.create(claim=claim, from_email='lee@example.com', subject='re',
+                                body='hi', raw_headers='Received: from internal (10.0.0.1)')
+        d = _dispute(claim=claim)
+        ticket = {'custom_fields': [{'id': ds.SUBMISSION_IP_FIELD_ID, 'value': '10.0.0.1'}]}
+        self.assertFalse(ds._identity_context(d, ticket)['matched'])
+
+
+class BottomLineAndTimelineTests(TestCase):
+    def test_bottom_line_unauthorised_includes_identity_when_matched(self):
+        claim = Claim.objects.create(client_email='b@example.com', client_name='Lee Foley')
+        d = _dispute(claim=claim, dispute_reason='UNAUTHORISED')
+        bl = ds._bottom_line(d, {'matched': True, 'submission_ip': '203.0.113.7', 'client_msg_count': 2})
+        joined = ' '.join(bl)
+        self.assertIn('Lee Foley', joined)
+        self.assertIn('203.0.113.7', joined)
+
+    def test_bottom_line_not_received_is_about_service(self):
+        d = _dispute(claim=None, buyer_name='Jane', dispute_reason='MERCHANDISE_OR_SERVICE_NOT_RECEIVED')
+        bl = ds._bottom_line(d, {'matched': False, 'client_msg_count': 0})
+        self.assertIn('service was performed', ' '.join(bl).lower())
+
+    def test_timeline_is_chronological(self):
+        claim = Claim.objects.create(client_email='b@example.com')
+        d = _dispute(claim=claim)
+        tl = ds._build_timeline(d, COMMENTS)
+        self.assertTrue(tl)
+        self.assertTrue(all('when' in e and 'label' in e for e in tl))
+
+
+class SectionOrderingTests(TestCase):
+    def test_unauthorised_leads_with_service_initiation(self):
+        order = ds._section_priority_for('UNAUTHORISED')
+        self.assertEqual(order[0], 'SERVICE_INITIATION')
+
+    def test_not_received_leads_with_submissions(self):
+        order = ds._section_priority_for('MERCHANDISE_OR_SERVICE_NOT_RECEIVED')
+        self.assertEqual(order[0], 'SUBMISSIONS')
+
+    def test_grouping_uses_reason_order(self):
+        items = [{'index': 0, 'kind': 'comment', 'panel': {'author': 'A'}},
+                 {'index': 1, 'kind': 'comment', 'panel': {'author': 'B'}}]
+        narrative = {0: {'section': 'SUBMISSIONS', 'explanation': ''},
+                     1: {'section': 'SERVICE_INITIATION', 'explanation': ''}}
+        sections = ds._group_into_sections(items, narrative, reason='MERCHANDISE_OR_SERVICE_NOT_RECEIVED')
+        self.assertEqual(sections[0]['key'], 'SUBMISSIONS')  # not-received leads with submissions
+
+
+class StripActiveHtmlTests(TestCase):
+    def test_removes_scripts_and_handlers_keeps_layout(self):
+        dirty = ('<table><tr><td style="color:red">x</td></tr></table>'
+                 '<img src="data:image/png;base64,AAA" onerror="hack()">'
+                 '<script>steal()</script>')
+        clean = frontend_views.strip_active_html(dirty)
+        self.assertIn('<table>', clean)
+        self.assertIn('style="color:red"', clean)
+        self.assertIn('<img', clean)
+        self.assertNotIn('<script>', clean)
+        self.assertNotIn('onerror', clean)
+
+
 class GroupedTemplateRenderTests(TestCase):
     def test_sections_and_explanations_render(self):
         claim = Claim.objects.create(client_email='b@example.com', client_name='Lee Foley',
@@ -301,3 +400,22 @@ class GroupedTemplateRenderTests(TestCase):
         self.assertIn('Interactions with the client', html)
         self.assertIn('Why this matters:', html)
         self.assertIn('The customer filed this claim themselves.', html)
+        # new blocks
+        self.assertIn('In summary', html)        # bottom-line box
+        self.assertIn('Case timeline', html)     # timeline
+
+    def test_identity_callout_and_alias_paragraph_render(self):
+        claim = Claim.objects.create(client_email='lee@example.com', client_name='Lee Foley',
+                                     zd_ticket_id='97001', email_alias='case-1@alias.example')
+        EmailLog.objects.create(claim=claim, from_email='lee@example.com', subject='re',
+                                body='hi', raw_headers='X-Originating-IP: [203.0.113.7]')
+        d = _dispute(claim=claim, zd_ticket_id='97001', dispute_reason='UNAUTHORISED')
+        with patch.object(ds, '_fetch_zendesk_ticket_full',
+                          return_value={'ticket': SUBMISSION_TICKET, 'comments': []}), \
+             patch.object(ds, '_narrate_evidence', return_value={}):
+            bundle = ds.build_dispute_evidence_bundle(d)
+            html = render_to_string(ds.report_template_for(d), bundle)
+        self.assertTrue(bundle['identity']['matched'])
+        self.assertIn('Identity confirmed', html)        # identity callout
+        self.assertIn('203.0.113.7', html)
+        self.assertIn('dedicated email address', html)   # alias paragraph

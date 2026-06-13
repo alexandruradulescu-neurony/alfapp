@@ -654,6 +654,8 @@ CATEGORY_REPORT_TEMPLATES = {
 # own Word template so reports look identical to what the team sends today.
 REPORT_ASSETS_DIR = os.path.join(os.path.dirname(__file__), 'report_assets')
 TERMS_URL = 'https://airportlostfound.com/legal/terms-and-conditions/'
+# PayPal evidence uploads are typically capped near 10MB; warn before that.
+PAYPAL_EVIDENCE_SIZE_WARN_BYTES = 9_500_000
 
 # Per-category framing: the headline + lead paragraph that opens the evidence,
 # reordered to rebut the specific claim. Same evidence underneath.
@@ -785,6 +787,124 @@ def _fmt_zd_time(value) -> str:
         return value
 
 
+# Zendesk "Customer IP Address" — the website submission IP (docs/ZENDESK_FIELDS.md).
+SUBMISSION_IP_FIELD_ID = 14438419565340
+_IPV4_RE = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
+
+
+def _custom_field_value(ticket: dict, field_id: int):
+    for cf in (ticket.get('custom_fields') or []):
+        if cf.get('id') == field_id:
+            return cf.get('value')
+    return None
+
+
+def _is_private_ip(ip: str) -> bool:
+    parts = ip.split('.')
+    if len(parts) != 4:
+        return True
+    try:
+        a, b = int(parts[0]), int(parts[1])
+    except ValueError:
+        return True
+    return (a in (10, 127, 0) or a >= 224 or (a == 172 and 16 <= b <= 31)
+            or (a == 192 and b == 168) or (a == 169 and b == 254))
+
+
+def _email_candidate_ips(raw_headers: str) -> set:
+    """Public IPv4s appearing anywhere in an email's stored headers (the
+    sender's originating IP is normally among them)."""
+    return {ip for ip in _IPV4_RE.findall(raw_headers or '') if not _is_private_ip(ip)}
+
+
+def _identity_context(dispute, ticket: dict) -> dict:
+    """Cross-check the website submission IP against the IP(s) the client later
+    emailed from. `matched` is True ONLY on an exact IP match (else the report
+    stays silent, per the brief). Also counts the client's own messages."""
+    out = {'submission_ip': '', 'matched': False, 'matched_at': None, 'client_msg_count': 0}
+    claim = dispute.claim
+    if not claim:
+        return out
+    out['submission_ip'] = str(_custom_field_value(ticket, SUBMISSION_IP_FIELD_ID) or '').strip()
+    client_email = (claim.client_email or '').lower()
+    if not client_email:
+        return out
+    sub_ip = out['submission_ip']
+    for el in EmailLog.objects.filter(claim=claim).order_by('received_at'):
+        if (el.from_email or '').lower() != client_email:
+            continue
+        out['client_msg_count'] += 1
+        if sub_ip and not out['matched'] and sub_ip in _email_candidate_ips(el.raw_headers or ''):
+            out['matched'] = True
+            out['matched_at'] = el.received_at
+    return out
+
+
+def _parse_dt(value):
+    """Parse a tz-aware datetime from an ISO string, or pass a datetime through."""
+    if not value:
+        return None
+    if not isinstance(value, str):
+        return value
+    try:
+        return datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except Exception:
+        return None
+
+
+def _build_timeline(dispute, comments: list) -> list:
+    """Chronological case milestones — [{'when': 'Feb 03, 2026', 'label': ...}]."""
+    claim = dispute.claim
+    events = []
+    if claim and getattr(claim, 'created_at', None):
+        events.append((claim.created_at, 'Claim submitted by the customer on our website'))
+    if dispute.transaction_date:
+        events.append((dispute.transaction_date, 'Payment made and service authorised'))
+    public_times = [_parse_dt(c.get('created_at')) for c in comments if c.get('public')]
+    public_times = [t for t in public_times if t]
+    if public_times:
+        events.append((min(public_times), 'First contacted the customer'))
+        if max(public_times) != min(public_times):
+            events.append((max(public_times), 'Most recent update sent to the customer'))
+    if dispute.pk and dispute.created_at:
+        events.append((dispute.created_at, 'PayPal dispute received'))
+    events = [(t, label) for (t, label) in events if t is not None]
+    events.sort(key=lambda e: e[0])
+    return [{'when': t.strftime('%b %d, %Y'), 'label': label} for t, label in events]
+
+
+def _bottom_line(dispute, identity: dict) -> list:
+    """Reason-specific 'bottom line up front' bullets — the single strongest
+    argument for THIS dispute reason, stated plainly for a skimming reviewer."""
+    claim = dispute.claim
+    name = (claim.client_name if claim else '') or dispute.buyer_name or 'The customer'
+    reason = dispute.dispute_reason
+    bullets = []
+    if reason == 'UNAUTHORISED':
+        bullets.append(f"{name} submitted this claim themselves on our website, providing their own "
+                       "flight, contact and lost-item details.")
+        bullets.append("They accepted our Terms & Conditions and the 24-hour refund window before paying.")
+        if identity.get('matched'):
+            bullets.append("They later contacted us from the very same IP address used to submit the "
+                           f"claim ({identity['submission_ip']}) — confirming this was the same person.")
+        elif identity.get('client_msg_count'):
+            bullets.append("They corresponded with us afterwards from their own email — behaviour "
+                           "inconsistent with an unauthorised transaction.")
+    elif reason in ('MERCHANDISE_OR_SERVICE_NOT_RECEIVED', 'MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED'):
+        bullets.append("The service was performed: we reported the lost item to the airline and the "
+                       "airport lost-&-found offices and kept the customer updated throughout.")
+        bullets.append(f"{name} accepted our Terms and the 24-hour refund window before paying; the "
+                       "service fee is non-refundable after that window.")
+    elif reason == 'CREDIT_NOT_PROCESSED':
+        bullets.append(f"{name} accepted our refund policy at purchase, including the 24-hour window.")
+        bullets.append("We performed the search service they paid for; no further credit is due under "
+                       "that policy.")
+    else:
+        bullets.append(f"{name} authorised this purchase and we performed the search service they paid for.")
+        bullets.append("They accepted our Terms and the 24-hour refund window before paying.")
+    return bullets
+
+
 def _flight_card(claim) -> Optional[dict]:
     """Compact flight-card context rebuilt from the claim's stored flight
     lookup (claim.flight_data) — rendered natively, not screenshotted."""
@@ -844,6 +964,25 @@ SECTION_ORDER = [
     ('CLAIM_UPDATES', 'Claim updates'),
     ('OTHER', 'Additional case records'),
 ]
+SECTION_TITLES = dict(SECTION_ORDER)
+_DEFAULT_SECTION_PRIORITY = [k for k, _ in SECTION_ORDER]
+
+# Per-reason section ordering: lead with the evidence class that wins THAT
+# dispute type. Unauthorised → who-authorised-it first (intake + interactions);
+# not-received/not-as-described → proof-of-work first (submissions + updates).
+SECTION_PRIORITY_BY_REASON = {
+    'UNAUTHORISED': ['SERVICE_INITIATION', 'INTERACTIONS', 'FLIGHT_IDENTIFICATION',
+                     'SUBMISSIONS', 'CLAIM_UPDATES', 'OTHER'],
+    'MERCHANDISE_OR_SERVICE_NOT_RECEIVED': ['SUBMISSIONS', 'CLAIM_UPDATES', 'INTERACTIONS',
+                                            'FLIGHT_IDENTIFICATION', 'SERVICE_INITIATION', 'OTHER'],
+    'MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED': ['SERVICE_INITIATION', 'SUBMISSIONS',
+                                                'INTERACTIONS', 'CLAIM_UPDATES',
+                                                'FLIGHT_IDENTIFICATION', 'OTHER'],
+}
+
+
+def _section_priority_for(reason: str) -> list:
+    return SECTION_PRIORITY_BY_REASON.get(reason, _DEFAULT_SECTION_PRIORITY)
 
 EVIDENCE_NARRATIVE_SYSTEM_PROMPT = (
     "You are an employee of Airport Lost & Found (ALF), a paid lost-item "
@@ -865,6 +1004,10 @@ EVIDENCE_NARRATIVE_SYSTEM_PROMPT = (
     "performed the service they paid for). Vary your wording — do not start "
     "every sentence with 'This record'. Base it ONLY on the record text; never "
     "invent facts.\n"
+    "Be careful with negative-outcome records: a note that the item or flight "
+    "was NOT found does not help our defence — prefer EXCLUDE, or include it "
+    "only where it clearly shows the effort we made, and never imply we failed "
+    "to deliver our service.\n"
     "Return JSON: {\"items\": [{\"index\": <int>, \"section\": <enum>, "
     "\"explanation\": <str>}, ...]} with one entry per record."
 )
@@ -939,17 +1082,17 @@ def _item_entry(item: dict, explanation: str = '') -> dict:
     return entry
 
 
-def _group_into_sections(items: list, narrative: Optional[dict]) -> list:
-    """Group evidence items into ordered narrative sections. With a narrative
-    mapping, place/caption/exclude per the AI; without one, return a single
-    ungrouped 'Case record' section (graceful fallback)."""
+def _group_into_sections(items: list, narrative: Optional[dict], reason: str = '') -> list:
+    """Group evidence items into narrative sections, ordered for THIS dispute
+    reason. With a narrative mapping, place/caption/exclude per the AI; without
+    one, return a single ungrouped 'Case record' section (graceful fallback)."""
     if not items:
         return []
     if not narrative:
         return [{'key': 'ALL', 'title': 'Case record',
                  'items': [_item_entry(it) for it in items]}]
 
-    buckets = {key: [] for key, _ in SECTION_ORDER}
+    buckets = {key: [] for key in SECTION_TITLES}
     for it in items:
         placement = narrative.get(it['index']) or {}
         section = placement.get('section') or 'OTHER'
@@ -958,8 +1101,8 @@ def _group_into_sections(items: list, narrative: Optional[dict]) -> list:
         if section not in buckets:
             section = 'OTHER'
         buckets[section].append(_item_entry(it, placement.get('explanation', '')))
-    return [{'key': key, 'title': title, 'items': buckets[key]}
-            for key, title in SECTION_ORDER if buckets[key]]
+    return [{'key': key, 'title': SECTION_TITLES[key], 'items': buckets[key]}
+            for key in _section_priority_for(reason) if buckets.get(key)]
 
 
 def report_template_for(dispute) -> str:
@@ -1023,11 +1166,14 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
         })
 
     narrative = _narrate_evidence(dispute, items, dispute.claim) if use_ai else None
-    sections = _group_into_sections(items, narrative)
+    sections = _group_into_sections(items, narrative, reason=dispute.dispute_reason)
+
+    identity = _identity_context(dispute, ticket)
+    claim = dispute.claim
 
     return {
         'dispute': dispute,
-        'claim': dispute.claim,
+        'claim': claim,
         'ticket': ticket,
         'comments': comments,
         'panels': panels,
@@ -1035,6 +1181,10 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
         'sections': sections,
         'narrative': _narrative_fields(dispute),
         'framing': framing,
+        'bottom_line': _bottom_line(dispute, identity),
+        'timeline': _build_timeline(dispute, comments),
+        'identity': identity,
+        'alias_used': bool(getattr(claim, 'email_alias', '')) if claim else False,
         'assets': {
             'homepage': _asset_data_uri('homepage.jpg'),
             'checkout': _asset_data_uri('checkout_annotated.jpg'),
@@ -1099,11 +1249,16 @@ def generate_evidence_report(dispute_id: int) -> Optional[DisputeDocument]:
 
         # Generate PDF
         pdf_bytes = _render_to_pdf(html_string, f"Dispute #{dispute_id} Evidence Report")
-        
+
         if not pdf_bytes:
             logger.error(f"Failed to generate PDF for Dispute #{dispute_id}")
             return None
-        
+
+        if len(pdf_bytes) > PAYPAL_EVIDENCE_SIZE_WARN_BYTES:
+            logger.warning(
+                f"Evidence report for Dispute #{dispute_id} is {len(pdf_bytes) // (1024 * 1024)}MB — "
+                f"PayPal evidence uploads are typically capped near 10MB; consider trimming embedded images.")
+
         # Create DisputeDocument record
         document = DisputeDocument.objects.create(
             dispute=dispute,

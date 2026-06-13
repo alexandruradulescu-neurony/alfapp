@@ -63,6 +63,20 @@
          border-radius:0; padding:6px 10px; margin:12px 0 4px; }
   .why b { color:#0c447c; }
 
+  /* bottom line up front + timeline + identity match */
+  .bl { background:#ecfdf5; border:1px solid #a7f3d0; border-radius:6px; padding:12px 14px; margin:0 0 16px; }
+  .bl .h { font-weight:700; color:#065f46; font-size:12px; margin-bottom:6px; }
+  .bl ul { margin:0; padding-left:18px; }
+  .bl li { font-size:12px; color:#064e3b; margin:3px 0; }
+  .ident { background:#eff6ff; border:1px solid #bfdbfe; border-left:4px solid #2563eb;
+           border-radius:0; padding:9px 12px; margin:0 0 16px; font-size:11.5px; color:#1e3a8a; }
+  .ident b { color:#1e3a8a; }
+  .tl { margin:0 0 18px; }
+  .tl .h { font-weight:700; font-size:12px; color:#374151; margin-bottom:6px; }
+  .tl table { width:100%; font-size:11px; border-collapse:collapse; }
+  .tl td { padding:3px 8px 3px 0; vertical-align:top; }
+  .tl td.d { color:#6b7280; white-space:nowrap; width:120px; }
+
   .conclusion p { margin:8px 0; }
   .footer { margin-top:36px; padding-top:12px; border-top:1px solid #e5e7eb;
             text-align:center; font-size:10px; color:#9ca3af; }
@@ -87,6 +101,26 @@
   <div class="hl">{{ framing.headline }}</div>
   <p>{{ framing.lead }}</p>
 </div>
+
+{% if bottom_line %}
+<div class="bl">
+  <div class="h">In summary</div>
+  <ul>{% for point in bottom_line %}<li>{{ point }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+{% if identity.matched %}
+<div class="ident">
+  <b>Identity confirmed:</b> the claim was submitted from IP address {{ identity.submission_ip }}, and the customer later corresponded with us from the same IP — confirming this was the genuine account holder, not an unauthorised third party.
+</div>
+{% endif %}
+
+{% if timeline %}
+<div class="tl">
+  <div class="h">Case timeline</div>
+  <table>{% for ev in timeline %}<tr><td class="d">{{ ev.when }}</td><td>{{ ev.label }}</td></tr>{% endfor %}</table>
+</div>
+{% endif %}
 
 <!-- Intro narrative -->
 <p class="narr">We have conducted a detailed review of the case for our client, {{ narrative.client_name }}, and present the following updated information:</p>
@@ -168,6 +202,10 @@
 <img class="doc-img" src="{{ ev.data_uri }}" alt="Customer evidence">
 {% if ev.description %}<p class="cap">{{ ev.description }}</p>{% endif %}
 {% endfor %}
+{% endif %}
+
+{% if alias_used %}
+<p class="narr">Based on the customer's authorisation to conduct the search on their behalf, we use a dedicated email address specifically for this case. This is not about altering the customer's contact details — it lets us track all communications efficiently and speed up recovery if the item is found.</p>
 {% endif %}
 
 <!-- Conclusion -->
