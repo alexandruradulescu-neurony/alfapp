@@ -111,37 +111,39 @@ class PayPalDisputeWebhookView(APIView):
             return Response({'error': 'Signature verification failed'},
                             status=status.HTTP_401_UNAUTHORIZED)
 
-        # 2. Idempotency — never process the same event twice.
-        if event_id and ProcessedWebhookEvent.objects.filter(event_id=event_id).exists():
-            return Response({'message': 'Already processed'}, status=status.HTTP_200_OK)
-
         resource = event.get('resource') or {}
         dispute_id = resource.get('dispute_id') or resource.get('id') or ''
+
+        # 2. Idempotency — atomically CLAIM the event BEFORE any side effects, so
+        # concurrent retries can't both process it (the old check-then-create left
+        # a TOCTOU window and could double-run + 500 on the duplicate insert). The
+        # unique event_id makes get_or_create the single source of truth.
+        if event_id:
+            _, created_gate = ProcessedWebhookEvent.objects.get_or_create(
+                event_id=event_id,
+                defaults={'event_type': event_type,
+                          'resource_type': event.get('resource_type', '') or 'dispute',
+                          'resource_id': dispute_id})
+            if not created_gate:
+                return Response({'message': 'Already processed'}, status=status.HTTP_200_OK)
 
         if event_type == 'CUSTOMER.DISPUTE.CREATED' and dispute_id:
             dispute, created = ingest_dispute(dispute_id, raw_event=event)
             if dispute is None:
-                # Couldn't reach PayPal to fetch details — 503 so PayPal retries.
+                # Couldn't reach PayPal — release the claim so PayPal's retry can
+                # reprocess this event, then 503.
+                if event_id:
+                    ProcessedWebhookEvent.objects.filter(event_id=event_id).delete()
                 return Response({'error': 'Could not fetch dispute details'},
                                 status=status.HTTP_503_SERVICE_UNAVAILABLE)
-            if event_id:
-                ProcessedWebhookEvent.objects.create(
-                    event_id=event_id, event_type=event_type,
-                    resource_type=event.get('resource_type', 'dispute'),
-                    resource_id=dispute_id)
             return Response({'message': 'Dispute ingested', 'created': created,
                              'dispute_id': dispute.id}, status=status.HTTP_200_OK)
 
         # UPDATED / RESOLVED: refresh the local dispute (stage, deadline, and
-        # won/lost on resolution).
+        # won/lost on resolution). The claim row above already guards idempotency.
         if event_type in ('CUSTOMER.DISPUTE.UPDATED', 'CUSTOMER.DISPUTE.RESOLVED') and dispute_id:
             sync_dispute_from_paypal(dispute_id)
 
-        if event_id:
-            ProcessedWebhookEvent.objects.create(
-                event_id=event_id, event_type=event_type,
-                resource_type=event.get('resource_type', ''),
-                resource_id=dispute_id)
         logger.info(f"PayPal dispute webhook {event_type} acknowledged (event {event_id})")
         return Response({'message': 'Acknowledged'}, status=status.HTTP_200_OK)
 
@@ -328,27 +330,26 @@ class RefundViewSet(viewsets.ModelViewSet):
         
         GET /api/payments/refunds/stats/
         """
-        from django.db.models import Sum, Count
-        
+        from django.db.models import Sum, Count, Q
+
         queryset = self.get_queryset()
-        
+
+        # One aggregate query instead of 1 + 6 + 2 + 3 separate COUNTs. Building
+        # the dicts from the *_CHOICES lists (not from the rows) keeps every key,
+        # including choices with zero refunds.
+        agg = queryset.aggregate(
+            total_refunds=Count('id'),
+            total_amount=Sum('amount', filter=Q(status='COMPLETED')),
+            **{f'st_{s}': Count('id', filter=Q(status=s)) for s, _ in Refund.STATUS_CHOICES},
+            **{f'ty_{t}': Count('id', filter=Q(refund_type=t)) for t, _ in Refund.TYPE_CHOICES},
+            **{f'so_{x}': Count('id', filter=Q(external_source=x)) for x, _ in Refund.SOURCE_CHOICES},
+        )
         stats = {
-            'total_refunds': queryset.count(),
-            'total_amount': queryset.filter(status='COMPLETED').aggregate(
-                total=Sum('amount')
-            )['total'] or 0,
-            'by_status': {
-                status: queryset.filter(status=status).count()
-                for status, _ in Refund.STATUS_CHOICES
-            },
-            'by_type': {
-                refund_type: queryset.filter(refund_type=refund_type).count()
-                for refund_type, _ in Refund.TYPE_CHOICES
-            },
-            'by_source': {
-                source: queryset.filter(external_source=source).count()
-                for source, _ in Refund.SOURCE_CHOICES
-            },
+            'total_refunds': agg['total_refunds'],
+            'total_amount': agg['total_amount'] or 0,
+            'by_status': {s: agg[f'st_{s}'] for s, _ in Refund.STATUS_CHOICES},
+            'by_type': {t: agg[f'ty_{t}'] for t, _ in Refund.TYPE_CHOICES},
+            'by_source': {x: agg[f'so_{x}'] for x, _ in Refund.SOURCE_CHOICES},
             'recent_refunds': RefundListSerializer(
                 queryset.order_by('-created_at')[:10],
                 many=True

@@ -1054,9 +1054,6 @@ def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, s
         }
 
 
-CLIENT_UPDATE_CADENCE_DAYS = (2, 5, 11, 20)
-
-
 def build_claim_facts(claim) -> dict:
     """Compact, panel-ready facts for the Zendesk sidebar Briefing tab.
     Uses only LORA-side data the Zendesk ticket does not already have.
@@ -1069,12 +1066,15 @@ def build_claim_facts(claim) -> dict:
       only as a fallback when deadline_date is absent.  deadline_at is for urgency
       math only; displaying it avoids the one-day-late risk from timezone conversion.
     - 'disputes_total': count; no dependence on the Dispute status enum.
-    - 'next_update_due': next client-update milestone (day 2/5/11/20 after claim
-      creation) that hasn't passed yet; None when all milestones are past OR when
-      status_category is 'solved' (cadence is suppressed for closed claims)."""
+    - 'next_update_due': next early client-update milestone (the EARLY_UPDATE_OFFSETS
+      days after claim creation) that hasn't passed yet; None when all are past OR when
+      status_category is 'solved' (cadence is suppressed for closed claims). Advisory
+      only — the authoritative schedule lives in apps.communications.client_updates;
+      the offsets come from the shared constants so the two never diverge."""
     from datetime import timedelta
     from django.utils import timezone
     from apps.payments.models import Dispute
+    from apps.communications.constants import EARLY_UPDATE_OFFSETS
 
     emails = claim.emails.all()
 
@@ -1082,7 +1082,7 @@ def build_claim_facts(claim) -> dict:
     if claim.status_category != 'solved':
         base = timezone.localtime(claim.created_at).date()
         today = timezone.localdate()
-        for day in CLIENT_UPDATE_CADENCE_DAYS:
+        for day in EARLY_UPDATE_OFFSETS:
             due = base + timedelta(days=day)
             if due >= today:
                 next_update_due = {'day': day, 'date': due.isoformat()}
