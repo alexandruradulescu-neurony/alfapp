@@ -6,17 +6,20 @@
 <div class="animate-fade-in">
 <!-- Page Header -->
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-        <i class="bi bi-clipboard-data"></i> Claims
-    </h2>
-    <div class="flex gap-2">
+    <div>
+        <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <i class="bi bi-clipboard-data text-primary"></i> Claims
+        </h2>
+        <p class="text-sm text-base-content/60 mt-1">Search, filter and review lost-item claims.</p>
+    </div>
+    <div class="flex flex-wrap gap-2">
         {% if user.role == 'MANAGER' %}
-        <button type="button" id="bulk-delete-btn" class="btn btn-error rounded-xl transition-all duration-200"
+        <button type="button" id="bulk-delete-btn" class="btn btn-error rounded-xl"
                 onclick="bulkDeleteClaims()" hidden>
             <i class="bi bi-trash"></i> Delete selected (<span id="bulk-count">0</span>)
         </button>
         {% endif %}
-        <a href="{% url 'agent_dashboard' %}" class="btn btn-outline rounded-xl transition-all duration-200">
+        <a href="{% url 'agent_dashboard' %}" class="btn btn-outline rounded-xl">
             <i class="bi bi-arrow-left"></i> Back to Dashboard
         </a>
     </div>
@@ -24,19 +27,15 @@
 
 <!-- Filters -->
 <div class="card-modern p-6 mb-6">
-    <form method="get" class="grid grid-cols-1 md:grid-cols-12 gap-4">
-        <div class="md:col-span-4">
-            <label class="label">
-                <span class="label-text text-sm text-base-content/60">Search</span>
-            </label>
-            <input type="text" class="input-modern w-full" name="search"
+    <form method="get" class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+        <div class="md:col-span-5">
+            <label class="block text-sm font-medium text-base-content/60 mb-1.5">Search</label>
+            <input type="text" class="input input-bordered rounded-xl w-full" name="search"
                    value="{{ search_query }}" placeholder="Email, ticket ID, flight...">
         </div>
         <div class="md:col-span-3">
-            <label class="label">
-                <span class="label-text text-sm text-base-content/60">Status</span>
-            </label>
-            <select class="select rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full" name="status">
+            <label class="block text-sm font-medium text-base-content/60 mb-1.5">Status</label>
+            <select class="select select-bordered rounded-xl w-full" name="status">
                 <option value="">All Statuses</option>
                 {% for value, label in status_choices %}
                 <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>
@@ -45,13 +44,13 @@
                 {% endfor %}
             </select>
         </div>
-        <div class="md:col-span-2 flex items-end">
-            <button type="submit" class="btn btn-primary rounded-xl transition-all duration-200 w-full">
+        <div class="md:col-span-2">
+            <button type="submit" class="btn btn-primary rounded-xl w-full">
                 <i class="bi bi-search"></i> Filter
             </button>
         </div>
-        <div class="md:col-span-2 flex items-end">
-            <a href="{% url 'agent_claims' %}" class="btn btn-outline rounded-xl transition-all duration-200 w-full">
+        <div class="md:col-span-2">
+            <a href="{% url 'agent_claims' %}" class="btn btn-outline rounded-xl w-full">
                 <i class="bi bi-x-circle"></i> Clear
             </a>
         </div>
@@ -59,7 +58,7 @@
 </div>
 
 <!-- Claims Table -->
-<div class="card-modern rounded-2xl overflow-hidden">
+<div class="card-modern p-0 overflow-hidden rounded-2xl">
     <div class="overflow-x-auto">
         <table class="table-modern">
             <thead>
@@ -76,25 +75,25 @@
                     <th>Status</th>
                     <th>ZD Ticket</th>
                     <th>Flight Details</th>
-                    <th>Evidence</th>
-                    <th>Emails</th>
+                    <th class="text-center">Evidence</th>
+                    <th class="text-center">Emails</th>
                     <th>Created</th>
-                    <th>Actions</th>
+                    <th class="text-right">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for claim in claims %}
-                <tr>
+                <tr class="hover:bg-base-200/40 transition-colors">
                     {% if user.role == 'MANAGER' %}
                     <td>
                         <input type="checkbox" class="checkbox checkbox-sm row-check"
                                value="{{ claim.id }}" onchange="updateBulkButton()">
                     </td>
                     {% endif %}
-                    <td class="font-mono text-sm">#{{ claim.id }}</td>
-                    <td>{{ claim.client_email }}</td>
+                    <td class="font-mono text-sm font-medium">#{{ claim.id }}</td>
+                    <td class="font-medium">{{ claim.client_email }}</td>
                     <td>
-                        <span class="badge {% if claim.status_category == 'solved' %}badge-neutral{% elif claim.status_category == 'pending' %}badge-warning{% elif claim.status_category == 'new' %}badge-info{% elif claim.status_category == 'hold' %}badge-ghost{% else %}badge-primary{% endif %}">
+                        <span class="badge {% if claim.status_category == 'solved' %}badge-soft-neutral{% elif claim.status_category == 'pending' %}badge-soft-warning{% elif claim.status_category == 'new' %}badge-soft-info{% elif claim.status_category == 'hold' %}badge-soft-neutral{% else %}badge-soft-primary{% endif %}">
                             {{ claim.status }}
                         </span>
                     </td>
@@ -104,27 +103,28 @@
                             {{ claim.flight_details|default:"-" }}
                         </span>
                     </td>
-                    <td>
+                    <td class="text-center">
                         <span class="badge badge-soft-neutral">{{ claim.evidence_count }}</span>
                     </td>
-                    <td>
+                    <td class="text-center">
                         <span class="badge badge-soft-info">{{ claim.email_count }}</span>
                     </td>
-                    <td class="text-sm text-base-content/60">{{ claim.created_at|date:"M d, Y" }}</td>
-                    <td>
+                    <td class="text-sm text-base-content/60 whitespace-nowrap">{{ claim.created_at|date:"M d, Y" }}</td>
+                    <td class="text-right">
                         <a href="{% url 'agent_claim_detail' claim.id %}"
-                           class="btn btn-sm btn-outline btn-primary rounded-xl transition-all duration-200">
+                           class="btn btn-sm btn-outline btn-primary rounded-xl">
                             <i class="bi bi-eye"></i> View
                         </a>
                     </td>
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="{% if user.role == 'MANAGER' %}10{% else %}9{% endif %}" class="text-center py-12">
+                    <td colspan="{% if user.role == 'MANAGER' %}10{% else %}9{% endif %}" class="text-center py-16">
                         <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
                             <i class="bi bi-inbox text-3xl text-base-content/40"></i>
                         </div>
-                        <p class="text-base-content/60 mt-2 mb-0">No claims found</p>
+                        <p class="text-base-content/60 font-medium mt-2 mb-0">No claims found</p>
+                        <p class="text-sm text-base-content/40 mt-1">Try adjusting your search or status filter.</p>
                     </td>
                 </tr>
                 {% endfor %}
@@ -134,30 +134,30 @@
 
     <!-- Pagination -->
     {% if page_obj.has_other_pages %}
-    <div class="flex justify-center p-6">
-        <div class="flex items-center gap-2">
+    <div class="flex justify-center p-6 border-t border-base-200">
+        <div class="join">
             {% if page_obj.has_previous %}
             <a href="?page=1{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
-               class="btn btn-sm rounded-xl transition-all duration-200">
+               class="btn btn-sm join-item">
                 <i class="bi bi-chevron-double-left"></i> First
             </a>
             <a href="?page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
-               class="btn btn-sm rounded-xl transition-all duration-200">
+               class="btn btn-sm join-item">
                 <i class="bi bi-chevron-left"></i> Previous
             </a>
             {% endif %}
 
-            <span class="btn btn-sm rounded-xl btn-active">
+            <span class="btn btn-sm join-item btn-active pointer-events-none">
                 Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
             </span>
 
             {% if page_obj.has_next %}
             <a href="?page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
-               class="btn btn-sm rounded-xl transition-all duration-200">
+               class="btn btn-sm join-item">
                 Next <i class="bi bi-chevron-right"></i>
             </a>
             <a href="?page={{ page_obj.paginator.num_pages }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
-               class="btn btn-sm rounded-xl transition-all duration-200">
+               class="btn btn-sm join-item">
                 Last <i class="bi bi-chevron-double-right"></i>
             </a>
             {% endif %}

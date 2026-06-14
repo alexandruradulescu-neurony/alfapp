@@ -7,9 +7,12 @@
 {% block content %}
 <!-- Page Header -->
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-        <i class="bi bi-speedometer2"></i> Manager Dashboard
-    </h2>
+    <div>
+        <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <i class="bi bi-speedometer2 text-primary"></i> Manager Dashboard
+        </h2>
+        <p class="text-sm text-base-content/60 mt-1">Operational overview of claims, emails and disputes.</p>
+    </div>
 </div>
 
 <!-- Stats Grid -->
@@ -77,36 +80,36 @@
 
 <!-- Email Overview Card -->
 <div class="card-modern p-6 mb-6 animate-fade-in">
-    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-5">
         <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
             <i class="bi bi-envelope text-primary"></i> Email Overview
         </h3>
-        <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-primary rounded-xl transition-all duration-200">
+        <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-outline rounded-xl">
             View All Emails <i class="bi bi-arrow-right"></i>
         </a>
     </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-        <div class="text-center p-4 bg-base-200/50 rounded-xl">
-            <div class="text-sm text-base-content/60 mb-1">Total Emails</div>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div class="rounded-xl border border-base-200/70 bg-base-100 p-4">
+            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Total Emails</div>
             <div class="text-3xl font-bold tracking-tight">{{ total_emails|default:0 }}</div>
         </div>
-        <div class="text-center p-4 bg-success/10 rounded-xl">
-            <div class="text-sm text-base-content/60 mb-1">Auto-Resolved</div>
+        <div class="rounded-xl border border-success/20 bg-success/5 p-4">
+            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Auto-Resolved</div>
             <div class="text-3xl font-bold tracking-tight text-success">{{ auto_resolved_emails|default:0 }}</div>
         </div>
-        <div class="text-center p-4 bg-error/10 rounded-xl">
-            <div class="text-sm text-base-content/60 mb-1">Requires Attention</div>
+        <div class="rounded-xl border border-error/20 bg-error/5 p-4">
+            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Requires Attention</div>
             <div class="text-3xl font-bold tracking-tight text-error">{{ emails_requiring_attention|default:0 }}</div>
         </div>
     </div>
 
     {% if email_category_stats %}
-    <div class="mt-4 pt-4 border-t border-base-200/60">
-        <div class="text-sm text-base-content/60 mb-3 font-medium">Category Breakdown</div>
+    <div class="mt-5 pt-5 border-t border-base-200/70">
+        <div class="text-xs uppercase tracking-wide text-base-content/50 mb-3 font-medium">Category Breakdown</div>
         <div class="flex flex-wrap gap-2">
             {% for stat in email_category_stats %}
-            <span class="badge badge-neutral">{{ stat.category|humanize_label }}: {{ stat.count }}</span>
+            <span class="badge badge-soft-neutral rounded-full">{{ stat.category|humanize_label }}: {{ stat.count }}</span>
             {% endfor %}
         </div>
     </div>
@@ -115,42 +118,42 @@
 
 <!-- Dispute Overview Card -->
 <div class="card-modern p-6 mb-6 animate-fade-in">
-    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
-        <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 text-error">
-            <i class="bi bi-exclamation-triangle"></i> Dispute Overview
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-5">
+        <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+            <i class="bi bi-exclamation-triangle text-error"></i> Dispute Overview
         </h3>
-        <a href="{% url 'disputes:dispute_list' %}" class="btn btn-sm btn-error rounded-xl transition-all duration-200">
+        <a href="{% url 'disputes:dispute_list' %}" class="btn btn-sm btn-outline rounded-xl">
             View All Disputes <i class="bi bi-arrow-right"></i>
         </a>
     </div>
 
     <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-        <div class="text-center p-3 bg-base-200/50 rounded-xl">
-            <div class="text-xs text-base-content/60 mb-1">Total</div>
+        <div class="rounded-xl border border-base-200/70 bg-base-100 p-3 text-center">
+            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Total</div>
             <div class="text-xl font-bold tracking-tight">{{ dispute_total|default:0 }}</div>
         </div>
-        <div class="text-center p-3 bg-base-200/50 rounded-xl">
-            <div class="text-xs text-base-content/60 mb-1">Received</div>
+        <div class="rounded-xl border border-base-200/70 bg-base-100 p-3 text-center">
+            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Received</div>
             <div class="text-xl font-bold tracking-tight">{{ dispute_received|default:0 }}</div>
         </div>
-        <div class="text-center p-3 bg-warning/10 rounded-xl">
-            <div class="text-xs text-base-content/60 mb-1">Gathering</div>
+        <div class="rounded-xl border border-warning/20 bg-warning/5 p-3 text-center">
+            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Gathering</div>
             <div class="text-xl font-bold tracking-tight text-warning">{{ dispute_gathering_data|default:0 }}</div>
         </div>
-        <div class="text-center p-3 bg-success/10 rounded-xl">
-            <div class="text-xs text-base-content/60 mb-1">Docs Ready</div>
+        <div class="rounded-xl border border-success/20 bg-success/5 p-3 text-center">
+            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Docs Ready</div>
             <div class="text-xl font-bold tracking-tight text-success">{{ dispute_documents_ready|default:0 }}</div>
         </div>
-        <div class="text-center p-3 bg-info/10 rounded-xl">
-            <div class="text-xs text-base-content/60 mb-1">Review</div>
+        <div class="rounded-xl border border-info/20 bg-info/5 p-3 text-center">
+            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Review</div>
             <div class="text-xl font-bold tracking-tight text-info">{{ dispute_under_review|default:0 }}</div>
         </div>
-        <div class="text-center p-3 bg-secondary/10 rounded-xl">
-            <div class="text-xs text-base-content/60 mb-1">Sent</div>
+        <div class="rounded-xl border border-secondary/20 bg-secondary/5 p-3 text-center">
+            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Sent</div>
             <div class="text-xl font-bold tracking-tight text-secondary">{{ dispute_evidence_sent|default:0 }}</div>
         </div>
-        <div class="text-center p-3 bg-base-200/50 rounded-xl">
-            <div class="text-xs text-base-content/60 mb-1">Resolved</div>
+        <div class="rounded-xl border border-base-200/70 bg-base-100 p-3 text-center">
+            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Resolved</div>
             <div class="text-xl font-bold tracking-tight">{{ dispute_resolved|default:0 }}</div>
         </div>
     </div>
@@ -159,14 +162,12 @@
 <!-- Recent Activity Grid -->
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
     <!-- Recent Claims -->
-    <div class="card-modern rounded-2xl overflow-hidden animate-fade-in">
-        <div class="p-6 pb-4">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-                    <i class="bi bi-clock-history"></i> Recent Claims
-                </h3>
-                <a href="{% url 'manager_claims' %}" class="btn btn-sm btn-outline rounded-xl transition-all duration-200">View All</a>
-            </div>
+    <div class="card-modern p-0 overflow-hidden animate-fade-in">
+        <div class="flex justify-between items-center gap-4 px-6 py-4 border-b border-base-200/70">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <i class="bi bi-clock-history text-base-content/60"></i> Recent Claims
+            </h3>
+            <a href="{% url 'manager_claims' %}" class="btn btn-sm btn-outline rounded-xl">View All</a>
         </div>
 
         <div class="overflow-x-auto">
@@ -176,7 +177,7 @@
                         <th>ID</th>
                         <th>Email</th>
                         <th>Status</th>
-                        <th>Actions</th>
+                        <th class="text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -189,15 +190,15 @@
                                 {{ claim.status }}
                             </div>
                         </td>
-                        <td>
-                            <a href="{% url 'agent_claim_detail' claim.id %}" class="btn btn-xs btn-ghost rounded-xl transition-all duration-200">
+                        <td class="text-right">
+                            <a href="{% url 'agent_claim_detail' claim.id %}" class="btn btn-xs btn-ghost rounded-xl">
                                 <i class="bi bi-eye"></i>
                             </a>
                         </td>
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="4" class="text-center py-4 text-base-content/60">No claims</td>
+                        <td colspan="4" class="text-center py-6 text-base-content/60">No claims</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -206,14 +207,12 @@
     </div>
 
     <!-- Recent Emails -->
-    <div class="card-modern rounded-2xl overflow-hidden animate-fade-in">
-        <div class="p-6 pb-4">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-                    <i class="bi bi-envelope"></i> Recent Emails
-                </h3>
-                <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-outline rounded-xl transition-all duration-200">View All</a>
-            </div>
+    <div class="card-modern p-0 overflow-hidden animate-fade-in">
+        <div class="flex justify-between items-center gap-4 px-6 py-4 border-b border-base-200/70">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <i class="bi bi-envelope text-base-content/60"></i> Recent Emails
+            </h3>
+            <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-outline rounded-xl">View All</a>
         </div>
 
         <div class="overflow-x-auto">
@@ -242,7 +241,7 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="3" class="text-center py-4 text-base-content/60">No emails</td>
+                        <td colspan="3" class="text-center py-6 text-base-content/60">No emails</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -252,14 +251,12 @@
 </div>
 
 <!-- Recent Disputes Table -->
-<div class="card-modern rounded-2xl overflow-hidden mb-6 animate-fade-in">
-    <div class="p-6 pb-4">
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 text-error">
-                <i class="bi bi-exclamation-triangle"></i> Recent Disputes
-            </h3>
-            <a href="{% url 'disputes:dispute_list' %}" class="btn btn-sm btn-outline rounded-xl transition-all duration-200">View All</a>
-        </div>
+<div class="card-modern p-0 overflow-hidden mb-6 animate-fade-in">
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 px-6 py-4 border-b border-base-200/70">
+        <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+            <i class="bi bi-exclamation-triangle text-error"></i> Recent Disputes
+        </h3>
+        <a href="{% url 'disputes:dispute_list' %}" class="btn btn-sm btn-outline rounded-xl">View All</a>
     </div>
 
     <div class="overflow-x-auto">
@@ -273,7 +270,7 @@
                     <th>Status</th>
                     <th>Zendesk</th>
                     <th>Created</th>
-                    <th>Actions</th>
+                    <th class="text-right">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -296,23 +293,23 @@
                     </td>
                     <td>
                         {% if dispute.zd_ticket_id %}
-                        <span class="flex items-center gap-1">
+                        <span class="inline-flex items-center gap-1 text-base-content/80">
                             <i class="bi bi-ticket-perforated"></i> {{ dispute.zd_ticket_id }}
                         </span>
                         {% else %}
                         <span class="text-base-content/60">Not linked</span>
                         {% endif %}
                     </td>
-                    <td>{{ dispute.created_at|date:"M d, Y" }}</td>
-                    <td>
-                        <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="btn btn-xs btn-ghost rounded-xl transition-all duration-200">
+                    <td class="text-base-content/70 whitespace-nowrap">{{ dispute.created_at|date:"M d, Y" }}</td>
+                    <td class="text-right">
+                        <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="btn btn-xs btn-ghost rounded-xl">
                             <i class="bi bi-eye"></i> View
                         </a>
                     </td>
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="8" class="text-center py-8">
+                    <td colspan="8" class="text-center py-10">
                         <i class="bi bi-inbox text-4xl text-base-content/30"></i>
                         <p class="text-base-content/60 mt-2">No disputes</p>
                     </td>
@@ -326,19 +323,19 @@
 <!-- Quick Actions -->
 <div class="card-modern p-6 animate-fade-in">
     <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-4">
-        <i class="bi bi-lightning"></i> Quick Actions
+        <i class="bi bi-lightning text-warning"></i> Quick Actions
     </h3>
     <div class="flex flex-wrap gap-2">
-        <a href="{% url 'disputes:dispute_list' %}" class="btn btn-error rounded-xl transition-all duration-200">
+        <a href="{% url 'disputes:dispute_list' %}" class="btn btn-error rounded-xl">
             <i class="bi bi-exclamation-triangle"></i> Manage Disputes
         </a>
-        <a href="{% url 'manager_settings' %}" class="btn btn-primary rounded-xl transition-all duration-200">
+        <a href="{% url 'manager_settings' %}" class="btn btn-primary rounded-xl">
             <i class="bi bi-gear"></i> System Settings
         </a>
-        <a href="{% url 'manager_users' %}" class="btn btn-outline rounded-xl transition-all duration-200">
+        <a href="{% url 'manager_users' %}" class="btn btn-outline rounded-xl">
             <i class="bi bi-people"></i> Manage Users
         </a>
-        <a href="{% url 'manager_claims' %}" class="btn btn-outline rounded-xl transition-all duration-200">
+        <a href="{% url 'manager_claims' %}" class="btn btn-outline rounded-xl">
             <i class="bi bi-clipboard-data"></i> All Claims
         </a>
     </div>

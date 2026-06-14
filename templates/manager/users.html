@@ -5,16 +5,19 @@
 {% block content %}
 <!-- Page Header -->
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-        <i class="bi bi-people"></i> User Management
-    </h2>
+    <div>
+        <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <i class="bi bi-people"></i> User Management
+        </h2>
+        <p class="text-base-content/60 mt-1">Manage team accounts, roles, and access.</p>
+    </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- User List -->
     <div class="lg:col-span-2">
-        <div class="card-modern rounded-2xl overflow-hidden animate-fade-in">
-            <div class="p-6 pb-4">
+        <div class="card-modern p-0 overflow-hidden rounded-2xl">
+            <div class="px-6 py-5 border-b border-base-200">
                 <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 m-0">
                     <i class="bi bi-list-ul"></i> All Users
                 </h3>
@@ -35,32 +38,34 @@
                         {% for user in users %}
                         <tr>
                             <td>
-                                <strong>{{ user.username }}</strong>
-                                {% if user.is_superuser %}
-                                    <span class="badge-soft-error rounded-full px-2 py-0.5 text-xs ml-1">Admin</span>
-                                {% endif %}
+                                <div class="flex items-center gap-2">
+                                    <span class="font-semibold">{{ user.username }}</span>
+                                    {% if user.is_superuser %}
+                                        <span class="badge badge-soft-error">Admin</span>
+                                    {% endif %}
+                                </div>
                             </td>
-                            <td>{{ user.email }}</td>
-                            <td>{{ user.get_full_name|default:"-" }}</td>
+                            <td class="text-base-content/80">{{ user.email }}</td>
+                            <td class="text-base-content/80">{{ user.get_full_name|default:"-" }}</td>
                             <td>
                                 {% if user.role == 'MANAGER' %}
-                                    <span class="badge-soft-primary rounded-full px-3 py-1 text-xs">{{ user.role }}</span>
+                                    <span class="badge badge-soft-primary">{{ user.role }}</span>
                                 {% else %}
-                                    <span class="badge-soft-info rounded-full px-3 py-1 text-xs">{{ user.role }}</span>
+                                    <span class="badge badge-soft-info">{{ user.role }}</span>
                                 {% endif %}
                             </td>
-                            <td class="text-base-content/60">{{ user.date_joined|date:"M d, Y" }}</td>
-                            <td>
+                            <td class="text-base-content/60 whitespace-nowrap">{{ user.date_joined|date:"M d, Y" }}</td>
+                            <td class="whitespace-nowrap">
                                 {% if user.last_login %}
                                     <span class="text-base-content/60">{{ user.last_login|date:"M d, Y H:i" }}</span>
                                 {% else %}
-                                    <span class="text-base-content/60">Never</span>
+                                    <span class="text-base-content/40">Never</span>
                                 {% endif %}
                             </td>
                         </tr>
                         {% empty %}
                         <tr>
-                            <td colspan="6" class="text-center py-8">
+                            <td colspan="6" class="text-center py-12">
                                 <i class="bi bi-inbox text-4xl text-base-content/30"></i>
                                 <p class="text-base-content/60 mt-2 mb-0">No users found</p>
                             </td>
@@ -73,53 +78,53 @@
     </div>
 
     <!-- Create User Form -->
-    <div class="lg:col-span-1">
-        <div class="card-modern p-6 mb-6 animate-fade-in">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-4">
+    <div class="lg:col-span-1 flex flex-col gap-6">
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-5">
                 <i class="bi bi-person-plus"></i> Create New User
             </h3>
-            <form method="post">
+            <form method="post" class="flex flex-col gap-4">
                 {% csrf_token %}
 
-                <div class="form-control mb-3">
-                    <label class="label">
-                        <span class="label-text font-semibold">Username *</span>
+                <div class="form-control">
+                    <label class="label pb-1.5" for="username">
+                        <span class="label-text font-medium">Username <span class="text-error">*</span></span>
                     </label>
                     <input type="text" class="input-modern w-full" id="username" name="username" required>
                 </div>
 
-                <div class="form-control mb-3">
-                    <label class="label">
-                        <span class="label-text font-semibold">Email</span>
+                <div class="form-control">
+                    <label class="label pb-1.5" for="email">
+                        <span class="label-text font-medium">Email</span>
                     </label>
                     <input type="email" class="input-modern w-full" id="email" name="email">
                 </div>
 
-                <div class="grid grid-cols-2 gap-3 mb-3">
+                <div class="grid grid-cols-2 gap-3">
                     <div class="form-control">
-                        <label class="label">
-                            <span class="label-text font-semibold">First Name</span>
+                        <label class="label pb-1.5" for="first_name">
+                            <span class="label-text font-medium">First Name</span>
                         </label>
                         <input type="text" class="input-modern w-full" id="first_name" name="first_name">
                     </div>
                     <div class="form-control">
-                        <label class="label">
-                            <span class="label-text font-semibold">Last Name</span>
+                        <label class="label pb-1.5" for="last_name">
+                            <span class="label-text font-medium">Last Name</span>
                         </label>
                         <input type="text" class="input-modern w-full" id="last_name" name="last_name">
                     </div>
                 </div>
 
-                <div class="form-control mb-3">
-                    <label class="label">
-                        <span class="label-text font-semibold">Password *</span>
+                <div class="form-control">
+                    <label class="label pb-1.5" for="password">
+                        <span class="label-text font-medium">Password <span class="text-error">*</span></span>
                     </label>
                     <input type="password" class="input-modern w-full" id="password" name="password" required>
                 </div>
 
-                <div class="form-control mb-4">
-                    <label class="label">
-                        <span class="label-text font-semibold">Role *</span>
+                <div class="form-control">
+                    <label class="label pb-1.5" for="role">
+                        <span class="label-text font-medium">Role <span class="text-error">*</span></span>
                     </label>
                     <select class="select select-bordered w-full rounded-xl" id="role" name="role" required>
                         {% for value, label in role_choices %}
@@ -128,26 +133,24 @@
                     </select>
                 </div>
 
-                <div class="form-control">
-                    <button type="submit" class="btn btn-primary w-full rounded-xl transition-all duration-200">
-                        <i class="bi bi-person-plus-fill"></i> Create User
-                    </button>
-                </div>
+                <button type="submit" class="btn btn-primary w-full rounded-xl mt-1">
+                    <i class="bi bi-person-plus-fill"></i> Create User
+                </button>
             </form>
         </div>
 
         <!-- Role Info -->
-        <div class="card-modern p-6 animate-fade-in">
+        <div class="card-modern p-6">
             <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-4">
                 <i class="bi bi-info-circle"></i> Role Descriptions
             </h3>
-            <dl class="space-y-3">
+            <dl class="flex flex-col gap-4">
                 <div>
-                    <dt class="font-semibold text-primary">Manager</dt>
+                    <dt class="font-semibold text-primary mb-0.5">Manager</dt>
                     <dd class="text-sm text-base-content/60">Full access: settings, users, claims, PDF downloads</dd>
                 </div>
                 <div>
-                    <dt class="font-semibold text-secondary">Agent</dt>
+                    <dt class="font-semibold text-secondary mb-0.5">Agent</dt>
                     <dd class="text-sm text-base-content/60">Claims management, evidence upload, status updates</dd>
                 </div>
             </dl>

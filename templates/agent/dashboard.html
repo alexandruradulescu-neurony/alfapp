@@ -6,14 +6,15 @@
 {% block content %}
 <div class="animate-fade-in">
 <!-- Page Header -->
-<div class="flex justify-between items-center mb-6">
+<div class="mb-6">
     <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-        <i class="bi bi-speedometer2"></i> Agent Dashboard
+        <i class="bi bi-speedometer2 text-base-content/70"></i> Agent Dashboard
     </h2>
+    <p class="text-base-content/60 mt-1">Your claims, emails and disputes at a glance.</p>
 </div>
 
 <!-- Stats Grid -->
-<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
     <!-- Total Claims -->
     <div class="stat-modern">
         <div class="stat-label">Total Claims</div>
@@ -55,27 +56,27 @@
 <div class="card-modern p-6 mb-6">
     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <h3 class="text-lg font-semibold flex items-center gap-2">
-            <i class="bi bi-envelope"></i> Email Overview
+            <i class="bi bi-envelope text-base-content/70"></i> Email Overview
         </h3>
-        <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-primary rounded-xl transition-all duration-200">
+        <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-primary rounded-xl">
             View All Emails <i class="bi bi-arrow-right"></i>
         </a>
     </div>
 
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div class="text-center p-4 bg-base-200/50 rounded-2xl">
+        <div class="text-center p-4 bg-base-200/50 rounded-xl">
             <div class="text-sm text-base-content/60 mb-1">Total Emails</div>
             <div class="text-2xl font-semibold">{{ total_emails|default:0 }}</div>
         </div>
-        <div class="text-center p-4 bg-base-200/50 rounded-2xl">
+        <div class="text-center p-4 bg-base-200/50 rounded-xl">
             <div class="text-sm text-base-content/60 mb-1">Requiring Attention</div>
             <div class="text-2xl font-semibold text-error">{{ emails_requiring_attention|default:0 }}</div>
         </div>
-        <div class="text-center p-4 bg-base-200/50 rounded-2xl">
+        <div class="text-center p-4 bg-base-200/50 rounded-xl">
             <div class="text-sm text-base-content/60 mb-1">Auto-Resolved</div>
             <div class="text-2xl font-semibold text-success">{{ auto_resolved_emails|default:0 }}</div>
         </div>
-        <div class="text-center p-4 bg-base-200/50 rounded-2xl">
+        <div class="text-center p-4 bg-base-200/50 rounded-xl">
             <div class="text-sm text-base-content/60 mb-1">Urgent</div>
             <div class="text-2xl font-semibold text-error">{{ urgent_emails|default:0 }}</div>
         </div>
@@ -87,7 +88,7 @@
         <div class="text-sm text-base-content/60 mb-3">Category Breakdown</div>
         <div class="flex flex-wrap gap-2">
             {% for stat in email_category_stats %}
-            <span class="badge badge-neutral">{{ stat.category|humanize_label }}: {{ stat.count }}</span>
+            <span class="badge badge-soft-neutral">{{ stat.category|humanize_label }}: {{ stat.count }}</span>
             {% endfor %}
         </div>
     </div>
@@ -95,14 +96,12 @@
 </div>
 
 <!-- Recent Emails Table -->
-<div class="card-modern rounded-2xl overflow-hidden mb-6">
-    <div class="p-6 pb-0">
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-            <h3 class="text-lg font-semibold flex items-center gap-2">
-                <i class="bi bi-envelope"></i> Recent Emails
-            </h3>
-            <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-outline rounded-xl transition-all duration-200">View All</a>
-        </div>
+<div class="card-modern p-0 overflow-hidden mb-6">
+    <div class="p-6 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h3 class="text-lg font-semibold flex items-center gap-2">
+            <i class="bi bi-envelope text-base-content/70"></i> Recent Emails
+        </h3>
+        <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-outline rounded-xl">View All</a>
     </div>
 
     <div class="overflow-x-auto">
@@ -115,39 +114,39 @@
                     <th>Category</th>
                     <th>Claim</th>
                     <th>Received</th>
-                    <th>Actions</th>
+                    <th class="text-right">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for email in recent_emails %}
                 <tr>
-                    <td class="font-mono text-sm">#{{ email.id }}</td>
+                    <td class="font-mono text-sm text-base-content/60">#{{ email.id }}</td>
                     <td>
-                        <div class="max-w-xs truncate" title="{{ email.subject }}">
+                        <div class="max-w-xs truncate font-medium" title="{{ email.subject }}">
                             {{ email.subject }}
                         </div>
                     </td>
                     <td class="text-sm text-base-content/60">{{ email.from_email }}</td>
                     <td>
-                        <div class="badge gap-1">
+                        <span class="badge badge-soft-neutral gap-1">
                             {{ email.get_category_display }}
                             {% if email.action_required %}
-                            <div class="badge badge-error badge-xs">!</div>
+                            <span class="badge badge-error badge-xs">!</span>
                             {% endif %}
-                        </div>
+                        </span>
                     </td>
                     <td>
                         {% if email.claim %}
-                        <a href="{% url 'agent_claim_detail' email.claim.id %}" class="btn btn-xs btn-outline rounded-xl transition-all duration-200">
+                        <a href="{% url 'agent_claim_detail' email.claim.id %}" class="btn btn-xs btn-outline rounded-xl">
                             #{{ email.claim.id }}
                         </a>
                         {% else %}
                         <span class="text-base-content/40">-</span>
                         {% endif %}
                     </td>
-                    <td class="text-sm text-base-content/60">{{ email.received_at|date:"M d, H:i" }}</td>
-                    <td>
-                        <a href="{% url 'agent_email_detail' email.id %}" class="btn btn-xs btn-ghost rounded-xl transition-all duration-200">
+                    <td class="text-sm text-base-content/60 whitespace-nowrap">{{ email.received_at|date:"M d, H:i" }}</td>
+                    <td class="text-right">
+                        <a href="{% url 'agent_email_detail' email.id %}" class="btn btn-xs btn-ghost rounded-xl">
                             <i class="bi bi-eye"></i>
                         </a>
                     </td>
@@ -168,14 +167,12 @@
 </div>
 
 <!-- Recent Claims Table -->
-<div class="card-modern rounded-2xl overflow-hidden">
-    <div class="p-6 pb-0">
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-            <h3 class="text-lg font-semibold flex items-center gap-2">
-                <i class="bi bi-clock-history"></i> Recent Claims
-            </h3>
-            <a href="{% url 'agent_claims' %}" class="btn btn-sm btn-outline rounded-xl transition-all duration-200">View All</a>
-        </div>
+<div class="card-modern p-0 overflow-hidden">
+    <div class="p-6 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h3 class="text-lg font-semibold flex items-center gap-2">
+            <i class="bi bi-clock-history text-base-content/70"></i> Recent Claims
+        </h3>
+        <a href="{% url 'agent_claims' %}" class="btn btn-sm btn-outline rounded-xl">View All</a>
     </div>
 
     <div class="overflow-x-auto">
@@ -187,23 +184,23 @@
                     <th>Status</th>
                     <th>ZD Ticket</th>
                     <th>Created</th>
-                    <th>Actions</th>
+                    <th class="text-right">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for claim in recent_claims %}
                 <tr>
-                    <td class="font-mono">#{{ claim.id }}</td>
-                    <td>{{ claim.client_email }}</td>
+                    <td class="font-mono text-sm text-base-content/60">#{{ claim.id }}</td>
+                    <td class="font-medium">{{ claim.client_email }}</td>
                     <td>
-                        <div class="badge {% if claim.status_category == 'solved' %}badge-neutral{% elif claim.status_category == 'pending' %}badge-warning{% elif claim.status_category == 'new' %}badge-info{% elif claim.status_category == 'hold' %}badge-ghost{% else %}badge-primary{% endif %}">
+                        <span class="badge {% if claim.status_category == 'solved' %}badge-soft-neutral{% elif claim.status_category == 'pending' %}badge-soft-warning{% elif claim.status_category == 'new' %}badge-soft-info{% elif claim.status_category == 'hold' %}badge-soft-neutral{% else %}badge-soft-primary{% endif %}">
                             {{ claim.status }}
-                        </div>
+                        </span>
                     </td>
                     <td class="text-base-content/60">{{ claim.zd_ticket_id|default:"-" }}</td>
-                    <td class="text-base-content/60">{{ claim.created_at|date:"M d, Y" }}</td>
-                    <td>
-                        <a href="{% url 'agent_claim_detail' claim.id %}" class="btn btn-xs btn-ghost rounded-xl transition-all duration-200">
+                    <td class="text-base-content/60 whitespace-nowrap">{{ claim.created_at|date:"M d, Y" }}</td>
+                    <td class="text-right">
+                        <a href="{% url 'agent_claim_detail' claim.id %}" class="btn btn-xs btn-ghost rounded-xl">
                             <i class="bi bi-eye"></i> View
                         </a>
                     </td>

@@ -5,40 +5,37 @@
 {% block content %}
 <!-- Page Header -->
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-        <i class="bi bi-exclamation-triangle"></i> Dispute Management
-    </h2>
-    <a href="{% url 'manager_dashboard' %}" class="btn btn-outline rounded-xl transition-all duration-200">
+    <div>
+        <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <i class="bi bi-exclamation-triangle text-base-content/70"></i> Dispute Management
+        </h2>
+        <p class="text-sm text-base-content/60 mt-1">Track and resolve PayPal disputes linked to claims.</p>
+    </div>
+    <a href="{% url 'manager_dashboard' %}" class="btn btn-outline rounded-xl">
         <i class="bi bi-arrow-left"></i> Back to Dashboard
     </a>
 </div>
 
 <!-- Status Summary Cards -->
-<div class="card-modern p-6 mb-6 animate-fade-in">
-    <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-4 text-center">
-        {% for item in status_summary %}
-        <div class="p-3 bg-base-200/50 rounded-xl">
-            <span class="text-sm text-base-content/60">{{ item.label }}</span>
-            <div class="text-xl font-bold tracking-tight">{{ item.count }}</div>
-        </div>
-        {% endfor %}
+<div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-4 mb-6">
+    {% for item in status_summary %}
+    <div class="stat-modern">
+        <div class="stat-label">{{ item.label }}</div>
+        <div class="stat-value">{{ item.count }}</div>
     </div>
+    {% endfor %}
 </div>
 
 <!-- Filters -->
-<div class="card-modern p-6 mb-6 animate-fade-in">
-    <form method="get" class="grid grid-cols-1 md:grid-cols-12 gap-4">
-        <div class="md:col-span-4">
-            <label class="label">
-                <span class="label-text font-semibold">Search</span>
-            </label>
-            <input type="text" class="input-modern w-full" name="search"
+<div class="card-modern p-6 mb-6">
+    <form method="get" class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+        <div class="md:col-span-5">
+            <label class="block text-sm font-semibold mb-1.5">Search</label>
+            <input type="text" class="input input-bordered w-full rounded-xl" name="search"
                    value="{{ search_query }}" placeholder="Ticket ID, email, or PayPal ID...">
         </div>
         <div class="md:col-span-3">
-            <label class="label">
-                <span class="label-text font-semibold">Status</span>
-            </label>
+            <label class="block text-sm font-semibold mb-1.5">Status</label>
             <select class="select select-bordered w-full rounded-xl" name="status">
                 <option value="">All Statuses</option>
                 {% for value, label in status_choices %}
@@ -48,13 +45,13 @@
                 {% endfor %}
             </select>
         </div>
-        <div class="md:col-span-2 flex items-end">
-            <button type="submit" class="btn btn-primary w-full rounded-xl transition-all duration-200">
+        <div class="md:col-span-2">
+            <button type="submit" class="btn btn-primary w-full rounded-xl">
                 <i class="bi bi-search"></i> Filter
             </button>
         </div>
-        <div class="md:col-span-2 flex items-end">
-            <a href="{% url 'disputes:dispute_list' %}" class="btn btn-outline w-full rounded-xl transition-all duration-200">
+        <div class="md:col-span-2">
+            <a href="{% url 'disputes:dispute_list' %}" class="btn btn-outline w-full rounded-xl">
                 <i class="bi bi-x-circle"></i> Clear
             </a>
         </div>
@@ -62,7 +59,7 @@
 </div>
 
 <!-- Disputes Table -->
-<div class="card-modern rounded-2xl overflow-hidden animate-fade-in">
+<div class="card-modern p-0 overflow-hidden rounded-2xl mb-6">
     <div class="overflow-x-auto">
         <table class="table-modern">
             <thead>
@@ -74,27 +71,27 @@
                     <th>Status</th>
                     <th>Zendesk Ticket</th>
                     <th>Created</th>
-                    <th>Actions</th>
+                    <th class="text-right">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for dispute in disputes %}
                 <tr>
-                    <td>#{{ dispute.id }}</td>
+                    <td class="font-semibold">#{{ dispute.id }}</td>
                     <td>
-                        <code class="text-xs">{{ dispute.paypal_dispute_id|truncatechars:20 }}</code>
+                        <code class="text-xs text-base-content/70">{{ dispute.paypal_dispute_id|truncatechars:20 }}</code>
                     </td>
                     <td>
-                        <div>{{ dispute.buyer_email }}</div>
+                        <div class="font-medium">{{ dispute.buyer_email }}</div>
                         {% if dispute.buyer_name %}
-                        <span class="text-sm text-base-content/60">{{ dispute.buyer_name }}</span>
+                        <div class="text-sm text-base-content/60">{{ dispute.buyer_name }}</div>
                         {% endif %}
                     </td>
                     <td>
                         {% if dispute.dispute_amount %}
-                        <span class="font-semibold">{{ dispute.dispute_currency }} {{ dispute.dispute_amount }}</span>
+                        <span class="font-semibold tabular-nums">{{ dispute.dispute_currency }} {{ dispute.dispute_amount }}</span>
                         {% else %}
-                        <span class="text-base-content/60">-</span>
+                        <span class="text-base-content/40">-</span>
                         {% endif %}
                     </td>
                     <td>
@@ -105,18 +102,18 @@
                     <td>
                         {% if dispute.zd_ticket_id %}
                         <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ dispute.zd_ticket_id }}"
-                           target="_blank" class="link link-primary">
+                           target="_blank" class="link link-primary inline-flex items-center gap-1">
                             <i class="bi bi-ticket-perforated"></i> {{ dispute.zd_ticket_id }}
                         </a>
                         {% else %}
-                        <span class="text-base-content/60">Not linked</span>
+                        <span class="text-base-content/40">Not linked</span>
                         {% endif %}
                     </td>
-                    <td class="text-base-content/60">{{ dispute.created_at|date:"M d, Y H:i" }}</td>
+                    <td class="text-base-content/60 whitespace-nowrap">{{ dispute.created_at|date:"M d, Y H:i" }}</td>
                     <td>
-                        <div class="flex gap-2">
+                        <div class="flex justify-end gap-2">
                             <a href="{% url 'disputes:dispute_detail' dispute.id %}"
-                               class="btn btn-sm btn-outline btn-primary rounded-xl transition-all duration-200" title="View Details">
+                               class="btn btn-sm btn-outline btn-primary rounded-xl" title="View Details">
                                 <i class="bi bi-eye"></i> View
                             </a>
                         </div>
@@ -124,7 +121,7 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="8" class="text-center py-8">
+                    <td colspan="8" class="text-center py-12">
                         <i class="bi bi-inbox text-4xl text-base-content/30"></i>
                         <p class="text-base-content/60 mt-2 mb-0">No disputes found</p>
                     </td>
@@ -136,30 +133,30 @@
 
     <!-- Pagination -->
     {% if page_obj.has_other_pages %}
-    <div class="flex justify-center p-4">
+    <div class="flex justify-center p-4 border-t border-base-200">
         <div class="join">
             {% if page_obj.has_previous %}
             <a href="?page=1{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
-               class="btn btn-sm join-item rounded-xl transition-all duration-200">
+               class="btn btn-sm join-item">
                 <i class="bi bi-chevron-double-left"></i> First
             </a>
             <a href="?page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
-               class="btn btn-sm join-item rounded-xl transition-all duration-200">
+               class="btn btn-sm join-item">
                 <i class="bi bi-chevron-left"></i> Previous
             </a>
             {% endif %}
 
-            <button class="btn btn-sm join-item btn-active rounded-xl">
+            <button class="btn btn-sm join-item btn-active">
                 Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
             </button>
 
             {% if page_obj.has_next %}
             <a href="?page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
-               class="btn btn-sm join-item rounded-xl transition-all duration-200">
+               class="btn btn-sm join-item">
                 Next <i class="bi bi-chevron-right"></i>
             </a>
             <a href="?page={{ page_obj.paginator.num_pages }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
-               class="btn btn-sm join-item rounded-xl transition-all duration-200">
+               class="btn btn-sm join-item">
                 Last <i class="bi bi-chevron-double-right"></i>
             </a>
             {% endif %}
@@ -169,11 +166,11 @@
 </div>
 
 <!-- Info Box -->
-<div class="rounded-xl border-0 bg-info/10 text-info p-4 flex items-start gap-3 mt-6">
+<div class="alert bg-info/10 text-info border-0 rounded-xl items-start">
     <i class="bi bi-info-circle text-lg mt-0.5"></i>
     <div>
-        <span class="font-semibold">Dispute Management:</span>
-        <ul class="list-disc list-inside mt-1 space-y-1">
+        <span class="font-semibold">Dispute Management</span>
+        <ul class="list-disc list-inside mt-1 space-y-1 text-sm">
             <li>Click <strong>View</strong> to see full dispute details, screenshots, documents, and activity log.</li>
             <li>Click the <strong>Camera</strong> icon to capture a screenshot of the Zendesk ticket.</li>
             <li>Disputes are automatically created from PayPal webhook events.</li>

@@ -6,36 +6,39 @@
 <div class="animate-fade-in">
 <!-- Page Header -->
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-        <i class="bi bi-envelope"></i> Email Management
-    </h2>
-    <a href="{% url 'agent_emails' %}" class="btn btn-outline btn-primary rounded-xl transition-all duration-200">
+    <div>
+        <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <i class="bi bi-envelope text-base-content/70"></i> Email Management
+        </h2>
+        <p class="text-sm text-base-content/60 mt-1">Review inbound institution emails and resolve the ones needing action.</p>
+    </div>
+    <a href="{% url 'agent_emails' %}" class="btn btn-outline rounded-xl">
         <i class="bi bi-arrow-clockwise"></i> Refresh
     </a>
 </div>
 
 <!-- Filters -->
 <div class="card-modern p-6 mb-6">
-    <h3 class="text-lg font-semibold flex items-center gap-2 mb-6">
-        <i class="bi bi-funnel"></i> Filters
+    <h3 class="text-lg font-semibold flex items-center gap-2 mb-5">
+        <i class="bi bi-funnel text-base-content/70"></i> Filters
     </h3>
-    <form method="get" action="{% url 'agent_emails' %}" class="grid grid-cols-1 md:grid-cols-12 gap-4">
+    <form method="get" action="{% url 'agent_emails' %}" class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
         <!-- Search -->
         <div class="md:col-span-3">
-            <label class="label">
-                <span class="label-text text-sm text-base-content/60">Search</span>
+            <label class="label pb-1">
+                <span class="label-text text-sm font-medium text-base-content/70">Search</span>
             </label>
-            <input type="text" class="input-modern w-full" name="search"
+            <input type="text" class="input input-bordered w-full" name="search"
                    value="{{ search_query }}"
                    placeholder="Subject or From Email">
         </div>
 
         <!-- Category Filter -->
         <div class="md:col-span-3">
-            <label class="label">
-                <span class="label-text text-sm text-base-content/60">Category</span>
+            <label class="label pb-1">
+                <span class="label-text text-sm font-medium text-base-content/70">Category</span>
             </label>
-            <select class="select rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full" name="category">
+            <select class="select select-bordered w-full" name="category">
                 <option value="">All Categories</option>
                 <option value="OBJECT_FOUND" {% if category_filter == 'OBJECT_FOUND' %}selected{% endif %}>Object Found</option>
                 <option value="OBJECT_NOT_FOUND" {% if category_filter == 'OBJECT_NOT_FOUND' %}selected{% endif %}>Object Not Found</option>
@@ -48,10 +51,10 @@
 
         <!-- Action Required Filter -->
         <div class="md:col-span-2">
-            <label class="label">
-                <span class="label-text text-sm text-base-content/60">Action Required</span>
+            <label class="label pb-1">
+                <span class="label-text text-sm font-medium text-base-content/70">Action Required</span>
             </label>
-            <select class="select rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full" name="action_required">
+            <select class="select select-bordered w-full" name="action_required">
                 <option value="">All</option>
                 <option value="1" {% if action_required_filter == '1' %}selected{% endif %}>Yes</option>
                 <option value="0" {% if action_required_filter == '0' %}selected{% endif %}>No</option>
@@ -59,8 +62,8 @@
         </div>
 
         <!-- Auto Resolved Toggle -->
-        <div class="md:col-span-2 flex items-end">
-            <label class="label cursor-pointer justify-start gap-3">
+        <div class="md:col-span-2">
+            <label class="label cursor-pointer justify-start gap-3 py-2">
                 <input class="checkbox checkbox-sm checkbox-primary" type="checkbox" name="show_auto_resolved"
                        id="show_auto_resolved" value="1"
                        {% if show_auto_resolved %}checked{% endif %}>
@@ -69,11 +72,11 @@
         </div>
 
         <!-- Submit Buttons -->
-        <div class="md:col-span-12 flex gap-2">
-            <button type="submit" class="btn btn-primary rounded-xl transition-all duration-200">
-                <i class="bi bi-search"></i> Apply Filters
+        <div class="md:col-span-2 flex flex-wrap gap-2 md:justify-end">
+            <button type="submit" class="btn btn-primary rounded-xl">
+                <i class="bi bi-search"></i> Apply
             </button>
-            <a href="{% url 'agent_emails' %}" class="btn btn-outline rounded-xl transition-all duration-200">
+            <a href="{% url 'agent_emails' %}" class="btn btn-outline rounded-xl">
                 <i class="bi bi-x-circle"></i> Clear
             </a>
         </div>
@@ -81,16 +84,16 @@
 </div>
 
 <!-- Email List -->
-<div class="card-modern rounded-2xl overflow-hidden">
-    <div class="p-6 pb-0 flex justify-between items-center mb-4">
+<div class="card-modern p-0 overflow-hidden">
+    <div class="p-6 flex flex-wrap justify-between items-center gap-3 border-b border-base-200">
         <h3 class="text-lg font-semibold flex items-center gap-2 m-0">
-            <i class="bi bi-inbox"></i> Emails
+            <i class="bi bi-inbox text-base-content/70"></i> Emails
             {% if page_obj.paginator.count %}
-            <span class="badge badge-soft-neutral ml-2">{{ page_obj.paginator.count }}</span>
+            <span class="badge badge-soft-neutral ml-1">{{ page_obj.paginator.count }}</span>
             {% endif %}
         </h3>
         {% if not show_auto_resolved %}
-        <span class="badge badge-soft-info">Hiding Auto-Resolved</span>
+        <span class="badge badge-soft-info gap-1"><i class="bi bi-eye-slash"></i> Hiding Auto-Resolved</span>
         {% endif %}
     </div>
     <div class="overflow-x-auto">
@@ -103,15 +106,15 @@
                     <th>Category</th>
                     <th>Zendesk Ticket</th>
                     <th>Received</th>
-                    <th>Actions</th>
+                    <th class="text-right">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for email in page_obj %}
                 <tr class="{% if email.auto_resolved %}opacity-60{% endif %}">
-                    <td class="font-mono text-sm">#{{ email.id }}</td>
+                    <td class="font-mono text-sm text-base-content/60">#{{ email.id }}</td>
                     <td>
-                        <div class="max-w-xs truncate" title="{{ email.subject }}">
+                        <div class="max-w-xs truncate font-medium" title="{{ email.subject }}">
                             {{ email.subject }}
                         </div>
                     </td>
@@ -119,20 +122,22 @@
                         <span class="text-sm text-base-content/60">{{ email.from_email }}</span>
                     </td>
                     <td>
-                        <span class="badge status-{{ email.category }}">
-                            {{ email.get_category_display }}
-                        </span>
-                        {% if email.action_required %}
-                        <span class="badge badge-error badge-sm ml-1">Action Required</span>
-                        {% endif %}
-                        {% if email.auto_resolved %}
-                        <span class="badge badge-soft-success badge-sm ml-1">Auto-Resolved</span>
-                        {% endif %}
+                        <div class="flex flex-wrap items-center gap-1">
+                            <span class="badge status-{{ email.category }}">
+                                {{ email.get_category_display }}
+                            </span>
+                            {% if email.action_required %}
+                            <span class="badge badge-soft-error badge-sm">Action Required</span>
+                            {% endif %}
+                            {% if email.auto_resolved %}
+                            <span class="badge badge-soft-success badge-sm">Auto-Resolved</span>
+                            {% endif %}
+                        </div>
                     </td>
                     <td>
                         {% if email.zd_ticket_id %}
                         <a href="https://{{ settings.zd_subdomain|default:'lora' }}.zendesk.com/agent/tickets/{{ email.zd_ticket_id }}"
-                           target="_blank" class="btn btn-sm btn-outline btn-info rounded-xl transition-all duration-200">
+                           target="_blank" class="btn btn-sm btn-outline rounded-xl">
                             <i class="bi bi-ticket-perforated"></i> {{ email.zd_ticket_id }}
                         </a>
                         {% else %}
@@ -140,16 +145,16 @@
                         {% endif %}
                     </td>
                     <td>
-                        <span class="text-sm text-base-content/60">{{ email.received_at|date:"M d, Y H:i" }}</span>
+                        <span class="text-sm text-base-content/60 whitespace-nowrap">{{ email.received_at|date:"M d, Y H:i" }}</span>
                     </td>
                     <td>
-                        <div class="flex gap-1">
+                        <div class="flex justify-end gap-1">
                             <a href="{% url 'agent_email_detail' email.id %}"
-                               class="btn btn-sm btn-outline btn-primary rounded-xl transition-all duration-200">
+                               class="btn btn-sm btn-outline btn-primary rounded-xl">
                                 <i class="bi bi-eye"></i> View
                             </a>
                             {% if email.action_required %}
-                            <button type="button" class="btn btn-sm btn-success rounded-xl transition-all duration-200"
+                            <button type="button" class="btn btn-sm btn-success rounded-xl"
                                     onclick="resolveEmail({{ email.id }}, true)" title="Mark resolved">
                                 <i class="bi bi-check2"></i>
                             </button>
@@ -174,30 +179,30 @@
 
     <!-- Pagination -->
     {% if page_obj.has_other_pages %}
-    <div class="flex justify-center p-6">
-        <div class="flex items-center gap-2">
+    <div class="flex justify-center p-6 border-t border-base-200">
+        <div class="join">
             {% if page_obj.has_previous %}
             <a href="?page=1{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
-               class="btn btn-sm rounded-xl transition-all duration-200">
+               class="join-item btn btn-sm">
                 <i class="bi bi-chevron-double-left"></i>
             </a>
             <a href="?page={{ page_obj.previous_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
-               class="btn btn-sm rounded-xl transition-all duration-200">
+               class="join-item btn btn-sm">
                 <i class="bi bi-chevron-left"></i> Previous
             </a>
             {% endif %}
 
-            <span class="btn btn-sm rounded-xl btn-active">
+            <span class="join-item btn btn-sm btn-active">
                 Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
             </span>
 
             {% if page_obj.has_next %}
             <a href="?page={{ page_obj.next_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
-               class="btn btn-sm rounded-xl transition-all duration-200">
+               class="join-item btn btn-sm">
                 Next <i class="bi bi-chevron-right"></i>
             </a>
             <a href="?page={{ page_obj.paginator.num_pages }}{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
-               class="btn btn-sm rounded-xl transition-all duration-200">
+               class="join-item btn btn-sm">
                 <i class="bi bi-chevron-double-right"></i>
             </a>
             {% endif %}

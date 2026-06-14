@@ -51,7 +51,7 @@
     <!-- Claim Details -->
     <div class="lg:col-span-1 space-y-6">
         <!-- Enhanced Status Card -->
-        <div class="card-modern p-6 mb-6">
+        <div class="card-modern p-6">
             <h3 class="text-lg font-semibold flex items-center gap-2 mb-4">
                 <i class="bi bi-shield-check"></i> Claim Status
             </h3>
@@ -183,7 +183,7 @@
                     </div>
                     <p class="text-base-content/60 text-sm mb-3">No refunds issued for this claim.</p>
                     {% if user.role == 'MANAGER' and claim_refund_status != 'COMPLETED' %}
-                    <button type="button" class="btn btn-sm btn-warning" onclick="openGrantRefundModal()">
+                    <button type="button" class="btn btn-sm btn-warning rounded-xl" onclick="openGrantRefundModal()">
                         <i class="bi bi-plus-circle"></i> Grant First Refund
                     </button>
                     {% endif %}
@@ -405,7 +405,7 @@
                     <i class="bi bi-clock-history text-3xl text-base-content/40"></i>
                 </div>
                 <p class="text-base-content/60 mb-3">No updates yet.</p>
-                <button type="button" class="btn btn-sm btn-primary" onclick="updateFromZendesk({{ claim.id }})"
+                <button type="button" class="btn btn-sm btn-primary rounded-xl" onclick="updateFromZendesk({{ claim.id }})"
                         {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
                     <i class="bi bi-arrow-clockwise"></i> Refresh from Zendesk
                 </button>
@@ -420,7 +420,7 @@
                     <i class="bi bi-envelope"></i> Email Log
                     {% if emails_open %}<span class="badge badge-error">{{ emails_open|length }} need action</span>{% endif %}
                 </h3>
-                <button type="button" class="btn btn-sm btn-primary" onclick="checkEmail({{ claim.id }})"
+                <button type="button" class="btn btn-sm btn-primary rounded-xl" onclick="checkEmail({{ claim.id }})"
                         {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}
                         title="Check the mailbox for new mail addressed to this claim's email alias">
                     <i class="bi bi-envelope-arrow-down"></i> Check email
@@ -598,7 +598,7 @@
 
 <!-- Grant Refund Modal -->
 <dialog id="grant_refund_modal" class="modal">
-    <div class="modal-box max-w-2xl">
+    <div class="modal-box max-w-2xl rounded-2xl">
         <form method="dialog">
             <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
         </form>
@@ -618,14 +618,14 @@
                 <label class="label">
                     <span class="label-text font-semibold">Refund Type</span>
                 </label>
-                <div class="flex gap-2">
-                    <label class="flex-1 cursor-pointer">
-                        <input type="radio" name="refund_type" value="FULL" class="radio radio-checked radio-warning" checked onchange="toggleRefundType()" />
-                        <span class="label-text ml-2">Full Refund</span>
+                <div class="grid grid-cols-2 gap-2">
+                    <label class="flex items-center gap-2 cursor-pointer rounded-xl border border-base-200/60 px-3 py-2.5 hover:bg-base-200/30 transition-colors">
+                        <input type="radio" name="refund_type" value="FULL" class="radio radio-warning radio-sm" checked onchange="toggleRefundType()" />
+                        <span class="label-text">Full Refund</span>
                     </label>
-                    <label class="flex-1 cursor-pointer">
-                        <input type="radio" name="refund_type" value="PARTIAL" class="radio radio-warning" onchange="toggleRefundType()" />
-                        <span class="label-text ml-2">Partial Refund</span>
+                    <label class="flex items-center gap-2 cursor-pointer rounded-xl border border-base-200/60 px-3 py-2.5 hover:bg-base-200/30 transition-colors">
+                        <input type="radio" name="refund_type" value="PARTIAL" class="radio radio-warning radio-sm" onchange="toggleRefundType()" />
+                        <span class="label-text">Partial Refund</span>
                     </label>
                 </div>
             </div>
@@ -638,7 +638,7 @@
                 <div class="relative">
                     <span class="absolute left-3 top-1/2 -translate-y-1/2 text-base-content/60">$</span>
                     <input type="number" step="0.01" name="amount" id="refund_amount" required
-                           class="input input-bordered w-full pl-8"
+                           class="input input-bordered rounded-xl w-full pl-8"
                            placeholder="0.00" value="0.00" />
                 </div>
                 <label class="label">
@@ -655,7 +655,7 @@
                     <span class="label-text font-semibold">Reason <span class="text-error">*</span></span>
                 </label>
                 <textarea name="reason" id="refund_reason" required rows="4"
-                          class="textarea textarea-bordered w-full"
+                          class="textarea textarea-bordered rounded-xl w-full"
                           placeholder="Explain the reason for this refund (e.g., Customer request, Item not found, Service failure, etc.)"></textarea>
                 <label class="label">
                     <span class="label-text-alt text-base-content/60">
@@ -665,7 +665,7 @@
             </div>
 
             <!-- Confirmation Warning -->
-            <div class="alert alert-warning bg-warning/10 mb-4">
+            <div class="alert alert-warning bg-warning/10 rounded-xl mb-4">
                 <i class="bi bi-exclamation-triangle"></i>
                 <span>
                     <strong>Warning:</strong> This action will initiate a refund via PayPal. 
@@ -674,8 +674,8 @@
             </div>
 
             <div class="modal-action">
-                <button type="button" class="btn" onclick="grant_refund_modal.close()">Cancel</button>
-                <button type="submit" class="btn btn-warning">
+                <button type="button" class="btn btn-ghost rounded-xl" onclick="grant_refund_modal.close()">Cancel</button>
+                <button type="submit" class="btn btn-warning rounded-xl">
                     <i class="bi bi-check-circle"></i> Confirm & Process Refund
                 </button>
             </div>
