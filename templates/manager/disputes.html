@@ -41,6 +41,22 @@
 </a>
 {% endif %}
 
+<!-- View tabs: default shows only disputes that still need a reply -->
+<div class="flex flex-wrap gap-2 mb-6">
+    <a href="?view=action" class="btn btn-sm rounded-xl {% if view == 'action' and not status_filter %}btn-primary{% else %}btn-ghost{% endif %}">
+        Needs reply <span class="badge badge-sm badge-neutral ml-1">{{ view_counts.action }}</span>
+    </a>
+    <a href="?view=review" class="btn btn-sm rounded-xl {% if view == 'review' %}btn-primary{% else %}btn-ghost{% endif %}">
+        Under PayPal review <span class="badge badge-sm badge-neutral ml-1">{{ view_counts.review }}</span>
+    </a>
+    <a href="?view=resolved" class="btn btn-sm rounded-xl {% if view == 'resolved' %}btn-primary{% else %}btn-ghost{% endif %}">
+        Resolved / closed <span class="badge badge-sm badge-neutral ml-1">{{ view_counts.resolved }}</span>
+    </a>
+    <a href="?view=all" class="btn btn-sm rounded-xl {% if view == 'all' %}btn-primary{% else %}btn-ghost{% endif %}">
+        All <span class="badge badge-sm badge-neutral ml-1">{{ view_counts.all }}</span>
+    </a>
+</div>
+
 <!-- Status Summary Cards -->
 <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-4 mb-6">
     {% for item in status_summary %}

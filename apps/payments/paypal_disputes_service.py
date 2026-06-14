@@ -869,6 +869,13 @@ def sync_dispute_from_paypal(dispute_id: str):
                 dispute=dispute, action='DISPUTE_RESOLVED',
                 details=f"PayPal resolved the dispute: {new_status} (outcome={outcome or '?'}).")
 
+    # Always refresh the stored raw payload so the list filter (needs-action vs
+    # under-review), the Raw-PayPal viewer, and the resolved-prune reflect the
+    # dispute's CURRENT state, not its state at first ingest.
+    if details != dispute.raw_webhook_payload:
+        dispute.raw_webhook_payload = details
+        update_fields.append('raw_webhook_payload')
+
     if update_fields:
         dispute.save(update_fields=list(set(update_fields)) + ['updated_at'])
         logger.info(f"Synced dispute {dispute_id}: {update_fields}")

@@ -164,13 +164,23 @@ def dispute_list(request):
     # Get filter parameters
     status_filter = request.GET.get('status', '')
     search_query = request.GET.get('search', '')
+    view = (request.GET.get('view') or 'action').lower()
 
-    # Start with all disputes
+    # PayPal statuses meaning "nothing for us to do right now" — hidden from the
+    # default view. UNDER_REVIEW = PayPal is deciding; RESOLVED = closed.
+    DORMANT_PP_STATUS = ['UNDER_REVIEW', 'RESOLVED']
+
+    def needs_action(qs):
+        # Disputes that still need a reply/action from us: not under PayPal
+        # review, not closed at PayPal, not in a LORA terminal state. Manually
+        # created disputes (empty payload → no PayPal status) stay visible.
+        # NOTE: use has_key, not exclude(__in): exclude on an absent JSON key
+        # evaluates to SQL NULL and would wrongly drop payload-less disputes.
+        keep = ~Q(raw_webhook_payload__has_key='status') | \
+            ~Q(raw_webhook_payload__status__in=DORMANT_PP_STATUS)
+        return qs.filter(keep).exclude(status__in=Dispute.TERMINAL_STATUSES)
+
     disputes = Dispute.objects.all()
-
-    # Apply status filter
-    if status_filter:
-        disputes = disputes.filter(status=status_filter)
 
     # Apply search filter (ticket ID or email)
     if search_query:
@@ -179,6 +189,21 @@ def dispute_list(request):
             Q(buyer_email__icontains=search_query) |
             Q(paypal_dispute_id__icontains=search_query)
         )
+
+    # View / status filter. An explicit LORA-status drilldown wins; otherwise the
+    # `view` decides — default 'action' shows ONLY disputes that still need a reply.
+    if status_filter:
+        disputes = disputes.filter(status=status_filter)
+    elif view == 'review':
+        disputes = disputes.filter(raw_webhook_payload__status='UNDER_REVIEW')
+    elif view == 'resolved':
+        disputes = disputes.filter(
+            Q(raw_webhook_payload__status='RESOLVED') | Q(status__in=Dispute.TERMINAL_STATUSES))
+    elif view == 'all':
+        pass
+    else:
+        view = 'action'
+        disputes = needs_action(disputes)
 
     # Pagination
     paginator = Paginator(disputes, 20)
@@ -200,6 +225,16 @@ def dispute_list(request):
         for code, label in status_choices
     ]
 
+    # Counts for the view tabs (independent of the search/status drilldown).
+    _all = Dispute.objects.all()
+    view_counts = {
+        'action': needs_action(_all).count(),
+        'review': _all.filter(raw_webhook_payload__status='UNDER_REVIEW').count(),
+        'resolved': _all.filter(
+            Q(raw_webhook_payload__status='RESOLVED') | Q(status__in=Dispute.TERMINAL_STATUSES)).count(),
+        'all': _all.count(),
+    }
+
     # Get Zendesk subdomain for ticket links
     try:
         from apps.config.models import SystemSettings
@@ -212,6 +247,8 @@ def dispute_list(request):
         'disputes': page_obj,
         'status_filter': status_filter,
         'search_query': search_query,
+        'view': view,
+        'view_counts': view_counts,
         'status_choices': status_choices,
         'status_summary': status_summary,
         'zd_subdomain': zd_subdomain,

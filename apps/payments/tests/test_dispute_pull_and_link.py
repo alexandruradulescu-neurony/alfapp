@@ -325,3 +325,45 @@ class TestIngestDisputeMatching(TestCase):
         with patch(f'{SVC}.fetch_dispute_details', return_value=details):
             dispute, _created = ingest_dispute('PP-D-TXN')
         self.assertEqual(dispute.claim_id, self.claim.id)
+
+
+class TestDisputeListViewFilter(TestCase):
+    """Default list view shows only disputes that still need a reply; under-review
+    and resolved are hidden (reachable via the view tabs)."""
+    URL = '/manager/disputes/'
+
+    def setUp(self):
+        SystemSettings.get_instance()
+        self.manager = User.objects.create_user(username='view_mgr', password='x', role='MANAGER')
+        self.web = Client()
+        self.web.force_login(self.manager)
+        self.action = _dispute(paypal_dispute_id='A1', raw_webhook_payload={
+            'status': 'WAITING_FOR_SELLER_RESPONSE', 'dispute_state': 'REQUIRED_ACTION'})
+        self.review = _dispute(paypal_dispute_id='R1', raw_webhook_payload={
+            'status': 'UNDER_REVIEW', 'dispute_state': 'UNDER_PAYPAL_REVIEW'})
+        self.resolved = _dispute(paypal_dispute_id='X1', raw_webhook_payload={'status': 'RESOLVED'})
+        self.manual = _dispute(paypal_dispute_id='M1', raw_webhook_payload={})  # manual, no payload
+
+    def _ids(self, resp):
+        return {d.paypal_dispute_id for d in resp.context['page_obj']}
+
+    def test_default_hides_review_and_resolved(self):
+        ids = self._ids(self.web.get(self.URL))
+        self.assertIn('A1', ids)        # awaiting reply
+        self.assertIn('M1', ids)        # manual (no payload) stays visible
+        self.assertNotIn('R1', ids)     # under PayPal review → hidden
+        self.assertNotIn('X1', ids)     # resolved → hidden
+
+    def test_review_view_shows_only_under_review(self):
+        self.assertEqual(self._ids(self.web.get(self.URL, {'view': 'review'})), {'R1'})
+
+    def test_all_view_shows_everything(self):
+        self.assertEqual(self._ids(self.web.get(self.URL, {'view': 'all'})),
+                         {'A1', 'R1', 'X1', 'M1'})
+
+    def test_view_counts(self):
+        vc = self.web.get(self.URL).context['view_counts']
+        self.assertEqual(vc['action'], 2)    # A1 + M1
+        self.assertEqual(vc['review'], 1)
+        self.assertEqual(vc['resolved'], 1)
+        self.assertEqual(vc['all'], 4)
