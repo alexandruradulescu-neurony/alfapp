@@ -3,6 +3,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
+from apps.users.permissions import IsManager
 from apps.config.models import ServiceStatus
 from apps.config.api.serializers import (
     ServiceStatusSerializer,
@@ -39,9 +40,10 @@ class ServiceStatusViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsManager])
 def test_connection(request, service):
-    """Test connection for a specific service."""
+    """Test connection for a specific service. Manager-only (same as the
+    settings page that hosts it) — probing/altering integrations is privileged."""
     tester = ConnectionTester()
     
     test_methods = {
@@ -66,9 +68,10 @@ def test_connection(request, service):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsManager])
 def toggle_service(request, service):
-    """Toggle enabled state for a service."""
+    """Toggle enabled state for a service. Manager-only — enabling/disabling
+    integrations (PayPal, scheduler, etc.) is a privileged settings action."""
     if service == 'SCHEDULER':
         serializer = ToggleSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

@@ -33,11 +33,8 @@ class AgentChatAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsAgentOrManager]
     
     def post(self, request):
-        # Debug logging
-        logger.info(f"Agent chat request - User: {request.user}, Authenticated: {request.user.is_authenticated}, Role: {getattr(request.user, 'role', 'NO ROLE')}")
-        logger.info(f"Request headers: {dict(request.headers)}")
-        logger.info(f"Request session: {request.session.session_key if request.session.session_key else 'No session key'}")
-        
+        # NB: never log request.headers/session here — they carry the session
+        # cookie and CSRF token (credential leakage into logs).
         message = request.data.get('message')
         conversation_history = request.data.get('conversationHistory', [])
         
@@ -58,12 +55,12 @@ class AgentChatAPIView(APIView):
                 'success': True,
             })
             
-        except Exception as e:
-            logger.error(f"Error in agent chat: {e}", exc_info=True)
+        except Exception:
+            # Log the full traceback server-side; don't leak internals to the client.
+            logger.exception("Error in agent chat")
             return Response(
                 {
                     'error': 'Failed to process message',
-                    'details': str(e),
                     'message': 'An unexpected error occurred. Please check the server logs and try again.',
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

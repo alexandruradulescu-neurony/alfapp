@@ -12,13 +12,6 @@ from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 
-
-class CsrfExemptSessionAuthentication(SessionAuthentication):
-    """Session authentication that doesn't enforce CSRF."""
-    def enforce_csrf(self, request):
-        # Don't enforce CSRF for API endpoints
-        pass
-
 from apps.claims.models import Claim, ClaimEvidence, ClaimUpdateTimeline
 from apps.claims.serializers import ClaimSerializer, ClaimDetailSerializer, ClaimEvidenceSerializer
 from apps.claims.services import compute_deadline_at
@@ -270,7 +263,7 @@ class ClaimUpdateFromZendeskView(APIView):
     (Zendesk is the source of truth); LLM-inferred values fill blanks only.
     Never touches claim.status — the webhook owns the stage mirror."""
 
-    authentication_classes = [CsrfExemptSessionAuthentication]
+    authentication_classes = [SessionAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     OVERWRITE_FIELDS = [
@@ -353,7 +346,7 @@ class ClaimCheckEmailView(APIView):
     AI categorization, an EmailLog row, an internal note on the Zendesk
     ticket and additive ai_* tags. The rest of the inbox is untouched."""
 
-    authentication_classes = [CsrfExemptSessionAuthentication]
+    authentication_classes = [SessionAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, claim_id):
