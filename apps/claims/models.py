@@ -205,6 +205,19 @@ class Claim(models.Model):
         help_text='When the AI summary was last regenerated'
     )
 
+    # Client "what we did" update (drafted when the claim enters the configured
+    # submitted-status; an agent reviews and sends it as a public Zendesk reply).
+    client_report_draft = models.TextField(
+        blank=True,
+        default='',
+        help_text='Drafted client update message awaiting agent review/send'
+    )
+    client_report_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When the client update was sent as a public Zendesk reply (None = not sent)'
+    )
+
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

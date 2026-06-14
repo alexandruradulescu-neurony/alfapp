@@ -227,6 +227,16 @@ Please analyze this claim and provide:
                   'Defaults to SANDBOX — set to Live only when ready to move real money.'
     )
 
+    # Client "what we did" update: the Zendesk custom-status name that, when a
+    # claim enters it, drafts the client update. Blank = feature off.
+    client_report_trigger_status = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        help_text='Zendesk status name that triggers drafting the client "what we did" '
+                  'update (e.g. "Claim submitted"). Leave blank to disable the feature.'
+    )
+
     # Zendesk Sidebar Authentication (ENCRYPTED - sensitive credential)
     sidebar_secret_token = EncryptedCharField(
         max_length=255,

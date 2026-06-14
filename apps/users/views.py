@@ -275,6 +275,58 @@ def _annotate_deadline(claim, now):
 
 
 @agent_required
+def claim_client_report_generate(request, claim_id):
+    """Regenerate the client 'what we did' update draft (with AI polish) for review."""
+    claim = get_object_or_404(Claim, id=claim_id)
+    if request.user.role == 'AGENT' and claim.assigned_to and claim.assigned_to != request.user:
+        messages.error(request, 'You are not assigned to this claim.')
+        return redirect('agent_claims')
+    if request.method != 'POST':
+        return redirect('agent_claim_detail', claim_id=claim_id)
+    if claim.client_report_sent_at:
+        messages.warning(request, 'The client update was already sent; regeneration is disabled.')
+        return redirect('agent_claim_detail', claim_id=claim_id)
+    from apps.communications.client_report import build_client_update_message
+    claim.client_report_draft = build_client_update_message(claim, polish=True)
+    claim.save(update_fields=['client_report_draft', 'updated_at'])
+    messages.success(request, 'Client update draft regenerated — review it, then send.')
+    return redirect('agent_claim_detail', claim_id=claim_id)
+
+
+@agent_required
+def claim_client_report_send(request, claim_id):
+    """Send the (edited) client update as a PUBLIC reply on the Zendesk ticket."""
+    claim = get_object_or_404(Claim, id=claim_id)
+    if request.user.role == 'AGENT' and claim.assigned_to and claim.assigned_to != request.user:
+        messages.error(request, 'You are not assigned to this claim.')
+        return redirect('agent_claims')
+    if request.method != 'POST':
+        return redirect('agent_claim_detail', claim_id=claim_id)
+    if claim.client_report_sent_at:
+        messages.warning(request, 'The client update was already sent for this claim.')
+        return redirect('agent_claim_detail', claim_id=claim_id)
+    body = (request.POST.get('body') or '').strip()
+    if not body:
+        messages.error(request, 'The message is empty — nothing to send.')
+        return redirect('agent_claim_detail', claim_id=claim_id)
+    if not claim.zd_ticket_id:
+        messages.error(request, 'This claim has no Zendesk ticket to reply on.')
+        return redirect('agent_claim_detail', claim_id=claim_id)
+
+    from apps.integrations.services import post_zendesk_comment
+    result = post_zendesk_comment(claim.zd_ticket_id, body, is_internal=False)
+    if result is None:
+        messages.error(request, 'Could not post the reply to Zendesk — please try again.')
+        return redirect('agent_claim_detail', claim_id=claim_id)
+
+    claim.client_report_draft = body
+    claim.client_report_sent_at = timezone.now()
+    claim.save(update_fields=['client_report_draft', 'client_report_sent_at', 'updated_at'])
+    messages.success(request, 'Client update sent as a public reply on the Zendesk ticket.')
+    return redirect('agent_claim_detail', claim_id=claim_id)
+
+
+@agent_required
 def agent_claim_detail(request, claim_id):
     """Agent claim detail view."""
     claim = get_object_or_404(

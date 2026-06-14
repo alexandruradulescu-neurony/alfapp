@@ -62,6 +62,8 @@ class SystemSettingsForm(forms.ModelForm):
             'zd_agent_email',
             # WooCommerce (non-sensitive part)
             'woocommerce_store_url',
+            # Client update automation
+            'client_report_trigger_status',
             # AI Prompt Templates
             'dispute_response_prompt',
             'email_analysis_prompt',

@@ -217,6 +217,24 @@
         </div>
     </div>
 
+    <!-- Client Update Automation -->
+    <div class="card-modern p-6 lg:p-8 mb-6">
+        <div class="mb-6">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <i class="bi bi-chat-heart text-base-content/60"></i> Client Update Automation
+            </h3>
+            <p class="text-sm text-base-content/60 mt-1">When a claim enters this Zendesk status, LORA drafts a "what we did" update for an agent to review and send to the client.</p>
+        </div>
+        <div class="form-control max-w-md">
+            <label class="label flex-col items-start gap-0.5">
+                <span class="label-text font-medium">Trigger status</span>
+                <span class="text-xs text-base-content/50">Exact Zendesk status name (e.g. "Claim submitted"). Leave blank to disable.</span>
+            </label>
+            <input type="text" class="input-modern w-full" id="client_report_trigger_status" name="client_report_trigger_status"
+                   value="{{ settings.client_report_trigger_status }}" placeholder="Claim submitted">
+        </div>
+    </div>
+
     <!-- PayPal Configuration -->
     <div class="card-modern p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
