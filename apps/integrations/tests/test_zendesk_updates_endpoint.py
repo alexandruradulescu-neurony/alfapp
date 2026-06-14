@@ -25,7 +25,7 @@ class ZendeskUpdatesEndpointTests(TestCase):
         self.claim = Claim.objects.create(
             client_email='lee@example.com', client_name='Lee Foley', alf_claim_id='ALF1',
             zd_ticket_id='97001', client_report_draft='Dear Lee, here is what we did...')
-        cu.schedule_follow_ups(self.claim, timezone.now() - timedelta(days=3))
+        cu.schedule_next(self.claim, timezone.now() - timedelta(days=3))
 
     def _post(self, body, auth=True):
         headers = {'HTTP_AUTHORIZATION': f'Bearer {SECRET}'} if auth else {}
@@ -48,8 +48,8 @@ class ZendeskUpdatesEndpointTests(TestCase):
         self.assertTrue(data['claim'])
         kinds = [it['kind'] for it in data['items']]
         self.assertEqual(kinds.count('initial'), 1)
-        self.assertEqual(kinds.count('followup'), 4)
-        # anchored 3 days ago → only the day-2 follow-up is past due
+        # Cascade: only the next (DAY_2) follow-up is created up front.
+        self.assertEqual(kinds.count('followup'), 1)
         due = [it for it in data['items'] if it.get('is_due')]
         self.assertEqual({it['milestone'] for it in due}, {'DAY_2'})
 
@@ -67,7 +67,8 @@ class ZendeskUpdatesEndpointTests(TestCase):
         self.assertTrue(data['claim'])
         self.assertTrue(any(it['kind'] == 'initial' for it in data['items']))
         bare.refresh_from_db()
-        self.assertEqual(bare.follow_up_updates.count(), 4)
+        # Cascade: starting only creates the first follow-up.
+        self.assertEqual(bare.follow_up_updates.count(), 1)
 
     def test_send_initial_posts_public_reply(self):
         with patch('apps.integrations.services.post_zendesk_comment', return_value={'id': 1}) as post:

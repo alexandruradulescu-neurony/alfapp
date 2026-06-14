@@ -85,11 +85,15 @@ class ClientUpdate(models.Model):
     itself; these are the follow-up cadence. Each is drafted for an agent to
     review and send as a public Zendesk reply (draft-for-approval)."""
 
+    # The early cadence. The tail (DAY_31, DAY_41, …) and the end-of-service
+    # FINAL are scheduled dynamically from the configured service length, so
+    # they are not all enumerated here — `label` renders any milestone key.
     MILESTONE_CHOICES = [
         ('DAY_2', 'Day 2'),
         ('DAY_5', 'Day 5'),
         ('DAY_11', 'Day 11'),
         ('DAY_21', 'Day 21'),
+        ('FINAL', 'Final update'),
     ]
     STATE_CHOICES = [
         ('SCHEDULED', 'Scheduled'),   # due_at in the future / not yet prepared
@@ -101,7 +105,7 @@ class ClientUpdate(models.Model):
     claim = models.ForeignKey(
         'claims.Claim', on_delete=models.CASCADE, related_name='follow_up_updates', db_index=True,
     )
-    milestone = models.CharField(max_length=10, choices=MILESTONE_CHOICES)
+    milestone = models.CharField(max_length=10)
     due_at = models.DateTimeField(db_index=True)
     state = models.CharField(max_length=10, choices=STATE_CHOICES, default='SCHEDULED', db_index=True)
     draft_body = models.TextField(blank=True, default='')
@@ -123,3 +127,13 @@ class ClientUpdate(models.Model):
 
     def __str__(self):
         return f"ClientUpdate {self.milestone} (Claim #{self.claim_id}, {self.state})"
+
+    @property
+    def label(self) -> str:
+        """Human label for any milestone key, including the dynamic tail
+        (DAY_31, DAY_41, …) and the end-of-service FINAL."""
+        if self.milestone == 'FINAL':
+            return 'Final update'
+        if self.milestone.startswith('DAY_'):
+            return f'Day {self.milestone[4:]}'
+        return self.milestone

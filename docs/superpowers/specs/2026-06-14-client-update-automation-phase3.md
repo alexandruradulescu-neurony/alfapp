@@ -1,6 +1,44 @@
 # Client update automation — Phase 3 (autonomous runner) + configurable service length
 
-Status: APPROVED, ready to build (2026-06-14). User confirmed "the system is perfect."
+Status: **BUILT 2026-06-14** (off-by-default; user-side deploy steps below). Originally
+APPROVED ready-to-build; user confirmed "the system is perfect."
+
+## BUILT — what shipped + review hardening (2026-06-14)
+Implemented from this spec, then hardened after an adversarial review:
+- Constants module `apps/communications/constants.py` (EMAIL_LOOKBACK_DAYS, DEFAULT_SERVICE_LENGTH_DAYS=30,
+  EARLY_UPDATE_OFFSETS=[2,5,11,21], TAIL_START_DAY=31, TAIL_STEP_DAYS=10, cadence_offsets()).
+- SystemSettings: `service_length_days` (30), `client_updates_autosend` (False),
+  `client_report_trigger_status_id` (+ legacy name fallback). Settings page: status-ID picker
+  (datalist + list, short 4s timeout so Zendesk can't hang the page), service length, autosend toggle.
+- Cascade engine in `client_updates.py`: `schedule_next` (forward-only, one-open-at-a-time),
+  `cadence_plan` (FINAL clamped to always fall AFTER the last cadence update), `_final_template`,
+  `due_updates`, `object_found`, `claim_is_closed`, `run_due_updates`.
+- Webhook triggers by custom_status_id; cancels the cadence when `claim_is_closed`.
+- Management command `run_client_updates` (--dry-run), flag-gated, for a Railway hourly job.
+- Review fixes applied: (1) **deterministic CLIENT_SAFE_REPLY_CATEGORIES allowlist** — only
+  OBJECT_FOUND/SUBMISSION_CONFIRMATION/GENERAL_CORRESPONDENCE reach the drafter, so harmful
+  housekeeping ("submission expired", a single office's "not found") can never be relayed even
+  autonomously (spec §H now enforced in code, not just the prompt). (2) **stop conditions** now
+  include OPEN disputes + COMPLETED-only refunds (pending/failed no longer void; spec §F). (3) FINAL
+  is **held for an agent when "found"**, never silently suppressed (protects a genuinely-not-found
+  client from a stray "possible match"). (4) failed Zendesk send **reverts to SCHEDULED** so the next
+  run retries instead of freezing the cadence. (5) atomic SCHEDULED→DRAFTED **row claim** prevents a
+  double public reply if two runs overlap.
+- Tests: apps/communications/tests/test_client_updates.py (33), test_zendesk_updates_endpoint.py,
+  webhook + page-smoke regressions — all green.
+
+### Known limitation (accepted, documented not fixed)
+Increasing `service_length_days` on claims that ALREADY scheduled their FINAL does NOT retroactively
+insert the newly-opened tail check-ins (the forward-only cascade won't back-fill once FINAL exists —
+deliberately, so it can never resurrect tail updates AFTER a final email already went out). New claims
+get the new cadence immediately; in-flight claims keep their original schedule. If retroactive
+extension of in-flight claims is ever needed, it requires a dedicated re-plan path.
+
+### User-side deploy steps (unchanged + new)
+- Set `client_report_trigger_status_id` (the "Claim submitted" status ID) in Settings.
+- Add a Railway **scheduled job** running `python manage.py run_client_updates` (hourly). It is a
+  no-op until `client_updates_autosend` is turned ON.
+- `zcli apps:update` for the sidebar (Updates tab) — still pending from Phase 2.
 Builds on Phase 1 (cadence engine + LORA claim-page surface, commit 588e5e9) and
 Phase 2 (Zendesk sidebar "Updates" tab + /zd/updates/ endpoint, commit 0b4b4d8) and
 the "Start client updates" opt-in (commit 073cb66).

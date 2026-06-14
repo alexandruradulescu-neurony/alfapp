@@ -23,6 +23,12 @@ class SystemSettingsForm(forms.ModelForm):
         for field in self.fields.values():
             field.required = False
 
+    def clean_service_length_days(self):
+        # Never let a blank/zero value null out the NOT NULL column — fall back
+        # to the configured default.
+        from apps.communications.constants import DEFAULT_SERVICE_LENGTH_DAYS
+        return self.cleaned_data.get('service_length_days') or DEFAULT_SERVICE_LENGTH_DAYS
+
     # Sensitive fields that should NOT be in the form
     # They are handled separately in the view to preserve values
     SENSITIVE_FIELDS = [
@@ -64,6 +70,9 @@ class SystemSettingsForm(forms.ModelForm):
             'woocommerce_store_url',
             # Client update automation
             'client_report_trigger_status',
+            'client_report_trigger_status_id',
+            'service_length_days',
+            'client_updates_autosend',
             # AI Prompt Templates
             'dispute_response_prompt',
             'email_analysis_prompt',

@@ -347,7 +347,7 @@ def client_followup_prepare(request, update_id):
     if request.method == 'POST':
         from apps.communications import client_updates as cu
         cu.prepare_follow_up(update)
-        messages.success(request, f'{update.get_milestone_display()} update drafted — review it, then send.')
+        messages.success(request, f'{update.label} update drafted — review it, then send.')
     return redirect('agent_claim_detail', claim_id=claim.id)
 
 
@@ -366,7 +366,7 @@ def client_followup_send(request, update_id):
         elif not claim.zd_ticket_id:
             messages.error(request, 'This claim has no Zendesk ticket to reply on.')
         elif cu.send_follow_up(update, request.POST.get('body')):
-            messages.success(request, f'{update.get_milestone_display()} update sent as a public Zendesk reply.')
+            messages.success(request, f'{update.label} update sent as a public Zendesk reply.')
         else:
             messages.error(request, 'Could not post the reply to Zendesk — please try again.')
     return redirect('agent_claim_detail', claim_id=claim.id)
@@ -381,7 +381,7 @@ def client_followup_skip(request, update_id):
     if request.method == 'POST':
         from apps.communications import client_updates as cu
         cu.skip_follow_up(update)
-        messages.success(request, f'{update.get_milestone_display()} update skipped.')
+        messages.success(request, f'{update.label} update skipped.')
     return redirect('agent_claim_detail', claim_id=claim.id)
 
 
@@ -983,9 +983,29 @@ def manager_settings(request):
     else:
         form = SystemSettingsForm(instance=settings)
 
+    # Best-effort: list the Zendesk custom statuses so the manager can pick the
+    # trigger status ID instead of guessing it. Never block the page on this.
+    custom_statuses = []
+    try:
+        from apps.integrations.services import _fetch_custom_statuses
+        from django.core.cache import cache
+        from apps.integrations.services import CUSTOM_STATUS_CACHE_KEY, CUSTOM_STATUS_CACHE_TTL
+        mapping = cache.get(CUSTOM_STATUS_CACHE_KEY)
+        if mapping is None:
+            # Best-effort, short timeout — this picker must never hang the page.
+            mapping = _fetch_custom_statuses(timeout=4)
+            cache.set(CUSTOM_STATUS_CACHE_KEY, mapping, CUSTOM_STATUS_CACHE_TTL)
+        custom_statuses = sorted(
+            ({'id': sid, 'name': v.get('name', ''), 'category': v.get('category', '')}
+             for sid, v in mapping.items()),
+            key=lambda s: s['name'].lower())
+    except Exception:
+        custom_statuses = []
+
     context = {
         'settings': settings,
         'form': form,
+        'custom_statuses': custom_statuses,
         'ai_status': service_statuses['AI'],
         'imap_status': service_statuses['IMAP'],
         'zd_status': service_statuses['ZENDESK'],

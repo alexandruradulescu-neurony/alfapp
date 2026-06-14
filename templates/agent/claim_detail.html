@@ -113,7 +113,7 @@
     {% for fu in client_followups %}
         <div class="rounded-xl border border-base-200/70 p-4">
             <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-                <span class="font-semibold text-sm"><i class="bi bi-calendar-event text-base-content/50"></i> {{ fu.get_milestone_display }} update</span>
+                <span class="font-semibold text-sm"><i class="bi bi-calendar-event text-base-content/50"></i> {{ fu.label }} update</span>
                 {% if fu.state == 'SENT' %}<span class="badge badge-soft-success rounded-full"><i class="bi bi-check-circle"></i> Sent {{ fu.sent_at|date:"M d, Y H:i" }}</span>
                 {% elif fu.state == 'DRAFTED' %}<span class="badge badge-soft-warning rounded-full">Draft ready{% if not fu.has_news %} · no new developments{% endif %}</span>
                 {% elif fu.state == 'SKIPPED' %}<span class="badge badge-soft-neutral rounded-full">Skipped</span>

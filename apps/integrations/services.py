@@ -412,13 +412,14 @@ CUSTOM_STATUS_CACHE_KEY = 'zd_custom_statuses_v1'
 CUSTOM_STATUS_CACHE_TTL = 60 * 60 * 24  # 24h; unknown ids force a refresh anyway
 
 
-def _fetch_custom_statuses() -> Dict[str, Dict[str, str]]:
+def _fetch_custom_statuses(timeout=None) -> Dict[str, Dict[str, str]]:
     """GET /api/v2/custom_statuses.json -> {id: {'name', 'category'}}.
-    Raises on configuration/network errors (caller decides the fallback)."""
+    Raises on configuration/network errors (caller decides the fallback).
+    Pass a short timeout for best-effort UI fetches that must not block a page."""
     base_url = _get_zendesk_base_url()
     headers = _get_zendesk_auth_headers()
     req = urllib.request.Request(f"{base_url}/custom_statuses.json", headers=headers, method='GET')
-    timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+    timeout = timeout or getattr(settings, 'ZENDESK_TIMEOUT', 30)
     with urllib.request.urlopen(req, timeout=timeout) as response:
         result = json.loads(response.read().decode('utf-8'))
     mapping = {}

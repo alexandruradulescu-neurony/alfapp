@@ -25,6 +25,7 @@ from apps.integrations.services import (
     post_zendesk_comment,
 )
 from apps.ai.exceptions import AIResponseValidationError
+from apps.communications.constants import EMAIL_LOOKBACK_DAYS
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +33,8 @@ logger = logging.getLogger(__name__)
 MAX_EMAILS_PER_RUN = 20
 
 # How far back any mailbox read ever looks. The inbox holds years of mail;
-# LORA's window is always the last two days, read or unread state untouched
-# beyond it.
-EMAIL_LOOKBACK_DAYS = 2
+# LORA's window is always the last EMAIL_LOOKBACK_DAYS days (apps.communications.constants),
+# read or unread state untouched beyond it.
 
 # IMAP SINCE wants RFC 3501 dates (e.g. 10-Jun-2026) with fixed English
 # month names — strftime('%b') is locale-dependent, so spell them out.

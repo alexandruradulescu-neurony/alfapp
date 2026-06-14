@@ -229,12 +229,40 @@ Please analyze this claim and provide:
 
     # Client "what we did" update: the Zendesk custom-status name that, when a
     # claim enters it, drafts the client update. Blank = feature off.
+    # LEGACY name-match fallback — prefer client_report_trigger_status_id below,
+    # which matches the Zendesk custom-status ID (names can be renamed/duplicated).
     client_report_trigger_status = models.CharField(
         max_length=64,
         blank=True,
         default='',
-        help_text='Zendesk status name that triggers drafting the client "what we did" '
-                  'update (e.g. "Claim submitted"). Leave blank to disable the feature.'
+        help_text='LEGACY: Zendesk status NAME that triggers the client update. '
+                  'Prefer the status-ID field below. Leave blank to disable name matching.'
+    )
+    client_report_trigger_status_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default='',
+        help_text='Zendesk custom-status ID that triggers drafting the client "what we did" '
+                  'update + the follow-up cadence (e.g. the "Claim submitted" status ID). '
+                  'This is the authoritative trigger. Leave blank to disable the feature.'
+    )
+
+    # Client update cadence: length of the concierge service in days (from
+    # claim creation). Drives how far the update tail extends and when the
+    # final end-of-service email goes out. Default in apps.communications.constants.
+    service_length_days = models.PositiveIntegerField(
+        default=30,
+        help_text='Length of the concierge service in days, measured from claim creation. '
+                  'Drives the client-update cadence tail and the final end-of-service email.'
+    )
+    # Autonomous client updates: OFF means LORA only SCHEDULES updates for an
+    # agent to prepare/send manually. ON means the run_client_updates command
+    # may draft AND send due updates as public Zendesk replies without an agent.
+    client_updates_autosend = models.BooleanField(
+        default=False,
+        help_text='When ON, the run_client_updates job auto-drafts and sends due client '
+                  'progress updates as public Zendesk replies. When OFF (default), updates '
+                  'are only scheduled for an agent to prepare and send manually.'
     )
 
     # Zendesk Sidebar Authentication (ENCRYPTED - sensitive credential)

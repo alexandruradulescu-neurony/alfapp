@@ -223,15 +223,59 @@
             <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
                 <i class="bi bi-chat-heart text-base-content/60"></i> Client Update Automation
             </h3>
-            <p class="text-sm text-base-content/60 mt-1">When a claim enters this Zendesk status, LORA drafts a "what we did" update for an agent to review and send to the client.</p>
+            <p class="text-sm text-base-content/60 mt-1">When a claim enters the trigger status, LORA drafts a "what we did" update and starts the progress-update cadence (day 2, 5, 11, 21, then every 10 days, then a final note at the end of the service period).</p>
         </div>
-        <div class="form-control max-w-md">
-            <label class="label flex-col items-start gap-0.5">
-                <span class="label-text font-medium">Trigger status</span>
-                <span class="text-xs text-base-content/50">Exact Zendesk status name (e.g. "Claim submitted"). Leave blank to disable.</span>
+
+        <div class="grid md:grid-cols-2 gap-6">
+            <div class="form-control">
+                <label class="label flex-col items-start gap-0.5" for="client_report_trigger_status_id">
+                    <span class="label-text font-medium">Trigger status ID</span>
+                    <span class="text-xs text-base-content/50">Zendesk custom-status <strong>ID</strong> for "Claim submitted". This is the authoritative trigger. Leave blank to disable.</span>
+                </label>
+                <input type="text" class="input-modern w-full" id="client_report_trigger_status_id" name="client_report_trigger_status_id"
+                       value="{{ settings.client_report_trigger_status_id }}" placeholder="e.g. 11688538967068"
+                       list="zd-custom-status-ids" autocomplete="off">
+                {% if custom_statuses %}
+                <datalist id="zd-custom-status-ids">
+                    {% for cs in custom_statuses %}<option value="{{ cs.id }}">{{ cs.name }} ({{ cs.category }})</option>{% endfor %}
+                </datalist>
+                <div class="text-xs text-base-content/50 mt-2">
+                    Available statuses:
+                    <span class="block mt-1 space-y-0.5">
+                    {% for cs in custom_statuses %}<span class="block"><code class="text-[0.7rem]">{{ cs.id }}</code> — {{ cs.name }} <span class="opacity-60">({{ cs.category }})</span></span>{% endfor %}
+                    </span>
+                </div>
+                {% else %}
+                <span class="text-xs text-warning/80 mt-1">Could not load Zendesk statuses — enter the ID manually.</span>
+                {% endif %}
+            </div>
+
+            <div class="form-control">
+                <label class="label flex-col items-start gap-0.5" for="service_length_days">
+                    <span class="label-text font-medium">Service length (days)</span>
+                    <span class="text-xs text-base-content/50">Length of the concierge service, from claim creation. Drives how far the update cadence runs and when the final end-of-service note is sent.</span>
+                </label>
+                <input type="number" min="1" max="365" class="input-modern w-full" id="service_length_days" name="service_length_days"
+                       value="{{ settings.service_length_days }}" placeholder="30">
+
+                <label class="label flex-col items-start gap-0.5 mt-6" for="client_report_trigger_status">
+                    <span class="label-text font-medium">Legacy trigger status name</span>
+                    <span class="text-xs text-base-content/50">Fallback only — used if the ID above is blank. Prefer the ID.</span>
+                </label>
+                <input type="text" class="input-modern w-full" id="client_report_trigger_status" name="client_report_trigger_status"
+                       value="{{ settings.client_report_trigger_status }}" placeholder="Claim submitted">
+            </div>
+        </div>
+
+        <div class="mt-6 pt-6 border-t border-base-200/70">
+            <label class="label cursor-pointer justify-start gap-3 py-0">
+                <input type="checkbox" class="toggle toggle-warning" id="client_updates_autosend" name="client_updates_autosend"
+                       {% if settings.client_updates_autosend %}checked{% endif %}>
+                <span class="flex flex-col items-start gap-0.5">
+                    <span class="label-text font-medium">Autonomous sending</span>
+                    <span class="text-xs text-base-content/50">When OFF (default), LORA only schedules updates for an agent to review and send. When ON, the scheduled job drafts and sends due updates automatically as public Zendesk replies. Object-found news is always left for an agent.</span>
+                </span>
             </label>
-            <input type="text" class="input-modern w-full" id="client_report_trigger_status" name="client_report_trigger_status"
-                   value="{{ settings.client_report_trigger_status }}" placeholder="Claim submitted">
         </div>
     </div>
 

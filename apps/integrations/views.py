@@ -1197,20 +1197,30 @@ class ZendeskClaimWebhookView(APIView):
 
         # Client updates: when the claim first enters the configured submitted-
         # status, draft the initial "what we did" message (template-only here to
-        # keep the webhook fast) AND schedule the day-2/5/11/21 follow-ups. When
-        # the claim closes/solves, stop the cadence.
+        # keep the webhook fast) AND schedule the first follow-up (cascade — the
+        # rest are created as each one is sent). The trigger is matched by the
+        # Zendesk custom-status ID (names can be renamed/duplicated); the legacy
+        # name field is a fallback. When the claim closes/solves, stop the cadence.
         try:
-            trigger = (SystemSettings.get_instance().client_report_trigger_status or '').strip()
-            if (trigger and new_status == trigger
+            ss = SystemSettings.get_instance()
+            trigger_id = (ss.client_report_trigger_status_id or '').strip()
+            trigger_name = (ss.client_report_trigger_status or '').strip()
+            entered_trigger = (
+                (trigger_id and str(custom_status_id) == trigger_id)
+                or (not trigger_id and trigger_name and new_status == trigger_name)
+            )
+            if (entered_trigger
                     and claim.client_report_sent_at is None and not claim.client_report_draft):
                 from apps.communications.client_report import build_client_update_message
-                from apps.communications.client_updates import schedule_follow_ups
+                from apps.communications.client_updates import schedule_next
                 claim.client_report_draft = build_client_update_message(claim, polish=False)
                 claim.save(update_fields=['client_report_draft', 'updated_at'])
-                schedule_follow_ups(claim, timezone.now())
-                logger.info(f"Client update drafted + follow-ups scheduled for claim #{claim.id}")
-            if resolved['category'] == 'solved':
-                from apps.communications.client_updates import cancel_open_follow_ups
+                schedule_next(claim, timezone.now())
+                logger.info(f"Client update drafted + first follow-up scheduled for claim #{claim.id}")
+            # Stop the cadence when the claim is voided — solved, an open
+            # dispute, or an actual refund (claim_is_closed covers all three).
+            from apps.communications.client_updates import claim_is_closed, cancel_open_follow_ups
+            if claim_is_closed(claim):
                 cancel_open_follow_ups(claim)
         except Exception as e:
             logger.error(f"Client-update handling failed for claim #{claim.id}: {e}")
@@ -1666,15 +1676,15 @@ class ZendeskClientUpdatesView(APIView):
             return 'Update not found.'
         if action == 'prepare':
             cu.prepare_follow_up(update)
-            return f'{update.get_milestone_display()} update drafted.'
+            return f'{update.label} update drafted.'
         if action == 'skip':
             cu.skip_follow_up(update)
-            return f'{update.get_milestone_display()} update skipped.'
+            return f'{update.label} update skipped.'
         if action == 'send':
             if update.state == 'SENT':
                 return 'That update was already sent.'
             if cu.send_follow_up(update, body):
-                return f'{update.get_milestone_display()} update sent as a public reply.'
+                return f'{update.label} update sent as a public reply.'
             return 'Could not post the reply to Zendesk.'
         return ''
 
@@ -1693,7 +1703,7 @@ class ZendeskClientUpdatesView(APIView):
             })
         for fu in claim.follow_up_updates.all().order_by('due_at'):
             items.append({
-                'kind': 'followup', 'id': fu.id, 'label': fu.get_milestone_display(),
+                'kind': 'followup', 'id': fu.id, 'label': fu.label,
                 'milestone': fu.milestone, 'state': fu.state.lower(),
                 'due_at': fu.due_at.isoformat(),
                 'is_due': fu.state == 'SCHEDULED' and fu.due_at <= now,
