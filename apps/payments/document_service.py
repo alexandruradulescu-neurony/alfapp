@@ -679,25 +679,40 @@ _IMG_FETCH_MAX_BYTES = 25_000_000
 _IMG_PASSTHROUGH_BYTES = 1_500_000
 _IMG_EMBED_MAX_DIM = 1600
 _IMG_EMBED_QUALITY = 85
+# Below this (px, both sides) an image is a tracking pixel / signature icon /
+# emoji, not evidence — skip it (esp. images riding along in ingested-email
+# comments) so the report doesn't fill with junk.
+_IMG_MIN_DIM = 64
 _PIL_MIME = {'PNG': 'image/png', 'JPEG': 'image/jpeg', 'JPG': 'image/jpeg',
              'GIF': 'image/gif', 'WEBP': 'image/webp'}
 
 
+# Zendesk blocks the default "Python-urllib/x" user-agent (403); any non-bot UA
+# is accepted. Verified live against /attachments/token/ URLs.
+_IMG_USER_AGENT = 'Mozilla/5.0 (compatible; LORA-evidence/1.0)'
+
+
 def _fetch_no_auth(url: str, max_bytes: int) -> Optional[bytes]:
-    """GET a URL with NO auth header — for Zendesk's pre-signed content CDN
-    (sending our Zendesk token to a non-Zendesk host would be a leak)."""
+    """GET an image URL with NO Zendesk auth but a browser User-Agent.
+
+    Zendesk's inline attachment token URLs (``/attachments/token/{token}/?name=``)
+    REJECT Basic auth (403) and block the default python UA (403); the token in
+    the path IS the credential, and the request 302-redirects to the signed
+    content CDN (``*.zdusercontent.com``). Also used for the CDN host directly.
+    Sending our Basic-auth creds here would be both wrong and a credential leak.
+    """
     import urllib.request
     try:
-        req = urllib.request.Request(url, method='GET')
+        req = urllib.request.Request(url, method='GET', headers={'User-Agent': _IMG_USER_AGENT})
         timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = resp.read(max_bytes + 1)
         if len(data) > max_bytes:
-            logger.warning(f"CDN image exceeds {max_bytes} bytes; skipping embed: {url[:120]}")
+            logger.warning(f"Image exceeds {max_bytes} bytes; skipping embed: {url[:120]}")
             return None
         return data
     except Exception as e:
-        logger.warning(f"Could not download CDN image {url[:120]}: {e}")
+        logger.warning(f"Could not download image {url[:120]}: {e}")
         return None
 
 
@@ -728,10 +743,15 @@ def _fetch_zendesk_image_bytes(url: str) -> Optional[bytes]:
         host = f"{sub}.zendesk.com"
 
     if sub and host == f"{sub}.zendesk.com":
-        from apps.integrations.services import fetch_zendesk_attachment_bytes
-        data = fetch_zendesk_attachment_bytes(url, max_bytes=_IMG_FETCH_MAX_BYTES)
+        # These attachment token URLs reject Basic auth + the default UA (403).
+        # No-auth + browser UA works (redirects to the signed CDN); fall back to
+        # the authed API fetch only if that somehow returns nothing.
+        data = _fetch_no_auth(url, _IMG_FETCH_MAX_BYTES)
         if not data:
-            logger.warning(f"Zendesk image fetch returned nothing: {url[:120]}")
+            from apps.integrations.services import fetch_zendesk_attachment_bytes
+            data = fetch_zendesk_attachment_bytes(url, max_bytes=_IMG_FETCH_MAX_BYTES)
+        if not data:
+            logger.warning(f"Zendesk image fetch failed (no-auth + authed): {url[:120]}")
         return data
 
     if host.endswith('.zdusercontent.com') or host.endswith('.zendeskusercontent.com'):
@@ -752,6 +772,8 @@ def _downscale_for_embed(data: bytes) -> Tuple[bytes, str]:
         from PIL import Image, ImageOps
         img = Image.open(io.BytesIO(data))
         fmt = (img.format or '').upper()
+        if max(img.size) < _IMG_MIN_DIM:
+            return b'', ''   # tracking pixel / icon — not evidence, skip
         if (len(data) <= _IMG_PASSTHROUGH_BYTES
                 and max(img.size) <= _IMG_EMBED_MAX_DIM and fmt in _PIL_MIME):
             return data, _PIL_MIME[fmt]
@@ -776,6 +798,8 @@ def _embed_image_data_uri(data: Optional[bytes]) -> Optional[str]:
     if not data:
         return None
     out, mime = _downscale_for_embed(data)
+    if not out:
+        return None   # skipped (e.g. tracking pixel / icon)
     return f"data:{mime};base64,{base64.b64encode(out).decode('utf-8')}"
 
 
@@ -812,10 +836,12 @@ def _zendesk_comment_panels(comments: list, embed_images: bool = True,
                 if uri:
                     images.append({'data_uri': uri, 'file_name': att.get('file_name', '')})
                     embedded += 1
-            # Images pasted INLINE in the comment body (Zendesk markdown ![](url))
-            # don't appear in `attachments` — embed them too, then the text-clean
-            # step strips the leftover markdown.
-            for url in _MD_IMAGE_RE.findall(c.get('body', '') or ''):
+            # Images pasted INLINE don't appear in `attachments`. When an agent
+            # pastes a screenshot in Zendesk's editor it lands in html_body as
+            # <img src=...> and is usually ABSENT from the plain body (which keeps
+            # only the typed label like "DELTA"); markdown ![](url) shows up only
+            # for API/markdown-authored comments. Scan BOTH so neither is missed.
+            for url in _comment_inline_image_urls(c):
                 if embedded >= max_images:
                     break
                 uri = _inline_image_data_uri(url)
@@ -847,6 +873,25 @@ _ENVELOPE_RE = re.compile(r'[\U0001F4E7\U0001F4E8\U0001F4E9✉️]')
 # Markdown image: ![alt](url). Group 1 is the URL. Inline images are embedded as
 # real pictures by _zendesk_comment_panels, so the raw markdown is stripped here.
 _MD_IMAGE_RE = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
+# <img src="..."> in a comment's html_body — how Zendesk represents an image
+# pasted into the agent editor (the plain body keeps only the typed text).
+_HTML_IMG_RE = re.compile(r'<img\b[^>]*?\bsrc=["\']([^"\']+)["\']', re.IGNORECASE)
+
+
+def _comment_inline_image_urls(comment: dict) -> list:
+    """Inline-pasted image URLs for a comment, from BOTH the plain-body markdown
+    (``![](url)`` — API/markdown comments) and the html_body ``<img src>`` (agent
+    paste). De-duped, order preserved. Host/auth filtering and the
+    tracking-pixel/icon size cut happen downstream at fetch/embed time."""
+    urls = list(_MD_IMAGE_RE.findall(comment.get('body', '') or ''))
+    urls += list(_HTML_IMG_RE.findall(comment.get('html_body', '') or ''))
+    seen, out = set(), []
+    for u in urls:
+        u = (u or '').strip()
+        if u and u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
 
 
 def _clean_comment_body(body: str) -> str:

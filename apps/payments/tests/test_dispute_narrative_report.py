@@ -201,7 +201,7 @@ class CommentCleanupTests(TestCase):
         }]
         import io
         from PIL import Image
-        buf = io.BytesIO(); Image.new('RGB', (4, 4), 'white').save(buf, format='PNG')
+        buf = io.BytesIO(); Image.new('RGB', (200, 200), 'white').save(buf, format='PNG')
         with patch('apps.integrations.services.fetch_zendesk_attachment_bytes',
                    return_value=buf.getvalue()):
             panels = ds._zendesk_comment_panels(comments)

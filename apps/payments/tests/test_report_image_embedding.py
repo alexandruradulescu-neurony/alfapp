@@ -12,7 +12,7 @@ from apps.config.models import SystemSettings
 from apps.payments import document_service as ds
 
 
-def _png_bytes(size=(8, 8), color='white', mode='RGB'):
+def _png_bytes(size=(120, 120), color='white', mode='RGB'):
     buf = io.BytesIO()
     Image.new(mode, size, color).save(buf, format='PNG')
     return buf.getvalue()
@@ -24,20 +24,47 @@ class FetchPolicyTests(TestCase):
         ss.zd_subdomain = 'airportlf'
         ss.save()
 
-    def test_our_host_uses_authed_fetch(self):
-        with patch('apps.integrations.services.fetch_zendesk_attachment_bytes',
-                   return_value=b'IMG') as f:
+    def test_our_host_uses_no_auth_first(self):
+        # Zendesk attachment token URLs 403 under Basic auth; no-auth + UA works.
+        with patch.object(ds, '_fetch_no_auth', return_value=b'IMG') as nf, \
+             patch('apps.integrations.services.fetch_zendesk_attachment_bytes') as authed:
             data = ds._fetch_zendesk_image_bytes(
                 'https://airportlf.zendesk.com/attachments/token/a/?name=x.png')
-            f.assert_called_once()
+            nf.assert_called_once()
+            authed.assert_not_called()
         self.assertEqual(data, b'IMG')
 
+    def test_falls_back_to_authed_when_no_auth_returns_nothing(self):
+        with patch.object(ds, '_fetch_no_auth', return_value=None), \
+             patch('apps.integrations.services.fetch_zendesk_attachment_bytes',
+                   return_value=b'AUTHED') as authed:
+            data = ds._fetch_zendesk_image_bytes(
+                'https://airportlf.zendesk.com/attachments/token/a/?name=x.png')
+            authed.assert_called_once()
+        self.assertEqual(data, b'AUTHED')
+
     def test_relative_url_resolved_to_our_host(self):
-        with patch('apps.integrations.services.fetch_zendesk_attachment_bytes',
-                   return_value=b'IMG') as f:
+        with patch.object(ds, '_fetch_no_auth', return_value=b'IMG') as nf:
             ds._fetch_zendesk_image_bytes('/attachments/token/a/?name=x.png')
-            called_url = f.call_args.args[0]
+            called_url = nf.call_args.args[0]
         self.assertTrue(called_url.startswith('https://airportlf.zendesk.com/attachments/'))
+
+    def test_no_auth_fetch_sends_browser_user_agent(self):
+        captured = {}
+
+        def fake_urlopen(req, timeout=None):
+            captured['ua'] = req.get_header('User-agent')
+
+            class _R:
+                def __enter__(s): return s
+                def __exit__(s, *a): return False
+                def read(s, n): return b'IMGBYTES'
+            return _R()
+
+        with patch('urllib.request.urlopen', side_effect=fake_urlopen):
+            ds._fetch_no_auth('https://airportlf.zendesk.com/attachments/token/a/?name=x.png', 1000)
+        self.assertTrue(captured['ua'])
+        self.assertNotIn('urllib', captured['ua'].lower())   # the blocked default UA
 
     def test_cdn_host_fetched_without_auth(self):
         with patch.object(ds, '_fetch_no_auth', return_value=b'CDN') as nf, \
@@ -62,10 +89,16 @@ class FetchPolicyTests(TestCase):
 
 class DownscaleTests(TestCase):
     def test_small_png_passes_through_lossless(self):
-        raw = _png_bytes((20, 20))
+        raw = _png_bytes((200, 200))
         out, mime = ds._downscale_for_embed(raw)
         self.assertEqual(out, raw)            # untouched — crisp screenshot text
         self.assertEqual(mime, 'image/png')
+
+    def test_tiny_image_is_skipped(self):
+        # tracking pixel / icon → dropped, not embedded
+        out, mime = ds._downscale_for_embed(_png_bytes((12, 12)))
+        self.assertEqual(out, b'')
+        self.assertIsNone(ds._embed_image_data_uri(_png_bytes((12, 12))))
 
     def test_oversized_image_is_resized_and_embedded(self):
         raw = _png_bytes((4000, 3000), color='blue')
@@ -90,6 +123,48 @@ class DownscaleTests(TestCase):
         self.assertTrue(uri.startswith('data:image/'))
         self.assertIsNone(ds._embed_image_data_uri(None))
         self.assertIsNone(ds._embed_image_data_uri(b''))
+
+
+class InlineUrlExtractionTests(TestCase):
+    def test_extracts_from_html_body_and_markdown_deduped(self):
+        c = {
+            'body': 'DELTA\n![](https://airportlf.zendesk.com/attachments/token/a/?name=x.png)',
+            'html_body': ('<p>DELTA</p>'
+                          '<img src="https://airportlf.zendesk.com/attachments/token/b/?name=y.png">'
+                          '<img src="https://airportlf.zendesk.com/attachments/token/a/?name=x.png">'),
+        }
+        urls = ds._comment_inline_image_urls(c)
+        self.assertEqual(len(urls), 2)  # markdown 'a' + html 'b'; html 'a' is a dupe
+        self.assertTrue(any('token/a' in u for u in urls))
+        self.assertTrue(any('token/b' in u for u in urls))
+
+    def test_empty_when_no_images(self):
+        self.assertEqual(ds._comment_inline_image_urls({'body': 'hi', 'html_body': '<p>hi</p>'}), [])
+
+
+class PanelHtmlImageEmbedTests(TestCase):
+    """The exact regression: a screenshot pasted in the agent editor lives only
+    in html_body as <img>; the plain body keeps just the label ("DELTA"). The
+    image must still be embedded, the label preserved."""
+
+    def setUp(self):
+        ss = SystemSettings.get_instance()
+        ss.zd_subdomain = 'airportlf'
+        ss.save()
+
+    def test_html_body_pasted_image_is_embedded(self):
+        comments = [{
+            'author': {'name': 'Agent'}, 'public': False, 'attachments': [],
+            'body': 'DELTA',  # plain body has ONLY the label, no markdown image
+            'html_body': ('<p>DELTA</p><img src="https://airportlf.zendesk.com/'
+                          'attachments/token/x/?name=delta.png">'),
+        }]
+        with patch('apps.integrations.services.fetch_zendesk_attachment_bytes',
+                   return_value=_png_bytes((400, 300))):
+            panels = ds._zendesk_comment_panels(comments)
+        self.assertEqual(len(panels[0]['images']), 1)
+        self.assertTrue(panels[0]['images'][0]['data_uri'].startswith('data:image/'))
+        self.assertEqual(panels[0]['body'], 'DELTA')
 
 
 class AttachmentEmbedTests(TestCase):
