@@ -47,6 +47,46 @@ def test_call_qwen_ai_uses_ai_client_layer(db):
     assert "SECURITY NOTE" in sent_messages[0]["content"]
 
 
+@pytest.mark.django_db
+def test_categorizer_masks_client_pii_before_llm(db):
+    """Trust-boundary guard: a known client's name/address in an institution
+    reply must be tokenized OUT of the body before it reaches the LLM provider."""
+    from apps.config.models import SystemSettings
+    ss, _ = SystemSettings.objects.get_or_create(pk=1)
+    ss.pii_tokenization_salt = 'test_salt_long_enough_for_real_use'
+    ss.ai_api_key = 'test'
+    ss.ai_api_base = 'https://api.example.com/v1'
+    ss.ai_api_model = 'test-model'
+    ss.save()
+
+    with patch('apps.ai.client.OpenAI') as MockOpenAI:
+        MockOpenAI.return_value.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=
+                '{"summary":"x","category":"OBJECT_NOT_FOUND","action_required":false,"auto_resolvable":true}'
+            ))],
+        )
+        call_qwen_ai(
+            prompt="classify",
+            email_body="Regarding the bag for Jonathan Q Testname at 14 Privet Drive.",
+            subject="Re: claim",
+            known_pii={'names': ['Jonathan Q Testname', '14 Privet Drive'], 'aliases': []},
+        )
+
+    user_msg = MockOpenAI.return_value.chat.completions.create.call_args.kwargs['messages'][1]['content']
+    assert 'Jonathan Q Testname' not in user_msg   # masked before leaving the trust zone
+    assert '14 Privet Drive' not in user_msg
+
+
+@pytest.mark.django_db
+def test_known_pii_for_email_built_from_claim(db):
+    from apps.claims.models import Claim
+    from apps.communications.services import _known_pii_for_email
+    claim = Claim.objects.create(client_email='c@x.com', client_name='Jane Doe', billing_address='1 A St')
+    pii = _known_pii_for_email(claim)
+    assert 'Jane Doe' in pii['names']
+    assert _known_pii_for_email(None) is None   # claimless mail → nothing to add
+
+
 # ---------------------------------------------------------------------------
 # Regression tests for the process_single_email result-handling bug (fd891b1)
 # ---------------------------------------------------------------------------

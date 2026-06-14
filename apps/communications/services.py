@@ -282,14 +282,27 @@ def extract_raw_headers(msg: email.message.Message) -> str:
         return ''
 
 
-def call_qwen_ai(prompt: str, email_body: str, subject: str = '') -> Dict[str, Any]:
+def _known_pii_for_email(claim):
+    """Client PII (name + address + contact handles) to tokenize before the
+    categorizer reaches the LLM provider. Institution replies routinely quote
+    the client's name/address, and the LLM provider sits OUTSIDE the trust
+    boundary — the regex tokenizer alone can't catch a free-text name. Returns
+    None when no claim is linked (claimless mail has no known client identity)."""
+    if not claim:
+        return None
+    from apps.communications.client_report import _known_pii_for
+    return _known_pii_for(claim)
+
+
+def call_qwen_ai(prompt: str, email_body: str, subject: str = '', known_pii=None) -> Dict[str, Any]:
     """Categorize an inbound email via the LLM.
 
     Migrated to use apps.ai.AIClient for PII tokenization, prompt fencing,
     and output validation. Returns a dict shaped for the existing parser
     in parse_ai_response.
 
-    Signature kept identical to the original so all existing callers are unaffected.
+    known_pii: client identifiers (name/address/contacts) to mask before the
+    provider sees the body — pass it whenever a claim is known.
     """
     from apps.ai.client import AIClient
     from apps.ai.schemas import EmailCategorization
@@ -302,6 +315,7 @@ def call_qwen_ai(prompt: str, email_body: str, subject: str = '') -> Dict[str, A
                 "email_subject": subject,
                 "email_body": email_body,
             },
+            known_pii=known_pii,
             response_schema=EmailCategorization,
             call_site="email_categorizer",
             temperature=0.3,
@@ -647,8 +661,8 @@ def process_single_email(
             if delivered_to_match:
                 delivered_to = delivered_to_match.group(0).lower()
 
-        # Call Qwen AI for enhanced analysis
-        ai_result = call_qwen_ai(ai_prompt, body, subject)
+        # Call Qwen AI for enhanced analysis (mask client PII when the claim is known)
+        ai_result = call_qwen_ai(ai_prompt, body, subject, known_pii=_known_pii_for_email(claim))
         if ai_result.get('validation_failed'):
             # Schema validation failed inside call_qwen_ai; fall back to old parser
             # against the raw LLM output as a last-ditch effort
@@ -980,7 +994,7 @@ def _process_ticket_email(
     subject = decode_mime_header(msg.get('Subject', '(No Subject)'))
     body = extract_email_body(msg) or '(No content extracted)'
 
-    ai_result = call_qwen_ai(ai_prompt, body, subject)
+    ai_result = call_qwen_ai(ai_prompt, body, subject, known_pii=_known_pii_for_email(claim))
     if ai_result.get('validation_failed'):
         parsed = parse_ai_response(ai_result.get('raw_response', ''))
     else:
