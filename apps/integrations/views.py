@@ -1624,16 +1624,21 @@ class ZendeskClientUpdatesView(APIView):
 
         action = (request.data.get('action') or 'list').strip()
         message = ''
-        if action in ('send', 'prepare', 'skip'):
+        if action in ('send', 'prepare', 'skip', 'start'):
             message = self._act(request, claim, action)
 
         return Response({**self._timeline(claim), 'message': message}, status=status.HTTP_200_OK)
 
     def _act(self, request, claim, action) -> str:
         from django.utils import timezone
+        from apps.communications import client_updates as cu
+
+        if action == 'start':
+            return ('Client updates started — the initial draft is ready and follow-ups scheduled.'
+                    if cu.start_client_updates(claim) else 'Updates already started for this claim.')
+
         kind = (request.data.get('kind') or '').strip()
         body = (request.data.get('body') or '').strip()
-        from apps.communications import client_updates as cu
 
         if kind == 'initial':
             if action == 'prepare':

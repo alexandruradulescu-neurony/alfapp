@@ -47,6 +47,22 @@
     </div>
 </div>
 
+{% if not claim.client_report_draft and not claim.client_report_sent_at and not client_followups %}
+<!-- No client updates yet — offer to start the cadence (for older claims) -->
+<div class="card-modern p-6 mb-6 animate-fade-in">
+    <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-1">
+        <i class="bi bi-chat-heart text-primary"></i> Client updates
+    </h3>
+    <p class="text-sm text-base-content/60 mb-3">No client updates have been started for this claim. Start the cadence to draft a "what we did" message now and schedule the day-2/5/11/21 follow-ups.</p>
+    <form method="post" action="{% url 'client_updates_start' claim.id %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-primary rounded-xl" {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
+            <i class="bi bi-play-circle"></i> Start client updates
+        </button>
+    </form>
+</div>
+{% endif %}
+
 {% if claim.client_report_draft or claim.client_report_sent_at %}
 <!-- Client update ("what we did" message) -->
 <div class="card-modern p-6 mb-6 animate-fade-in">

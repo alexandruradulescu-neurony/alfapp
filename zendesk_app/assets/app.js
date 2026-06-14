@@ -450,10 +450,18 @@ function upFmtDate(iso) { const d = new Date(iso); return isNaN(d) ? '' : d.toLo
 
 function renderUpdates(data) {
   upLoading.hidden = true;
-  if (!data || !data.claim || !(data.items || []).length) {
+  if (!data || !data.claim) {
     upList.hidden = true; upEmpty.hidden = false; upError.hidden = true; return;
   }
   upEmpty.hidden = true; upError.hidden = true; upList.hidden = false;
+  if (!(data.items || []).length) {
+    // Linked claim but nothing scheduled yet (e.g. an older claim) — offer to start.
+    upList.innerHTML =
+      (data.message ? `<div class="info-line" style="margin-bottom:8px">${escapeHtml(data.message)}</div>` : '')
+      + '<div class="muted" style="margin-bottom:8px">No client updates have been started for this claim.</div>'
+      + '<div class="actions"><button type="button" data-action="start">Start client updates</button></div>';
+    return;
+  }
   let html = '';
   if (data.message) html += `<div class="info-line" style="margin-bottom:8px">${escapeHtml(data.message)}</div>`;
   (data.items || []).forEach(it => {

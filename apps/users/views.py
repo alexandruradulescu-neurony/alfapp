@@ -386,6 +386,23 @@ def client_followup_skip(request, update_id):
 
 
 @agent_required
+def client_updates_start(request, claim_id):
+    """Manually begin the client-update cadence for an existing claim that never
+    auto-triggered (e.g. it was already in the submitted status)."""
+    claim = get_object_or_404(Claim, id=claim_id)
+    if request.user.role == 'AGENT' and claim.assigned_to and claim.assigned_to != request.user:
+        messages.error(request, 'You are not assigned to this claim.')
+        return redirect('agent_claims')
+    if request.method == 'POST':
+        from apps.communications.client_updates import start_client_updates
+        if start_client_updates(claim):
+            messages.success(request, 'Client updates started — review the initial draft, then send.')
+        else:
+            messages.info(request, 'Client updates were already started for this claim.')
+    return redirect('agent_claim_detail', claim_id=claim.id)
+
+
+@agent_required
 def agent_claim_detail(request, claim_id):
     """Agent claim detail view."""
     claim = get_object_or_404(

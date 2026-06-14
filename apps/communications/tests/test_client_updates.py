@@ -113,6 +113,27 @@ class PrepareSendSkipTests(TestCase):
         self.assertEqual(self.update.state, 'SKIPPED')
 
 
+class StartTests(TestCase):
+    def test_start_drafts_initial_and_schedules(self):
+        claim = Claim.objects.create(client_email='a@example.com', client_name='Lee', object_description='iPad')
+        self.assertTrue(cu.start_client_updates(claim))
+        claim.refresh_from_db()
+        self.assertTrue(claim.client_report_draft)
+        self.assertEqual(claim.follow_up_updates.count(), 4)
+        # idempotent — second call is a no-op
+        self.assertFalse(cu.start_client_updates(claim))
+
+    def test_start_view_initializes_claim(self):
+        mgr = User.objects.create_user(username='start_mgr', password='x', role='MANAGER')
+        web = Client()
+        web.force_login(mgr)
+        claim = Claim.objects.create(client_email='a@example.com', client_name='Lee', zd_ticket_id='99001')
+        web.post(reverse('client_updates_start', args=[claim.id]))
+        claim.refresh_from_db()
+        self.assertTrue(claim.client_report_draft)
+        self.assertEqual(claim.follow_up_updates.count(), 4)
+
+
 class FollowupViewTests(TestCase):
     def setUp(self):
         self.mgr = User.objects.create_user(username='fu_mgr', password='x', role='MANAGER')

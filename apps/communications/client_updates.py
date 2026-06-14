@@ -49,6 +49,21 @@ def schedule_follow_ups(claim, anchor=None):
         )
 
 
+def start_client_updates(claim) -> bool:
+    """Manually begin the cadence for an existing claim that never auto-triggered
+    (e.g. it was already in the submitted status before this feature existed):
+    draft the initial message and schedule the follow-ups, anchored now. No-op if
+    updates already exist. Returns True if it started fresh, False otherwise."""
+    if (claim.follow_up_updates.exists() or getattr(claim, 'client_report_draft', '')
+            or getattr(claim, 'client_report_sent_at', None)):
+        return False
+    from apps.communications.client_report import build_client_update_message
+    claim.client_report_draft = build_client_update_message(claim, polish=False)
+    claim.save(update_fields=['client_report_draft', 'updated_at'])
+    schedule_follow_ups(claim, timezone.now())
+    return True
+
+
 def cancel_open_follow_ups(claim):
     """When a claim is solved/closed (or the item is found), stop chasing it —
     mark any not-yet-sent follow-ups as skipped."""

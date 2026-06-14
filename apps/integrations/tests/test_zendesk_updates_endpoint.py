@@ -60,6 +60,15 @@ class ZendeskUpdatesEndpointTests(TestCase):
         fu.refresh_from_db()
         self.assertEqual(fu.state, 'SKIPPED')
 
+    def test_start_action_initializes_empty_claim(self):
+        bare = Claim.objects.create(client_email='x@example.com', client_name='Bo', zd_ticket_id='98002')
+        resp = self._post({'ticket_id': '98002', 'action': 'start'})
+        data = resp.json()
+        self.assertTrue(data['claim'])
+        self.assertTrue(any(it['kind'] == 'initial' for it in data['items']))
+        bare.refresh_from_db()
+        self.assertEqual(bare.follow_up_updates.count(), 4)
+
     def test_send_initial_posts_public_reply(self):
         with patch('apps.integrations.services.post_zendesk_comment', return_value={'id': 1}) as post:
             self._post({'ticket_id': '97001', 'action': 'send', 'kind': 'initial',
