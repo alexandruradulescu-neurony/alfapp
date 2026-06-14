@@ -293,7 +293,11 @@
     </div>
 </div>
 
-<!-- Toast Container -->
+{% endblock %}
+
+{% block extra_js %}
+<!-- Toast — rendered at body level (outside the transformed content wrapper) so
+     position:fixed anchors to the viewport, not the page. -->
 <div class="toast toast-end z-50">
     <div id="serviceToast" class="alert alert-hidden opacity-0 transition-all duration-300">
         <i class="bi bi-bell"></i>
@@ -301,8 +305,5 @@
         <button type="button" class="btn btn-sm btn-circle btn-ghost" data-toast-close><i class="bi bi-x"></i></button>
     </div>
 </div>
-{% endblock %}
-
-{% block extra_js %}
 <script src="{% static 'js/service-controls.js' %}"></script>
 {% endblock %}
