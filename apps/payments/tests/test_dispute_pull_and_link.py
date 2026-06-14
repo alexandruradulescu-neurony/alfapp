@@ -15,7 +15,7 @@ from django.test import Client, TestCase
 from apps.claims.models import Claim
 from apps.config.models import SystemSettings
 from apps.payments.models import Dispute, DisputeActivityLog
-from apps.payments.paypal_disputes_service import list_paypal_disputes
+from apps.payments.paypal_disputes_service import list_paypal_disputes, ingest_dispute
 
 User = get_user_model()
 
@@ -230,3 +230,71 @@ class TestDisputePruneResolvedView(TestCase):
         resp = client.post(self.URL)
         self.assertTrue(Dispute.objects.filter(pk=resolved_d.pk).exists())
         self.assertNotEqual(resp.status_code, 200)
+
+
+def _paypal_details(dispute_id='PP-D-1', invoice_number='', custom='', buyer_email=None):
+    """A realistic PayPal dispute payload (shape taken from a real response —
+    note the buyer has NO email; the claim reference lives in invoice_number)."""
+    buyer = {'name': 'Susan Colon', 'payer_id': 'P1'}
+    if buyer_email is not None:
+        buyer['email'] = buyer_email
+    return {
+        'dispute_id': dispute_id,
+        'status': 'WAITING_FOR_SELLER_RESPONSE',
+        'dispute_state': 'REQUIRED_ACTION',
+        'dispute_life_cycle_stage': 'CHARGEBACK',
+        'reason': 'MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED',
+        'dispute_amount': {'currency_code': 'USD', 'value': '29.00'},
+        'create_time': '2026-06-09T10:20:06.168Z',
+        'seller_response_due_date': '2026-06-20T06:59:59.000Z',
+        'disputed_transactions': [{
+            'buyer': buyer,
+            'seller_transaction_id': 'TXN-9',
+            'create_time': '2026-05-28T16:50:19.000Z',
+            'invoice_number': invoice_number,
+            'custom': custom,
+            'gross_amount': {'currency_code': 'USD', 'value': '29.00'},
+        }],
+    }
+
+
+class TestIngestDisputeMatching(TestCase):
+    """ingest_dispute matches by invoice ALF id / WooCommerce order — NOT email
+    (PayPal never sends the buyer email)."""
+
+    def setUp(self):
+        SystemSettings.get_instance()
+        self.claim = Claim.objects.create(
+            alf_claim_id='ALF7410846', zd_ticket_id='74108', client_email='c@example.com',
+            woocommerce_id='36298', status='Investigation initiated', status_category='open')
+
+    def test_matches_by_invoice_alf_id(self):
+        details = _paypal_details(dispute_id='PP-D-INV', invoice_number='ccbfae-ALF7410846')
+        with patch(f'{SVC}.fetch_dispute_details', return_value=details):
+            dispute, created = ingest_dispute('PP-D-INV')
+        self.assertTrue(created)
+        self.assertEqual(dispute.claim_id, self.claim.id)
+        self.assertEqual(dispute.status, 'MATCHED')
+
+    def test_matches_by_custom_woocommerce_id(self):
+        details = _paypal_details(dispute_id='PP-D-CUST', invoice_number='', custom='36298')
+        with patch(f'{SVC}.fetch_dispute_details', return_value=details):
+            dispute, _created = ingest_dispute('PP-D-CUST')
+        self.assertEqual(dispute.claim_id, self.claim.id)
+
+    def test_no_reference_lands_unmatched(self):
+        details = _paypal_details(dispute_id='PP-D-NONE', invoice_number='no-ref', custom='')
+        with patch(f'{SVC}.fetch_dispute_details', return_value=details):
+            dispute, _created = ingest_dispute('PP-D-NONE')
+        self.assertIsNone(dispute.claim_id)
+        self.assertEqual(dispute.status, 'RECEIVED')
+
+    def test_repull_self_heals_existing_unmatched(self):
+        d = _dispute(paypal_dispute_id='PP-D-HEAL', raw_webhook_payload={})  # claim=None
+        details = _paypal_details(dispute_id='PP-D-HEAL', invoice_number='x-ALF7410846')
+        with patch(f'{SVC}.fetch_dispute_details', return_value=details):
+            returned, created = ingest_dispute('PP-D-HEAL')
+        self.assertFalse(created)
+        d.refresh_from_db()
+        self.assertEqual(d.claim_id, self.claim.id)
+        self.assertEqual(d.status, 'MATCHED')

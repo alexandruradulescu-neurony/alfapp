@@ -673,17 +673,75 @@ def _parse_paypal_time(value):
         return None
 
 
+def _match_claim_for_dispute(details: dict):
+    """Find the LORA Claim a PayPal dispute belongs to.
+
+    PayPal does NOT include the buyer's email in the dispute object (the `buyer`
+    only has a name + payer_id), so matching by email never works. The reliable
+    identifiers live on disputed_transactions[0]:
+      1. invoice_number — our merchant invoice, which embeds the ALF claim id
+         (e.g. "ccbfae-ALF7410846") → Claim.alf_claim_id (primary, strongest);
+      2. custom — the WooCommerce order id → Claim.woocommerce_id (fallback);
+      3. buyer.email — only if PayPal ever does provide it (it usually doesn't).
+    Returns a Claim or None.
+    """
+    from apps.claims.models import Claim
+    from apps.integrations.services import parse_alf_claim_id_from_subject
+
+    txns = details.get('disputed_transactions') or [{}]
+    txn = txns[0] if txns else {}
+
+    alf_id = parse_alf_claim_id_from_subject(txn.get('invoice_number') or '')
+    if alf_id:
+        claim = Claim.objects.filter(alf_claim_id__iexact=alf_id).first()
+        if claim:
+            return claim
+
+    custom = (txn.get('custom') or '').strip()
+    if custom:
+        claim = Claim.objects.filter(woocommerce_id=custom).first()
+        if claim:
+            return claim
+
+    buyer = txn.get('buyer') or details.get('buyer') or {}
+    buyer_email = (buyer.get('email') or '').strip().lower()
+    if buyer_email:
+        claim = Claim.objects.filter(client_email__iexact=buyer_email).first()
+        if claim:
+            return claim
+
+    return None
+
+
 def ingest_dispute(dispute_id: str, raw_event: dict = None):
     """Fetch a dispute from PayPal and create the local Dispute (idempotent).
 
-    Best-effort matches to a Claim by buyer email; captures the response
-    deadline. Returns (dispute, created) or (None, False) if PayPal couldn't
-    be read.
+    Matches to a Claim via _match_claim_for_dispute (invoice ALF id / WooCommerce
+    order id — NOT buyer email, which PayPal doesn't send) and captures the
+    response deadline. Returns (dispute, created); for an already-stored dispute
+    returns (existing, False) and re-matches it if it was previously unmatched
+    (self-heal for rows pulled before the matching fix). (None, False) if PayPal
+    couldn't be read.
     """
     from django.utils import timezone
 
     existing = Dispute.objects.filter(paypal_dispute_id=dispute_id).first()
     if existing:
+        # Self-heal: rows pulled before the matching fix are unmatched (we used
+        # to match by buyer email, which PayPal never provides). Retry now.
+        if existing.claim_id is None:
+            details = fetch_dispute_details(dispute_id)
+            claim = _match_claim_for_dispute(details) if details else None
+            if claim:
+                existing.claim = claim
+                if not existing.zd_ticket_id and claim.zd_ticket_id:
+                    existing.zd_ticket_id = claim.zd_ticket_id
+                if existing.status == 'RECEIVED':
+                    existing.status = 'MATCHED'
+                existing.save(update_fields=['claim', 'zd_ticket_id', 'status', 'updated_at'])
+                DisputeActivityLog.objects.create(
+                    dispute=existing, action='DISPUTE_MATCHED',
+                    details=f"Matched to claim #{claim.id} on re-pull (invoice/order reference).")
         return existing, False
 
     details = fetch_dispute_details(dispute_id)
@@ -700,10 +758,7 @@ def ingest_dispute(dispute_id: str, raw_event: dict = None):
     amount = details.get('dispute_amount') or {}
     reason = (details.get('reason') or '').strip()
 
-    claim = None
-    if buyer_email:
-        from apps.claims.models import Claim
-        claim = Claim.objects.filter(client_email__iexact=buyer_email).first()
+    claim = _match_claim_for_dispute(details)
 
     dispute = Dispute.objects.create(
         paypal_dispute_id=dispute_id,
@@ -733,7 +788,7 @@ def ingest_dispute(dispute_id: str, raw_event: dict = None):
     if claim:
         DisputeActivityLog.objects.create(
             dispute=dispute, action='DISPUTE_MATCHED',
-            details=f"Matched to claim #{claim.id} by buyer email.")
+            details=f"Matched to claim #{claim.id} by invoice/order reference.")
     logger.info(f"Ingested dispute {dispute_id} (claim={'#%s' % claim.id if claim else 'none'})")
     return dispute, True
 

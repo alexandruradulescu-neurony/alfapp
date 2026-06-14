@@ -275,16 +275,14 @@ class Dispute(models.Model):
             models.Index(fields=['transaction_id']),
             models.Index(fields=['claim', '-created_at']),
         ]
-        constraints = [
-            # Ensure buyer_email is set when claim is linked
-            models.CheckConstraint(
-                check=~models.Q(claim__isnull=False, buyer_email=''),
-                name='dispute_claim_requires_buyer_email',
-            ),
-        ]
+        # NOTE: previously a CheckConstraint (dispute_claim_requires_buyer_email)
+        # required buyer_email whenever a claim was linked. Removed 2026-06-14:
+        # PayPal's dispute object does NOT include the buyer email, so disputes
+        # are matched to claims by the invoice/order reference instead — a
+        # correctly matched dispute can validly have an empty buyer_email.
 
     def __str__(self):
-        return f"Dispute #{self.id} - {self.buyer_email} ({self.status})"
+        return f"Dispute #{self.id} - {self.buyer_email or '(no email)'} ({self.status})"
 
     # Stages from which PayPal accepts an evidence upload (INQUIRY is
     # message-only — PayPal rejects provide-evidence there).
