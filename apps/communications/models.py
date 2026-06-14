@@ -77,3 +77,49 @@ class EmailLog(models.Model):
 
     def __str__(self):
         return f"EmailLog #{self.id} - {self.subject[:50]} (Claim #{self.claim_id if self.claim else 'None'})"
+
+
+class ClientUpdate(models.Model):
+    """A scheduled client progress update (the day-2/5/11/21 follow-ups after a
+    claim is submitted). The INITIAL "what we did" update lives on the Claim
+    itself; these are the follow-up cadence. Each is drafted for an agent to
+    review and send as a public Zendesk reply (draft-for-approval)."""
+
+    MILESTONE_CHOICES = [
+        ('DAY_2', 'Day 2'),
+        ('DAY_5', 'Day 5'),
+        ('DAY_11', 'Day 11'),
+        ('DAY_21', 'Day 21'),
+    ]
+    STATE_CHOICES = [
+        ('SCHEDULED', 'Scheduled'),   # due_at in the future / not yet prepared
+        ('DRAFTED', 'Drafted'),       # prepared, awaiting agent review/send
+        ('SENT', 'Sent'),
+        ('SKIPPED', 'Skipped'),       # agent chose not to send, or claim closed
+    ]
+
+    claim = models.ForeignKey(
+        'claims.Claim', on_delete=models.CASCADE, related_name='follow_up_updates', db_index=True,
+    )
+    milestone = models.CharField(max_length=10, choices=MILESTONE_CHOICES)
+    due_at = models.DateTimeField(db_index=True)
+    state = models.CharField(max_length=10, choices=STATE_CHOICES, default='SCHEDULED', db_index=True)
+    draft_body = models.TextField(blank=True, default='')
+    has_news = models.BooleanField(
+        default=False, help_text='True if the draft reflects new developments (vs a "still searching" note)')
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['due_at']
+        constraints = [
+            # One row per milestone per claim — the schedule is fixed.
+            models.UniqueConstraint(fields=['claim', 'milestone'], name='uniq_clientupdate_claim_milestone'),
+        ]
+        indexes = [
+            models.Index(fields=['state', 'due_at']),
+        ]
+
+    def __str__(self):
+        return f"ClientUpdate {self.milestone} (Claim #{self.claim_id}, {self.state})"

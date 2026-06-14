@@ -1195,19 +1195,25 @@ class ZendeskClaimWebhookView(APIView):
             )
         logger.info(f"Claim #{claim.id} status mirrored: '{old_status}' -> '{new_status}'")
 
-        # Client "what we did" update: when the claim first enters the configured
-        # submitted-status, draft a client update (template-only here to keep the
-        # webhook fast; an agent reviews/polishes/sends it from the claim page).
+        # Client updates: when the claim first enters the configured submitted-
+        # status, draft the initial "what we did" message (template-only here to
+        # keep the webhook fast) AND schedule the day-2/5/11/21 follow-ups. When
+        # the claim closes/solves, stop the cadence.
         try:
             trigger = (SystemSettings.get_instance().client_report_trigger_status or '').strip()
             if (trigger and new_status == trigger
                     and claim.client_report_sent_at is None and not claim.client_report_draft):
                 from apps.communications.client_report import build_client_update_message
+                from apps.communications.client_updates import schedule_follow_ups
                 claim.client_report_draft = build_client_update_message(claim, polish=False)
                 claim.save(update_fields=['client_report_draft', 'updated_at'])
-                logger.info(f"Client update drafted for claim #{claim.id} on entering '{new_status}'")
+                schedule_follow_ups(claim, timezone.now())
+                logger.info(f"Client update drafted + follow-ups scheduled for claim #{claim.id}")
+            if resolved['category'] == 'solved':
+                from apps.communications.client_updates import cancel_open_follow_ups
+                cancel_open_follow_ups(claim)
         except Exception as e:
-            logger.error(f"Failed to draft client update for claim #{claim.id}: {e}")
+            logger.error(f"Client-update handling failed for claim #{claim.id}: {e}")
 
         ticket_data = fetch_zendesk_ticket(claim.zd_ticket_id)
         if ticket_data:

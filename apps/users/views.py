@@ -326,11 +326,72 @@ def claim_client_report_send(request, claim_id):
     return redirect('agent_claim_detail', claim_id=claim_id)
 
 
+def _followup_or_403(request, update_id):
+    """Fetch a ClientUpdate + its claim, enforcing the same assignment guard as
+    the claim page. Returns (update, claim) or (None, redirect)."""
+    from apps.communications.models import ClientUpdate
+    update = get_object_or_404(ClientUpdate, id=update_id)
+    claim = update.claim
+    if request.user.role == 'AGENT' and claim.assigned_to and claim.assigned_to != request.user:
+        messages.error(request, 'You are not assigned to this claim.')
+        return None, redirect('agent_claims')
+    return update, claim
+
+
+@agent_required
+def client_followup_prepare(request, update_id):
+    """Prepare a due follow-up: read new office replies + draft the update."""
+    update, claim = _followup_or_403(request, update_id)
+    if update is None:
+        return claim
+    if request.method == 'POST':
+        from apps.communications import client_updates as cu
+        cu.prepare_follow_up(update)
+        messages.success(request, f'{update.get_milestone_display()} update drafted — review it, then send.')
+    return redirect('agent_claim_detail', claim_id=claim.id)
+
+
+@agent_required
+def client_followup_send(request, update_id):
+    """Send the (edited) follow-up as a PUBLIC Zendesk reply."""
+    update, claim = _followup_or_403(request, update_id)
+    if update is None:
+        return claim
+    if request.method == 'POST':
+        from apps.communications import client_updates as cu
+        if update.state == 'SENT':
+            messages.warning(request, 'That update was already sent.')
+        elif not (request.POST.get('body') or '').strip():
+            messages.error(request, 'The message is empty — nothing to send.')
+        elif not claim.zd_ticket_id:
+            messages.error(request, 'This claim has no Zendesk ticket to reply on.')
+        elif cu.send_follow_up(update, request.POST.get('body')):
+            messages.success(request, f'{update.get_milestone_display()} update sent as a public Zendesk reply.')
+        else:
+            messages.error(request, 'Could not post the reply to Zendesk — please try again.')
+    return redirect('agent_claim_detail', claim_id=claim.id)
+
+
+@agent_required
+def client_followup_skip(request, update_id):
+    """Skip a follow-up (agent decides it's not worth sending)."""
+    update, claim = _followup_or_403(request, update_id)
+    if update is None:
+        return claim
+    if request.method == 'POST':
+        from apps.communications import client_updates as cu
+        cu.skip_follow_up(update)
+        messages.success(request, f'{update.get_milestone_display()} update skipped.')
+    return redirect('agent_claim_detail', claim_id=claim.id)
+
+
 @agent_required
 def agent_claim_detail(request, claim_id):
     """Agent claim detail view."""
     claim = get_object_or_404(
-        Claim.objects.prefetch_related('evidence', 'emails', 'refunds', 'disputes').select_related('assigned_to'),
+        Claim.objects.prefetch_related(
+            'evidence', 'emails', 'refunds', 'disputes', 'follow_up_updates'
+        ).select_related('assigned_to'),
         id=claim_id,
     )
     _annotate_deadline(claim, timezone.now())
@@ -354,12 +415,20 @@ def agent_claim_detail(request, claim_id):
     emails_open = [e for e in all_emails if e.action_required]
     emails_handled = [e for e in all_emails if not e.action_required]
 
+    # Follow-up client updates (day 2/5/11/21): annotate which scheduled ones
+    # are now due to prepare so the template can show a "Prepare update" button.
+    now = timezone.now()
+    client_followups = list(claim.follow_up_updates.all())  # prefetched, ordered by due_at
+    for fu in client_followups:
+        fu.is_due = (fu.state == 'SCHEDULED' and fu.due_at <= now)
+
     context = {
         'claim': claim,
         'zd_subdomain': zd_subdomain,
         'claim_refund_status': claim.refund_status,
         'emails_open': emails_open,
         'emails_handled': emails_handled,
+        'client_followups': client_followups,
     }
 
     return render(request, 'agent/claim_detail.html', context)

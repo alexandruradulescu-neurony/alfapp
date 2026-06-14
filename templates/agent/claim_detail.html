@@ -86,6 +86,69 @@
 </div>
 {% endif %}
 
+{% if client_followups %}
+<!-- Follow-up client updates (day 2/5/11/21) -->
+<div class="card-modern p-6 mb-6 animate-fade-in">
+    <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-1">
+        <i class="bi bi-clock-history text-primary"></i> Follow-up updates
+    </h3>
+    <p class="text-sm text-base-content/60 mb-4">Scheduled progress updates after submission. Prepare a due one to draft it from the latest office replies, then review and send.</p>
+    <div class="space-y-4">
+    {% for fu in client_followups %}
+        <div class="rounded-xl border border-base-200/70 p-4">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <span class="font-semibold text-sm"><i class="bi bi-calendar-event text-base-content/50"></i> {{ fu.get_milestone_display }} update</span>
+                {% if fu.state == 'SENT' %}<span class="badge badge-soft-success rounded-full"><i class="bi bi-check-circle"></i> Sent {{ fu.sent_at|date:"M d, Y H:i" }}</span>
+                {% elif fu.state == 'DRAFTED' %}<span class="badge badge-soft-warning rounded-full">Draft ready{% if not fu.has_news %} · no new developments{% endif %}</span>
+                {% elif fu.state == 'SKIPPED' %}<span class="badge badge-soft-neutral rounded-full">Skipped</span>
+                {% elif fu.is_due %}<span class="badge badge-soft-primary rounded-full">Due now</span>
+                {% else %}<span class="text-xs text-base-content/50">Scheduled for {{ fu.due_at|date:"M d, Y" }}</span>{% endif %}
+            </div>
+
+            {% if fu.state == 'DRAFTED' %}
+            <form method="post" action="{% url 'client_followup_send' fu.id %}">
+                {% csrf_token %}
+                <textarea name="body" rows="9" class="rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full text-sm p-3">{{ fu.draft_body }}</textarea>
+                <div class="flex flex-wrap gap-2 mt-2">
+                    <button type="submit" class="btn btn-primary btn-sm rounded-xl" {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
+                        <i class="bi bi-send"></i> Send to client
+                    </button>
+                </div>
+            </form>
+            <div class="flex flex-wrap gap-2 mt-2">
+                <form method="post" action="{% url 'client_followup_prepare' fu.id %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-ghost btn-sm rounded-xl"><i class="bi bi-arrow-repeat"></i> Regenerate</button>
+                </form>
+                <form method="post" action="{% url 'client_followup_skip' fu.id %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-ghost btn-sm rounded-xl"><i class="bi bi-x-circle"></i> Skip</button>
+                </form>
+            </div>
+
+            {% elif fu.state == 'SENT' %}
+            <div class="rounded-lg bg-base-200/40 p-3 text-sm whitespace-pre-wrap">{{ fu.draft_body }}</div>
+
+            {% elif fu.state == 'SKIPPED' %}
+            <p class="text-sm text-base-content/50">This update was skipped.</p>
+
+            {% elif fu.is_due %}
+            <form method="post" action="{% url 'client_followup_prepare' fu.id %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary btn-sm rounded-xl">
+                    <i class="bi bi-magic"></i> Prepare update
+                </button>
+            </form>
+
+            {% else %}
+            <p class="text-sm text-base-content/50">Will be ready to prepare on {{ fu.due_at|date:"M d, Y" }}.</p>
+            {% endif %}
+        </div>
+    {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- Claim Details -->
     <div class="lg:col-span-1 space-y-6">
