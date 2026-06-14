@@ -12,6 +12,7 @@ from apps.payments.frontend_views import (
     dispute_create,
     dispute_detail,
     dispute_pull_from_paypal,
+    dispute_prune_resolved,
     dispute_link_claim,
     dispute_generate_documents,
     dispute_edit_document,
@@ -29,6 +30,7 @@ urlpatterns = [
     path('', dispute_list, name='dispute_list'),
     path('create/', dispute_create, name='dispute_create'),
     path('pull-from-paypal/', dispute_pull_from_paypal, name='dispute_pull_from_paypal'),
+    path('prune-resolved/', dispute_prune_resolved, name='dispute_prune_resolved'),
     path('<int:dispute_id>/', dispute_detail, name='dispute_detail'),
     path('<int:dispute_id>/link-claim/', dispute_link_claim, name='dispute_link_claim'),
 

@@ -216,6 +216,8 @@ def dispute_list(request):
         'zd_subdomain': zd_subdomain,
         # Disputes with no claim attached — surfaced as a "needs linking" banner.
         'unmatched_count': Dispute.objects.filter(claim__isnull=True).count(),
+        # Disputes PayPal has already closed — offered for one-click cleanup.
+        'resolved_count': Dispute.objects.filter(raw_webhook_payload__status='RESOLVED').count(),
     }
 
     return render(request, 'manager/disputes.html', context)
@@ -264,6 +266,25 @@ def dispute_pull_from_paypal(request):
             "“Link to claim” (filter by status “Received”).")
     if failed:
         messages.warning(request, f"{failed} dispute(s) could not be read from PayPal.")
+    return redirect('disputes:dispute_list')
+
+
+@manager_required
+@require_POST
+def dispute_prune_resolved(request):
+    """Delete disputes that PayPal has already RESOLVED/closed — pulled in for
+    completeness but needing no action. Identified by the PayPal status stored in
+    raw_webhook_payload, so ONLY PayPal-pulled disputes are touched (manually
+    created ones have an empty payload and are never matched). Cascades remove
+    their documents/activity log."""
+    resolved = Dispute.objects.filter(raw_webhook_payload__status='RESOLVED')
+    count = resolved.count()
+    if not count:
+        messages.info(request, "No resolved disputes to remove.")
+        return redirect('disputes:dispute_list')
+    resolved.delete()
+    messages.success(
+        request, f"Removed {count} dispute(s) already resolved/closed at PayPal.")
     return redirect('disputes:dispute_list')
 
 

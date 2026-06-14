@@ -70,6 +70,25 @@ class TestListPaypalDisputes(TestCase):
         mock_tok.return_value = None
         self.assertEqual(list_paypal_disputes(), [])
 
+    def test_skips_resolved_disputes_by_default(self, _tok):
+        page = {'items': [
+            {'dispute_id': 'OPEN-1', 'status': 'UNDER_REVIEW', 'dispute_state': 'REQUIRED_ACTION'},
+            {'dispute_id': 'DONE-1', 'status': 'RESOLVED', 'dispute_state': 'RESOLVED'},
+            {'dispute_id': 'DONE-2', 'dispute_state': 'RESOLVED'},
+        ], 'links': []}
+        with patch(f'{SVC}.urllib.request.urlopen', return_value=_FakeResp(page)):
+            ids = list_paypal_disputes()
+        self.assertEqual(ids, ['OPEN-1'])
+
+    def test_include_resolved_returns_all(self, _tok):
+        page = {'items': [
+            {'dispute_id': 'OPEN-1', 'status': 'UNDER_REVIEW'},
+            {'dispute_id': 'DONE-1', 'status': 'RESOLVED'},
+        ], 'links': []}
+        with patch(f'{SVC}.urllib.request.urlopen', return_value=_FakeResp(page)):
+            ids = list_paypal_disputes(include_resolved=True)
+        self.assertEqual(ids, ['OPEN-1', 'DONE-1'])
+
 
 class TestDisputePullView(TestCase):
     URL = '/manager/disputes/pull-from-paypal/'
@@ -168,4 +187,38 @@ class TestDisputeLinkClaimView(TestCase):
         resp = client.post(self._url(d), {'claim_ref': '55501'})
         d.refresh_from_db()
         self.assertIsNone(d.claim_id)
+        self.assertNotEqual(resp.status_code, 200)
+
+
+class TestDisputePruneResolvedView(TestCase):
+    URL = '/manager/disputes/prune-resolved/'
+
+    def setUp(self):
+        SystemSettings.get_instance()
+        self.manager = User.objects.create_user(username='prune_mgr', password='x', role='MANAGER')
+        self.web = Client()
+        self.web.force_login(self.manager)
+
+    def test_deletes_only_paypal_resolved(self):
+        open_d = _dispute(paypal_dispute_id='OPEN-1', raw_webhook_payload={'status': 'UNDER_REVIEW'})
+        resolved_d = _dispute(paypal_dispute_id='DONE-1', raw_webhook_payload={'status': 'RESOLVED'})
+        manual_d = _dispute(paypal_dispute_id='MANUAL-1', raw_webhook_payload={})  # no payload
+        resp = self.web.post(self.URL, follow=True)
+        self.assertTrue(Dispute.objects.filter(pk=open_d.pk).exists())
+        self.assertFalse(Dispute.objects.filter(pk=resolved_d.pk).exists())
+        self.assertTrue(Dispute.objects.filter(pk=manual_d.pk).exists())
+        self.assertContains(resp, 'Removed 1')
+
+    def test_nothing_to_remove(self):
+        _dispute(paypal_dispute_id='OPEN-1', raw_webhook_payload={'status': 'UNDER_REVIEW'})
+        resp = self.web.post(self.URL, follow=True)
+        self.assertContains(resp, 'No resolved disputes')
+
+    def test_non_manager_blocked(self):
+        resolved_d = _dispute(paypal_dispute_id='DONE-1', raw_webhook_payload={'status': 'RESOLVED'})
+        agent = User.objects.create_user(username='prune_agent', password='x', role='AGENT')
+        client = Client()
+        client.force_login(agent)
+        resp = client.post(self.URL)
+        self.assertTrue(Dispute.objects.filter(pk=resolved_d.pk).exists())
         self.assertNotEqual(resp.status_code, 200)

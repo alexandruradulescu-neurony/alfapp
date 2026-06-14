@@ -19,6 +19,15 @@
                 <i class="bi bi-cloud-download"></i> Pull from PayPal
             </button>
         </form>
+        {% if resolved_count %}
+        <form method="post" action="{% url 'disputes:dispute_prune_resolved' %}"
+              onsubmit="return confirm('Delete {{ resolved_count }} dispute(s) already resolved/closed at PayPal? This cannot be undone.');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-error btn-outline rounded-xl">
+                <i class="bi bi-trash"></i> Remove {{ resolved_count }} resolved
+            </button>
+        </form>
+        {% endif %}
         <a href="{% url 'manager_dashboard' %}" class="btn btn-outline rounded-xl">
             <i class="bi bi-arrow-left"></i> Back to Dashboard
         </a>

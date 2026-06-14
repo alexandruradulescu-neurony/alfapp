@@ -244,15 +244,21 @@ def fetch_dispute_details(dispute_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def list_paypal_disputes(page_size: int = 50, max_pages: int = 20) -> List[str]:
+def list_paypal_disputes(page_size: int = 50, max_pages: int = 20,
+                         include_resolved: bool = False) -> List[str]:
     """Return the dispute IDs PayPal currently holds for this account.
 
     Calls GET /v1/customer/disputes (paginated via the `next` HATEOAS link) and
-    collects every dispute_id. Used to BACKFILL disputes that predate the webhook
+    collects each dispute_id. Used to BACKFILL disputes that predate the webhook
     subscription — the webhook only delivers events from when it goes live, so
-    pre-existing disputes must be pulled with this list call. Returns [] on any
-    failure / missing Disputes-API permission; callers treat empty as
-    "nothing to pull or couldn't read".
+    pre-existing disputes must be pulled with this list call.
+
+    PayPal's list returns the last ~180 days, OPEN and CLOSED alike. By default
+    we SKIP already-resolved/closed disputes (status or dispute_state RESOLVED) —
+    they need no action and would only clutter the workbench. Pass
+    include_resolved=True to get everything. Returns [] on any failure / missing
+    Disputes-API permission; callers treat empty as "nothing to pull or couldn't
+    read".
     """
     access_token = get_paypal_access_token()
     if not access_token:
@@ -283,6 +289,11 @@ def list_paypal_disputes(page_size: int = 50, max_pages: int = 20) -> List[str]:
             break
 
         for item in (data.get('items') or []):
+            if not include_resolved:
+                state = (item.get('dispute_state') or '').upper()
+                item_status = (item.get('status') or '').upper()
+                if state == 'RESOLVED' or item_status == 'RESOLVED':
+                    continue  # skip closed/resolved disputes
             did = item.get('dispute_id') or item.get('id')
             if did:
                 dispute_ids.append(str(did))
