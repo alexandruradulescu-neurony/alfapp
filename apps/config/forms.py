@@ -75,9 +75,6 @@ class SystemSettingsForm(forms.ModelForm):
             'client_report_trigger_status',
             'client_report_trigger_status_id',
             'service_length_days',
-            # Advanced — live AI prompts (rendered in the collapsible section)
-            'dispute_response_prompt',
-            'email_analysis_prompt',
         ]
         widgets = {
             # AI Configuration
@@ -85,9 +82,6 @@ class SystemSettingsForm(forms.ModelForm):
             'ai_api_base': forms.TextInput(attrs={'class': 'form-control'}),
             'ai_api_key': forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'off', 'placeholder': '••••••••••••'}),
             'ai_api_model': forms.TextInput(attrs={'class': 'form-control'}),
-            # Text areas for prompts
-            'dispute_response_prompt': forms.Textarea(attrs={'rows': 10, 'class': 'form-control'}),
-            'email_analysis_prompt': forms.Textarea(attrs={'rows': 10, 'class': 'form-control'}),
             # Password fields for sensitive data
             'imap_pass': forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'off', 'placeholder': '••••••••••••'}),
             'zd_token': forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'off', 'placeholder': '••••••••••••'}),

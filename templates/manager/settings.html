@@ -37,8 +37,8 @@
                 <span class="text-xs text-base-content/50 max-w-2xl">Master switch for the timed jobs (client progress updates, inbox sweep). A Railway cron runs them; this is the global off-switch.{% if scheduler_status.last_checked %} Last run {{ scheduler_status.last_checked|date:"M d, H:i" }} UTC.{% endif %}</span>
                 {% if scheduler_status.last_error %}<span class="text-xs text-error/80">{{ scheduler_status.last_error|truncatechars:120 }}</span>{% endif %}
             </span>
-            <input type="checkbox" id="scheduler-enabled" data-service="SCHEDULER" class="toggle toggle-primary"
-                   {% if scheduler_status.is_enabled %}checked{% endif %} onchange="toggleService('SCHEDULER', this.checked)">
+            <input type="checkbox" id="scheduler-enabled" data-service-toggle="SCHEDULER" class="toggle toggle-primary"
+                   {% if scheduler_status.is_enabled %}checked{% endif %}>
         </label>
 
         <!-- Autonomous client updates -->
@@ -47,8 +47,8 @@
                 <span class="font-medium flex items-center gap-2"><i class="bi bi-chat-heart text-base-content/50"></i> Autonomous client updates</span>
                 <span class="text-xs text-base-content/50 max-w-2xl">When ON, the scheduled job drafts <em>and sends</em> due client progress updates as public Zendesk replies. When OFF (default), updates are only scheduled for an agent to review and send. Object-found news is always left for an agent.</span>
             </span>
-            <input type="checkbox" id="client_updates_autosend" class="toggle toggle-warning"
-                   {% if settings.client_updates_autosend %}checked{% endif %} onchange="toggleSettingFlag('client_updates_autosend', this.checked)">
+            <input type="checkbox" id="client_updates_autosend" data-flag-toggle="client_updates_autosend" class="toggle toggle-warning"
+                   {% if settings.client_updates_autosend %}checked{% endif %}>
         </label>
 
         <!-- Automatic inbox sweep -->
@@ -57,8 +57,8 @@
                 <span class="font-medium flex items-center gap-2"><i class="bi bi-envelope-paper text-base-content/50"></i> Automatic inbox sweep</span>
                 <span class="text-xs text-base-content/50 max-w-2xl">When ON, the scheduled job sweeps the shared inbox on a timer and auto-categorises institution replies on live tickets. When OFF (default), email is only checked per-ticket via the manual button. Leave OFF until the AI categorisation is proven.</span>
             </span>
-            <input type="checkbox" id="email_sweep_autorun" class="toggle toggle-warning"
-                   {% if settings.email_sweep_autorun %}checked{% endif %} onchange="toggleSettingFlag('email_sweep_autorun', this.checked)">
+            <input type="checkbox" id="email_sweep_autorun" data-flag-toggle="email_sweep_autorun" class="toggle toggle-warning"
+                   {% if settings.email_sweep_autorun %}checked{% endif %}>
         </label>
     </div>
 </div>
@@ -76,7 +76,7 @@
                 <i class="bi bi-robot text-base-content/60"></i> AI provider
                 <span class="badge badge-sm badge-{{ ai_status.get_status_color }} gap-1">{{ ai_status.get_status_display }}</span>
             </h4>
-            <button type="button" class="btn btn-sm btn-outline rounded-xl" onclick="testService('AI')"><i class="bi bi-activity"></i> Test</button>
+            <button type="button" class="btn btn-sm btn-outline rounded-xl" data-test="AI"><i class="bi bi-activity"></i> Test</button>
         </div>
         {% if ai_status.last_error %}<div class="alert alert-error rounded-xl mb-4 py-2 text-xs"><i class="bi bi-exclamation-triangle"></i>{{ ai_status.last_error|truncatechars:120 }}</div>{% endif %}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -107,7 +107,7 @@
                 <i class="bi bi-envelope text-base-content/60"></i> Email inbox (IMAP)
                 <span class="badge badge-sm badge-{{ imap_status.get_status_color }} gap-1">{{ imap_status.get_status_display }}</span>
             </h4>
-            <button type="button" class="btn btn-sm btn-outline rounded-xl" onclick="testService('IMAP')"><i class="bi bi-activity"></i> Test</button>
+            <button type="button" class="btn btn-sm btn-outline rounded-xl" data-test="IMAP"><i class="bi bi-activity"></i> Test</button>
         </div>
         {% if imap_status.last_error %}<div class="alert alert-error rounded-xl mb-4 py-2 text-xs"><i class="bi bi-exclamation-triangle"></i>{{ imap_status.last_error|truncatechars:120 }}</div>{% endif %}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -144,7 +144,7 @@
                 <i class="bi bi-ticket text-base-content/60"></i> Zendesk
                 <span class="badge badge-sm badge-{{ zd_status.get_status_color }} gap-1">{{ zd_status.get_status_display }}</span>
             </h4>
-            <button type="button" class="btn btn-sm btn-outline rounded-xl" onclick="testService('ZENDESK')"><i class="bi bi-activity"></i> Test</button>
+            <button type="button" class="btn btn-sm btn-outline rounded-xl" data-test="ZENDESK"><i class="bi bi-activity"></i> Test</button>
         </div>
         {% if zd_status.last_error %}<div class="alert alert-error rounded-xl mb-4 py-2 text-xs"><i class="bi bi-exclamation-triangle"></i>{{ zd_status.last_error|truncatechars:120 }}</div>{% endif %}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -171,7 +171,7 @@
                 <i class="bi bi-currency-dollar text-base-content/60"></i> PayPal
                 <span class="badge badge-sm badge-{{ paypal_status.get_status_color }} gap-1">{{ paypal_status.get_status_display }}</span>
             </h4>
-            <button type="button" class="btn btn-sm btn-outline rounded-xl" onclick="testService('PAYPAL')"><i class="bi bi-activity"></i> Test</button>
+            <button type="button" class="btn btn-sm btn-outline rounded-xl" data-test="PAYPAL"><i class="bi bi-activity"></i> Test</button>
         </div>
         {% if paypal_status.last_error %}<div class="alert alert-error rounded-xl mb-4 py-2 text-xs"><i class="bi bi-exclamation-triangle"></i>{{ paypal_status.last_error|truncatechars:120 }}</div>{% endif %}
         <div class="form-control mb-4">
@@ -213,7 +213,7 @@
                 <i class="bi bi-bag-check text-base-content/60"></i> WooCommerce (refunds)
                 {% if settings.woocommerce_consumer_key %}<span class="badge badge-sm badge-success">Configured</span>{% else %}<span class="badge badge-sm badge-neutral">Not set</span>{% endif %}
             </h4>
-            <button type="button" class="btn btn-sm btn-outline rounded-xl" onclick="testService('WOOCOMMERCE')"><i class="bi bi-activity"></i> Test</button>
+            <button type="button" class="btn btn-sm btn-outline rounded-xl" data-test="WOOCOMMERCE"><i class="bi bi-activity"></i> Test</button>
         </div>
         <p class="text-sm text-base-content/60 mb-6">When LORA issues a refund it asks WooCommerce to refund the order through PayPal. Create a Read/Write key under <span class="font-medium text-base-content/80">WooCommerce → Settings → Advanced → REST API</span>.</p>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -256,7 +256,7 @@
                 <i class="bi bi-camera text-base-content/60"></i> Screenshot service
                 <span class="badge badge-sm badge-{{ screenshot_status.get_status_color }} gap-1">{{ screenshot_status.get_status_display }}</span>
             </h4>
-            <button type="button" class="btn btn-sm btn-outline rounded-xl" onclick="testService('SCREENSHOT')"><i class="bi bi-activity"></i> Test</button>
+            <button type="button" class="btn btn-sm btn-outline rounded-xl" data-test="SCREENSHOT"><i class="bi bi-activity"></i> Test</button>
         </div>
         {% if screenshot_status.last_error %}<div class="alert alert-error rounded-xl mb-4 py-2 text-xs"><i class="bi bi-exclamation-triangle"></i>{{ screenshot_status.last_error|truncatechars:120 }}</div>{% endif %}
         <p class="text-sm text-base-content/60 mb-4">Captures Zendesk ticket screenshots via a headless browser. Needs a Zendesk agent login (the subdomain above is reused).</p>
@@ -302,22 +302,6 @@
         </div>
     </div>
 
-    <!-- Advanced: AI prompts -->
-    <details class="card-modern p-6 lg:p-8 mb-6">
-        <summary class="cursor-pointer text-base font-semibold flex items-center gap-2">
-            <i class="bi bi-sliders text-base-content/60"></i> Advanced — AI prompt templates
-        </summary>
-        <p class="text-sm text-base-content/60 mt-3 mb-5">The system prompts used by the email categoriser and the dispute-letter writer. Edit only if you know what you're changing.</p>
-        <div class="form-control mb-5">
-            <label class="label"><span class="label-text font-medium">Email categorisation prompt</span></label>
-            <textarea class="rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full font-mono text-sm p-4" name="email_analysis_prompt" rows="8">{{ settings.email_analysis_prompt }}</textarea>
-        </div>
-        <div class="form-control">
-            <label class="label"><span class="label-text font-medium">Dispute response prompt</span></label>
-            <textarea class="rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full font-mono text-sm p-4" name="dispute_response_prompt" rows="8">{{ settings.dispute_response_prompt }}</textarea>
-        </div>
-    </details>
-
     <!-- Save -->
     <div class="flex justify-end">
         <button type="submit" class="btn btn-primary btn-lg rounded-xl"><i class="bi bi-check-circle"></i> Save settings</button>
@@ -338,9 +322,11 @@
     <div id="serviceToast" class="alert alert-hidden opacity-0 transition-all duration-300">
         <i class="bi bi-bell"></i>
         <span id="toastMessage"></span>
-        <button class="btn btn-sm btn-circle btn-ghost" onclick="hideToast()"><i class="bi bi-x"></i></button>
+        <button type="button" class="btn btn-sm btn-circle btn-ghost" data-toast-close><i class="bi bi-x"></i></button>
     </div>
 </div>
+{% endblock %}
 
+{% block extra_js %}
 <script src="{% static 'js/service-controls.js' %}"></script>
 {% endblock %}
