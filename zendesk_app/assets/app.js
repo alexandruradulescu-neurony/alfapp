@@ -90,7 +90,9 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.getElementById('panel-briefing').hidden = which !== 'briefing';
     document.getElementById('panel-chat').hidden = which !== 'chat';
     document.getElementById('panel-email').hidden = which !== 'email';
+    document.getElementById('panel-updates').hidden = which !== 'updates';
     if (which === 'email') loadEmails();
+    if (which === 'updates') loadUpdates();
   };
 });
 
@@ -428,6 +430,90 @@ async function checkEmail() {
 }
 
 document.getElementById('btn-check-email').onclick = checkEmail;
+
+// --- updates (client progress updates: initial + day-2/5/11/21 follow-ups) ---
+const upList = document.getElementById('updates-list');
+const upLoading = document.getElementById('updates-loading');
+const upEmpty = document.getElementById('updates-empty');
+const upError = document.getElementById('updates-error');
+document.getElementById('updates-retry').onclick = loadUpdates;
+
+function upBadge(it) {
+  if (it.state === 'sent') return '✓ Sent' + (it.sent_at ? ' · ' + timeAgo(it.sent_at) : '');
+  if (it.state === 'drafted') return 'Draft ready' + (it.has_news === false ? ' · no news yet' : '');
+  if (it.state === 'skipped') return 'Skipped';
+  if (it.is_due) return 'Due now';
+  return '';
+}
+
+function upFmtDate(iso) { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(); }
+
+function renderUpdates(data) {
+  upLoading.hidden = true;
+  if (!data || !data.claim || !(data.items || []).length) {
+    upList.hidden = true; upEmpty.hidden = false; upError.hidden = true; return;
+  }
+  upEmpty.hidden = true; upError.hidden = true; upList.hidden = false;
+  let html = '';
+  if (data.message) html += `<div class="info-line" style="margin-bottom:8px">${escapeHtml(data.message)}</div>`;
+  (data.items || []).forEach(it => {
+    const id = it.kind === 'followup' ? it.id : 'initial';
+    html += '<div class="up-card" style="border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-bottom:10px">';
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">`
+      + `<b>${escapeHtml(it.label)}</b><span class="muted" style="font-size:11px">${escapeHtml(upBadge(it))}</span></div>`;
+    if (it.state === 'sent') {
+      html += `<div class="muted" style="white-space:pre-wrap;font-size:12px">${escapeHtml(it.body || '')}</div>`;
+    } else if (it.state === 'skipped') {
+      html += '<div class="muted" style="font-size:12px">This update was skipped.</div>';
+    } else if (it.state === 'drafted') {
+      html += `<textarea class="up-body" data-id="${id}" rows="7" style="width:100%;box-sizing:border-box;font-size:12px">${escapeHtml(it.body || '')}</textarea>`;
+      html += '<div class="actions" style="margin-top:6px">';
+      html += `<button type="button" data-action="send" data-kind="${it.kind}" data-id="${id}"${it.can_send ? '' : ' disabled'}>Send to client</button>`;
+      html += `<button type="button" data-action="prepare" data-kind="${it.kind}" data-id="${id}">Regenerate</button>`;
+      if (it.kind === 'followup') html += `<button type="button" data-action="skip" data-kind="followup" data-id="${id}">Skip</button>`;
+      html += '</div>';
+    } else { // scheduled
+      html += it.is_due
+        ? `<div class="actions"><button type="button" data-action="prepare" data-kind="followup" data-id="${id}">Prepare update</button></div>`
+        : `<div class="muted" style="font-size:12px">Scheduled for ${escapeHtml(upFmtDate(it.due_at))}.</div>`;
+    }
+    html += '</div>';
+  });
+  upList.innerHTML = html;
+}
+
+async function loadUpdates() {
+  upLoading.hidden = false; upList.hidden = true; upEmpty.hidden = true; upError.hidden = true;
+  try {
+    const ctx = await ticketContext();
+    renderUpdates(await loraRequest('/api/integrations/zd/updates/', { ticket_id: ctx.ticket_id }));
+  } catch (e) {
+    upLoading.hidden = true; upError.hidden = false;
+    document.getElementById('updates-error-detail').textContent = diagnose(e);
+  }
+}
+
+upList.addEventListener('click', async ev => {
+  const btn = ev.target.closest('button[data-action]');
+  if (!btn) return;
+  const action = btn.dataset.action, kind = btn.dataset.kind, id = btn.dataset.id;
+  let body = '';
+  if (action === 'send') {
+    const ta = upList.querySelector('textarea.up-body[data-id="' + id + '"]');
+    body = ta ? ta.value : '';
+  }
+  btn.disabled = true;
+  try {
+    const ctx = await ticketContext();
+    const payload = { ticket_id: ctx.ticket_id, action: action, kind: kind };
+    if (kind === 'followup') payload.id = Number(id);
+    if (action === 'send') payload.body = body;
+    renderUpdates(await loraRequest('/api/integrations/zd/updates/', payload));
+  } catch (e) {
+    btn.disabled = false; upError.hidden = false;
+    document.getElementById('updates-error-detail').textContent = diagnose(e);
+  }
+});
 
 // init
 loadBriefing(false);

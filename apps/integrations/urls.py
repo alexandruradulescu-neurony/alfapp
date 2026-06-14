@@ -9,6 +9,7 @@ from apps.integrations.views import (
     ZendeskFlightLookupView,
     ZendeskEmailCheckView,
     ZendeskTicketEmailsView,
+    ZendeskClientUpdatesView,
     RefundWebhookView,
     ZendeskClaimWebhookView,
 )
@@ -22,6 +23,7 @@ urlpatterns = [
     path('zd/flight-lookup/', ZendeskFlightLookupView.as_view(), name='zendesk-flight-lookup'),
     path('zd/email-check/', ZendeskEmailCheckView.as_view(), name='zendesk-email-check'),
     path('zd/emails/', ZendeskTicketEmailsView.as_view(), name='zendesk-ticket-emails'),
+    path('zd/updates/', ZendeskClientUpdatesView.as_view(), name='zendesk-client-updates'),
     path('zd/refund-webhook/', RefundWebhookView.as_view(), name='zendesk-refund-webhook'),
     path('zd/claim-webhook/', ZendeskClaimWebhookView.as_view(), name='zendesk-claim-webhook'),
 ]

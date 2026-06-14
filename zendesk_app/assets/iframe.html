@@ -10,6 +10,7 @@
     <button id="tab-briefing" class="tab active" data-tab="briefing">Briefing</button>
     <button id="tab-chat" class="tab" data-tab="chat">Chat</button>
     <button id="tab-email" class="tab" data-tab="email">Email</button>
+    <button id="tab-updates" class="tab" data-tab="updates">Updates</button>
   </div>
 
   <section id="panel-briefing" class="panel">
@@ -66,6 +67,22 @@
       </button>
     </div>
     <div id="email-result" hidden></div>
+  </section>
+
+  <section id="panel-updates" class="panel" hidden>
+    <p class="muted">Client progress updates — the initial "what we did" message and the
+      day-2/5/11/21 follow-ups. Prepare a due one (LORA reads the latest office replies and
+      drafts it), review, then send as a public reply. Nothing is sent without you.</p>
+    <div id="updates-loading">
+      <div class="skel" style="width: 90%"></div>
+      <div class="skel" style="width: 70%"></div>
+    </div>
+    <div id="updates-list" hidden></div>
+    <div id="updates-empty" class="muted" hidden>No linked LORA claim, or no updates scheduled for this ticket yet.</div>
+    <div id="updates-error" class="error" hidden>
+      Couldn't load updates. <button id="updates-retry" type="button">Retry</button>
+      <div id="updates-error-detail" class="muted"></div>
+    </div>
   </section>
 
   <section id="panel-chat" class="panel" hidden>
