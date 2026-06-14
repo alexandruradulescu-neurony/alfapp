@@ -22,6 +22,28 @@
     </div>
 </div>
 
+<!-- Manual backlog pull: import existing Zendesk claims into LORA by ticket id -->
+<details class="card-modern p-4 mb-6">
+    <summary class="cursor-pointer font-medium flex items-center gap-2 select-none">
+        <i class="bi bi-download text-base-content/60"></i> Import claims from Zendesk
+    </summary>
+    <form method="post" action="{% url 'manager_claims_import' %}" class="mt-4 flex flex-col gap-3">
+        {% csrf_token %}
+        <p class="text-xs text-base-content/60 max-w-3xl">
+            Paste Zendesk ticket IDs — any separators (commas, spaces, new lines, or pasted ticket links).
+            LORA pulls each <em>existing</em> claim in from Zendesk; it never creates a new one, and skips
+            tickets that aren't claim-form tickets. Up to 100 at a time.
+        </p>
+        <textarea name="ticket_ids" rows="3" class="input-modern w-full font-mono text-sm"
+                  placeholder="e.g. 53973, 54012, 54110"></textarea>
+        <div>
+            <button type="submit" class="btn btn-primary btn-sm rounded-xl">
+                <i class="bi bi-download"></i> Pull into LORA
+            </button>
+        </div>
+    </form>
+</details>
+
 <!-- The state of the book, at a glance -->
 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 animate-fade-in">
     <div class="card-modern p-4 flex items-center gap-3">

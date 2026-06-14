@@ -30,6 +30,7 @@ from django.utils.text import get_valid_filename
 from django.views.generic import CreateView, UpdateView
 from django.urls import reverse_lazy
 from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.http import require_POST
 
 from apps.users.decorators import login_redirect, agent_required, manager_required
 from django.db import transaction
@@ -868,6 +869,60 @@ def manager_claims(request):
     }
 
     return render(request, 'manager/claims.html', context)
+
+
+@manager_required
+@require_POST
+def manager_claims_import(request):
+    """Bulk-import EXISTING Zendesk claims into LORA by ticket id.
+
+    Manual backlog pull: the manager pastes Zendesk ticket ids (any separators)
+    and each one is copied in from Zendesk via import_claim_from_zendesk_ticket
+    — the same path the email match uses. It only copies claims that already
+    exist in Zendesk; it never fabricates one, and skips tickets that aren't
+    claim-form tickets. Results are summarised via flash messages.
+    """
+    import re
+    from apps.integrations.services import import_claim_from_zendesk_ticket
+
+    raw = request.POST.get('ticket_ids', '') or ''
+    # Extract every run of digits — tolerant of commas, spaces, newlines, '#',
+    # and pasted ticket URLs (which carry the id as their only number).
+    ticket_ids = list(dict.fromkeys(re.findall(r'\d+', raw)))  # dedupe, keep order
+    if not ticket_ids:
+        messages.warning(request, 'No Zendesk ticket IDs found to import.')
+        return redirect('manager_claims')
+    CAP = 100
+    if len(ticket_ids) > CAP:
+        messages.warning(
+            request, f'Received {len(ticket_ids)} IDs; importing the first {CAP} only.')
+        ticket_ids = ticket_ids[:CAP]
+
+    imported, existed, skipped = [], [], []
+    for tid in ticket_ids:
+        try:
+            claim, created = import_claim_from_zendesk_ticket(tid)
+        except Exception as e:  # one bad ticket must not abort the batch
+            logger.error(f"Manual claim import failed for ticket {tid}: {e}", exc_info=True)
+            skipped.append(f'{tid} (error)')
+            continue
+        if claim is None:
+            skipped.append(f'{tid} (not a claim form ticket / unreachable)')
+        elif created:
+            imported.append(claim.alf_claim_id or tid)
+        else:
+            existed.append(claim.alf_claim_id or tid)
+
+    if imported:
+        messages.success(
+            request, f"Imported {len(imported)} claim(s) from Zendesk: {', '.join(imported)}.")
+    if existed:
+        messages.info(
+            request, f"{len(existed)} already in LORA: {', '.join(existed)}.")
+    if skipped:
+        messages.warning(
+            request, f"{len(skipped)} skipped: {', '.join(skipped)}.")
+    return redirect('manager_claims')
 
 
 @manager_required

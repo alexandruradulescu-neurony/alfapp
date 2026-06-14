@@ -28,6 +28,7 @@ urlpatterns = [
     # Manager views
     path('manager/', views.manager_dashboard, name='manager_dashboard'),
     path('manager/claims/', views.manager_claims, name='manager_claims'),
+    path('manager/claims/import/', views.manager_claims_import, name='manager_claims_import'),
     path('manager/claims/<int:claim_id>/assign/', views.agent_assign_claim, name='agent_assign_claim'),
     path('manager/settings/', views.manager_settings, name='manager_settings'),
     path('manager/users/', views.manager_users, name='manager_users'),
