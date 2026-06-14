@@ -683,6 +683,33 @@ def _attachment_data_uri(content_type: str, content_url: str) -> Optional[str]:
     return f"data:{content_type};base64,{base64.b64encode(data).decode('utf-8')}"
 
 
+def _inline_image_data_uri(url: str) -> Optional[str]:
+    """Embed an image pasted INLINE into a Zendesk comment body (markdown
+    ``![](url)``) as a data URI.
+
+    SECURITY: only fetch from our own Zendesk subdomain. fetch_zendesk_attachment_bytes
+    attaches our Zendesk auth headers, so a foreign URL pasted into a comment must
+    never be requested (it would leak the token). Returns None on a non-matching
+    host or any failure; mime is inferred from the URL.
+    """
+    if not url:
+        return None
+    from urllib.parse import urlparse
+    from apps.config.models import SystemSettings
+    sub = (SystemSettings.get_instance().zd_subdomain or '').strip().lower()
+    host = (urlparse(url).hostname or '').lower()
+    if not sub or host != f'{sub}.zendesk.com':
+        return None
+    from apps.integrations.services import fetch_zendesk_attachment_bytes
+    data = fetch_zendesk_attachment_bytes(url)
+    if not data:
+        return None
+    lower = url.lower()
+    mime = ('image/png' if '.png' in lower else 'image/gif' if '.gif' in lower
+            else 'image/webp' if '.webp' in lower else 'image/jpeg')
+    return f"data:{mime};base64,{base64.b64encode(data).decode('utf-8')}"
+
+
 def _zendesk_comment_panels(comments: list, embed_images: bool = True,
                             max_images: int = 14) -> list:
     """Turn Zendesk comments into 'simulated screenshot' panels: author,
@@ -699,6 +726,16 @@ def _zendesk_comment_panels(comments: list, embed_images: bool = True,
                 uri = _attachment_data_uri(att.get('content_type', ''), att.get('content_url', ''))
                 if uri:
                     images.append({'data_uri': uri, 'file_name': att.get('file_name', '')})
+                    embedded += 1
+            # Images pasted INLINE in the comment body (Zendesk markdown ![](url))
+            # don't appear in `attachments` — embed them too, then the text-clean
+            # step strips the leftover markdown.
+            for url in _MD_IMAGE_RE.findall(c.get('body', '') or ''):
+                if embedded >= max_images:
+                    break
+                uri = _inline_image_data_uri(url)
+                if uri:
+                    images.append({'data_uri': uri, 'file_name': ''})
                     embedded += 1
         author = c.get('author', {}) or {}
         public = c.get('public', False)
@@ -722,6 +759,9 @@ def _zendesk_comment_panels(comments: list, embed_images: bool = True,
 _AI_TRAILER_RE = re.compile(r'\*{0,2}\s*AI Analysis', re.IGNORECASE)
 _HR_LINE_RE = re.compile(r'(?m)^\s*-{3,}\s*$')
 _ENVELOPE_RE = re.compile(r'[\U0001F4E7\U0001F4E8\U0001F4E9✉️]')
+# Markdown image: ![alt](url). Group 1 is the URL. Inline images are embedded as
+# real pictures by _zendesk_comment_panels, so the raw markdown is stripped here.
+_MD_IMAGE_RE = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
 
 
 def _clean_comment_body(body: str) -> str:
@@ -730,6 +770,7 @@ def _clean_comment_body(body: str) -> str:
     if not body:
         return ''
     text = _AI_TRAILER_RE.split(body, maxsplit=1)[0]
+    text = _MD_IMAGE_RE.sub('', text)  # inline images are embedded separately
     text = text.replace('**', '').replace('__', '')
     text = _HR_LINE_RE.sub('', text)
     text = _ENVELOPE_RE.sub('', text)

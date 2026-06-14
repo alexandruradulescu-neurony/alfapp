@@ -10,6 +10,7 @@ from django.test import TestCase
 
 from apps.claims.models import Claim
 from apps.communications.models import EmailLog
+from apps.config.models import SystemSettings
 from apps.payments.models import Dispute
 from apps.payments import document_service as ds
 from apps.payments import frontend_views
@@ -182,6 +183,41 @@ class CommentCleanupTests(TestCase):
         self.assertNotIn('OBJECT_NOT_FOUND', clean)
         self.assertNotIn('**', clean)
         self.assertNotIn('---', clean)
+
+    def test_strips_inline_image_markdown(self):
+        body = 'DELTA\n![](https://airportlf.zendesk.com/attachments/token/abc/?name=image.png)'
+        clean = ds._clean_comment_body(body)
+        self.assertEqual(clean, 'DELTA')
+        self.assertNotIn('![](', clean)
+        self.assertNotIn('attachments/token', clean)
+
+    def test_embeds_inline_body_image_and_strips_text(self):
+        ss = SystemSettings.get_instance()
+        ss.zd_subdomain = 'airportlf'
+        ss.save()
+        comments = [{
+            'author': {'name': 'Mark'}, 'public': False, 'attachments': [],
+            'body': 'DELTA\n![](https://airportlf.zendesk.com/attachments/token/abc/?name=image.png)',
+        }]
+        with patch('apps.integrations.services.fetch_zendesk_attachment_bytes',
+                   return_value=b'PNGBYTES'):
+            panels = ds._zendesk_comment_panels(comments)
+        self.assertEqual(len(panels[0]['images']), 1)
+        self.assertTrue(panels[0]['images'][0]['data_uri'].startswith('data:image/png;base64,'))
+        self.assertEqual(panels[0]['body'], 'DELTA')  # raw markdown stripped from text
+
+    def test_inline_image_only_fetches_our_zendesk_host(self):
+        ss = SystemSettings.get_instance()
+        ss.zd_subdomain = 'airportlf'
+        ss.save()
+        with patch('apps.integrations.services.fetch_zendesk_attachment_bytes') as fetch:
+            # Foreign host and a different Zendesk subdomain must never be fetched
+            # (fetch_zendesk_attachment_bytes attaches our auth headers).
+            self.assertIsNone(ds._inline_image_data_uri(
+                'https://evil.com/attachments/token/x/?name=image.png'))
+            self.assertIsNone(ds._inline_image_data_uri(
+                'https://other.zendesk.com/attachments/token/x/?name=image.png'))
+        fetch.assert_not_called()
 
     def test_time_format(self):
         self.assertEqual(ds._fmt_zd_time('2026-02-03T21:14:00Z'), 'Feb 03, 2026 21:14')
