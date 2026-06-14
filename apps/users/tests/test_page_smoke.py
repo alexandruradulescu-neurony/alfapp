@@ -38,6 +38,15 @@ class ManagerPageSmokeTests(TestCase):
     def test_claim_detail_renders(self):
         self._get_ok('agent_claim_detail', self.claim.id)
 
+    def test_secondary_pages_render(self):
+        # chat + test_ai render under the main shell as a manager
+        self._get_ok('agent:agent-chat')
+        self._get_ok('test_ai')
+        # login renders for an unauthenticated visitor (its own auth shell)
+        anon = Client()
+        resp = anon.get(reverse('login'))
+        self.assertEqual(resp.status_code, 200, f"login returned {resp.status_code}")
+
     def test_dispute_detail_renders(self):
         dispute = Dispute.objects.create(
             paypal_dispute_id='PP-SMOKE-1', claim=self.claim, zd_ticket_id='97001',

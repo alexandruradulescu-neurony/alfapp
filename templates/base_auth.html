@@ -17,8 +17,10 @@
 
     {% block extra_css %}{% endblock %}
 </head>
-<body class="h-full mesh-bg font-[Inter]">
-    {% block content %}{% endblock %}
+<body class="h-full mesh-bg bg-base-200 text-base-content antialiased font-[Inter]">
+    <main class="min-h-full">
+        {% block content %}{% endblock %}
+    </main>
 
     {% block extra_js %}{% endblock %}
 </body>

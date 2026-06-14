@@ -4,57 +4,62 @@
 
 {% block content %}
 <div class="min-h-full flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-    <div class="text-center max-w-lg animate-fade-in">
-        <!-- Error Icon -->
-        <div class="mx-auto h-28 w-28 bg-error/10 rounded-full flex items-center justify-center mb-8">
-            <i class="bi bi-x-octagon text-5xl text-error"></i>
-        </div>
-
-        <!-- Error Message -->
-        <p class="text-6xl font-bold text-base-content/10 mb-2">500</p>
-        <h1 class="text-2xl font-semibold tracking-tight text-base-content mb-3">Something went wrong</h1>
-        <p class="text-base-content/60 mb-8 leading-relaxed">
-            We ran into an unexpected issue on our end. Please try again in a moment.
-        </p>
-
-        <!-- Help Steps -->
-        <div class="card-modern rounded-2xl p-6 mb-8 text-left">
-            <div class="flex items-start gap-3 mb-4">
-                <div class="h-8 w-8 bg-warning/10 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
-                    <i class="bi bi-lightbulb text-warning"></i>
-                </div>
-                <p class="text-sm font-semibold text-base-content">Things you can try</p>
+    <div class="w-full max-w-lg animate-fade-in">
+        <div class="card-modern rounded-2xl p-8 sm:p-10 text-center">
+            <!-- Error Icon -->
+            <div class="mx-auto h-16 w-16 bg-error/10 rounded-2xl flex items-center justify-center mb-6">
+                <i class="bi bi-x-octagon text-3xl text-error"></i>
             </div>
-            <ul class="space-y-3 text-sm text-base-content/60 ml-11">
-                <li class="flex items-center gap-2">
-                    <i class="bi bi-arrow-clockwise text-base-content/40"></i>
-                    Refresh the page
-                </li>
-                <li class="flex items-center gap-2">
-                    <i class="bi bi-arrow-left text-base-content/40"></i>
-                    Go back to the previous page
-                </li>
-                <li class="flex items-center gap-2">
-                    <i class="bi bi-envelope text-base-content/40"></i>
-                    Contact support if the problem persists
-                </li>
-            </ul>
-        </div>
 
-        <!-- Action Buttons -->
-        <div class="flex flex-col sm:flex-row gap-3 justify-center">
-            {% if user.is_authenticated %}
-                <a href="{% url 'dashboard' %}" class="btn btn-primary rounded-xl transition-all duration-200 hover:scale-[1.02]">
-                    <i class="bi bi-house mr-1"></i> Go to Dashboard
-                </a>
-            {% else %}
-                <a href="{% url 'login' %}" class="btn btn-primary rounded-xl transition-all duration-200 hover:scale-[1.02]">
-                    <i class="bi bi-box-arrow-in-right mr-1"></i> Go to Login
-                </a>
-            {% endif %}
-            <button onclick="history.back()" class="btn btn-ghost rounded-xl transition-all duration-200 hover:scale-[1.02]">
-                <i class="bi bi-arrow-left mr-1"></i> Go back
-            </button>
+            <!-- Error Message -->
+            <span class="badge badge-soft-error rounded-full mb-4">Error 500</span>
+            <h2 class="text-2xl font-semibold tracking-tight text-base-content mb-2">Something went wrong</h2>
+            <p class="text-base-content/60 leading-relaxed max-w-sm mx-auto">
+                We ran into an unexpected issue on our end. Please try again in a moment.
+            </p>
+
+            <div class="divider my-8"></div>
+
+            <!-- Help Steps -->
+            <div class="text-left">
+                <p class="text-lg font-semibold text-base-content mb-4">Things you can try</p>
+                <ul class="space-y-3">
+                    <li class="flex items-center gap-3 text-sm text-base-content/70">
+                        <span class="h-8 w-8 rounded-lg bg-base-200 flex items-center justify-center shrink-0">
+                            <i class="bi bi-arrow-clockwise text-base-content/60"></i>
+                        </span>
+                        Refresh the page
+                    </li>
+                    <li class="flex items-center gap-3 text-sm text-base-content/70">
+                        <span class="h-8 w-8 rounded-lg bg-base-200 flex items-center justify-center shrink-0">
+                            <i class="bi bi-arrow-left text-base-content/60"></i>
+                        </span>
+                        Go back to the previous page
+                    </li>
+                    <li class="flex items-center gap-3 text-sm text-base-content/70">
+                        <span class="h-8 w-8 rounded-lg bg-base-200 flex items-center justify-center shrink-0">
+                            <i class="bi bi-envelope text-base-content/60"></i>
+                        </span>
+                        Contact support if the problem persists
+                    </li>
+                </ul>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex flex-col sm:flex-row gap-3 justify-center mt-8">
+                {% if user.is_authenticated %}
+                    <a href="{% url 'dashboard' %}" class="btn btn-primary rounded-xl">
+                        <i class="bi bi-house mr-1"></i> Go to Dashboard
+                    </a>
+                {% else %}
+                    <a href="{% url 'login' %}" class="btn btn-primary rounded-xl">
+                        <i class="bi bi-box-arrow-in-right mr-1"></i> Go to Login
+                    </a>
+                {% endif %}
+                <button onclick="history.back()" class="btn btn-outline rounded-xl">
+                    <i class="bi bi-arrow-left mr-1"></i> Go back
+                </button>
+            </div>
         </div>
     </div>
 </div>

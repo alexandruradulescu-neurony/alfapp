@@ -7,15 +7,15 @@
   <div class="w-full max-w-md animate-fade-in">
     <!-- Logo and Title -->
     <div class="text-center mb-8">
-      <div class="mx-auto h-16 w-16 bg-primary/10 rounded-xl flex items-center justify-center">
-        <i class="bi bi-box-seam text-3xl text-primary"></i>
+      <div class="mx-auto h-14 w-14 bg-primary/10 rounded-xl flex items-center justify-center">
+        <i class="bi bi-box-seam text-2xl text-primary"></i>
       </div>
-      <h2 class="mt-5 text-3xl font-bold tracking-tight text-base-content">Lora</h2>
-      <p class="mt-2 text-sm text-base-content/60">Lost Object Recovery Automation</p>
+      <h2 class="mt-5 text-2xl font-semibold tracking-tight text-base-content">Lora</h2>
+      <p class="mt-1.5 text-sm text-base-content/60">Lost Object Recovery Automation</p>
     </div>
 
     <!-- Login Form Card -->
-    <div class="glass-panel rounded-3xl p-8 sm:p-10">
+    <div class="card-modern p-8 sm:p-10">
       <form method="post" action="{% url 'login' %}" class="space-y-6">
         {% csrf_token %}
 
@@ -30,7 +30,7 @@
         {% endif %}
 
         <!-- Username Field -->
-        <div class="space-y-2">
+        <div class="space-y-1.5">
           <label class="text-sm font-medium text-base-content">Username</label>
           <div class="relative">
             <i class="bi bi-person absolute left-4 top-1/2 -translate-y-1/2 text-base-content/40"></i>
@@ -47,7 +47,7 @@
         </div>
 
         <!-- Password Field -->
-        <div class="space-y-2">
+        <div class="space-y-1.5">
           <label class="text-sm font-medium text-base-content">Password</label>
           <div class="relative">
             <i class="bi bi-lock absolute left-4 top-1/2 -translate-y-1/2 text-base-content/40"></i>
@@ -64,7 +64,7 @@
 
         <!-- Submit Button -->
         <div class="pt-2">
-          <button type="submit" class="btn btn-primary w-full rounded-xl transition-all duration-200 hover:scale-[1.02]">
+          <button type="submit" class="btn btn-primary w-full rounded-xl">
             <i class="bi bi-box-arrow-in-right mr-2"></i>
             Sign in
           </button>
