@@ -320,18 +320,6 @@ Please analyze this claim and provide:
         help_text='Zendesk custom field ID storing the email alias'
     )
 
-    # Zendesk Browser Authentication (ENCRYPTED - for screenshot capture)
-    zd_agent_email = models.CharField(
-        max_length=255,
-        blank=True,
-        help_text='Zendesk agent email for browser authentication (encrypted)'
-    )
-    zd_agent_password = EncryptedCharField(
-        max_length=255,
-        blank=True,
-        help_text='Zendesk agent password for browser authentication (encrypted at rest)'
-    )
-
     # AI Prompt Templates
     dispute_response_prompt = models.TextField(
         default="""You are drafting a professional response letter for a PayPal dispute.

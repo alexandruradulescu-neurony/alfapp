@@ -87,8 +87,6 @@ def configured_system_settings():
     settings.ai_api_base = "https://api.test.com/v1"
     settings.ai_api_model = "test-model"
     settings.zd_subdomain = "testcompany"
-    settings.zd_agent_email = "agent@testcompany.com"
-    settings.zd_agent_password = "agent_password"
     settings.zd_email = "support@testcompany.com"
     settings.zd_token = "test_token"
     settings.dispute_response_prompt = "You are a dispute resolution assistant. Generate a formal response."
