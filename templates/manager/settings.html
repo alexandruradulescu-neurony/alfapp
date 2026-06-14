@@ -425,11 +425,11 @@
         </div>
     </div>
 
-    <!-- Email Scheduler -->
+    <!-- Scheduled Jobs (Railway cron) -->
     <div class="card-modern p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
             <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-                <i class="bi bi-clock-history text-base-content/60"></i> Email Scheduler
+                <i class="bi bi-clock-history text-base-content/60"></i> Scheduled Jobs
             </h3>
             <div class="flex items-center gap-3">
                 <div class="badge badge-{{ scheduler_status.get_status_color }} gap-1">
@@ -443,16 +443,8 @@
                            data-service="SCHEDULER"
                            class="toggle toggle-sm toggle-error"
                            {% if scheduler_status.is_enabled %}checked{% endif %}
-                           onchange="toggleSchedulerEnabled(this.checked)" />
+                           onchange="toggleService('SCHEDULER', this.checked)" />
                 </label>
-                <div class="join">
-                    <button type="button" class="btn btn-xs btn-success join-item" onclick="controlScheduler('start')" title="Start">
-                        <i class="bi bi-play-fill"></i>
-                    </button>
-                    <button type="button" class="btn btn-xs btn-error join-item" onclick="controlScheduler('stop')" title="Stop">
-                        <i class="bi bi-stop-fill"></i>
-                    </button>
-                </div>
             </div>
         </div>
         {% if scheduler_status.last_error %}
@@ -463,7 +455,9 @@
         {% endif %}
         <p class="text-sm text-base-content/60 flex items-center gap-2">
             <i class="bi bi-info-circle"></i>
-            Automatically processes incoming emails every 3 minutes when running.
+            Master switch for all scheduled jobs (e.g. client progress updates). A Railway cron
+            job runs them on a timer; this toggle is the global off-switch. The status shows when
+            the cron last reported in{% if scheduler_status.last_checked %} — last run {{ scheduler_status.last_checked|date:"M d, H:i" }} UTC{% endif %}.
         </p>
     </div>
 

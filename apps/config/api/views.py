@@ -7,7 +7,6 @@ from apps.config.models import ServiceStatus
 from apps.config.api.serializers import (
     ServiceStatusSerializer,
     ServiceTestResultSerializer,
-    SchedulerInfoSerializer,
     ToggleSerializer
 )
 from apps.config.services.connection_tester import ConnectionTester
@@ -92,43 +91,3 @@ def toggle_service(request, service):
         'is_enabled': status_obj.is_enabled,
         'message': f'Service {service} {"enabled" if status_obj.is_enabled else "disabled"}'
     })
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def scheduler_start(request):
-    """Start the email scheduler."""
-    controller = SchedulerController()
-    result = controller.start()
-    return Response(result)
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def scheduler_stop(request):
-    """Stop the email scheduler."""
-    controller = SchedulerController()
-    result = controller.stop()
-    return Response(result)
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def scheduler_toggle(request):
-    """Toggle scheduler enabled state."""
-    serializer = ToggleSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
-    
-    controller = SchedulerController()
-    result = controller.toggle_enabled(serializer.validated_data['enabled'])
-    return Response(result)
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def scheduler_info(request):
-    """Get scheduler information."""
-    controller = SchedulerController()
-    result = controller.get_info()
-    serializer = SchedulerInfoSerializer(result)
-    return Response(serializer.data)

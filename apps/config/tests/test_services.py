@@ -7,9 +7,9 @@ Tests cover:
 
 Tests mock all external API calls (no real HTTP requests).
 
-Note: SchedulerController tests are excluded because the underlying code has an 
-import bug - it tries to import get_scheduler from apps.communications.tasks, 
-but that function is not exported from that module.
+Note: SchedulerController is now just the master enable/disable switch for the
+Railway cron dispatcher (run_scheduled_jobs) — start/stop/get_info were removed
+along with the dead APScheduler layer, so only toggle_enabled is tested here.
 """
 
 import pytest

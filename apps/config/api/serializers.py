@@ -34,17 +34,6 @@ class ServiceTestResultSerializer(serializers.Serializer):
     service = serializers.CharField(required=False)
 
 
-class SchedulerInfoSerializer(serializers.Serializer):
-    """Serializer for scheduler information."""
-    
-    success = serializers.BooleanField()
-    running = serializers.BooleanField()
-    enabled = serializers.BooleanField()
-    status = serializers.CharField()
-    jobs = serializers.ListField(child=serializers.DictField())
-    message = serializers.CharField(required=False)
-
-
 class ToggleSerializer(serializers.Serializer):
     """Serializer for toggle requests."""
     

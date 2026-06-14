@@ -9,10 +9,10 @@
 # - DATABASE_URL points at the platform's managed Postgres add-on.
 # - Migrations run on container start; safe across deploy retries because
 #   Django migrations are idempotent.
-# - The single gunicorn process runs both web requests AND the APScheduler
-#   that polls IMAP every 3 minutes. Do NOT scale to >1 replica without
-#   also moving the scheduler to a dedicated worker process (otherwise
-#   you'll fetch emails 2x).
+# - This image serves WEB requests only (gunicorn). Scheduled work runs from a
+#   SEPARATE Railway cron service using the same image with start command
+#   `python manage.py run_scheduled_jobs` — never an in-process scheduler here
+#   (multiple gunicorn workers/replicas would each fire it).
 
 FROM python:3.13-slim AS base
 

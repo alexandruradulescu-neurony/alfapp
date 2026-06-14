@@ -17,8 +17,8 @@ django-auditlog==3.4.1
 psycopg2-binary==2.9.12
 
 # ----- Background scheduling -----
-django-apscheduler==0.7.0
-APScheduler==3.11.2
+# Scheduled jobs run from a Railway cron job: `python manage.py run_scheduled_jobs`.
+# No in-process scheduler library — see apps/core/management/commands/run_scheduled_jobs.py.
 
 # ----- AI / LLM -----
 openai==2.40.0

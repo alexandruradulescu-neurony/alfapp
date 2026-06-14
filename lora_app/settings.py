@@ -53,7 +53,6 @@ INSTALLED_APPS = [
     # Third-party apps
     'rest_framework',
     'django_filters',
-    'django_apscheduler',
     'auditlog',
     'csp',
     # Local apps
@@ -203,10 +202,8 @@ REST_FRAMEWORK = {
     },
 }
 
-# APScheduler Settings
-APSCHEDULER_DATETIME_FORMAT = env('APSCHEDULER_DATETIME_FORMAT', default='N j, Y, f:s a')
-APSCHEDULER_RUN_NOW_TIMEOUT = env.int('APSCHEDULER_RUN_NOW_TIMEOUT', default=25)
-APSCHEDULER_DEFAULT_TIMEZONE = env('TIME_ZONE', default='UTC')
+# Scheduled jobs run via a Railway cron job: `python manage.py run_scheduled_jobs`
+# (apps/core/management/commands). No in-process scheduler — see that command.
 
 # AI API Configuration (DeepSeek, Qwen, or other OpenAI-compatible providers)
 # Note: Runtime configuration is done via SystemSettings model

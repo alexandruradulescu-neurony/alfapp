@@ -1,0 +1,95 @@
+"""The single entry point for ALL of LORA's scheduled background work.
+
+Run this from one Railway scheduled (cron) job — e.g. every 10 minutes:
+
+    python manage.py run_scheduled_jobs
+
+It dispatches each registered job in turn (a failure in one never stops the
+others), then records a heartbeat on ServiceStatus('SCHEDULER') so the Settings
+page can show that the cron is alive and when it last ran. To add a future job,
+append one entry to JOBS below — nothing else changes.
+
+Two independent switches guard it:
+  - the MASTER kill-switch: ServiceStatus('SCHEDULER').is_enabled (toggled on the
+    Settings page). Off → this command is a no-op.
+  - each job's OWN flag (e.g. client updates only send when
+    SystemSettings.client_updates_autosend is on). The dispatcher just calls the
+    job; the job decides whether it actually does anything.
+
+Do NOT run an in-process scheduler inside gunicorn — two workers would mean two
+schedulers. This command + a Railway cron is the supported topology.
+"""
+
+from django.core.management.base import BaseCommand
+from django.utils import timezone
+
+SCHEDULER_SERVICE = 'SCHEDULER'
+
+
+def _job_client_updates():
+    """Send any due client progress updates (no-op unless autosend is on)."""
+    from apps.communications.client_updates import run_due_updates
+    return run_due_updates()
+
+
+# (name, callable) — the callable runs the job and returns a small summary dict.
+# Add future periodic jobs here. The email sweep stays button-driven for now
+# (see project_email_system); when it's ready, add ('email_sweep', _job_email_sweep).
+JOBS = [
+    ('client_updates', _job_client_updates),
+]
+
+
+class Command(BaseCommand):
+    help = "Run all due scheduled jobs (gated by the master Scheduler switch)."
+
+    def add_arguments(self, parser):
+        parser.add_argument('--dry-run', action='store_true',
+                            help="List the registered jobs without running any.")
+        parser.add_argument('--job', metavar='NAME',
+                            help="Run only the named job (still respects the master switch).")
+
+    def handle(self, *args, **options):
+        from apps.config.models import ServiceStatus
+
+        jobs = JOBS
+        if options.get('job'):
+            jobs = [j for j in JOBS if j[0] == options['job']]
+            if not jobs:
+                self.stderr.write(self.style.ERROR(
+                    f"Unknown job '{options['job']}'. Known: {', '.join(n for n, _ in JOBS)}"))
+                return
+
+        if options['dry_run']:
+            self.stdout.write(f"{len(jobs)} registered job(s): "
+                              f"{', '.join(n for n, _ in jobs)} (dry-run, nothing executed).")
+            return
+
+        status, _ = ServiceStatus.objects.get_or_create(
+            service=SCHEDULER_SERVICE, defaults={'status': 'stopped', 'is_enabled': True})
+        if not status.is_enabled:
+            self.stdout.write(self.style.WARNING(
+                "Scheduler is disabled (master switch off) — nothing run."))
+            status.status = 'stopped'
+            status.last_checked = timezone.now()
+            status.save(update_fields=['status', 'last_checked'])
+            return
+
+        results, errors = {}, []
+        for name, fn in jobs:
+            try:
+                results[name] = fn() or {}
+                self.stdout.write(f"  {name}: {results[name]}")
+            except Exception as e:  # one job failing must not stop the rest
+                errors.append(f"{name}: {e}")
+                results[name] = {'error': str(e)}
+                self.stderr.write(self.style.ERROR(f"  {name} FAILED: {e}"))
+
+        status.status = 'error' if errors else 'running'
+        status.last_checked = timezone.now()
+        status.last_error = ' | '.join(errors)
+        status.metadata = {'ran_at': timezone.now().isoformat(), 'jobs': results}
+        status.save(update_fields=['status', 'last_checked', 'last_error', 'metadata'])
+
+        msg = f"Ran {len(jobs)} job(s); {len(errors)} failed."
+        self.stdout.write((self.style.ERROR if errors else self.style.SUCCESS)(msg))

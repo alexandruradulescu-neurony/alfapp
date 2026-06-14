@@ -1,0 +1,70 @@
+"""The cron dispatcher: master kill-switch, heartbeat, and fault isolation."""
+
+from io import StringIO
+from unittest.mock import patch
+
+from django.core.management import call_command
+from django.test import TestCase
+
+from apps.config.models import ServiceStatus
+import apps.core.management.commands.run_scheduled_jobs as rsj
+
+
+def _set_scheduler(enabled):
+    # The dev DB (tests run against it) may already hold a SCHEDULER row, so
+    # reset it to a known baseline rather than creating a duplicate.
+    ServiceStatus.objects.update_or_create(
+        service='SCHEDULER',
+        defaults={'is_enabled': enabled, 'status': 'disconnected', 'last_error': '', 'metadata': {}})
+
+
+class RunScheduledJobsTests(TestCase):
+    def test_master_switch_off_runs_nothing(self):
+        _set_scheduler(False)
+        called = []
+        with patch.object(rsj, 'JOBS', [('demo', lambda: called.append(1) or {})]):
+            call_command('run_scheduled_jobs', stdout=StringIO())
+        self.assertEqual(called, [])
+        self.assertEqual(ServiceStatus.objects.get(service='SCHEDULER').status, 'stopped')
+
+    def test_runs_jobs_and_writes_heartbeat(self):
+        _set_scheduler(True)
+        with patch.object(rsj, 'JOBS', [('demo', lambda: {'sent': 2})]):
+            call_command('run_scheduled_jobs', stdout=StringIO())
+        s = ServiceStatus.objects.get(service='SCHEDULER')
+        self.assertEqual(s.status, 'running')
+        self.assertIsNotNone(s.last_checked)
+        self.assertEqual(s.last_error, '')
+        self.assertEqual(s.metadata['jobs']['demo'], {'sent': 2})
+
+    def test_one_failing_job_does_not_stop_the_others(self):
+        _set_scheduler(True)
+        ran = []
+
+        def boom():
+            raise RuntimeError('nope')
+
+        def ok():
+            ran.append(1)
+            return {'ok': True}
+
+        with patch.object(rsj, 'JOBS', [('boom', boom), ('ok', ok)]):
+            call_command('run_scheduled_jobs', stdout=StringIO(), stderr=StringIO())
+        self.assertEqual(ran, [1])  # the second job still ran
+        s = ServiceStatus.objects.get(service='SCHEDULER')
+        self.assertEqual(s.status, 'error')
+        self.assertIn('boom', s.last_error)
+
+    def test_dry_run_executes_nothing(self):
+        _set_scheduler(True)
+        called = []
+        with patch.object(rsj, 'JOBS', [('demo', lambda: called.append(1) or {})]):
+            call_command('run_scheduled_jobs', '--dry-run', stdout=StringIO())
+        self.assertEqual(called, [])
+
+    def test_client_updates_job_delegates_to_runner(self):
+        # the real registered job just calls run_due_updates
+        with patch('apps.communications.client_updates.run_due_updates',
+                   return_value={'enabled': False}) as run:
+            self.assertEqual(rsj._job_client_updates(), {'enabled': False})
+        run.assert_called_once()

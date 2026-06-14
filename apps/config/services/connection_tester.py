@@ -232,46 +232,31 @@ class ConnectionTester:
             )
     
     def get_scheduler_status(self) -> Dict[str, Any]:
-        """Get email scheduler status."""
+        """Report on the cron dispatcher (run_scheduled_jobs) from its heartbeat.
+
+        There is no in-process scheduler to poll — health is inferred from the
+        master switch and how recently the Railway cron last recorded a run."""
+        from datetime import timedelta
+        STALE_AFTER = timedelta(hours=2)   # a run older than this means the cron is silent
         try:
-            from apps.communications.tasks import get_scheduler
-            
-            scheduler = get_scheduler()
-            
-            if scheduler is None:
-                return {
-                    'success': False,
-                    'status': 'disconnected',
-                    'message': 'Scheduler not initialized'
-                }
-            
-            if scheduler.running:
-                status = ServiceStatus.objects.get(service='SCHEDULER')
-                if status.is_enabled:
-                    return {
-                        'success': True,
-                        'status': 'running',
-                        'message': 'Email scheduler is running'
-                    }
-                else:
-                    return {
-                        'success': True,
-                        'status': 'stopped',
-                        'message': 'Scheduler is disabled'
-                    }
-            else:
-                return {
-                    'success': True,
-                    'status': 'stopped',
-                    'message': 'Email scheduler is stopped'
-                }
-                
+            status = ServiceStatus.objects.filter(service='SCHEDULER').first()
+            if status and not status.is_enabled:
+                return {'success': True, 'status': 'stopped',
+                        'message': 'Scheduled jobs are disabled (master switch off)'}
+            if not status or not status.last_checked:
+                return {'success': False, 'status': 'disconnected',
+                        'message': 'No scheduled run recorded yet — is the Railway cron job set up?'}
+            last = status.last_checked
+            stamp = last.strftime('%b %d, %H:%M UTC')
+            if timezone.now() - last <= STALE_AFTER:
+                if status.last_error:
+                    return {'success': False, 'status': 'error',
+                            'message': f'Last run {stamp} had errors: {status.last_error[:120]}'}
+                return {'success': True, 'status': 'running', 'message': f'Last run {stamp}'}
+            return {'success': False, 'status': 'error',
+                    'message': f'No run since {stamp} — check the Railway cron job'}
         except Exception as e:
-            return {
-                'success': False,
-                'status': 'error',
-                'message': str(e)
-            }
+            return {'success': False, 'status': 'error', 'message': str(e)}
     
     def get_screenshot_status(self) -> Dict[str, Any]:
         """Get screenshot service status."""

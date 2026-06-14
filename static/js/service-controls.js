@@ -163,70 +163,8 @@ async function toggleService(service, enabled) {
     }
 }
 
-// Control scheduler (start/stop)
-async function controlScheduler(action) {
-    const url = `/api/services/scheduler-${action}/`;
-    
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrftoken
-            }
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            showToast(`Scheduler: ${data.message}`, 'success');
-            setTimeout(() => refreshServiceStatus('SCHEDULER'), 1000);
-        } else {
-            showToast(`Scheduler: ${data.message}`, 'error');
-        }
-        
-    } catch (error) {
-        showToast(`Failed to ${action} scheduler: ${error.message}`, 'error');
-    }
-}
-
-// Toggle scheduler enabled state
-async function toggleSchedulerEnabled(enabled) {
-    const url = '/api/services/scheduler-toggle/';
-    
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrftoken
-            },
-            body: JSON.stringify({ enabled: enabled })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            const action = enabled ? 'enabled' : 'disabled';
-            showToast(`Scheduler ${action}`, 'success');
-        } else {
-            showToast(`Scheduler: ${data.message}`, 'error');
-            // Revert toggle on failure
-            const checkbox = document.getElementById('scheduler-enabled');
-            if (checkbox) {
-                checkbox.checked = !enabled;
-            }
-        }
-        
-    } catch (error) {
-        showToast(`Failed to toggle scheduler: ${error.message}`, 'error');
-        // Revert toggle on failure
-        const checkbox = document.getElementById('scheduler-enabled');
-        if (checkbox) {
-            checkbox.checked = !enabled;
-        }
-    }
-}
+// The "Scheduled Jobs" master switch reuses the generic toggleService('SCHEDULER', …)
+// path; there is no in-process scheduler to start/stop (jobs run via Railway cron).
 
 // Refresh single service status
 async function refreshServiceStatus(service) {
