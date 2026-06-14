@@ -264,6 +264,15 @@ Please analyze this claim and provide:
                   'progress updates as public Zendesk replies. When OFF (default), updates '
                   'are only scheduled for an agent to prepare and send manually.'
     )
+    # Global inbox sweep: dormant by design until the AI categorisation is proven.
+    # When ON, the scheduled dispatcher polls the shared inbox and auto-categorises
+    # institution mail. OFF (default) keeps email ingestion button-driven per ticket.
+    email_sweep_autorun = models.BooleanField(
+        default=False,
+        help_text='When ON, the scheduled job sweeps the shared inbox for institution '
+                  'replies and auto-categorises them (acts on live tickets). When OFF '
+                  '(default), email is only checked per-ticket via the manual button.'
+    )
 
     # Zendesk Sidebar Authentication (ENCRYPTED - sensitive credential)
     sidebar_secret_token = EncryptedCharField(

@@ -155,6 +155,16 @@
                 {% endif %}
             </div>
         </div>
+        <div class="mt-6 pt-6 border-t border-base-200/70">
+            <label class="label cursor-pointer justify-start gap-3 py-0">
+                <input type="checkbox" class="toggle toggle-warning" id="email_sweep_autorun" name="email_sweep_autorun"
+                       {% if settings.email_sweep_autorun %}checked{% endif %}>
+                <span class="flex flex-col items-start gap-0.5">
+                    <span class="label-text font-medium">Automatic inbox sweep</span>
+                    <span class="text-xs text-base-content/50">When OFF (default), email is checked per-ticket via the manual button. When ON, the scheduled job sweeps the shared inbox on a timer and auto-categorises institution replies on live tickets. Leave OFF until the AI categorisation is proven.</span>
+                </span>
+            </label>
+        </div>
     </div>
 
     <!-- Zendesk Configuration -->

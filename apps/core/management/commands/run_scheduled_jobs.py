@@ -32,11 +32,24 @@ def _job_client_updates():
     return run_due_updates()
 
 
+def _job_email_sweep():
+    """Sweep the shared inbox for institution replies. DORMANT by design: runs
+    only when SystemSettings.email_sweep_autorun is on (default off) — until then
+    email stays button-driven per ticket. See project_email_system."""
+    from apps.config.models import SystemSettings
+    if not getattr(SystemSettings.get_instance(), 'email_sweep_autorun', False):
+        return {'enabled': False}
+    from apps.communications.services import process_incoming_emails
+    return process_incoming_emails()
+
+
 # (name, callable) — the callable runs the job and returns a small summary dict.
-# Add future periodic jobs here. The email sweep stays button-driven for now
-# (see project_email_system); when it's ready, add ('email_sweep', _job_email_sweep).
+# Add a future periodic job by appending one line. Each job decides for itself
+# whether it actually does anything (its own flag), so registering one here is
+# safe; the email sweep is registered but gated OFF until explicitly enabled.
 JOBS = [
     ('client_updates', _job_client_updates),
+    ('email_sweep', _job_email_sweep),
 ]
 
 

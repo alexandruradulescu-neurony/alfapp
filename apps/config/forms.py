@@ -73,6 +73,7 @@ class SystemSettingsForm(forms.ModelForm):
             'client_report_trigger_status_id',
             'service_length_days',
             'client_updates_autosend',
+            'email_sweep_autorun',
             # AI Prompt Templates
             'dispute_response_prompt',
             'email_analysis_prompt',

@@ -68,3 +68,25 @@ class RunScheduledJobsTests(TestCase):
                    return_value={'enabled': False}) as run:
             self.assertEqual(rsj._job_client_updates(), {'enabled': False})
         run.assert_called_once()
+
+    def test_email_sweep_is_registered_but_dormant_by_default(self):
+        from apps.config.models import SystemSettings
+        self.assertIn('email_sweep', [name for name, _ in rsj.JOBS])
+        ss = SystemSettings.get_instance()
+        ss.email_sweep_autorun = False
+        ss.save()
+        with patch('apps.communications.services.process_incoming_emails') as sweep:
+            result = rsj._job_email_sweep()
+        sweep.assert_not_called()                       # never touches the live inbox while off
+        self.assertEqual(result, {'enabled': False})
+
+    def test_email_sweep_runs_only_when_flag_on(self):
+        from apps.config.models import SystemSettings
+        ss = SystemSettings.get_instance()
+        ss.email_sweep_autorun = True
+        ss.save()
+        with patch('apps.communications.services.process_incoming_emails',
+                   return_value={'processed': 0}) as sweep:
+            result = rsj._job_email_sweep()
+        sweep.assert_called_once()
+        self.assertEqual(result, {'processed': 0})
