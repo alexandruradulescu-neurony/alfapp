@@ -318,11 +318,22 @@ class RefundViewSet(viewsets.ModelViewSet):
         serializer = RefundStatusUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        refund.status = serializer.validated_data['status']
-        if serializer.validated_data.get('reason'):
-            refund.metadata['status_change_reason'] = serializer.validated_data['reason']
-        refund.save()
-        
+        new_status = serializer.validated_data['status']
+        reason = serializer.validated_data.get('reason')
+        if reason:
+            refund.metadata['status_change_reason'] = reason
+        # Route through the model transitions so side effects are applied — a raw
+        # status set to COMPLETED used to leave processed_at empty.
+        if new_status == 'COMPLETED':
+            refund.mark_completed()
+        elif new_status == 'FAILED':
+            refund.mark_failed(reason or '')
+        elif new_status == 'PROCESSING':
+            refund.mark_processing()
+        else:
+            refund.status = new_status
+            refund.save()
+
         output_serializer = RefundSerializer(refund)
         return Response(output_serializer.data)
     

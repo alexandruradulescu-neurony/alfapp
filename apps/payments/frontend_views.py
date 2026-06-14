@@ -371,9 +371,10 @@ def dispute_accept_document(request, document_id):
     """
     document = get_object_or_404(DisputeDocument, pk=document_id)
 
-    # Update document status
+    # Update document status. (accepted_at is a plain DateTimeField with no
+    # auto-set — it must be stamped explicitly; it was being left None forever.)
     document.status = 'ACCEPTED'
-    document.accepted_at = None  # Will be set on save
+    document.accepted_at = timezone.now()
     document.accepted_by = request.user
     document.save()
 
