@@ -343,6 +343,10 @@ def fetch_zendesk_ticket(zd_ticket_id: str) -> Optional[Dict[str, Any]]:
                 'due_at': ticket.get('due_at'),
                 'tags': ticket.get('tags'),
                 'custom_fields': ticket.get('custom_fields'),
+                # Current custom-status id — lets an on-demand import mirror the
+                # ticket's real stage instead of resetting it (the webhook path
+                # ignores this and uses its own creation status).
+                'custom_status_id': ticket.get('custom_status_id'),
             }
             
     except urllib.error.HTTPError as e:
@@ -451,6 +455,166 @@ def resolve_custom_status(status_id) -> Dict[str, str]:
         logger.warning(f"Unknown Zendesk custom status id {sid}; mirroring id verbatim")
         return {'name': sid, 'category': ''}
     return entry
+
+
+def import_claim_from_zendesk_ticket(zd_ticket_id):
+    """On-demand import of an EXISTING Zendesk claim into LORA.
+
+    Triggered when an institution email matches a Zendesk ticket that LORA has
+    not mirrored yet — the backlog-transition case, where ~all historic claims
+    live in Zendesk but only a subset are in LORA. Claims are NEVER originated
+    here (the website form + Zendesk own that); this only copies a claim that
+    already exists so the matched email has somewhere to land.
+
+    Differs from the creation webhook (ZendeskClaimWebhookView) in two ways:
+      * no investigation-initiated status gate — a backlog claim can be at ANY
+        stage, so we import regardless of current status;
+      * status is mirrored from the ticket's CURRENT custom status (a one-time
+        read at import; the webhook stays the ongoing stage writer).
+    It keeps the SAME form-ticket gate: a ticket with no ALF claim number (phone
+    calls / client emails auto-ticketed) is not a claim and is skipped.
+
+    Returns (claim, created): (Claim, True) on import, (existing, False) if it
+    was already present / a concurrent writer won the race, or (None, False)
+    when the ticket is not an importable claim or Zendesk could not be read.
+
+    NOTE: the Claim field mapping below is intentionally kept in sync with
+    ZendeskClaimWebhookView's creation block — change both together.
+    """
+    from django.db import IntegrityError, transaction
+    from django.utils import timezone
+    from apps.claims.models import Claim
+    from apps.claims.services import compute_deadline_at
+
+    zd_ticket_id = str(zd_ticket_id)
+
+    # Never re-import and never burn an LLM call if the claim already exists.
+    existing = Claim.objects.filter(zd_ticket_id=zd_ticket_id).first()
+    if existing:
+        return existing, False
+
+    ticket_data = fetch_zendesk_ticket(zd_ticket_id)
+    if not ticket_data:
+        logger.error(f"On-demand import: could not fetch Zendesk ticket {zd_ticket_id}")
+        return None, False
+
+    # Form-ticket gate — must carry an ALF claim number (subject or Claim # field).
+    subject = ticket_data.get('subject') or ''
+    alf_claim_id = parse_alf_claim_id_from_subject(subject)
+    if not alf_claim_id:
+        claim_number_value = _get_custom_field_value(
+            ticket_data.get('custom_fields') or [], ZENDESK_FIELD_CLAIM_NUMBER)
+        alf_claim_id = parse_alf_claim_id_from_subject(claim_number_value or '')
+    if not alf_claim_id:
+        logger.info(
+            f"On-demand import: ticket {zd_ticket_id} has no ALF claim number — "
+            f"not a claim-form ticket, skipping")
+        return None, False
+
+    # LLM extraction (best-effort, same as the webhook).
+    ticket_data['comments'] = fetch_zendesk_comments(zd_ticket_id)
+    try:
+        extracted_data = analyze_zendesk_ticket_for_claim(ticket_data)
+    except Exception as e:
+        logger.error(
+            f"On-demand import: LLM extraction failed for ticket {zd_ticket_id}: {e}",
+            exc_info=True)
+        extracted_data = {'client_email': '', 'flight_details': '',
+                          'object_description': '', 'phone': '', 'alternate_email': ''}
+
+    # Authoritative ALF id from the structured "Claim #" field when parseable.
+    claim_number_field = extracted_data.get('claim_number', '')
+    if claim_number_field:
+        parsed_from_field = parse_alf_claim_id_from_subject(claim_number_field)
+        if parsed_from_field:
+            alf_claim_id = parsed_from_field
+
+    # Resolve client email: extraction → Zendesk requester.
+    client_email = extracted_data.get('client_email', '')
+    if not client_email:
+        requester_id = ticket_data.get('requester_id')
+        if requester_id:
+            user_data = fetch_zendesk_user(requester_id)
+            if user_data:
+                client_email = user_data.get('email', '') or ''
+
+    llm_failed = not extracted_data.get('client_email') and not extracted_data.get('flight_details')
+    if not client_email:
+        llm_failed = True
+        logger.warning(
+            f"On-demand import: could not resolve client_email for ticket {zd_ticket_id}; "
+            f"claim flagged for manual review")
+
+    # Mirror the ticket's CURRENT custom status (one-time). Never store a raw
+    # numeric id as the status — fall back to a safe named default instead.
+    status_name = 'Investigation initiated'
+    status_category = 'open'
+    cur_status_id = ticket_data.get('custom_status_id')
+    if cur_status_id:
+        resolved = resolve_custom_status(cur_status_id)
+        if resolved['name'] and resolved['name'] != str(cur_status_id):
+            status_name = resolved['name']
+            status_category = resolved['category'] or 'open'
+
+    deadline_date_val = safe_date(extracted_data.get('deadline_date', ''))
+    try:
+        with transaction.atomic():
+            claim = Claim.objects.create(
+                alf_claim_id=alf_claim_id,
+                zd_ticket_id=zd_ticket_id,
+                client_email=client_email,
+                client_name=extracted_data.get('client_name', ''),
+                flight_details=extracted_data.get('flight_details', ''),
+                object_description=extracted_data.get('object_description', ''),
+                phone=extracted_data.get('phone', ''),
+                alternate_email=extracted_data.get('alternate_email', ''),
+                billing_address=extracted_data.get('billing_address', ''),
+                shipping_address=extracted_data.get('shipping_address', ''),
+                incident_details=extracted_data.get('incident_details', ''),
+                lost_location=extracted_data.get('lost_location', ''),
+                deadline_date=deadline_date_val,
+                deadline_time=extracted_data.get('deadline_time', ''),
+                deadline_timezone=extracted_data.get('deadline_timezone', ''),
+                price_paid=safe_decimal(extracted_data.get('price_paid', '')),
+                payment_method=extracted_data.get('payment_method', ''),
+                payment_status=extracted_data.get('payment_status', ''),
+                woocommerce_id=extracted_data.get('woocommerce_id', ''),
+                tracking_info=extracted_data.get('tracking_info', ''),
+                status=status_name,
+                status_category=status_category,
+                status_changed_at=timezone.now(),
+                deadline_at=compute_deadline_at(
+                    deadline_date_val,
+                    extracted_data.get('deadline_time', ''),
+                    extracted_data.get('deadline_timezone', ''),
+                ),
+                llm_extraction_failed=llm_failed,
+                ai_summary='',
+            )
+    except IntegrityError:
+        # A concurrent writer (webhook or another email) created it first.
+        existing = Claim.objects.filter(zd_ticket_id=zd_ticket_id).first()
+        if not existing:
+            raise
+        logger.info(
+            f"On-demand import: race for ticket {zd_ticket_id}; "
+            f"existing Claim #{existing.id} wins")
+        return existing, False
+
+    logger.info(
+        f"On-demand import: created Claim #{claim.id} ({alf_claim_id}) from Zendesk "
+        f"ticket {zd_ticket_id} at status '{status_name}'. LLM failed: {llm_failed}")
+
+    # Best-effort real AI summary (import must never fail on the AI call).
+    # Lazy import: briefing imports from this module, so a top-level import loops.
+    try:
+        from apps.integrations.briefing import refresh_claim_summary
+        refresh_claim_summary(claim, ticket_data)
+    except Exception as e:
+        logger.warning(
+            f"On-demand import: AI summary backfill failed for Claim #{claim.id}: {e}")
+
+    return claim, True
 
 
 def create_zendesk_ticket(

@@ -97,7 +97,8 @@ def toggle_service(request, service):
 
 # Boolean automation switches on SystemSettings that the Settings page flips
 # instantly (no Save) — allowlisted so the endpoint can only touch real switches.
-TOGGLEABLE_SETTING_FLAGS = {'client_updates_autosend', 'email_sweep_autorun'}
+TOGGLEABLE_SETTING_FLAGS = {'client_updates_autosend', 'email_sweep_autorun',
+                            'import_claims_from_email'}
 
 
 @api_view(['POST'])

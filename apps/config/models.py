@@ -272,6 +272,19 @@ Please analyze this claim and provide:
                   'replies and auto-categorises them (acts on live tickets). When OFF '
                   '(default), email is only checked per-ticket via the manual button.'
     )
+    # Backlog-transition helper: while only some historic claims are mirrored
+    # into LORA, an institution email may match a Zendesk ticket that has no
+    # local claim yet. When ON, that email imports the existing claim from
+    # Zendesk on the spot (never fabricates one). Rides on the inbox sweep, so
+    # it only fires when email_sweep_autorun is also ON. Turn OFF once the full
+    # backlog is in LORA.
+    import_claims_from_email = models.BooleanField(
+        default=False,
+        help_text='When ON, an inbound institution email that matches a Zendesk ticket '
+                  'with no local claim imports that existing claim from Zendesk on the '
+                  'spot. Never creates a new claim. Requires the inbox sweep to be ON. '
+                  'Intended as a temporary backlog-transition helper.'
+    )
 
     # Zendesk Sidebar Authentication (ENCRYPTED - sensitive credential)
     sidebar_secret_token = EncryptedCharField(

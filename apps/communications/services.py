@@ -628,6 +628,21 @@ def process_single_email(
 
                 # Try to find associated claim
                 claim = Claim.objects.filter(zd_ticket_id=zd_ticket_id).first()
+
+                # Backlog transition: the ticket exists in Zendesk but LORA has
+                # not mirrored it yet. When enabled, import the real claim from
+                # Zendesk on the spot so the matched email has somewhere to land.
+                # We never fabricate a claim — this only copies one that already
+                # exists in Zendesk (alias match guarantees a real ticket).
+                if claim is None and getattr(
+                        SystemSettings.get_instance(), 'import_claims_from_email', False):
+                    from apps.integrations.services import import_claim_from_zendesk_ticket
+                    imported, created = import_claim_from_zendesk_ticket(zd_ticket_id)
+                    if imported is not None:
+                        claim = imported
+                        logger.info(
+                            f"Imported claim #{claim.id} from Zendesk ticket "
+                            f"{zd_ticket_id} on inbound email (created={created})")
             else:
                 logger.warning(f"✗ No Zendesk ticket found for alias {alias}")
         else:

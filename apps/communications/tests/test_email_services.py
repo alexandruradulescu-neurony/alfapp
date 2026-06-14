@@ -593,6 +593,9 @@ class TestProcessSingleEmail:
         mock_settings_instance = Mock()
         mock_settings_instance.email_domain = "mydomain.com"
         mock_settings.return_value = mock_settings_instance
+        # Backlog-import branch is off here (production default); this test is
+        # about auto-resolve, not the on-demand claim import.
+        mock_settings.get_instance.return_value.import_claims_from_email = False
 
         mock_extract_from.return_value = "sender@example.com"
         mock_extract_alias.return_value = "client-123@mydomain.com"
