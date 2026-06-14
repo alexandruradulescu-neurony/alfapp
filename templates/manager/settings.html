@@ -10,509 +10,317 @@
         <i class="bi bi-gear"></i> System Settings
     </h2>
     <p class="text-base-content/60 mt-1">
-        Configure integrations and service credentials. Sensitive values are encrypted at rest.
+        Switches at the top take effect instantly. Everything below is saved with the
+        <span class="font-medium">Save settings</span> button. Sensitive values are encrypted at rest.
     </p>
 </div>
 
-<!-- Hidden CSRF token for JavaScript -->
 <input type="hidden" id="csrf_token" value="{{ csrf_token }}">
 
+<!-- ============================ AUTOMATION SWITCHES (instant) ============================ -->
+<div class="card-modern p-6 lg:p-8 mb-8">
+    <div class="mb-5">
+        <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+            <i class="bi bi-toggles text-base-content/60"></i> Automation switches
+        </h3>
+        <p class="text-sm text-base-content/60 mt-1">Real on/off switches — each takes effect the moment you flip it (no Save needed).</p>
+    </div>
+
+    <div class="divide-y divide-base-200/70">
+        <!-- Scheduled jobs (master) -->
+        <label class="flex items-start justify-between gap-4 py-4 cursor-pointer">
+            <span class="flex flex-col gap-0.5">
+                <span class="font-medium flex items-center gap-2">
+                    <i class="bi bi-clock-history text-base-content/50"></i> Scheduled jobs
+                    <span class="badge badge-sm badge-{{ scheduler_status.get_status_color }} gap-1">{{ scheduler_status.get_status_display }}</span>
+                </span>
+                <span class="text-xs text-base-content/50 max-w-2xl">Master switch for the timed jobs (client progress updates, inbox sweep). A Railway cron runs them; this is the global off-switch.{% if scheduler_status.last_checked %} Last run {{ scheduler_status.last_checked|date:"M d, H:i" }} UTC.{% endif %}</span>
+                {% if scheduler_status.last_error %}<span class="text-xs text-error/80">{{ scheduler_status.last_error|truncatechars:120 }}</span>{% endif %}
+            </span>
+            <input type="checkbox" id="scheduler-enabled" data-service="SCHEDULER" class="toggle toggle-primary"
+                   {% if scheduler_status.is_enabled %}checked{% endif %} onchange="toggleService('SCHEDULER', this.checked)">
+        </label>
+
+        <!-- Autonomous client updates -->
+        <label class="flex items-start justify-between gap-4 py-4 cursor-pointer">
+            <span class="flex flex-col gap-0.5">
+                <span class="font-medium flex items-center gap-2"><i class="bi bi-chat-heart text-base-content/50"></i> Autonomous client updates</span>
+                <span class="text-xs text-base-content/50 max-w-2xl">When ON, the scheduled job drafts <em>and sends</em> due client progress updates as public Zendesk replies. When OFF (default), updates are only scheduled for an agent to review and send. Object-found news is always left for an agent.</span>
+            </span>
+            <input type="checkbox" id="client_updates_autosend" class="toggle toggle-warning"
+                   {% if settings.client_updates_autosend %}checked{% endif %} onchange="toggleSettingFlag('client_updates_autosend', this.checked)">
+        </label>
+
+        <!-- Automatic inbox sweep -->
+        <label class="flex items-start justify-between gap-4 py-4 cursor-pointer">
+            <span class="flex flex-col gap-0.5">
+                <span class="font-medium flex items-center gap-2"><i class="bi bi-envelope-paper text-base-content/50"></i> Automatic inbox sweep</span>
+                <span class="text-xs text-base-content/50 max-w-2xl">When ON, the scheduled job sweeps the shared inbox on a timer and auto-categorises institution replies on live tickets. When OFF (default), email is only checked per-ticket via the manual button. Leave OFF until the AI categorisation is proven.</span>
+            </span>
+            <input type="checkbox" id="email_sweep_autorun" class="toggle toggle-warning"
+                   {% if settings.email_sweep_autorun %}checked{% endif %} onchange="toggleSettingFlag('email_sweep_autorun', this.checked)">
+        </label>
+    </div>
+</div>
+
+<!-- ============================ CONNECTIONS + SETTINGS (saved) ============================ -->
 <form method="post">
     {% csrf_token %}
 
-    <!-- AI Configuration -->
+    <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content/40 mb-3 mt-2">Connections</h3>
+
+    <!-- AI -->
     <div class="card-modern p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-                <i class="bi bi-robot text-base-content/60"></i> AI Configuration
-            </h3>
-            <div class="flex items-center gap-3">
-                <div class="badge badge-{{ ai_status.get_status_color }} gap-1">
-                    <i class="bi bi-circle-fill text-[0.4rem]"></i>
-                    {{ ai_status.get_status_display }}
-                </div>
-                <label class="label cursor-pointer gap-2 py-0">
-                    <span class="label-text text-xs text-base-content/60">Enabled</span>
-                    <input type="checkbox"
-                           id="ai-enabled"
-                           data-service="AI"
-                           class="toggle toggle-sm toggle-primary"
-                           {% if ai_status.is_enabled %}checked{% endif %}
-                           onchange="toggleService('AI', this.checked)" />
-                </label>
-                <button type="button" class="btn btn-sm btn-outline btn-primary rounded-xl" onclick="testService('AI')">
-                    <i class="bi bi-activity"></i> Test
-                </button>
-            </div>
+            <h4 class="text-base font-semibold flex items-center gap-2">
+                <i class="bi bi-robot text-base-content/60"></i> AI provider
+                <span class="badge badge-sm badge-{{ ai_status.get_status_color }} gap-1">{{ ai_status.get_status_display }}</span>
+            </h4>
+            <button type="button" class="btn btn-sm btn-outline rounded-xl" onclick="testService('AI')"><i class="bi bi-activity"></i> Test</button>
         </div>
-        {% if ai_status.last_error %}
-        <div class="alert alert-error rounded-xl mb-6 py-2 text-xs">
-            <i class="bi bi-exclamation-triangle"></i>
-            {{ ai_status.last_error|truncatechars:100 }}
-        </div>
-        {% endif %}
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        {% if ai_status.last_error %}<div class="alert alert-error rounded-xl mb-4 py-2 text-xs"><i class="bi bi-exclamation-triangle"></i>{{ ai_status.last_error|truncatechars:120 }}</div>{% endif %}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div class="form-control">
-                <label class="label">
-                    <span class="label-text font-medium">AI Provider</span>
-                </label>
-                <input type="text" class="input-modern w-full" id="ai_provider" name="ai_provider"
-                       value="{{ settings.ai_provider }}" placeholder="DeepSeek">
+                <label class="label"><span class="label-text font-medium">Provider</span></label>
+                <input type="text" class="input-modern w-full" name="ai_provider" value="{{ settings.ai_provider }}" placeholder="DeepSeek">
             </div>
             <div class="form-control">
-                <label class="label">
-                    <span class="label-text font-medium">AI Model</span>
-                </label>
-                <input type="text" class="input-modern w-full" id="ai_api_model" name="ai_api_model"
-                       value="{{ settings.ai_api_model }}" placeholder="deepseek-chat">
+                <label class="label"><span class="label-text font-medium">Model</span></label>
+                <input type="text" class="input-modern w-full" name="ai_api_model" value="{{ settings.ai_api_model }}" placeholder="deepseek-chat">
+            </div>
+            <div class="form-control">
+                <label class="label"><span class="label-text font-medium">API base URL</span></label>
+                <input type="text" class="input-modern w-full" name="ai_api_base" value="{{ settings.ai_api_base }}" placeholder="https://api.deepseek.com/v1">
             </div>
         </div>
+        <div class="form-control mt-4 max-w-md">
+            <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">API key</span>
+                <span class="text-xs text-base-content/50">Leave blank to keep current</span></label>
+            <input type="password" class="input-modern w-full" name="ai_api_key" placeholder="{% if settings.ai_api_key %}••••••••••••{% endif %}" autocomplete="off">
+        </div>
+    </div>
+
+    <!-- Email / IMAP -->
+    <div class="card-modern p-6 lg:p-8 mb-6">
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
+            <h4 class="text-base font-semibold flex items-center gap-2">
+                <i class="bi bi-envelope text-base-content/60"></i> Email inbox (IMAP)
+                <span class="badge badge-sm badge-{{ imap_status.get_status_color }} gap-1">{{ imap_status.get_status_display }}</span>
+            </h4>
+            <button type="button" class="btn btn-sm btn-outline rounded-xl" onclick="testService('IMAP')"><i class="bi bi-activity"></i> Test</button>
+        </div>
+        {% if imap_status.last_error %}<div class="alert alert-error rounded-xl mb-4 py-2 text-xs"><i class="bi bi-exclamation-triangle"></i>{{ imap_status.last_error|truncatechars:120 }}</div>{% endif %}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="form-control">
+                <label class="label"><span class="label-text font-medium">Host</span></label>
+                <input type="text" class="input-modern w-full" name="imap_host" value="{{ settings.imap_host }}">
+            </div>
+            <div class="form-control">
+                <label class="label"><span class="label-text font-medium">Username</span></label>
+                <input type="text" class="input-modern w-full" name="imap_user" value="{{ settings.imap_user }}">
+            </div>
+            <div class="form-control">
+                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Password</span>
+                    <span class="text-xs text-base-content/50">Leave blank to keep current</span></label>
+                <input type="password" class="input-modern w-full" name="imap_pass" placeholder="{% if settings.imap_pass %}••••••••••••{% endif %}" autocomplete="off">
+            </div>
+            <div class="form-control">
+                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Alias domain</span>
+                    <span class="text-xs text-base-content/50">Domain that per-ticket reply aliases use (alias matching)</span></label>
+                <input type="text" class="input-modern w-full" name="email_domain" value="{{ settings.email_domain }}" placeholder="mailapptoday.com">
+            </div>
+            <div class="form-control">
+                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Zendesk alias field ID</span>
+                    <span class="text-xs text-base-content/50">Custom-field ID holding the ticket's email alias</span></label>
+                <input type="text" class="input-modern w-full" name="zd_alias_custom_field_id" value="{{ settings.zd_alias_custom_field_id }}">
+            </div>
+        </div>
+    </div>
+
+    <!-- Zendesk -->
+    <div class="card-modern p-6 lg:p-8 mb-6">
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
+            <h4 class="text-base font-semibold flex items-center gap-2">
+                <i class="bi bi-ticket text-base-content/60"></i> Zendesk
+                <span class="badge badge-sm badge-{{ zd_status.get_status_color }} gap-1">{{ zd_status.get_status_display }}</span>
+            </h4>
+            <button type="button" class="btn btn-sm btn-outline rounded-xl" onclick="testService('ZENDESK')"><i class="bi bi-activity"></i> Test</button>
+        </div>
+        {% if zd_status.last_error %}<div class="alert alert-error rounded-xl mb-4 py-2 text-xs"><i class="bi bi-exclamation-triangle"></i>{{ zd_status.last_error|truncatechars:120 }}</div>{% endif %}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="form-control">
+                <label class="label"><span class="label-text font-medium">Subdomain</span></label>
+                <input type="text" class="input-modern w-full" name="zd_subdomain" value="{{ settings.zd_subdomain }}" placeholder="your-company">
+            </div>
+            <div class="form-control">
+                <label class="label"><span class="label-text font-medium">Account email</span></label>
+                <input type="email" class="input-modern w-full" name="zd_email" value="{{ settings.zd_email }}">
+            </div>
+            <div class="form-control">
+                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">API token</span>
+                    <span class="text-xs text-base-content/50">Leave blank to keep current</span></label>
+                <input type="password" class="input-modern w-full" name="zd_token" placeholder="{% if settings.zd_token %}••••••••••••{% endif %}" autocomplete="off">
+            </div>
+        </div>
+    </div>
+
+    <!-- PayPal -->
+    <div class="card-modern p-6 lg:p-8 mb-6">
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
+            <h4 class="text-base font-semibold flex items-center gap-2">
+                <i class="bi bi-currency-dollar text-base-content/60"></i> PayPal
+                <span class="badge badge-sm badge-{{ paypal_status.get_status_color }} gap-1">{{ paypal_status.get_status_display }}</span>
+            </h4>
+            <button type="button" class="btn btn-sm btn-outline rounded-xl" onclick="testService('PAYPAL')"><i class="bi bi-activity"></i> Test</button>
+        </div>
+        {% if paypal_status.last_error %}<div class="alert alert-error rounded-xl mb-4 py-2 text-xs"><i class="bi bi-exclamation-triangle"></i>{{ paypal_status.last_error|truncatechars:120 }}</div>{% endif %}
         <div class="form-control mb-4">
-            <label class="label">
-                <span class="label-text font-medium">AI API Base URL</span>
-            </label>
-            <input type="text" class="input-modern w-full" id="ai_api_base" name="ai_api_base"
-                   value="{{ settings.ai_api_base }}" placeholder="https://api.deepseek.com/v1">
-        </div>
-        <div class="form-control mb-4">
-            <label class="label flex-col items-start gap-0.5">
-                <span class="label-text font-medium">AI API Key</span>
-                <span class="text-xs text-base-content/50">Leave blank to keep current</span>
-            </label>
-            <input type="password" class="input-modern w-full" id="ai_api_key" name="ai_api_key"
-                   placeholder="{% if settings.ai_api_key %}••••••••••••{% endif %}" autocomplete="off">
-            {% if settings.ai_api_key %}
-                <span class="text-xs text-base-content/50 mt-1">Current API key is set. Enter new value to change.</span>
-            {% endif %}
-        </div>
-        <div class="form-control">
-            <label class="label flex-col items-start gap-0.5">
-                <span class="label-text font-medium">AI Prompt Template</span>
-                <span class="text-xs text-base-content/50">
-                    Use {'{'}variable{'}'} placeholders for dynamic content.
-                </span>
-            </label>
-            <textarea class="rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full font-mono text-sm p-4" id="ai_prompt_template" name="ai_prompt_template"
-                      rows="12">{{ settings.ai_prompt_template }}</textarea>
-        </div>
-    </div>
-
-    <!-- IMAP Configuration -->
-    <div class="card-modern p-6 lg:p-8 mb-6">
-        <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-                <i class="bi bi-envelope text-base-content/60"></i> IMAP Configuration
-            </h3>
-            <div class="flex items-center gap-3">
-                <div class="badge badge-{{ imap_status.get_status_color }} gap-1">
-                    <i class="bi bi-circle-fill text-[0.4rem]"></i>
-                    {{ imap_status.get_status_display }}
-                </div>
-                <label class="label cursor-pointer gap-2 py-0">
-                    <span class="label-text text-xs text-base-content/60">Enabled</span>
-                    <input type="checkbox"
-                           id="imap-enabled"
-                           data-service="IMAP"
-                           class="toggle toggle-sm toggle-success"
-                           {% if imap_status.is_enabled %}checked{% endif %}
-                           onchange="toggleService('IMAP', this.checked)" />
+            <label class="label"><span class="label-text font-medium">Environment</span></label>
+            <div class="flex flex-wrap gap-4">
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="paypal_mode" value="sandbox" class="radio radio-sm radio-success" {% if settings.paypal_mode != 'live' %}checked{% endif %}>
+                    <span class="text-sm">Sandbox <span class="text-base-content/50">(test — no real money)</span></span>
                 </label>
-                <button type="button" class="btn btn-sm btn-outline btn-success rounded-xl" onclick="testService('IMAP')">
-                    <i class="bi bi-activity"></i> Test
-                </button>
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="paypal_mode" value="live" class="radio radio-sm radio-warning" {% if settings.paypal_mode == 'live' %}checked{% endif %}>
+                    <span class="text-sm font-medium text-warning">Live (real money)</span>
+                </label>
             </div>
+            {% if settings.paypal_mode == 'live' %}<span class="text-xs text-warning/80 mt-1"><i class="bi bi-exclamation-triangle"></i> Live mode is active — refund/dispute actions move real money.</span>{% endif %}
         </div>
-        {% if imap_status.last_error %}
-        <div class="alert alert-error rounded-xl mb-6 py-2 text-xs">
-            <i class="bi bi-exclamation-triangle"></i>
-            {{ imap_status.last_error|truncatechars:100 }}
-        </div>
-        {% endif %}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div class="form-control">
-                <label class="label">
-                    <span class="label-text font-medium">IMAP Host</span>
-                </label>
-                <input type="text" class="input-modern w-full" id="imap_host" name="imap_host"
-                       value="{{ settings.imap_host }}">
+                <label class="label"><span class="label-text font-medium">Client ID</span></label>
+                <input type="text" class="input-modern w-full" name="paypal_client_id" value="{{ settings.paypal_client_id }}">
             </div>
             <div class="form-control">
-                <label class="label">
-                    <span class="label-text font-medium">IMAP Username</span>
-                </label>
-                <input type="text" class="input-modern w-full" id="imap_user" name="imap_user"
-                       value="{{ settings.imap_user }}">
+                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Secret</span>
+                    <span class="text-xs text-base-content/50">Leave blank to keep current</span></label>
+                <input type="password" class="input-modern w-full" name="paypal_secret" placeholder="{% if settings.paypal_secret %}••••••••••••{% endif %}" autocomplete="off">
             </div>
             <div class="form-control">
-                <label class="label flex-col items-start gap-0.5">
-                    <span class="label-text font-medium">IMAP Password</span>
-                    <span class="text-xs text-base-content/50">Leave blank to keep current</span>
-                </label>
-                <input type="password" class="input-modern w-full" id="imap_pass" name="imap_pass"
-                       placeholder="{% if settings.imap_pass %}••••••••••••{% endif %}" autocomplete="off">
-                {% if settings.imap_pass %}
-                    <span class="text-xs text-base-content/50 mt-1">Current password is set. Enter new value to change.</span>
-                {% endif %}
-            </div>
-        </div>
-        <div class="mt-6 pt-6 border-t border-base-200/70">
-            <label class="label cursor-pointer justify-start gap-3 py-0">
-                <input type="checkbox" class="toggle toggle-warning" id="email_sweep_autorun" name="email_sweep_autorun"
-                       {% if settings.email_sweep_autorun %}checked{% endif %}>
-                <span class="flex flex-col items-start gap-0.5">
-                    <span class="label-text font-medium">Automatic inbox sweep</span>
-                    <span class="text-xs text-base-content/50">When OFF (default), email is checked per-ticket via the manual button. When ON, the scheduled job sweeps the shared inbox on a timer and auto-categorises institution replies on live tickets. Leave OFF until the AI categorisation is proven.</span>
-                </span>
-            </label>
-        </div>
-    </div>
-
-    <!-- Zendesk Configuration -->
-    <div class="card-modern p-6 lg:p-8 mb-6">
-        <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-                <i class="bi bi-ticket text-base-content/60"></i> Zendesk Configuration
-            </h3>
-            <div class="flex items-center gap-3">
-                <div class="badge badge-{{ zd_status.get_status_color }} gap-1">
-                    <i class="bi bi-circle-fill text-[0.4rem]"></i>
-                    {{ zd_status.get_status_display }}
-                </div>
-                <label class="label cursor-pointer gap-2 py-0">
-                    <span class="label-text text-xs text-base-content/60">Enabled</span>
-                    <input type="checkbox"
-                           id="zendesk-enabled"
-                           data-service="ZENDESK"
-                           class="toggle toggle-sm toggle-info"
-                           {% if zd_status.is_enabled %}checked{% endif %}
-                           onchange="toggleService('ZENDESK', this.checked)" />
-                </label>
-                <button type="button" class="btn btn-sm btn-outline btn-info rounded-xl" onclick="testService('ZENDESK')">
-                    <i class="bi bi-activity"></i> Test
-                </button>
-            </div>
-        </div>
-        {% if zd_status.last_error %}
-        <div class="alert alert-error rounded-xl mb-6 py-2 text-xs">
-            <i class="bi bi-exclamation-triangle"></i>
-            {{ zd_status.last_error|truncatechars:100 }}
-        </div>
-        {% endif %}
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="form-control">
-                <label class="label">
-                    <span class="label-text font-medium">Zendesk Subdomain</span>
-                </label>
-                <input type="text" class="input-modern w-full" id="zd_subdomain" name="zd_subdomain"
-                       value="{{ settings.zd_subdomain }}" placeholder="your-company">
-            </div>
-            <div class="form-control">
-                <label class="label">
-                    <span class="label-text font-medium">Zendesk Email</span>
-                </label>
-                <input type="email" class="input-modern w-full" id="zd_email" name="zd_email"
-                       value="{{ settings.zd_email }}">
-            </div>
-            <div class="form-control">
-                <label class="label flex-col items-start gap-0.5">
-                    <span class="label-text font-medium">Zendesk API Token</span>
-                    <span class="text-xs text-base-content/50">Leave blank to keep current</span>
-                </label>
-                <input type="password" class="input-modern w-full" id="zd_token" name="zd_token"
-                       placeholder="{% if settings.zd_token %}••••••••••••{% endif %}" autocomplete="off">
-                {% if settings.zd_token %}
-                    <span class="text-xs text-base-content/50 mt-1">Current token is set. Enter new value to change.</span>
-                {% endif %}
+                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Webhook ID</span>
+                    <span class="text-xs text-base-content/50">Used to verify PayPal dispute webhooks</span></label>
+                <input type="text" class="input-modern w-full" name="paypal_webhook_id" value="{{ settings.paypal_webhook_id }}">
             </div>
         </div>
     </div>
 
-    <!-- Client Update Automation -->
-    <div class="card-modern p-6 lg:p-8 mb-6">
-        <div class="mb-6">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-                <i class="bi bi-chat-heart text-base-content/60"></i> Client Update Automation
-            </h3>
-            <p class="text-sm text-base-content/60 mt-1">When a claim enters the trigger status, LORA drafts a "what we did" update and starts the progress-update cadence (day 2, 5, 11, 21, then every 10 days, then a final note at the end of the service period).</p>
-        </div>
-
-        <div class="grid md:grid-cols-2 gap-6">
-            <div class="form-control">
-                <label class="label flex-col items-start gap-0.5" for="client_report_trigger_status_id">
-                    <span class="label-text font-medium">Trigger status ID</span>
-                    <span class="text-xs text-base-content/50">Zendesk custom-status <strong>ID</strong> for "Claim submitted". This is the authoritative trigger. Leave blank to disable.</span>
-                </label>
-                <input type="text" class="input-modern w-full" id="client_report_trigger_status_id" name="client_report_trigger_status_id"
-                       value="{{ settings.client_report_trigger_status_id }}" placeholder="e.g. 11688538967068"
-                       list="zd-custom-status-ids" autocomplete="off">
-                {% if custom_statuses %}
-                <datalist id="zd-custom-status-ids">
-                    {% for cs in custom_statuses %}<option value="{{ cs.id }}">{{ cs.name }} ({{ cs.category }})</option>{% endfor %}
-                </datalist>
-                <div class="text-xs text-base-content/50 mt-2">
-                    Available statuses:
-                    <span class="block mt-1 space-y-0.5">
-                    {% for cs in custom_statuses %}<span class="block"><code class="text-[0.7rem]">{{ cs.id }}</code> — {{ cs.name }} <span class="opacity-60">({{ cs.category }})</span></span>{% endfor %}
-                    </span>
-                </div>
-                {% else %}
-                <span class="text-xs text-warning/80 mt-1">Could not load Zendesk statuses — enter the ID manually.</span>
-                {% endif %}
-            </div>
-
-            <div class="form-control">
-                <label class="label flex-col items-start gap-0.5" for="service_length_days">
-                    <span class="label-text font-medium">Service length (days)</span>
-                    <span class="text-xs text-base-content/50">Length of the concierge service, from claim creation. Drives how far the update cadence runs and when the final end-of-service note is sent.</span>
-                </label>
-                <input type="number" min="1" max="365" class="input-modern w-full" id="service_length_days" name="service_length_days"
-                       value="{{ settings.service_length_days }}" placeholder="30">
-
-                <label class="label flex-col items-start gap-0.5 mt-6" for="client_report_trigger_status">
-                    <span class="label-text font-medium">Legacy trigger status name</span>
-                    <span class="text-xs text-base-content/50">Fallback only — used if the ID above is blank. Prefer the ID.</span>
-                </label>
-                <input type="text" class="input-modern w-full" id="client_report_trigger_status" name="client_report_trigger_status"
-                       value="{{ settings.client_report_trigger_status }}" placeholder="Claim submitted">
-            </div>
-        </div>
-
-        <div class="mt-6 pt-6 border-t border-base-200/70">
-            <label class="label cursor-pointer justify-start gap-3 py-0">
-                <input type="checkbox" class="toggle toggle-warning" id="client_updates_autosend" name="client_updates_autosend"
-                       {% if settings.client_updates_autosend %}checked{% endif %}>
-                <span class="flex flex-col items-start gap-0.5">
-                    <span class="label-text font-medium">Autonomous sending</span>
-                    <span class="text-xs text-base-content/50">When OFF (default), LORA only schedules updates for an agent to review and send. When ON, the scheduled job drafts and sends due updates automatically as public Zendesk replies. Object-found news is always left for an agent.</span>
-                </span>
-            </label>
-        </div>
-    </div>
-
-    <!-- PayPal Configuration -->
-    <div class="card-modern p-6 lg:p-8 mb-6">
-        <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-                <i class="bi bi-currency-dollar text-base-content/60"></i> PayPal Configuration
-            </h3>
-            <div class="flex items-center gap-3">
-                <div class="badge badge-{{ paypal_status.get_status_color }} gap-1">
-                    <i class="bi bi-circle-fill text-[0.4rem]"></i>
-                    {{ paypal_status.get_status_display }}
-                </div>
-                <label class="label cursor-pointer gap-2 py-0">
-                    <span class="label-text text-xs text-base-content/60">Enabled</span>
-                    <input type="checkbox"
-                           id="paypal-enabled"
-                           data-service="PAYPAL"
-                           class="toggle toggle-sm toggle-warning"
-                           {% if paypal_status.is_enabled %}checked{% endif %}
-                           onchange="toggleService('PAYPAL', this.checked)" />
-                </label>
-                <button type="button" class="btn btn-sm btn-outline btn-warning rounded-xl" onclick="testService('PAYPAL')">
-                    <i class="bi bi-activity"></i> Test
-                </button>
-            </div>
-        </div>
-        {% if paypal_status.last_error %}
-        <div class="alert alert-error rounded-xl mb-6 py-2 text-xs">
-            <i class="bi bi-exclamation-triangle"></i>
-            {{ paypal_status.last_error|truncatechars:100 }}
-        </div>
-        {% endif %}
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="form-control">
-                <label class="label">
-                    <span class="label-text font-medium">PayPal Client ID</span>
-                </label>
-                <input type="text" class="input-modern w-full" id="paypal_client_id" name="paypal_client_id"
-                       value="{{ settings.paypal_client_id }}">
-            </div>
-            <div class="form-control">
-                <label class="label flex-col items-start gap-0.5">
-                    <span class="label-text font-medium">PayPal Secret</span>
-                    <span class="text-xs text-base-content/50">Leave blank to keep current</span>
-                </label>
-                <input type="password" class="input-modern w-full" id="paypal_secret" name="paypal_secret"
-                       placeholder="{% if settings.paypal_secret %}••••••••••••{% endif %}" autocomplete="off">
-                {% if settings.paypal_secret %}
-                    <span class="text-xs text-base-content/50 mt-1">Current secret is set. Enter new value to change.</span>
-                {% endif %}
-            </div>
-            <div class="form-control">
-                <label class="label">
-                    <span class="label-text font-medium">PayPal Webhook ID</span>
-                </label>
-                <input type="text" class="input-modern w-full" id="paypal_webhook_id" name="paypal_webhook_id"
-                       value="{{ settings.paypal_webhook_id }}">
-            </div>
-        </div>
-    </div>
-
-    <!-- WooCommerce (refunds) -->
+    <!-- WooCommerce -->
     <div class="card-modern p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
+            <h4 class="text-base font-semibold flex items-center gap-2">
                 <i class="bi bi-bag-check text-base-content/60"></i> WooCommerce (refunds)
-            </h3>
-            <button type="button" class="btn btn-sm btn-outline btn-primary rounded-xl" onclick="testService('WOOCOMMERCE')">
-                <i class="bi bi-activity"></i> Test
-            </button>
+                {% if settings.woocommerce_consumer_key %}<span class="badge badge-sm badge-success">Configured</span>{% else %}<span class="badge badge-sm badge-neutral">Not set</span>{% endif %}
+            </h4>
+            <button type="button" class="btn btn-sm btn-outline rounded-xl" onclick="testService('WOOCOMMERCE')"><i class="bi bi-activity"></i> Test</button>
         </div>
-        <p class="text-sm text-base-content/60 mb-6">
-            Used when LORA issues a refund: it asks WooCommerce to refund the order through PayPal.
-            Create a key under <span class="font-medium text-base-content/80">WooCommerce → Settings → Advanced → REST API</span>
-            with <span class="font-medium text-base-content/80">Read/Write</span> permission.
-        </p>
+        <p class="text-sm text-base-content/60 mb-6">When LORA issues a refund it asks WooCommerce to refund the order through PayPal. Create a Read/Write key under <span class="font-medium text-base-content/80">WooCommerce → Settings → Advanced → REST API</span>.</p>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div class="form-control">
-                <label class="label">
-                    <span class="label-text font-medium">Store URL</span>
-                </label>
-                <input type="text" class="input-modern w-full" id="woocommerce_store_url" name="woocommerce_store_url"
-                       value="{{ settings.woocommerce_store_url }}" placeholder="https://store.example.com">
+                <label class="label"><span class="label-text font-medium">Store URL</span></label>
+                <input type="text" class="input-modern w-full" name="woocommerce_store_url" value="{{ settings.woocommerce_store_url }}" placeholder="https://store.example.com">
             </div>
             <div class="form-control">
-                <label class="label flex-col items-start gap-0.5">
-                    <span class="label-text font-medium">Consumer Key</span>
-                    <span class="text-xs text-base-content/50">Leave blank to keep current</span>
-                </label>
-                <input type="password" class="input-modern w-full" id="woocommerce_consumer_key" name="woocommerce_consumer_key"
-                       placeholder="{% if settings.woocommerce_consumer_key %}••••••••••••{% else %}ck_…{% endif %}" autocomplete="off">
+                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Consumer key</span>
+                    <span class="text-xs text-base-content/50">Leave blank to keep current</span></label>
+                <input type="password" class="input-modern w-full" name="woocommerce_consumer_key" placeholder="{% if settings.woocommerce_consumer_key %}••••••••••••{% else %}ck_…{% endif %}" autocomplete="off">
             </div>
             <div class="form-control">
-                <label class="label flex-col items-start gap-0.5">
-                    <span class="label-text font-medium">Consumer Secret</span>
-                    <span class="text-xs text-base-content/50">Leave blank to keep current</span>
-                </label>
-                <input type="password" class="input-modern w-full" id="woocommerce_consumer_secret" name="woocommerce_consumer_secret"
-                       placeholder="{% if settings.woocommerce_consumer_secret %}••••••••••••{% else %}cs_…{% endif %}" autocomplete="off">
+                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Consumer secret</span>
+                    <span class="text-xs text-base-content/50">Leave blank to keep current</span></label>
+                <input type="password" class="input-modern w-full" name="woocommerce_consumer_secret" placeholder="{% if settings.woocommerce_consumer_secret %}••••••••••••{% else %}cs_…{% endif %}" autocomplete="off">
             </div>
         </div>
     </div>
 
-    <!-- Sidebar Authentication -->
+    <!-- Zendesk Sidebar -->
     <div class="card-modern p-6 lg:p-8 mb-6">
-        <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-                <i class="bi bi-shield-lock text-base-content/60"></i> Sidebar Authentication
-            </h3>
-            <div class="flex items-center gap-3">
-                <div class="badge badge-{{ sidebar_status.get_status_color }} gap-1">
-                    <i class="bi bi-circle-fill text-[0.4rem]"></i>
-                    {{ sidebar_status.get_status_display }}
-                </div>
-                <label class="label cursor-pointer gap-2 py-0">
-                    <span class="label-text text-xs text-base-content/60">Enabled</span>
-                    <input type="checkbox"
-                           id="sidebar-enabled"
-                           data-service="SIDEBAR"
-                           class="toggle toggle-sm toggle-neutral"
-                           {% if sidebar_status.is_enabled %}checked{% endif %}
-                           onchange="toggleService('SIDEBAR', this.checked)" />
-                </label>
-            </div>
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+            <h4 class="text-base font-semibold flex items-center gap-2">
+                <i class="bi bi-shield-lock text-base-content/60"></i> Zendesk sidebar
+                {% if settings.sidebar_secret_token %}<span class="badge badge-sm badge-success">Configured</span>{% else %}<span class="badge badge-sm badge-neutral">Not set</span>{% endif %}
+            </h4>
         </div>
-        {% if sidebar_status.last_error %}
-        <div class="alert alert-error rounded-xl mb-6 py-2 text-xs">
-            <i class="bi bi-exclamation-triangle"></i>
-            {{ sidebar_status.last_error|truncatechars:100 }}
+        <div class="form-control max-w-md">
+            <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Sidebar secret token</span>
+                <span class="text-xs text-base-content/50">Authenticates the Zendesk sidebar widget's requests. Leave blank to keep current.</span></label>
+            <input type="password" class="input-modern w-full" name="sidebar_secret_token" placeholder="{% if settings.sidebar_secret_token %}••••••••••••{% endif %}" autocomplete="off">
         </div>
-        {% endif %}
+    </div>
+
+    <!-- Screenshot / browser auth -->
+    <div class="card-modern p-6 lg:p-8 mb-6">
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+            <h4 class="text-base font-semibold flex items-center gap-2">
+                <i class="bi bi-camera text-base-content/60"></i> Screenshot service
+                <span class="badge badge-sm badge-{{ screenshot_status.get_status_color }} gap-1">{{ screenshot_status.get_status_display }}</span>
+            </h4>
+            <button type="button" class="btn btn-sm btn-outline rounded-xl" onclick="testService('SCREENSHOT')"><i class="bi bi-activity"></i> Test</button>
+        </div>
+        {% if screenshot_status.last_error %}<div class="alert alert-error rounded-xl mb-4 py-2 text-xs"><i class="bi bi-exclamation-triangle"></i>{{ screenshot_status.last_error|truncatechars:120 }}</div>{% endif %}
+        <p class="text-sm text-base-content/60 mb-4">Captures Zendesk ticket screenshots via a headless browser. Needs a Zendesk agent login (the subdomain above is reused).</p>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="form-control">
-                <label class="label flex-col items-start gap-0.5">
-                    <span class="label-text font-medium">Sidebar Secret Token</span>
-                    <span class="text-xs text-base-content/50">Leave blank to keep current</span>
-                </label>
-                <input type="password" class="input-modern w-full" id="sidebar_secret_token" name="sidebar_secret_token"
-                       placeholder="{% if settings.sidebar_secret_token %}••••••••••••{% endif %}" autocomplete="off">
-                {% if settings.sidebar_secret_token %}
-                    <span class="text-xs text-base-content/50 mt-1">Current token is set. Enter new value to change.</span>
-                {% endif %}
-                <span class="text-xs text-base-content/50 mt-1">Used to authenticate Zendesk sidebar widget requests.</span>
+                <label class="label"><span class="label-text font-medium">Zendesk agent email</span></label>
+                <input type="email" class="input-modern w-full" name="zd_agent_email" value="{{ settings.zd_agent_email }}">
+            </div>
+            <div class="form-control">
+                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Zendesk agent password</span>
+                    <span class="text-xs text-base-content/50">Leave blank to keep current</span></label>
+                <input type="password" class="input-modern w-full" name="zd_agent_password" placeholder="{% if settings.zd_agent_password %}••••••••••••{% endif %}" autocomplete="off">
             </div>
         </div>
     </div>
 
-    <!-- Scheduled Jobs (Railway cron) -->
+    <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content/40 mb-3 mt-8">Client updates</h3>
+
+    <!-- Client update settings -->
     <div class="card-modern p-6 lg:p-8 mb-6">
-        <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-                <i class="bi bi-clock-history text-base-content/60"></i> Scheduled Jobs
-            </h3>
-            <div class="flex items-center gap-3">
-                <div class="badge badge-{{ scheduler_status.get_status_color }} gap-1">
-                    <i class="bi bi-circle-fill text-[0.4rem]"></i>
-                    {{ scheduler_status.get_status_display }}
+        <p class="text-sm text-base-content/60 mb-6">When a claim enters the trigger status, LORA drafts a "what we did" update and starts the progress cadence (day 2, 5, 11, 21, then every 10 days, then a final note at the end of the service period). The autonomous-sending switch is at the top of this page.</p>
+        <div class="grid md:grid-cols-2 gap-6">
+            <div class="form-control">
+                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Trigger status ID</span>
+                    <span class="text-xs text-base-content/50">Zendesk custom-status <strong>ID</strong> for "Claim submitted". Leave blank to disable.</span></label>
+                <input type="text" class="input-modern w-full" name="client_report_trigger_status_id" value="{{ settings.client_report_trigger_status_id }}" placeholder="e.g. 11688538967068" list="zd-custom-status-ids" autocomplete="off">
+                {% if custom_statuses %}
+                <datalist id="zd-custom-status-ids">{% for cs in custom_statuses %}<option value="{{ cs.id }}">{{ cs.name }} ({{ cs.category }})</option>{% endfor %}</datalist>
+                <div class="text-xs text-base-content/50 mt-2">Available statuses:
+                    <span class="block mt-1 space-y-0.5">{% for cs in custom_statuses %}<span class="block"><code class="text-[0.7rem]">{{ cs.id }}</code> — {{ cs.name }} <span class="opacity-60">({{ cs.category }})</span></span>{% endfor %}</span>
                 </div>
-                <label class="label cursor-pointer gap-2 py-0">
-                    <span class="label-text text-xs text-base-content/60">Enabled</span>
-                    <input type="checkbox"
-                           id="scheduler-enabled"
-                           data-service="SCHEDULER"
-                           class="toggle toggle-sm toggle-error"
-                           {% if scheduler_status.is_enabled %}checked{% endif %}
-                           onchange="toggleService('SCHEDULER', this.checked)" />
-                </label>
+                {% else %}<span class="text-xs text-warning/80 mt-1">Could not load Zendesk statuses — enter the ID manually.</span>{% endif %}
+            </div>
+            <div class="form-control">
+                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Service length (days)</span>
+                    <span class="text-xs text-base-content/50">Concierge service length from claim creation. Drives the update cadence and the final note.</span></label>
+                <input type="number" min="1" max="365" class="input-modern w-full" name="service_length_days" value="{{ settings.service_length_days }}" placeholder="30">
+
+                <label class="label flex-col items-start gap-0.5 mt-6"><span class="label-text font-medium">Legacy trigger status name</span>
+                    <span class="text-xs text-base-content/50">Fallback only — used if the ID is blank. Prefer the ID.</span></label>
+                <input type="text" class="input-modern w-full" name="client_report_trigger_status" value="{{ settings.client_report_trigger_status }}" placeholder="Claim submitted">
             </div>
         </div>
-        {% if scheduler_status.last_error %}
-        <div class="alert alert-error rounded-xl mb-6 py-2 text-xs">
-            <i class="bi bi-exclamation-triangle"></i>
-            {{ scheduler_status.last_error|truncatechars:100 }}
-        </div>
-        {% endif %}
-        <p class="text-sm text-base-content/60 flex items-center gap-2">
-            <i class="bi bi-info-circle"></i>
-            Master switch for all scheduled jobs (e.g. client progress updates). A Railway cron
-            job runs them on a timer; this toggle is the global off-switch. The status shows when
-            the cron last reported in{% if scheduler_status.last_checked %} — last run {{ scheduler_status.last_checked|date:"M d, H:i" }} UTC{% endif %}.
-        </p>
     </div>
 
-    <!-- Screenshot Service -->
-    <div class="card-modern p-6 lg:p-8 mb-6">
-        <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-                <i class="bi bi-camera text-base-content/60"></i> Screenshot Service
-            </h3>
-            <div class="flex items-center gap-3">
-                <div class="badge badge-{{ screenshot_status.get_status_color }} gap-1">
-                    <i class="bi bi-circle-fill text-[0.4rem]"></i>
-                    {{ screenshot_status.get_status_display }}
-                </div>
-                <label class="label cursor-pointer gap-2 py-0">
-                    <span class="label-text text-xs text-base-content/60">Enabled</span>
-                    <input type="checkbox"
-                           id="screenshot-enabled"
-                           data-service="SCREENSHOT"
-                           class="toggle toggle-sm toggle-secondary"
-                           {% if screenshot_status.is_enabled %}checked{% endif %}
-                           onchange="toggleService('SCREENSHOT', this.checked)" />
-                </label>
-                <button type="button" class="btn btn-sm btn-outline btn-secondary rounded-xl" onclick="testService('SCREENSHOT')">
-                    <i class="bi bi-activity"></i> Test
-                </button>
-            </div>
+    <!-- Advanced: AI prompts -->
+    <details class="card-modern p-6 lg:p-8 mb-6">
+        <summary class="cursor-pointer text-base font-semibold flex items-center gap-2">
+            <i class="bi bi-sliders text-base-content/60"></i> Advanced — AI prompt templates
+        </summary>
+        <p class="text-sm text-base-content/60 mt-3 mb-5">The system prompts used by the email categoriser and the dispute-letter writer. Edit only if you know what you're changing.</p>
+        <div class="form-control mb-5">
+            <label class="label"><span class="label-text font-medium">Email categorisation prompt</span></label>
+            <textarea class="rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full font-mono text-sm p-4" name="email_analysis_prompt" rows="8">{{ settings.email_analysis_prompt }}</textarea>
         </div>
-        {% if screenshot_status.last_error %}
-        <div class="alert alert-error rounded-xl mb-6 py-2 text-xs">
-            <i class="bi bi-exclamation-triangle"></i>
-            {{ screenshot_status.last_error|truncatechars:100 }}
+        <div class="form-control">
+            <label class="label"><span class="label-text font-medium">Dispute response prompt</span></label>
+            <textarea class="rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full font-mono text-sm p-4" name="dispute_response_prompt" rows="8">{{ settings.dispute_response_prompt }}</textarea>
         </div>
-        {% endif %}
-        <p class="text-sm text-base-content/60 flex items-center gap-2">
-            <i class="bi bi-info-circle"></i>
-            Captures Zendesk ticket screenshots using Playwright browser automation.
-        </p>
-    </div>
+    </details>
 
-    <!-- Save Button -->
+    <!-- Save -->
     <div class="flex justify-end">
-        <button type="submit" class="btn btn-primary btn-lg rounded-xl">
-            <i class="bi bi-check-circle"></i> Save Settings
-        </button>
+        <button type="submit" class="btn btn-primary btn-lg rounded-xl"><i class="bi bi-check-circle"></i> Save settings</button>
     </div>
 </form>
 
@@ -520,21 +328,8 @@
 <div class="rounded-xl border border-info/20 bg-info/10 text-info p-4 flex items-start gap-3 mt-6">
     <i class="bi bi-shield-check text-lg mt-0.5"></i>
     <div class="text-sm">
-        <span class="font-semibold">Security Notice:</span> All sensitive credentials (passwords, tokens, secrets) are
-        encrypted at rest in the database. Password fields are never pre-filled — enter a new value
-        only when you want to change them.
-    </div>
-</div>
-
-<!-- Status Legend -->
-<div class="card-modern p-6 mt-6">
-    <h4 class="text-sm font-semibold mb-3">Status Legend</h4>
-    <div class="flex flex-wrap gap-2">
-        <div class="badge badge-success gap-1"><i class="bi bi-circle-fill text-[0.4rem]"></i>Connected</div>
-        <div class="badge badge-neutral gap-1"><i class="bi bi-circle-fill text-[0.4rem]"></i>Disconnected</div>
-        <div class="badge badge-error gap-1"><i class="bi bi-circle-fill text-[0.4rem]"></i>Error</div>
-        <div class="badge badge-primary gap-1"><i class="bi bi-circle-fill text-[0.4rem]"></i>Running</div>
-        <div class="badge badge-warning gap-1"><i class="bi bi-circle-fill text-[0.4rem]"></i>Stopped</div>
+        <span class="font-semibold">Security:</span> credentials are encrypted at rest. Password fields are never pre-filled —
+        enter a new value only to change them. Connection badges reflect the last <span class="font-medium">Test</span>.
     </div>
 </div>
 
@@ -543,9 +338,7 @@
     <div id="serviceToast" class="alert alert-hidden opacity-0 transition-all duration-300">
         <i class="bi bi-bell"></i>
         <span id="toastMessage"></span>
-        <button class="btn btn-sm btn-circle btn-ghost" onclick="hideToast()">
-            <i class="bi bi-x"></i>
-        </button>
+        <button class="btn btn-sm btn-circle btn-ghost" onclick="hideToast()"><i class="bi bi-x"></i></button>
     </div>
 </div>
 

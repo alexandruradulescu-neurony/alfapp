@@ -4,6 +4,7 @@ from .views import (
     ServiceStatusViewSet,
     test_connection,
     toggle_service,
+    toggle_setting_flag,
 )
 
 router = DefaultRouter()
@@ -13,6 +14,7 @@ app_name = 'services'
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('settings-flag/', toggle_setting_flag, name='settings-flag'),
     path('<str:service>/test/', test_connection, name='test-connection'),
     path('<str:service>/toggle/', toggle_service, name='toggle'),
 ]

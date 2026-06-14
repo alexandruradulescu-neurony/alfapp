@@ -957,9 +957,6 @@ def manager_settings(request):
             defaults={'status': 'disconnected', 'is_enabled': True}
         )
     
-    # Sidebar doesn't have a separate service status, use AI status as proxy
-    sidebar_status = service_statuses['AI']
-
     if request.method == 'POST':
         form = SystemSettingsForm(request.POST, instance=settings)
         if form.is_valid():
@@ -1012,7 +1009,6 @@ def manager_settings(request):
         'paypal_status': service_statuses['PAYPAL'],
         'scheduler_status': service_statuses['SCHEDULER'],
         'screenshot_status': service_statuses['SCREENSHOT'],
-        'sidebar_status': sidebar_status,
     }
 
     return render(request, 'manager/settings.html', context)

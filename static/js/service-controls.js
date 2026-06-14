@@ -163,6 +163,30 @@ async function toggleService(service, enabled) {
     }
 }
 
+// Toggle a SystemSettings boolean automation switch — instant, no Save needed.
+// The checkbox's element id must equal the flag name.
+async function toggleSettingFlag(flag, enabled) {
+    try {
+        const response = await fetch('/api/services/settings-flag/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken },
+            body: JSON.stringify({ flag: flag, enabled: enabled })
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast(data.message || `${flag} updated`, 'success');
+        } else {
+            showToast(`${flag}: ${data.error || data.message || 'failed'}`, 'error');
+            const cb = document.getElementById(flag);
+            if (cb) cb.checked = !enabled;
+        }
+    } catch (error) {
+        showToast(`Failed to update ${flag}: ${error.message}`, 'error');
+        const cb = document.getElementById(flag);
+        if (cb) cb.checked = !enabled;
+    }
+}
+
 // The "Scheduled Jobs" master switch reuses the generic toggleService('SCHEDULER', …)
 // path; there is no in-process scheduler to start/stop (jobs run via Railway cron).
 

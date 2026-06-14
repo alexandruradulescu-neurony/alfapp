@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from apps.users.permissions import IsManager
-from apps.config.models import ServiceStatus
+from apps.config.models import ServiceStatus, SystemSettings
 from apps.config.api.serializers import (
     ServiceStatusSerializer,
     ServiceTestResultSerializer,
@@ -94,3 +94,27 @@ def toggle_service(request, service):
         'is_enabled': status_obj.is_enabled,
         'message': f'Service {service} {"enabled" if status_obj.is_enabled else "disabled"}'
     })
+
+
+# Boolean automation switches on SystemSettings that the Settings page flips
+# instantly (no Save) — allowlisted so the endpoint can only touch real switches.
+TOGGLEABLE_SETTING_FLAGS = {'client_updates_autosend', 'email_sweep_autorun'}
+
+
+@api_view(['POST'])
+@permission_classes([IsManager])
+def toggle_setting_flag(request):
+    """Instant ON/OFF for a boolean SystemSettings automation switch.
+
+    Body: {"flag": "client_updates_autosend", "enabled": true}
+    Manager-only; only allowlisted flags can be changed."""
+    flag = (request.data.get('flag') or '').strip()
+    if flag not in TOGGLEABLE_SETTING_FLAGS:
+        return Response({'success': False, 'error': f'Unknown flag: {flag}'},
+                        status=status.HTTP_400_BAD_REQUEST)
+    enabled = bool(request.data.get('enabled'))
+    ss = SystemSettings.get_instance()
+    setattr(ss, flag, enabled)
+    ss.save(update_fields=[flag, 'updated_at'])
+    return Response({'success': True, 'flag': flag, 'enabled': enabled,
+                     'message': f'{flag} {"enabled" if enabled else "disabled"}'})

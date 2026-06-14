@@ -44,37 +44,38 @@ class SystemSettingsForm(forms.ModelForm):
 
     class Meta:
         model = SystemSettings
+        # IMPORTANT: every field listed here MUST be rendered on the settings page.
+        # A field that is in the form but not on the page is wiped to blank on every
+        # Save (it's absent from POST -> cleaned to '' -> saved). The behaviour
+        # switches (client_updates_autosend, email_sweep_autorun) are deliberately
+        # NOT here — they are instant AJAX toggles, persisted via their own endpoint.
+        # ai_prompt_template was removed: it is dead (referenced nowhere in code).
         fields = [
             # AI Configuration (non-sensitive)
             'ai_provider',
             'ai_api_base',
             'ai_api_model',
-            # AI Prompt Templates
-            'ai_prompt_template',
-            # IMAP Configuration (non-sensitive)
+            # Email / IMAP (non-sensitive)
             'imap_host',
             'imap_user',
-            # Zendesk Configuration (non-sensitive)
-            'zd_subdomain',
-            'zd_email',
-            # PayPal Configuration (non-sensitive)
-            'paypal_client_id',
-            'paypal_webhook_id',
-            # Zendesk Sidebar Authentication (non-sensitive)
-            # Email Configuration
             'email_domain',
             'zd_alias_custom_field_id',
-            # Zendesk Browser Authentication (non-sensitive)
-            'zd_agent_email',
+            # Zendesk (non-sensitive)
+            'zd_subdomain',
+            'zd_email',
+            # PayPal (non-sensitive)
+            'paypal_client_id',
+            'paypal_webhook_id',
+            'paypal_mode',
             # WooCommerce (non-sensitive part)
             'woocommerce_store_url',
+            # Zendesk browser auth for screenshots (non-sensitive part)
+            'zd_agent_email',
             # Client update automation
             'client_report_trigger_status',
             'client_report_trigger_status_id',
             'service_length_days',
-            'client_updates_autosend',
-            'email_sweep_autorun',
-            # AI Prompt Templates
+            # Advanced — live AI prompts (rendered in the collapsible section)
             'dispute_response_prompt',
             'email_analysis_prompt',
         ]
@@ -85,7 +86,6 @@ class SystemSettingsForm(forms.ModelForm):
             'ai_api_key': forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'off', 'placeholder': '••••••••••••'}),
             'ai_api_model': forms.TextInput(attrs={'class': 'form-control'}),
             # Text areas for prompts
-            'ai_prompt_template': forms.Textarea(attrs={'rows': 10, 'class': 'form-control'}),
             'dispute_response_prompt': forms.Textarea(attrs={'rows': 10, 'class': 'form-control'}),
             'email_analysis_prompt': forms.Textarea(attrs={'rows': 10, 'class': 'form-control'}),
             # Password fields for sensitive data
