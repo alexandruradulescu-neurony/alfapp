@@ -173,6 +173,13 @@ class Dispute(models.Model):
         ('ACCEPTED', 'Accepted/Refunded'),
     ]
 
+    # Status groupings — the single source of truth for "is this dispute over?".
+    # A dispute in a TERMINAL status no longer needs action and no longer voids
+    # the client-update cadence; everything else is ACTIVE.
+    TERMINAL_STATUSES = ('RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED')
+    ACTIVE_STATUSES = ('RECEIVED', 'MATCHED', 'GATHERING_DATA',
+                       'DOCUMENTS_READY', 'UNDER_REVIEW', 'EVIDENCE_SENT')
+
     # Must match PayPal's exact `reason` enum (British 'UNAUTHORISED', etc.) —
     # any drift breaks prefill from the webhook. This is the human's category.
     REASON_CHOICES = [

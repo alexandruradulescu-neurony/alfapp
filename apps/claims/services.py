@@ -4,6 +4,25 @@ from datetime import date, datetime, time
 from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+# Evidence-upload limits — shared so the API and the frontend agree on what an
+# acceptable image is (the API path previously did no validation at all).
+EVIDENCE_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+EVIDENCE_ALLOWED_EXTENSIONS = ('jpg', 'jpeg', 'png', 'gif', 'webp')
+
+
+def validate_evidence_image(image) -> None:
+    """Size + extension validation for an uploaded evidence image. Raises
+    django.core.exceptions.ValidationError on failure. Pure (no model imports)."""
+    from django.core.exceptions import ValidationError
+    if image is None:
+        raise ValidationError('An image file is required.')
+    if image.size > EVIDENCE_MAX_BYTES:
+        raise ValidationError(f'File must be under {EVIDENCE_MAX_BYTES // 1024 // 1024}MB.')
+    ext = image.name.rsplit('.', 1)[-1].lower() if '.' in (image.name or '') else ''
+    if ext not in EVIDENCE_ALLOWED_EXTENSIONS:
+        raise ValidationError(
+            f'Invalid file type. Allowed: {", ".join(EVIDENCE_ALLOWED_EXTENSIONS)}.')
+
 # Common human-typed abbreviations -> IANA zone. Fallback is UTC; precision
 # beyond "right day" is best-effort by design (see spec §6).
 TZ_ABBREVIATIONS = {

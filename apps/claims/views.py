@@ -221,22 +221,33 @@ class ClaimEvidenceViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """
-        Associate evidence with a claim.
-        Only AGENT or MANAGER can upload evidence.
+        Associate evidence with a claim. Mirrors the frontend upload path:
+        AGENTs may only upload to claims assigned to them (or unassigned), and the
+        image is size/type validated (the API previously did neither).
         """
-        try:
-            claim_id = self.request.data.get('claim')
-            if not claim_id:
-                raise serializers.ValidationError({'claim': 'Claim ID is required.'})
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from rest_framework.exceptions import PermissionDenied
+        from apps.claims.services import validate_evidence_image
 
+        claim_id = self.request.data.get('claim')
+        if not claim_id:
+            raise serializers.ValidationError({'claim': 'Claim ID is required.'})
+        try:
             claim = Claim.objects.get(id=claim_id)
-            serializer.save(claim=claim)
-        except Claim.DoesNotExist:
+        except (Claim.DoesNotExist, ValueError, TypeError):
             logger.warning(f"Claim {claim_id} not found for evidence upload")
             raise serializers.ValidationError({'claim': 'Claim not found.'})
-        except Exception as e:
-            logger.error(f"Error uploading evidence: {e}")
-            raise serializers.ValidationError({'detail': 'Error uploading evidence.'})
+
+        if getattr(self.request.user, 'role', None) == 'AGENT':
+            if claim.assigned_to_id and claim.assigned_to_id != self.request.user.id:
+                raise PermissionDenied('You are not assigned to this claim.')
+
+        try:
+            validate_evidence_image(serializer.validated_data.get('image'))
+        except DjangoValidationError as e:
+            raise serializers.ValidationError({'image': e.messages})
+
+        serializer.save(claim=claim)
 
     def destroy(self, request, *args, **kwargs):
         """Only MANAGERs can delete evidence."""

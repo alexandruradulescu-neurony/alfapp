@@ -138,9 +138,9 @@ def agent_dashboard(request):
         action_required=True,
         category__in=['RESUBMISSION_REQUIRED', 'OBJECT_NOT_FOUND']
     ).count()
-    _ACTIVE_DISPUTE_STATUSES = ['RECEIVED', 'MATCHED', 'GATHERING_DATA', 'DOCUMENTS_READY', 'UNDER_REVIEW', 'EVIDENCE_SENT']
+    from apps.payments.models import Dispute
     disputed = Claim.objects.filter(
-        disputes__status__in=_ACTIVE_DISPUTE_STATUSES
+        disputes__status__in=Dispute.ACTIVE_STATUSES
     ).distinct().count()
 
     # Consolidate email stats into single aggregate query
@@ -727,7 +727,7 @@ def manager_dashboard(request):
         documents_ready=Count(Case(When(status='DOCUMENTS_READY', then=1), output_field=IntegerField())),
         under_review=Count(Case(When(status='UNDER_REVIEW', then=1), output_field=IntegerField())),
         evidence_sent=Count(Case(When(status='EVIDENCE_SENT', then=1), output_field=IntegerField())),
-        resolved=Count(Case(When(status__in=['RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED'], then=1), output_field=IntegerField())),
+        resolved=Count(Case(When(status__in=Dispute.TERMINAL_STATUSES, then=1), output_field=IntegerField())),
     )
     # Disputes with a response deadline in the next 3 days (or already past),
     # still open — the highest-stakes "act now" number. Missing the deadline

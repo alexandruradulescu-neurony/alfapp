@@ -75,8 +75,10 @@ class AgentChatService:
         if not detected_ids and conversation_history:
             # Look for claim IDs in recent messages
             for msg in reversed(conversation_history[-6:]):
-                if msg['role'] == 'assistant' and 'ALF' in msg['content']:
-                    found = self.detect_claim_ids(msg['content'])
+                if not isinstance(msg, dict):
+                    continue
+                if msg.get('role') == 'assistant' and 'ALF' in (msg.get('content') or ''):
+                    found = self.detect_claim_ids(msg.get('content') or '')
                     if found:
                         detected_ids = found
                         break
@@ -96,8 +98,10 @@ class AgentChatService:
         if conversation_history:
             history_parts = []
             for msg in conversation_history[-10:]:
-                role = "User" if msg['role'] == 'user' else "Assistant"
-                history_parts.append(f"{role}: {msg['content']}")
+                if not isinstance(msg, dict):
+                    continue
+                role = "User" if msg.get('role') == 'user' else "Assistant"
+                history_parts.append(f"{role}: {msg.get('content') or ''}")
             trusted['conversation_history'] = "\n".join(history_parts)
 
         # Structured claim summary is trusted (from LORA DB)

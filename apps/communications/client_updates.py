@@ -201,10 +201,6 @@ def object_found(claim) -> bool:
     return EmailLog.objects.filter(claim=claim, category='OBJECT_FOUND').exists()
 
 
-# A dispute in any of these states is over — it no longer voids the cadence.
-DISPUTE_TERMINAL_STATES = {'RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED'}
-
-
 def claim_is_closed(claim) -> bool:
     """Void/stop signal: stop messaging the client when the claim is solved/
     closed, has an OPEN dispute, or has actually been refunded. (A merely
@@ -218,7 +214,8 @@ def claim_is_closed(claim) -> bool:
     except Exception:
         pass
     try:
-        if claim.disputes.exclude(status__in=DISPUTE_TERMINAL_STATES).exists():
+        from apps.payments.models import Dispute
+        if claim.disputes.exclude(status__in=Dispute.TERMINAL_STATUSES).exists():
             return True
     except Exception:
         pass
