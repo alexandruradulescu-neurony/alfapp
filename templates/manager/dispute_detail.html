@@ -377,4 +377,16 @@
         </div>
     </div>
 </div>
+
+<!-- Raw PayPal data (manager debug — verify field mapping against what PayPal sent) -->
+<details class="card-modern p-4 mt-6">
+    <summary class="cursor-pointer font-medium flex items-center gap-2 select-none">
+        <i class="bi bi-code-square text-base-content/60"></i> Raw PayPal data
+        <span class="text-xs font-normal text-base-content/50">— exactly what PayPal sent for this dispute</span>
+    </summary>
+    <p class="text-xs text-base-content/60 mt-3 mb-2">
+        <i class="bi bi-shield-exclamation"></i> Black out any personal details (names, emails, addresses) before sharing this.
+    </p>
+    <pre class="text-xs bg-base-200/60 rounded-xl p-4 overflow-auto max-h-[28rem] whitespace-pre-wrap break-words">{{ raw_payload_json }}</pre>
+</details>
 {% endblock %}

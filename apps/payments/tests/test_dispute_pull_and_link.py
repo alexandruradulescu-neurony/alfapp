@@ -169,6 +169,14 @@ class TestDisputeLinkClaimView(TestCase):
         self.assertIsNone(d.claim_id)
         self.assertContains(resp, 'No claim found')
 
+    def test_detail_page_shows_raw_paypal_data(self):
+        d = _dispute(paypal_dispute_id='PP-D-RAW',
+                     raw_webhook_payload={'status': 'UNDER_REVIEW', 'dispute_id': 'PP-D-RAW'})
+        resp = self.web.get(f'/manager/disputes/{d.id}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Raw PayPal data')
+        self.assertContains(resp, 'PP-D-RAW')  # payload rendered verbatim
+
     def test_already_linked_is_a_noop(self):
         other = Claim.objects.create(
             alf_claim_id='ALF5550002', zd_ticket_id='55502', client_email='o@example.com',

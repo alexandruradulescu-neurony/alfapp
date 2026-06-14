@@ -10,6 +10,7 @@ Provides UI views for managing PayPal disputes:
 - Capture screenshots
 """
 
+import json
 import logging
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib import messages
@@ -356,11 +357,17 @@ def dispute_detail(request, dispute_id):
     if dispute.claim:
         claim_evidence = dispute.claim.evidence.all()[:10]
 
+    # Pretty-printed raw PayPal response (for the manager-only debug viewer —
+    # lets us verify field mapping against what PayPal actually returns).
+    raw_payload_json = json.dumps(
+        dispute.raw_webhook_payload or {}, indent=2, sort_keys=True, default=str)
+
     context = {
         'dispute': dispute,
         'documents': documents,
         'activity_log': activity_log,
         'claim_evidence': claim_evidence,
+        'raw_payload_json': raw_payload_json,
     }
 
     return render(request, 'manager/dispute_detail.html', context)
