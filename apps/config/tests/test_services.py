@@ -508,7 +508,29 @@ class TestConnectionTesterPayPal:
 
         assert result['success'] is False
         assert result['status'] == 'error'
-        assert result['message'] == 'Invalid PayPal credentials'
+        # Message now names the environment that was tested (sandbox by default).
+        assert result['message'].startswith('Invalid PayPal credentials')
+        assert 'sandbox' in result['message']
+
+    @patch('apps.config.services.connection_tester.requests.post')
+    def test_paypal_connection_uses_live_endpoint_in_live_mode(self, mock_post):
+        """In live mode the test must hit the LIVE OAuth endpoint — otherwise
+        valid live credentials are wrongly rejected against the sandbox host."""
+        settings = SystemSettings.objects.get(pk=1)
+        settings.paypal_client_id = 'live_client'
+        settings.paypal_secret = 'live_secret'
+        settings.paypal_mode = 'live'
+        settings.save()
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        result = ConnectionTester().test_paypal()
+
+        assert result['success'] is True
+        called_url = mock_post.call_args.args[0]
+        assert called_url == 'https://api-m.paypal.com/v1/oauth2/token'
 
     @patch('apps.config.services.connection_tester.requests.post')
     def test_paypal_connection_other_error(self, mock_post):

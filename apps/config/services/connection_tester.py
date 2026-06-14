@@ -184,13 +184,20 @@ class ConnectionTester:
                     message='PayPal credentials not configured'
                 )
             
-            # Get OAuth token (PayPal API test)
-            auth_url = 'https://api-m.sandbox.paypal.com/v1/oauth2/token'
-            
+            # Test against the CONFIGURED environment. Live credentials checked
+            # against the sandbox endpoint (or vice versa) return 401 even when
+            # they're valid — so honour paypal_mode here, the same way the real
+            # PayPal calls (paypal_api_base) do. Strip the credentials defensively
+            # in case they were pasted with trailing whitespace/newlines.
+            mode = (settings.paypal_mode or 'sandbox').strip().lower()
+            host = ('https://api-m.paypal.com' if mode == 'live'
+                    else 'https://api-m.sandbox.paypal.com')
+            auth_url = f'{host}/v1/oauth2/token'
+
             response = requests.post(
                 auth_url,
                 data={'grant_type': 'client_credentials'},
-                auth=(settings.paypal_client_id, settings.paypal_secret),
+                auth=(settings.paypal_client_id.strip(), settings.paypal_secret.strip()),
                 timeout=self.timeout
             )
             
@@ -206,7 +213,8 @@ class ConnectionTester:
                     'PAYPAL',
                     'error',
                     success=False,
-                    message='Invalid PayPal credentials'
+                    message=f'Invalid PayPal credentials for {mode} mode — '
+                            f'check the keys match the {mode} environment'
                 )
             else:
                 return self._update_status(
