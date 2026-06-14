@@ -249,7 +249,6 @@ def fetch_dispute_details(dispute_id: str) -> Optional[Dict[str, Any]]:
     wait=wait_exponential(multiplier=1, min=4, max=10),
     retry=retry_if_exception_type((urllib.error.HTTPError, urllib.error.URLError))
 )
-@transaction.atomic
 def provide_evidence(
     dispute_id: str,
     documents: List[DisputeDocument],
@@ -338,27 +337,26 @@ def provide_evidence(
 
         with urllib.request.urlopen(request, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
-            logger.info(f"Successfully submitted evidence for dispute {dispute_id}")
+        logger.info(f"Successfully submitted evidence for dispute {dispute_id}")
 
-            # Update document statuses to SENT
+        # External call done — persist local state in its own short transaction.
+        # (No network I/O inside the DB transaction: a slow/failed PayPal call no
+        # longer holds a DB lock, and the writes here are all-or-nothing.)
+        with transaction.atomic():
             for doc in documents:
                 if doc.file_path:
                     doc.status = 'SENT'
                     doc.save(update_fields=['status'])
-
-            # Update Dispute status to EVIDENCE_SENT
             dispute.status = 'EVIDENCE_SENT'
             dispute.save(update_fields=['status'])
-
-            # Log the activity
             DisputeActivityLog.objects.create(
                 dispute=dispute,
                 action='EVIDENCE_SENT',
                 details=f"Evidence submitted to PayPal. Documents: {[d.id for d in documents]}. Response length: {len(response_text)} chars",
             )
 
-            logger.info(f"Updated Dispute #{dispute.id} status to EVIDENCE_SENT")
-            return True
+        logger.info(f"Updated Dispute #{dispute.id} status to EVIDENCE_SENT")
+        return True
 
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
@@ -379,7 +377,6 @@ def provide_evidence(
     wait=wait_exponential(multiplier=1, min=4, max=10),
     retry=retry_if_exception_type((urllib.error.HTTPError, urllib.error.URLError))
 )
-@transaction.atomic
 def accept_claim(dispute_id: str, note: str = '') -> bool:
     """
     Accept a dispute claim (issue refund) via PayPal API.
@@ -433,21 +430,20 @@ def accept_claim(dispute_id: str, note: str = '') -> bool:
 
         with urllib.request.urlopen(request, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
-            logger.info(f"Successfully accepted claim for dispute {dispute_id}")
+        logger.info(f"Successfully accepted claim for dispute {dispute_id}")
 
-            # Update Dispute status to ACCEPTED
+        # External call done — persist local state in its own short transaction.
+        with transaction.atomic():
             dispute.status = 'ACCEPTED'
             dispute.save(update_fields=['status'])
-
-            # Log the activity
             DisputeActivityLog.objects.create(
                 dispute=dispute,
                 action='DISPUTE_RESOLVED',
                 details=f"Claim accepted via PayPal API. Refund issued. Note: {note[:200] if note else 'None'}",
             )
 
-            logger.info(f"Updated Dispute #{dispute.id} status to ACCEPTED")
-            return True
+        logger.info(f"Updated Dispute #{dispute.id} status to ACCEPTED")
+        return True
 
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
@@ -468,7 +464,6 @@ def accept_claim(dispute_id: str, note: str = '') -> bool:
     wait=wait_exponential(multiplier=1, min=4, max=10),
     retry=retry_if_exception_type((urllib.error.HTTPError, urllib.error.URLError))
 )
-@transaction.atomic
 def send_message(dispute_id: str, message: str) -> bool:
     """
     Send a message to the buyer via PayPal.
@@ -526,17 +521,18 @@ def send_message(dispute_id: str, message: str) -> bool:
 
         with urllib.request.urlopen(request, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
-            logger.info(f"Successfully sent message for dispute {dispute_id}")
+        logger.info(f"Successfully sent message for dispute {dispute_id}")
 
-            # Log the activity
+        # External call done — log the activity in its own short transaction.
+        with transaction.atomic():
             DisputeActivityLog.objects.create(
                 dispute=dispute,
                 action='NOTE_ADDED',
                 details=f"Message sent to buyer via PayPal API. Message length: {len(message)} chars",
             )
 
-            logger.info(f"Logged message activity for Dispute #{dispute.id}")
-            return True
+        logger.info(f"Logged message activity for Dispute #{dispute.id}")
+        return True
 
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''

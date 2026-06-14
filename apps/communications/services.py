@@ -14,7 +14,7 @@ from email.header import decode_header
 from typing import Optional, Dict, Any, List, Tuple
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError
 from django.utils import timezone
 from apps.claims.models import Claim
 from apps.config.models import SystemSettings
@@ -563,7 +563,6 @@ def post_ai_summary_to_zendesk(
         return False
 
 
-@transaction.atomic
 def process_single_email(
     imap_conn: imaplib.IMAP4_SSL,
     uid: str,
@@ -571,6 +570,13 @@ def process_single_email(
     ai_prompt: str,
     email_domain: str,
 ) -> Optional[EmailLog]:
+    # NB: deliberately NOT wrapped in transaction.atomic. The only DB write is
+    # the EmailLog insert (atomic on its own); the surrounding work is external
+    # I/O — Zendesk reads, the LLM call, the Zendesk note, the IMAP flag. Holding
+    # a DB transaction open across those calls means long locks, and rolling the
+    # insert back because a *later* external side effect failed would discard the
+    # record of an email that was in fact processed (re-processing it would then
+    # re-post to Zendesk). The Message-ID dedup + unique constraint guard repeats.
     """
     Process a single email message with alias-based matching and AI categorization.
     
