@@ -31,9 +31,10 @@ class TestRefundServiceInit:
     """Tests for RefundService initialization."""
 
     def test_service_initialization(self):
-        """Test service initializes correctly."""
+        """Service uses the mode-aware PayPal base URL (sandbox by default)."""
+        from apps.payments.paypal_disputes_service import paypal_api_base
         service = RefundService()
-        assert service.paypal_base_url == "https://api.paypal.com"
+        assert service.paypal_base_url == paypal_api_base()
 
 
 @pytest.mark.django_db
@@ -93,6 +94,7 @@ class TestRefundServiceInitiateRefund:
             reason="Full refund test",
             user=None,
             refund_type="FULL",
+            capture_id="CAPTURE-TEST",
         )
 
         assert result["success"] is True
@@ -136,6 +138,7 @@ class TestRefundServiceInitiateRefund:
             reason="Partial refund test",
             user=None,
             refund_type="PARTIAL",
+            capture_id="CAPTURE-TEST",
         )
 
         assert result["success"] is True
@@ -168,6 +171,7 @@ class TestRefundServiceInitiateRefund:
             amount=Decimal("50.00"),
             reason="Test",
             user=None,
+            capture_id="CAPTURE-TEST",
         )
 
         assert result["success"] is False
@@ -202,6 +206,7 @@ class TestRefundServiceInitiateRefund:
             amount=Decimal("50.00"),
             reason="Test",
             user=None,
+            capture_id="CAPTURE-TEST",
         )
 
         assert result["success"] is False
@@ -228,6 +233,7 @@ class TestRefundServiceInitiateRefund:
             amount=Decimal("50.00"),
             reason="Test",
             user=None,
+            capture_id="CAPTURE-TEST",
         )
 
         assert result["success"] is False

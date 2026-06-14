@@ -209,8 +209,11 @@ class RefundViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         
         import uuid
+        # RefundCreateSerializer exposes the claim under 'claim_id' (validate_claim_id
+        # resolves it to a Claim). The old '.get("claim")' was always None, so manual
+        # refunds were saved orphaned from their claim.
         refund = Refund.objects.create(
-            claim=serializer.validated_data.get('claim'),
+            claim=serializer.validated_data.get('claim_id'),
             paypal_refund_id=f'MANUAL-{uuid.uuid4().hex[:12]}',
             amount=serializer.validated_data['amount'],
             currency=serializer.validated_data.get('currency', 'USD'),

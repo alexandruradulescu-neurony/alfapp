@@ -9,13 +9,14 @@ Handles refund processing via PayPal API:
 """
 
 import logging
+import uuid
 from typing import Dict, Any, Optional
 from decimal import Decimal
 from django.db import transaction
 from apps.payments.models import Refund
 from apps.claims.models import Claim
 from apps.config.models import SystemSettings
-from apps.payments.paypal_disputes_service import get_paypal_access_token
+from apps.payments.paypal_disputes_service import get_paypal_access_token, paypal_api_base
 from apps.payments.woocommerce_service import (
     WooCommerceNotConfigured,
     create_woocommerce_refund,
@@ -34,9 +35,10 @@ class RefundService:
     """
     
     def __init__(self):
-        self.paypal_base_url = "https://api.paypal.com"
-    
-    @transaction.atomic
+        # Mode-aware (SANDBOX by default) — never hit LIVE PayPal unless
+        # SystemSettings.paypal_mode is explicitly 'live'. Was hardcoded to live.
+        self.paypal_base_url = paypal_api_base()
+
     def initiate_refund(
         self,
         claim: Claim,
@@ -69,11 +71,23 @@ class RefundService:
                     'success': False,
                     'error': 'PayPal credentials not configured',
                 }
-            
-            # Create refund record in PENDING state
+
+            # A capture id is required to refund against — without it the PayPal
+            # URL is malformed. Fail fast BEFORE creating a row or calling PayPal.
+            # (The 'process' action does not yet source one; wiring the capture id
+            # from the WooCommerce order / Zendesk is still pending — see review.)
+            if not capture_id:
+                return {
+                    'success': False,
+                    'error': 'No PayPal capture id available to refund against',
+                }
+
+            # Create refund record in PENDING state. Use a unique placeholder id
+            # (not '') so two concurrent pending refunds can't collide on the
+            # unique paypal_refund_id column; the real id replaces it on success.
             refund = Refund.objects.create(
                 claim=claim,
-                paypal_refund_id='',  # Will be set after PayPal confirms
+                paypal_refund_id=f'PENDING-{uuid.uuid4().hex}',
                 paypal_capture_id=capture_id or '',
                 amount=amount,
                 currency='USD',  # TODO: Get from claim or PayPal
