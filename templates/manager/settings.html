@@ -249,30 +249,6 @@
         </div>
     </div>
 
-    <!-- Screenshot / browser auth -->
-    <div class="card-modern p-6 lg:p-8 mb-6">
-        <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
-            <h4 class="text-base font-semibold flex items-center gap-2">
-                <i class="bi bi-camera text-base-content/60"></i> Screenshot service
-                <span class="badge badge-sm badge-{{ screenshot_status.get_status_color }} gap-1">{{ screenshot_status.get_status_display }}</span>
-            </h4>
-            <button type="button" class="btn btn-sm btn-outline rounded-xl" data-test="SCREENSHOT"><i class="bi bi-activity"></i> Test</button>
-        </div>
-        {% if screenshot_status.last_error %}<div class="alert alert-error rounded-xl mb-4 py-2 text-xs"><i class="bi bi-exclamation-triangle"></i>{{ screenshot_status.last_error|truncatechars:120 }}</div>{% endif %}
-        <p class="text-sm text-base-content/60 mb-4">Captures Zendesk ticket screenshots via a headless browser. Needs a Zendesk agent login (the subdomain above is reused).</p>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="form-control">
-                <label class="label"><span class="label-text font-medium">Zendesk agent email</span></label>
-                <input type="email" class="input-modern w-full" name="zd_agent_email" value="{{ settings.zd_agent_email }}">
-            </div>
-            <div class="form-control">
-                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Zendesk agent password</span>
-                    <span class="text-xs text-base-content/50">Leave blank to keep current</span></label>
-                <input type="password" class="input-modern w-full" name="zd_agent_password" placeholder="{% if settings.zd_agent_password %}••••••••••••{% endif %}" autocomplete="off">
-            </div>
-        </div>
-    </div>
-
     <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content/40 mb-3 mt-8">Client updates</h3>
 
     <!-- Client update settings -->

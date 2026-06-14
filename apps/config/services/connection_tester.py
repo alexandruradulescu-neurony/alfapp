@@ -258,44 +258,6 @@ class ConnectionTester:
         except Exception as e:
             return {'success': False, 'status': 'error', 'message': str(e)}
     
-    def get_screenshot_status(self) -> Dict[str, Any]:
-        """Get screenshot service status."""
-        try:
-            import subprocess
-            
-            result = subprocess.run(
-                ['playwright', '--version'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            
-            if result.returncode == 0:
-                return {
-                    'success': True,
-                    'status': 'connected',
-                    'message': 'Screenshot service is available'
-                }
-            else:
-                return {
-                    'success': False,
-                    'status': 'error',
-                    'message': 'Playwright not installed'
-                }
-                
-        except FileNotFoundError:
-            return {
-                'success': False,
-                'status': 'disconnected',
-                'message': 'Playwright not installed'
-            }
-        except Exception as e:
-            return {
-                'success': False,
-                'status': 'error',
-                'message': str(e)
-            }
-    
     def _update_status(
         self,
         service: str,
@@ -382,6 +344,5 @@ class ConnectionTester:
             'ZENDESK': self.test_zendesk(),
             'PAYPAL': self.test_paypal(),
             'SCHEDULER': self.get_scheduler_status(),
-            'SCREENSHOT': self.get_screenshot_status(),
         }
         return results

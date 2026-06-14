@@ -34,7 +34,6 @@ bleach==6.3.0                     # HTML sanitization (XSS prevention)
 
 # ----- External integrations -----
 requests==2.34.2                  # HTTP client for Zendesk/PayPal APIs
-playwright==1.60.0                # Browser automation for Zendesk screenshots
 tenacity==9.1.4                   # Retry decorators for external calls
 
 # ----- Security -----

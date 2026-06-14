@@ -394,31 +394,6 @@ class DisputeDocument(models.Model):
         return f"Document #{self.id} - {self.get_doc_type_display()} (v{self.version})"
 
 
-class DisputeScreenshot(models.Model):
-    """
-    Browser-captured Zendesk screenshots for disputes.
-    """
-
-    dispute = models.ForeignKey(
-        Dispute,
-        on_delete=models.CASCADE,
-        related_name='screenshots',
-    )
-    image = models.ImageField(upload_to='dispute_screenshots/')
-    description = models.CharField(max_length=500, blank=True)
-    page_url = models.URLField(max_length=500, blank=True)
-    captured_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['-captured_at']
-        indexes = [
-            models.Index(fields=['dispute', '-captured_at']),
-        ]
-
-    def __str__(self):
-        return f"Screenshot #{self.id} for Dispute #{self.dispute_id}"
-
-
 class DisputeActivityLog(models.Model):
     """
     Audit trail for dispute actions.

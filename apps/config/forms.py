@@ -37,7 +37,6 @@ class SystemSettingsForm(forms.ModelForm):
         'zd_token',
         'paypal_secret',
         'sidebar_secret_token',
-        'zd_agent_password',
         'woocommerce_consumer_key',
         'woocommerce_consumer_secret',
     ]
@@ -69,8 +68,6 @@ class SystemSettingsForm(forms.ModelForm):
             'paypal_mode',
             # WooCommerce (non-sensitive part)
             'woocommerce_store_url',
-            # Zendesk browser auth for screenshots (non-sensitive part)
-            'zd_agent_email',
             # Client update automation
             'client_report_trigger_status',
             'client_report_trigger_status_id',
@@ -87,7 +84,6 @@ class SystemSettingsForm(forms.ModelForm):
             'zd_token': forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'off', 'placeholder': '••••••••••••'}),
             'paypal_secret': forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'off', 'placeholder': '••••••••••••'}),
             'sidebar_secret_token': forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'off', 'placeholder': '••••••••••••'}),
-            'zd_agent_password': forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'off', 'placeholder': '••••••••••••'}),
             # Regular text inputs
             'imap_host': forms.TextInput(attrs={'class': 'form-control'}),
             'imap_user': forms.TextInput(attrs={'class': 'form-control'}),
@@ -97,5 +93,4 @@ class SystemSettingsForm(forms.ModelForm):
             'paypal_webhook_id': forms.TextInput(attrs={'class': 'form-control'}),
             'email_domain': forms.TextInput(attrs={'class': 'form-control'}),
             'zd_alias_custom_field_id': forms.TextInput(attrs={'class': 'form-control'}),
-            'zd_agent_email': forms.TextInput(attrs={'class': 'form-control'}),
         }

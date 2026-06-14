@@ -1,8 +1,7 @@
 # LORA — production container image.
 #
-# Builds a Django + Playwright + WeasyPrint image suitable for Railway,
-# Render, Fly.io, or any container PaaS. ~1.2 GB final image (Chromium
-# is most of that).
+# Builds a Django + WeasyPrint image suitable for Railway, Render, Fly.io, or
+# any container PaaS. (WeasyPrint renders the dispute PDFs; no browser engine.)
 #
 # Usage notes:
 # - PORT is provided by the platform (Railway sets $PORT automatically).
@@ -25,7 +24,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # ----- System dependencies -----
 # - libpango/libcairo/libgdk-pixbuf/libffi/shared-mime-info: WeasyPrint PDF generation
 # - fontconfig + fonts: WeasyPrint glyph rendering
-# - curl/ca-certificates: Playwright browser download
+# - ca-certificates: TLS for outbound API calls (Zendesk/PayPal/AI)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libpango-1.0-0 \
       libpangoft2-1.0-0 \
@@ -35,7 +34,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       shared-mime-info \
       fontconfig \
       fonts-liberation \
-      curl \
       ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -45,12 +43,6 @@ WORKDIR /app
 # Copy requirements first so Docker caches this layer separately from app code.
 COPY requirements.txt .
 RUN pip install -r requirements.txt
-
-# ----- Playwright browsers + their system dependencies -----
-# `--with-deps` installs Chromium's required system libs (libnss, libnspr,
-# libatk, etc.) via apt-get. Heavy step (~400 MB), but only re-runs when
-# the playwright version in requirements.txt changes.
-RUN playwright install --with-deps chromium
 
 # ----- Application code -----
 COPY . .
@@ -69,5 +61,5 @@ RUN SECRET_KEY=build-time-collectstatic-only-not-used-at-runtime \
 # Bind to $PORT (set by the platform). Migrations run first; if they fail,
 # the container exits and the platform retries on rollout.
 # 2 workers is plenty for a small internal tool; bump if you see latency.
-# Timeout 120s for Playwright screenshot requests that can take a while.
+# Timeout 120s covers the slower outbound calls (AI drafting, Zendesk).
 CMD ["sh", "-c", "python manage.py migrate --noinput && exec gunicorn lora_app.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 2 --timeout 120 --access-logfile - --error-logfile -"]

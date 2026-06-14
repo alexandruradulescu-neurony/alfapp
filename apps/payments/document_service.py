@@ -16,7 +16,7 @@ import bleach
 from django.conf import settings
 from django.db import transaction
 from django.template.loader import render_to_string
-from apps.payments.models import Dispute, DisputeDocument, DisputeScreenshot, DisputeActivityLog
+from apps.payments.models import Dispute, DisputeDocument, DisputeActivityLog
 from apps.config.models import SystemSettings
 from apps.communications.models import EmailLog
 from apps.claims.models import ClaimEvidence
@@ -93,41 +93,6 @@ def _fetch_zendesk_ticket_full(zd_ticket_id: str) -> dict:
     }
 
 
-def _encode_screenshot_to_base64(screenshot: DisputeScreenshot) -> Optional[str]:
-    """
-    Encode a screenshot image to base64 data URI for embedding in HTML/PDF.
-    
-    Args:
-        screenshot: DisputeScreenshot instance
-        
-    Returns:
-        Data URI string (data:image/...;base64,...) or None on failure
-    """
-    try:
-        if not screenshot.image:
-            return None
-            
-        # Open and read the image file
-        screenshot.image.open('rb')
-        image_data = screenshot.image.read()
-        image_base64 = base64.b64encode(image_data).decode('utf-8')
-        
-        # Determine MIME type from file extension
-        file_ext = screenshot.image.name.split('.')[-1].lower()
-        mime_type = {
-            'jpg': 'image/jpeg',
-            'jpeg': 'image/jpeg',
-            'png': 'image/png',
-            'gif': 'image/gif',
-            'webp': 'image/webp',
-        }.get(file_ext, 'image/jpeg')
-        
-        data_uri = f"data:{mime_type};base64,{image_base64}"
-        return data_uri
-        
-    except Exception as e:
-        logger.warning(f"Error encoding screenshot {screenshot.id}: {e}")
-        return None
 
 
 def _fetch_claim_evidence_base64(claim) -> list:
@@ -1134,28 +1099,12 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
     The case records (Zendesk comments + the flight card) are sorted by the AI
     into ordered narrative `sections`, each item carrying a one-line relevance
     note. When AI is unavailable/disabled they collapse into a single ungrouped
-    section. Also includes captured/uploaded screenshots, claim evidence images,
-    the email history, the fixed report assets, and category framing.
+    section. Also includes claim evidence images, the email history, the fixed
+    report assets, and category framing.
     """
     zd_data = _fetch_zendesk_ticket_full(dispute.zd_ticket_id)
     ticket = zd_data.get('ticket', {})
     comments = zd_data.get('comments', [])
-
-    screenshots = []
-    # A transient (unsaved) dispute — used by the --zd-ticket preview — has no
-    # pk, so it can't have attached screenshots; skip the related lookup.
-    screenshot_qs = (DisputeScreenshot.objects.filter(dispute=dispute).order_by('-captured_at')
-                     if dispute.pk else DisputeScreenshot.objects.none())
-    for screenshot in screenshot_qs:
-        data_uri = _encode_screenshot_to_base64(screenshot)
-        if data_uri:
-            screenshots.append({
-                'id': screenshot.id,
-                'description': screenshot.description,
-                'page_url': screenshot.page_url,
-                'captured_at': screenshot.captured_at,
-                'data_uri': data_uri,
-            })
 
     evidence_list = _fetch_claim_evidence_base64(dispute.claim) if dispute.claim else []
     communication_history = _fetch_communication_history(dispute)
@@ -1209,7 +1158,6 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
             'homepage': _asset_data_uri('homepage.jpg'),
             'checkout': _asset_data_uri('checkout_annotated.jpg'),
         },
-        'screenshots': screenshots,
         'claim_evidence': evidence_list,
         'communication_history': communication_history,
         'category': dispute.dispute_reason,
@@ -1224,17 +1172,15 @@ def generate_evidence_report(dispute_id: int) -> Optional[DisputeDocument]:
     Generate a comprehensive evidence report for a dispute.
     
     This is a template-based (NO AI) structured factual report that compiles:
-    - Ticket data
-    - Screenshots
+    - Ticket data (rendered as simulated Zendesk panels)
     - Claim evidence
     - Communication history
-    
+
     Steps:
     1. Fetch Dispute + Zendesk ticket data
-    2. Fetch all screenshots for the dispute
-    3. Fetch claim evidence images
-    4. Fetch communication history (emails)
-    5. Render template-based report (structured, factual)
+    2. Fetch claim evidence images
+    3. Fetch communication history (emails)
+    4. Render template-based report (structured, factual)
     6. Save as DisputeDocument (type=EVIDENCE_REPORT, status=DRAFT, generated_by=MANUAL)
     7. Render to PDF via WeasyPrint
     8. Log generation to DisputeActivityLog
@@ -1258,11 +1204,10 @@ def generate_evidence_report(dispute_id: int) -> Optional[DisputeDocument]:
         # Assemble the full evidence bundle (report-independent) and render the
         # category's report template (Phase 5).
         template_context = build_dispute_evidence_bundle(dispute)
-        screenshots = template_context['screenshots']
         evidence_list = template_context['claim_evidence']
         communication_history = template_context['communication_history']
         logger.info(
-            f"Bundle for Dispute #{dispute_id}: {len(screenshots)} screenshots, "
+            f"Bundle for Dispute #{dispute_id}: "
             f"{len(evidence_list)} evidence, {len(communication_history)} emails")
 
         html_string = render_to_string(report_template_for(dispute), template_context)
@@ -1298,7 +1243,7 @@ def generate_evidence_report(dispute_id: int) -> Optional[DisputeDocument]:
         DisputeActivityLog.objects.create(
             dispute=dispute,
             action='DOCUMENT_GENERATED',
-            details=f"Evidence report (v1) created. Screenshots: {len(screenshots)}, Evidence: {len(evidence_list)}, Emails: {len(communication_history)}, PDF size: {len(pdf_bytes)} bytes",
+            details=f"Evidence report (v1) created. Evidence: {len(evidence_list)}, Emails: {len(communication_history)}, PDF size: {len(pdf_bytes)} bytes",
         )
         
         logger.info(f"Successfully generated evidence report for Dispute #{dispute_id} (Document #{document.id})")

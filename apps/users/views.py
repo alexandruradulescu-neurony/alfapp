@@ -951,7 +951,7 @@ def manager_settings(request):
 
     # Get or create service statuses
     service_statuses = {}
-    for service_key in ['AI', 'IMAP', 'ZENDESK', 'PAYPAL', 'SCHEDULER', 'SCREENSHOT']:
+    for service_key in ['AI', 'IMAP', 'ZENDESK', 'PAYPAL', 'SCHEDULER']:
         service_statuses[service_key], _ = ServiceStatus.objects.get_or_create(
             service=service_key,
             defaults={'status': 'disconnected', 'is_enabled': True}
@@ -1008,7 +1008,6 @@ def manager_settings(request):
         'zd_status': service_statuses['ZENDESK'],
         'paypal_status': service_statuses['PAYPAL'],
         'scheduler_status': service_statuses['SCHEDULER'],
-        'screenshot_status': service_statuses['SCREENSHOT'],
     }
 
     return render(request, 'manager/settings.html', context)

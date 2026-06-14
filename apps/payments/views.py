@@ -373,14 +373,6 @@ class RefundViewSet(viewsets.ModelViewSet):
         return Response(stats)
 
 
-class DisputeScreenshotCaptureView(APIView):
-    """Stub view for dispute screenshot capture."""
-    permission_classes = [IsAuthenticated, IsManager]
-    
-    def post(self, request, dispute_id):
-        return Response({'message': 'Screenshot capture not implemented'})
-
-
 class ProofOfWorkPDFView(APIView):
     """Stub view for proof of work PDF generation."""
     permission_classes = [IsAuthenticated, IsManager]

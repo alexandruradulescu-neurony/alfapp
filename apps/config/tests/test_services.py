@@ -561,61 +561,6 @@ class TestConnectionTesterPayPal:
         assert result['message'] == 'System settings not configured'
 
 
-@pytest.mark.django_db
-class TestConnectionTesterScreenshot:
-    """Tests for get_screenshot_status method."""
-
-    @patch('subprocess.run')
-    def test_screenshot_status_available(self, mock_run):
-        """Test screenshot service when Playwright is available."""
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_run.return_value = mock_result
-
-        tester = ConnectionTester()
-        result = tester.get_screenshot_status()
-
-        assert result['success'] is True
-        assert result['status'] == 'connected'
-        assert result['message'] == 'Screenshot service is available'
-
-    @patch('subprocess.run')
-    def test_screenshot_status_not_installed(self, mock_run):
-        """Test screenshot service when Playwright not installed."""
-        mock_result = Mock()
-        mock_result.returncode = 1
-        mock_run.return_value = mock_result
-
-        tester = ConnectionTester()
-        result = tester.get_screenshot_status()
-
-        assert result['success'] is False
-        assert result['status'] == 'error'
-        assert result['message'] == 'Playwright not installed'
-
-    @patch('subprocess.run')
-    def test_screenshot_status_file_not_found(self, mock_run):
-        """Test screenshot service when Playwright command not found."""
-        mock_run.side_effect = FileNotFoundError('playwright not found')
-
-        tester = ConnectionTester()
-        result = tester.get_screenshot_status()
-
-        assert result['success'] is False
-        assert result['status'] == 'disconnected'
-        assert result['message'] == 'Playwright not installed'
-
-    @patch('subprocess.run')
-    def test_screenshot_status_exception(self, mock_run):
-        """Test screenshot service with exception."""
-        mock_run.side_effect = Exception('Unexpected error')
-
-        tester = ConnectionTester()
-        result = tester.get_screenshot_status()
-
-        assert result['success'] is False
-        assert result['status'] == 'error'
-        assert result['message'] == 'Unexpected error'
 
 
 @pytest.mark.django_db
@@ -702,9 +647,8 @@ class TestConnectionTesterTestAll:
     @patch.object(ConnectionTester, 'test_zendesk')
     @patch.object(ConnectionTester, 'test_paypal')
     @patch.object(ConnectionTester, 'get_scheduler_status')
-    @patch.object(ConnectionTester, 'get_screenshot_status')
     def test_test_all_services(
-        self, mock_screenshot, mock_scheduler, mock_paypal,
+        self, mock_scheduler, mock_paypal,
         mock_zendesk, mock_imap, mock_ai
     ):
         """Test test_all_services calls all test methods."""
@@ -713,7 +657,6 @@ class TestConnectionTesterTestAll:
         mock_zendesk.return_value = {'status': 'connected'}
         mock_paypal.return_value = {'status': 'connected'}
         mock_scheduler.return_value = {'status': 'running'}
-        mock_screenshot.return_value = {'status': 'connected'}
 
         tester = ConnectionTester()
         results = tester.test_all_services()
@@ -723,14 +666,12 @@ class TestConnectionTesterTestAll:
         mock_zendesk.assert_called_once()
         mock_paypal.assert_called_once()
         mock_scheduler.assert_called_once()
-        mock_screenshot.assert_called_once()
 
         assert 'AI' in results
         assert 'IMAP' in results
         assert 'ZENDESK' in results
         assert 'PAYPAL' in results
         assert 'SCHEDULER' in results
-        assert 'SCREENSHOT' in results
 
 
 # =============================================================================

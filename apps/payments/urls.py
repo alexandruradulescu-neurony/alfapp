@@ -5,7 +5,6 @@ from apps.payments.views import (
     PayPalWebhookView,
     PayPalDisputeWebhookView,
     ProofOfWorkPDFView,
-    DisputeScreenshotCaptureView,
     RefundViewSet,
 )
 
@@ -17,7 +16,6 @@ urlpatterns = [
     path('paypal/webhook/', PayPalWebhookView.as_view(), name='paypal-webhook'),
     path('paypal/dispute-webhook/', PayPalDisputeWebhookView.as_view(), name='paypal-dispute-webhook'),
     path('proof-of-work/<int:claim_id>/', ProofOfWorkPDFView.as_view(), name='proof-of-work-pdf'),
-    path('disputes/<int:dispute_id>/capture-screenshot/', DisputeScreenshotCaptureView.as_view(), name='dispute-screenshot-capture'),
     # Refund API
     path('', include(router.urls)),
 ]

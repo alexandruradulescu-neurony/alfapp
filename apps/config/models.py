@@ -16,7 +16,6 @@ class ServiceStatus(models.Model):
         ('PAYPAL', 'PayPal'),
         ('WOOCOMMERCE', 'WooCommerce'),
         ('SCHEDULER', 'Email Scheduler'),
-        ('SCREENSHOT', 'Screenshot Service'),
     ]
     
     STATUS_CHOICES = [

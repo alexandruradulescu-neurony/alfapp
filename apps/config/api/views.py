@@ -53,7 +53,6 @@ def test_connection(request, service):
         'PAYPAL': tester.test_paypal,
         'WOOCOMMERCE': tester.test_woocommerce,
         'SCHEDULER': tester.get_scheduler_status,
-        'SCREENSHOT': tester.get_screenshot_status,
     }
     
     if service not in test_methods:

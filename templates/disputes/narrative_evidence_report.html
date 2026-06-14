@@ -185,17 +185,6 @@
 <p class="cap">No support-system records were available for this case at generation time.</p>
 {% endfor %}
 
-{% if screenshots %}
-<div class="sub-h">Additional attached evidence</div>
-{% for shot in screenshots %}
-<div class="zd-panel">
-  <div class="zd-head"><span class="zd-avatar">&#9787;</span><span class="zd-name">Attached evidence</span><span class="zd-time">&middot; {{ shot.captured_at|date:"M j, Y H:i" }}</span></div>
-  <img class="doc-img" src="{{ shot.data_uri }}" alt="{{ shot.description }}">
-  {% if shot.description %}<p class="cap">{{ shot.description }}</p>{% endif %}
-</div>
-{% endfor %}
-{% endif %}
-
 {% if claim_evidence %}
 <div class="sec-h">Evidence submitted by the customer</div>
 {% for ev in claim_evidence %}

@@ -5,7 +5,6 @@ Tests cover:
 - Refund service (refund_service.py)
 - PayPal disputes service (paypal_disputes_service.py)
 - Document service (document_service.py)
-- Screenshot service (screenshot_service.py)
 """
 
 import pytest

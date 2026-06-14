@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.utils import timezone
-from apps.payments.models import Dispute, DisputeDocument, DisputeScreenshot, DisputeActivityLog, ProcessedWebhookEvent, Refund
+from apps.payments.models import Dispute, DisputeDocument, DisputeActivityLog, ProcessedWebhookEvent, Refund
 
 
 @admin.register(Dispute)
@@ -58,25 +58,6 @@ class DisputeDocumentAdmin(admin.ModelAdmin):
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
-            'classes': ('collapse',)
-        }),
-    )
-
-
-@admin.register(DisputeScreenshot)
-class DisputeScreenshotAdmin(admin.ModelAdmin):
-    list_display = ('id', 'dispute', 'description', 'captured_at')
-    list_filter = ('captured_at',)
-    search_fields = ('dispute__paypal_dispute_id', 'description')
-    ordering = ('-captured_at',)
-    readonly_fields = ('captured_at',)
-
-    fieldsets = (
-        ('Screenshot Information', {
-            'fields': ('dispute', 'image', 'description', 'page_url')
-        }),
-        ('Timestamp', {
-            'fields': ('captured_at',),
             'classes': ('collapse',)
         }),
     )

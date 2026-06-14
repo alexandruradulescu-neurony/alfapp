@@ -24,7 +24,7 @@ from django.utils.dateparse import parse_date, parse_datetime
 
 from apps.users.decorators import manager_required
 from apps.claims.models import Claim
-from apps.payments.models import Dispute, DisputeDocument, DisputeScreenshot, DisputeActivityLog
+from apps.payments.models import Dispute, DisputeDocument, DisputeActivityLog
 from apps.payments.document_service import generate_response_letter, generate_evidence_report
 from apps.payments.paypal_disputes_service import provide_evidence, accept_claim
 
@@ -222,7 +222,7 @@ def dispute_list(request):
 @manager_required
 def dispute_detail(request, dispute_id):
     """
-    Display full dispute details with screenshots, documents, and activity log.
+    Display full dispute details with documents and activity log.
 
     GET /manager/disputes/<id>/
 
@@ -231,7 +231,6 @@ def dispute_detail(request, dispute_id):
     dispute = get_object_or_404(Dispute, pk=dispute_id)
 
     # Get related data
-    screenshots = DisputeScreenshot.objects.filter(dispute=dispute).order_by('-captured_at')
     documents = DisputeDocument.objects.filter(dispute=dispute).order_by('-created_at')
     activity_log = DisputeActivityLog.objects.filter(dispute=dispute).order_by('-performed_at')[:50]
 
@@ -242,7 +241,6 @@ def dispute_detail(request, dispute_id):
 
     context = {
         'dispute': dispute,
-        'screenshots': screenshots,
         'documents': documents,
         'activity_log': activity_log,
         'claim_evidence': claim_evidence,
