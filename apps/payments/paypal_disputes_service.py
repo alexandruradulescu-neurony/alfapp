@@ -43,6 +43,26 @@ _PAYPAL_HOSTS = {
 # confirmed against the PayPal sandbox before going live (Phase 1 gate).
 DEFAULT_EVIDENCE_TYPE = 'PROOF_OF_FULFILLMENT'
 
+# Default PayPal evidence_type per dispute reason. For an intangible recovery
+# service, PROOF_OF_FULFILLMENT (we performed the service) is the defensible
+# primary across reasons; the map lets a reason diverge without code changes and
+# the manager can still override per submission. The non-PROOF_OF_FULFILLMENT
+# enum values must be confirmed in the PayPal sandbox before relying on them for
+# a live submission (see the wire-format caveat above).
+EVIDENCE_TYPE_BY_REASON = {
+    'MERCHANDISE_OR_SERVICE_NOT_RECEIVED': 'PROOF_OF_FULFILLMENT',
+    'MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED': 'PROOF_OF_FULFILLMENT',
+    'UNAUTHORISED': 'PROOF_OF_FULFILLMENT',
+    'CREDIT_NOT_PROCESSED': 'PROOF_OF_FULFILLMENT',
+    'DUPLICATE_TRANSACTION': 'PROOF_OF_FULFILLMENT',
+    'INCORRECT_AMOUNT': 'PROOF_OF_FULFILLMENT',
+}
+
+
+def evidence_type_for_reason(reason: str) -> str:
+    """PayPal evidence_type to default to for a dispute reason."""
+    return EVIDENCE_TYPE_BY_REASON.get(reason or '', DEFAULT_EVIDENCE_TYPE)
+
 
 def paypal_api_base() -> str:
     """Base REST URL for the configured PayPal environment (sandbox by default)."""
@@ -610,6 +630,191 @@ def send_message(dispute_id: str, message: str) -> bool:
     except Exception as e:
         logger.error(f"Unexpected error sending message for dispute {dispute_id}: {e}")
         return False
+
+
+# ---------------------------------------------------------------------------
+# Back-and-forth submissions: a generic multipart transport + the orchestration
+# that auto-picks the endpoint, records a DisputeSubmission, and re-syncs.
+# ---------------------------------------------------------------------------
+
+def _post_dispute_action_multipart(dispute_id: str, action: str,
+                                   input_json: dict, files: List[dict]):
+    """POST a multipart input+files body to .../{dispute_id}/{action}.
+
+    Transport ONLY — no DB writes, NOT auto-retried (a submit that may have
+    partly landed must not be blindly re-POSTed). Returns (ok: bool,
+    response: dict|None) — the response dict (or a structured error) is stored
+    on the DisputeSubmission for audit.
+    """
+    access_token = get_paypal_access_token()
+    if not access_token:
+        logger.error(f"Cannot POST {action} for dispute {dispute_id}: no access token")
+        return False, {'error': 'no_access_token'}
+
+    url = f"{paypal_api_base()}/v1/customer/disputes/{dispute_id}/{action}"
+    body, content_type = _encode_multipart(input_json, files or [])
+    timeout = getattr(settings, 'PAYPAL_TIMEOUT', 30)
+    try:
+        request = urllib.request.Request(
+            url, data=body,
+            headers={'Authorization': f'Bearer {access_token}', 'Content-Type': content_type},
+            method='POST')
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read().decode('utf-8')
+        try:
+            data = json.loads(raw) if raw.strip() else {}
+        except Exception:
+            data = {'raw': raw[:1000]}
+        logger.info(f"PayPal {action} OK for dispute {dispute_id} ({len(files or [])} file(s))")
+        return True, data
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ''
+        logger.error(f"HTTP error on {action} for dispute {dispute_id}: {e.code} - {error_body}")
+        return False, {'error': 'http_error', 'code': e.code, 'body': error_body[:1000]}
+    except urllib.error.URLError as e:
+        logger.error(f"URL error on {action} for dispute {dispute_id}: {e.reason}")
+        return False, {'error': 'url_error', 'reason': str(e.reason)}
+    except Exception as e:
+        logger.error(f"Unexpected error on {action} for dispute {dispute_id}: {e}")
+        return False, {'error': 'unexpected', 'detail': str(e)[:500]}
+
+
+def provide_supporting_info(dispute_id: str, notes: str, files: List[dict] = None):
+    """Add supporting info to a dispute already UNDER PayPal review — the
+    back-and-forth follow-up channel. Multipart: a JSON `input` part
+    {"notes": ...} plus optional document files. Transport only; returns
+    (ok, response)."""
+    return _post_dispute_action_multipart(
+        dispute_id, 'provide-supporting-info', {"notes": notes or ''}, files)
+
+
+def provide_evidence_files(dispute_id: str, notes: str, files: List[dict] = None,
+                           evidence_type: str = DEFAULT_EVIDENCE_TYPE):
+    """First seller response (provide-evidence) carrying a GENERIC files list, so
+    a submission can include the evidence-report PDF and the manager's images
+    together. Transport only; returns (ok, response). The DB-coupled
+    provide_evidence() above stays for the legacy send-evidence view."""
+    input_json = {"evidences": [{
+        "evidence_type": evidence_type or DEFAULT_EVIDENCE_TYPE,
+        "notes": notes or '',
+        "document_ids": [f['filename'] for f in (files or [])],
+    }]}
+    return _post_dispute_action_multipart(dispute_id, 'provide-evidence', input_json, files)
+
+
+_IMAGE_CONTENT_TYPES = {
+    'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
+    'gif': 'image/gif', 'webp': 'image/webp', 'pdf': 'application/pdf',
+}
+
+
+def _read_file_field(field, default_ct: str = 'application/octet-stream'):
+    """Read a Django File/Image field into a multipart-ready dict, or None if it
+    can't be read. content_type inferred from the extension."""
+    if not field:
+        return None
+    try:
+        field.open('rb')
+        content = field.read()
+    except Exception as e:
+        logger.error(f"Could not read file {getattr(field, 'name', '?')}: {e}")
+        return None
+    name = field.name.split('/')[-1]
+    ext = name.rsplit('.', 1)[-1].lower() if '.' in name else ''
+    return {'name': name, 'filename': name, 'content': content,
+            'content_type': _IMAGE_CONTENT_TYPES.get(ext, default_ct)}
+
+
+def _build_submission_files(submission) -> List[dict]:
+    """The files to upload with a submission: the manager's images, plus the
+    latest evidence-report PDF when attach_evidence_pdf is ticked. Unreadable
+    files are skipped (logged), never crashing the submit."""
+    files = []
+    if submission.attach_evidence_pdf:
+        doc = (DisputeDocument.objects
+               .filter(dispute=submission.dispute, doc_type='EVIDENCE_REPORT')
+               .exclude(file_path='').order_by('-created_at').first())
+        if doc:
+            f = _read_file_field(doc.file_path, default_ct='application/pdf')
+            if f:
+                files.append(f)
+        else:
+            logger.warning(f"attach_evidence_pdf set but no evidence-report PDF found "
+                           f"for dispute #{submission.dispute_id}")
+    for img in submission.images.all():
+        f = _read_file_field(img.file)
+        if f:
+            files.append(f)
+    return files
+
+
+def _record_submission_outcome(submission, *, status, performed_by, response, action=''):
+    """Persist a submission's terminal state + an activity-log line, in one txn."""
+    from django.utils import timezone
+    with transaction.atomic():
+        fields = ['status', 'submitted_by', 'paypal_response', 'updated_at']
+        submission.status = status
+        submission.submitted_by = performed_by
+        submission.paypal_response = response or {}
+        if status == 'SUBMITTED':
+            submission.submitted_at = timezone.now()
+            fields.append('submitted_at')
+        submission.save(update_fields=fields)
+        if status == 'SUBMITTED':
+            details = (f"Submitted to PayPal via {action} (submission #{submission.id}).")
+            log_action = 'EVIDENCE_SENT'
+        else:
+            details = (f"PayPal submission #{submission.id} FAILED ({action or 'no endpoint'}): "
+                       f"{str(response)[:300]}")
+            log_action = 'NOTE_ADDED'
+        DisputeActivityLog.objects.create(
+            dispute=submission.dispute, action=log_action,
+            performed_by=performed_by, details=details)
+
+
+def submit_dispute_response(submission, *, performed_by=None) -> bool:
+    """Submit a prepared DisputeSubmission to PayPal.
+
+    Auto-picks the endpoint from the dispute's current state (provide-evidence
+    for the first response, provide-supporting-info once it's under review),
+    uploads the chosen attachments, records the outcome on the submission +
+    activity log, and re-syncs the dispute from PayPal afterwards (so its state
+    and evidence history update). Returns True on success; on failure marks the
+    submission FAILED and returns False so the manager can edit and retry.
+    """
+    dispute = submission.dispute
+    endpoint = dispute.submit_endpoint
+    if not endpoint:
+        logger.warning(f"Dispute #{dispute.id} has no available PayPal submit endpoint.")
+        _record_submission_outcome(submission, status='FAILED', performed_by=performed_by,
+                                   response={'error': 'no_submit_endpoint'}, action='')
+        return False
+
+    files = _build_submission_files(submission)
+
+    if endpoint == 'provide-evidence':
+        ok, response = provide_evidence_files(
+            dispute.paypal_dispute_id, submission.notes, files,
+            evidence_type=submission.evidence_type or evidence_type_for_reason(dispute.dispute_reason))
+        submission.kind = 'EVIDENCE'
+    else:
+        ok, response = provide_supporting_info(dispute.paypal_dispute_id, submission.notes, files)
+        submission.kind = 'SUPPORTING_INFO'
+    submission.save(update_fields=['kind', 'updated_at'])
+
+    if not ok:
+        _record_submission_outcome(submission, status='FAILED', performed_by=performed_by,
+                                   response=response, action=endpoint)
+        return False
+
+    _record_submission_outcome(submission, status='SUBMITTED', performed_by=performed_by,
+                               response=response, action=endpoint)
+    # Re-sync OUTSIDE the DB transaction (network I/O): refresh state + evidences[].
+    try:
+        sync_dispute_from_paypal(dispute.paypal_dispute_id)
+    except Exception as e:
+        logger.warning(f"Post-submit re-sync failed for dispute {dispute.paypal_dispute_id}: {e}")
+    return True
 
 
 # ---------------------------------------------------------------------------

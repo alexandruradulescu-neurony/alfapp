@@ -302,6 +302,36 @@ class Dispute(models.Model):
         return self.dispute_life_cycle_stage.upper() in self.EVIDENCE_STAGES
 
     @property
+    def paypal_state(self) -> str:
+        """PayPal's current `dispute_state` from the stored payload, upper-cased."""
+        return ((self.raw_webhook_payload or {}).get('dispute_state') or '').upper()
+
+    @property
+    def submit_endpoint(self) -> str:
+        """Which PayPal endpoint a NEW submission should target, auto-picked from
+        the dispute's current state (the manager just clicks "Submit to PayPal"):
+
+        - UNDER_PAYPAL_REVIEW / status UNDER_REVIEW → 'provide-supporting-info'
+          (the case is already under review — add follow-up info).
+        - REQUIRED_ACTION / WAITING_FOR_SELLER_RESPONSE / unknown →
+          'provide-evidence' (the first seller response), but only when the
+          stage gate allows it (INQUIRY is message-only — see can_submit_evidence).
+        - resolved/closed → '' (nothing to submit).
+
+        '' means no submission endpoint is available right now.
+        """
+        if self.status in self.TERMINAL_STATUSES:
+            return ''
+        payload = self.raw_webhook_payload or {}
+        state = (payload.get('dispute_state') or '').upper()
+        pp_status = (payload.get('status') or '').upper()
+        if 'RESOLVED' in (state, pp_status):
+            return ''
+        if state == 'UNDER_PAYPAL_REVIEW' or pp_status == 'UNDER_REVIEW':
+            return 'provide-supporting-info'
+        return 'provide-evidence' if self.can_submit_evidence else ''
+
+    @property
     def deadline_state(self) -> str:
         """'' | overdue | soon | ok — for colour-coding the response deadline."""
         if not self.seller_response_due or self.status in (
@@ -435,6 +465,125 @@ class DisputeActivityLog(models.Model):
 
     def __str__(self):
         return f"Activity #{self.id} - Dispute #{self.dispute_id} - {self.action}"
+
+
+class DisputeSubmission(models.Model):
+    """One submission of evidence / supporting info to PayPal for a dispute.
+
+    A dispute is a back-and-forth: the first response uses provide-evidence, and
+    while the case is under PayPal review we can keep adding provide-supporting-info.
+    Each attempt is one row — the editable narrative (`notes`), the manager's extra
+    context, the chosen attachments, and (after sending) PayPal's response. The
+    rows form the "our side" half of the dispute timeline.
+    """
+
+    KIND_CHOICES = [
+        ('EVIDENCE', 'First evidence'),
+        ('SUPPORTING_INFO', 'Supporting info'),
+        ('MESSAGE', 'Message to buyer'),
+    ]
+    SOURCE_CHOICES = [
+        ('AI', 'AI-drafted'),
+        ('AI_EDITED', 'AI-drafted, edited'),
+        ('MANUAL', 'Manually written'),
+    ]
+    STATUS_CHOICES = [
+        ('DRAFT', 'Draft'),
+        ('SUBMITTED', 'Submitted'),
+        ('FAILED', 'Failed'),
+    ]
+    # Endpoint each kind maps to (used to label the PayPal action taken).
+    KIND_TO_ENDPOINT = {
+        'EVIDENCE': 'provide-evidence',
+        'SUPPORTING_INFO': 'provide-supporting-info',
+        'MESSAGE': 'send-message',
+    }
+
+    dispute = models.ForeignKey(
+        Dispute,
+        on_delete=models.CASCADE,
+        related_name='submissions',
+    )
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES, default='EVIDENCE')
+    source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default='AI')
+    notes = models.TextField(
+        blank=True,
+        help_text='The narrative text submitted to PayPal (editable while DRAFT)',
+    )
+    manager_note = models.TextField(
+        blank=True,
+        default='',
+        help_text='Extra context the manager typed; feeds the AI narrative, not sent verbatim',
+    )
+    evidence_type = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        help_text="PayPal evidence_type (provide-evidence only); defaulted per dispute reason",
+    )
+    attach_evidence_pdf = models.BooleanField(
+        default=False,
+        help_text='Whether to attach the latest evidence-report PDF to this submission',
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=STATUS_CHOICES,
+        default='DRAFT',
+        db_index=True,
+    )
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='dispute_submissions',
+    )
+    paypal_response = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Raw PayPal response (or error detail) for audit',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['dispute', '-created_at']),
+            models.Index(fields=['status', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"Submission #{self.id} - Dispute #{self.dispute_id} - {self.kind} ({self.status})"
+
+
+class DisputeSubmissionImage(models.Model):
+    """An image the manager attached to a dispute submission (drag/drop or file
+    picker). Sent to PayPal as a document file and embeddable into the evidence
+    PDF. Kept separate from DisputeDocument (which holds the generated PDFs)."""
+
+    submission = models.ForeignKey(
+        DisputeSubmission,
+        on_delete=models.CASCADE,
+        related_name='images',
+    )
+    file = models.FileField(upload_to='dispute_submission_images/')
+    caption = models.CharField(max_length=255, blank=True, default='')
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='dispute_submission_images',
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['uploaded_at']
+
+    def __str__(self):
+        return f"Image #{self.id} for Submission #{self.submission_id}"
 
 
 class ProcessedWebhookEvent(models.Model):
