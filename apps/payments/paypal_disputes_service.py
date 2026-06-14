@@ -680,9 +680,13 @@ def _match_claim_for_dispute(details: dict):
     only has a name + payer_id), so matching by email never works. The reliable
     identifiers live on disputed_transactions[0]:
       1. invoice_number — our merchant invoice, which embeds the ALF claim id
-         (e.g. "ccbfae-ALF7410846") → Claim.alf_claim_id (primary, strongest);
-      2. custom — the WooCommerce order id → Claim.woocommerce_id (fallback);
-      3. buyer.email — only if PayPal ever does provide it (it usually doesn't).
+         (e.g. "ccbfae-ALF7410846") → Claim.alf_claim_id (primary). When the
+         claim AND the dispute both carry a PayPal transaction id, they must
+         AGREE (double-verification); a mismatch refuses the ALF link;
+      2. transaction id (seller/buyer) → Claim.paypal_transaction_id — the
+         authoritative unique key; also resolves an ALF-vs-txn disagreement;
+      3. custom — the WooCommerce order id → Claim.woocommerce_id (fallback);
+      4. buyer.email — only if PayPal ever does provide it (it usually doesn't).
     Returns a Claim or None.
     """
     from apps.claims.models import Claim
@@ -691,18 +695,44 @@ def _match_claim_for_dispute(details: dict):
     txns = details.get('disputed_transactions') or [{}]
     txn = txns[0] if txns else {}
 
+    # PayPal transaction ids on the dispute (we store seller_transaction_id, but
+    # check both so a claim populated with either id still matches).
+    dispute_txns = {t for t in (txn.get('seller_transaction_id'),
+                                txn.get('buyer_transaction_id')) if t}
+
+    # 1. ALF claim id from the invoice (primary key).
     alf_id = parse_alf_claim_id_from_subject(txn.get('invoice_number') or '')
     if alf_id:
         claim = Claim.objects.filter(alf_claim_id__iexact=alf_id).first()
         if claim:
+            claim_txn = (claim.paypal_transaction_id or '').strip()
+            # Double-verification: when BOTH sides carry a transaction id they
+            # must agree. A disagreement is suspicious — don't auto-link on the
+            # ALF number; fall through (a transaction-id match below may resolve
+            # it, else it stays unmatched for manual review).
+            if claim_txn and dispute_txns:
+                if claim_txn in dispute_txns:
+                    return claim                      # ALF + transaction id agree
+                logger.warning(
+                    f"Dispute/claim transaction-id mismatch for {alf_id}: claim has "
+                    f"{claim_txn}, dispute has {sorted(dispute_txns)} — not auto-linking by ALF")
+            else:
+                return claim                          # ALF alone (nothing to cross-check)
+
+    # 2. Transaction id (authoritative unique key; also resolves an ALF mismatch).
+    if dispute_txns:
+        claim = Claim.objects.filter(paypal_transaction_id__in=dispute_txns).first()
+        if claim:
             return claim
 
+    # 3. WooCommerce order id in the transaction's `custom` field.
     custom = (txn.get('custom') or '').strip()
     if custom:
         claim = Claim.objects.filter(woocommerce_id=custom).first()
         if claim:
             return claim
 
+    # 4. Buyer email, if PayPal ever provides it (it usually doesn't).
     buyer = txn.get('buyer') or details.get('buyer') or {}
     buyer_email = (buyer.get('email') or '').strip().lower()
     if buyer_email:

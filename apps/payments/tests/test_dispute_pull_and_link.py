@@ -298,3 +298,30 @@ class TestIngestDisputeMatching(TestCase):
         d.refresh_from_db()
         self.assertEqual(d.claim_id, self.claim.id)
         self.assertEqual(d.status, 'MATCHED')
+
+    def test_double_verify_links_when_txn_agrees(self):
+        self.claim.paypal_transaction_id = 'TXN-9'  # matches _paypal_details default
+        self.claim.save()
+        details = _paypal_details(dispute_id='PP-D-OK', invoice_number='x-ALF7410846')
+        with patch(f'{SVC}.fetch_dispute_details', return_value=details):
+            dispute, _created = ingest_dispute('PP-D-OK')
+        self.assertEqual(dispute.claim_id, self.claim.id)
+        self.assertEqual(dispute.status, 'MATCHED')
+
+    def test_double_verify_blocks_alf_link_on_txn_mismatch(self):
+        self.claim.paypal_transaction_id = 'TXN-OTHER'  # disagrees with dispute's TXN-9
+        self.claim.save()
+        details = _paypal_details(dispute_id='PP-D-BAD', invoice_number='x-ALF7410846')
+        with patch(f'{SVC}.fetch_dispute_details', return_value=details):
+            dispute, _created = ingest_dispute('PP-D-BAD')
+        # ALF link refused (txn disagrees) and no other claim carries TXN-9.
+        self.assertIsNone(dispute.claim_id)
+        self.assertEqual(dispute.status, 'RECEIVED')
+
+    def test_matches_by_transaction_id_when_no_alf(self):
+        self.claim.paypal_transaction_id = 'TXN-9'
+        self.claim.save()
+        details = _paypal_details(dispute_id='PP-D-TXN', invoice_number='no-alf-here')
+        with patch(f'{SVC}.fetch_dispute_details', return_value=details):
+            dispute, _created = ingest_dispute('PP-D-TXN')
+        self.assertEqual(dispute.claim_id, self.claim.id)

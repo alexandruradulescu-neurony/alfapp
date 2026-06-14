@@ -77,6 +77,10 @@ ZENDESK_FIELD_PAYMENT_METHOD: int = 14495509913244    # "Payment Method"
 ZENDESK_FIELD_PAYMENT_STATUS: int = 11761180893980    # "Payment Status"
 ZENDESK_FIELD_WOOCOMMERCE_ID: int = 13484164181916    # "WooCommerce ID"
 ZENDESK_FIELD_TRACKING_INFO: int = 11949753094556     # "3rd Party Tracking Information"
+# PayPal transaction id — cross-checks dispute matching. SET THIS to the numeric
+# id of the Zendesk custom field once it exists; None = not yet wired (the read
+# safely returns '' and dispute matching falls back to the ALF number alone).
+ZENDESK_FIELD_PAYPAL_TXN_ID: "int | None" = None      # "PayPal Transaction ID" (TODO: real field id)
 
 
 def _get_zendesk_auth_headers() -> Dict[str, str]:
@@ -579,6 +583,7 @@ def import_claim_from_zendesk_ticket(zd_ticket_id):
                 payment_method=extracted_data.get('payment_method', ''),
                 payment_status=extracted_data.get('payment_status', ''),
                 woocommerce_id=extracted_data.get('woocommerce_id', ''),
+                paypal_transaction_id=extracted_data.get('paypal_transaction_id', ''),
                 tracking_info=extracted_data.get('tracking_info', ''),
                 status=status_name,
                 status_category=status_category,
@@ -1113,6 +1118,7 @@ def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, s
             'payment_status': _get_custom_field_value(custom_fields, ZENDESK_FIELD_PAYMENT_STATUS),
             'woocommerce_id': _get_custom_field_value(custom_fields, ZENDESK_FIELD_WOOCOMMERCE_ID),
             'tracking_info': _get_custom_field_value(custom_fields, ZENDESK_FIELD_TRACKING_INFO),
+            'paypal_transaction_id': _get_custom_field_value(custom_fields, ZENDESK_FIELD_PAYPAL_TXN_ID),
         }
 
         # The alias is used as known_pii so the tokenizer tags it as ALIAS
@@ -1215,6 +1221,7 @@ def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, s
             'payment_status': '',
             'woocommerce_id': '',
             'tracking_info': '',
+            'paypal_transaction_id': '',
         }
 
 

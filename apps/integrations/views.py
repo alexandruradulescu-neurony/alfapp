@@ -1090,6 +1090,7 @@ class ZendeskClaimWebhookView(APIView):
                         payment_method=extracted_data.get('payment_method', ''),
                         payment_status=extracted_data.get('payment_status', ''),
                         woocommerce_id=extracted_data.get('woocommerce_id', ''),
+                        paypal_transaction_id=extracted_data.get('paypal_transaction_id', ''),
                         tracking_info=extracted_data.get('tracking_info', ''),
                         status=creation_status_name,
                         status_category=creation_status_category,

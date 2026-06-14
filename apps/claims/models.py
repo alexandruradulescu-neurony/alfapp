@@ -143,6 +143,15 @@ class Claim(models.Model):
         db_index=True,
         help_text='WooCommerce order ID (Zendesk "WooCommerce ID")'
     )
+    paypal_transaction_id = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='PayPal transaction ID (from Zendesk). Cross-checks dispute '
+                  'matching: a dispute links to this claim only if its PayPal '
+                  'transaction ID agrees with this one.'
+    )
 
     # Fulfillment
     tracking_info = models.TextField(
