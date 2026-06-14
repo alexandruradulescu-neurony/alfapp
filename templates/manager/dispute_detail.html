@@ -340,10 +340,20 @@
                 </a>
             </div>
             {% else %}
-            <div class="rounded-xl bg-warning/10 text-warning p-3 text-sm flex items-center gap-2">
+            <div class="rounded-xl bg-warning/10 text-warning p-3 text-sm flex items-center gap-2 mb-3">
                 <i class="bi bi-exclamation-triangle shrink-0"></i>
                 No claim linked to this dispute
             </div>
+            <form method="post" action="{% url 'disputes:dispute_link_claim' dispute.id %}" class="flex flex-col gap-2">
+                {% csrf_token %}
+                <label class="text-xs font-semibold uppercase tracking-wide text-base-content/50">Link to a claim</label>
+                <input type="text" name="claim_ref" required
+                       class="input input-bordered w-full rounded-xl text-sm"
+                       placeholder="Zendesk ticket ID, ALF claim ID, or email">
+                <button type="submit" class="btn btn-primary btn-sm rounded-xl">
+                    <i class="bi bi-link-45deg"></i> Link to claim
+                </button>
+            </form>
             {% endif %}
         </div>
 

@@ -11,10 +11,26 @@
         </h2>
         <p class="text-sm text-base-content/60 mt-1">Track and resolve PayPal disputes linked to claims.</p>
     </div>
-    <a href="{% url 'manager_dashboard' %}" class="btn btn-outline rounded-xl">
-        <i class="bi bi-arrow-left"></i> Back to Dashboard
-    </a>
+    <div class="flex gap-2">
+        <form method="post" action="{% url 'disputes:dispute_pull_from_paypal' %}"
+              onsubmit="return confirm('Pull current disputes from PayPal and match them to claims? This reads from PayPal and creates any that are missing.');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary rounded-xl">
+                <i class="bi bi-cloud-download"></i> Pull from PayPal
+            </button>
+        </form>
+        <a href="{% url 'manager_dashboard' %}" class="btn btn-outline rounded-xl">
+            <i class="bi bi-arrow-left"></i> Back to Dashboard
+        </a>
+    </div>
 </div>
+
+{% if unmatched_count %}
+<a href="?status=RECEIVED" class="alert alert-warning rounded-2xl mb-6 flex items-center gap-2">
+    <i class="bi bi-exclamation-triangle shrink-0"></i>
+    <span>{{ unmatched_count }} dispute{{ unmatched_count|pluralize }} not yet linked to a claim — open each and use “Link to claim.” Click to view them.</span>
+</a>
+{% endif %}
 
 <!-- Status Summary Cards -->
 <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-4 mb-6">

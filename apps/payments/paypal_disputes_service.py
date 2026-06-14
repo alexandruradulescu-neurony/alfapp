@@ -244,6 +244,59 @@ def fetch_dispute_details(dispute_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def list_paypal_disputes(page_size: int = 50, max_pages: int = 20) -> List[str]:
+    """Return the dispute IDs PayPal currently holds for this account.
+
+    Calls GET /v1/customer/disputes (paginated via the `next` HATEOAS link) and
+    collects every dispute_id. Used to BACKFILL disputes that predate the webhook
+    subscription — the webhook only delivers events from when it goes live, so
+    pre-existing disputes must be pulled with this list call. Returns [] on any
+    failure / missing Disputes-API permission; callers treat empty as
+    "nothing to pull or couldn't read".
+    """
+    access_token = get_paypal_access_token()
+    if not access_token:
+        logger.error("Cannot list disputes: no PayPal access token")
+        return []
+
+    base_url = paypal_api_base()
+    url = f"{base_url}/v1/customer/disputes?page_size={page_size}"
+    headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
+    timeout = getattr(settings, 'PAYPAL_TIMEOUT', 30)
+
+    dispute_ids: List[str] = []
+    seen_urls = set()
+    for _ in range(max_pages):
+        if not url or url in seen_urls:
+            break
+        seen_urls.add(url)
+        try:
+            request = urllib.request.Request(url, headers=headers, method='GET')
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                data = json.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8') if e.fp else ''
+            logger.error(f"HTTP error listing disputes: {e.code} - {error_body}")
+            break
+        except Exception as e:
+            logger.error(f"Error listing disputes: {e}")
+            break
+
+        for item in (data.get('items') or []):
+            did = item.get('dispute_id') or item.get('id')
+            if did:
+                dispute_ids.append(str(did))
+
+        # Follow the HATEOAS `next` link for the next page.
+        url = None
+        for link in (data.get('links') or []):
+            if link.get('rel') == 'next' and link.get('href'):
+                url = link['href']
+                break
+
+    return list(dict.fromkeys(dispute_ids))  # dedupe, preserve order
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=4, max=10),

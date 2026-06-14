@@ -214,9 +214,105 @@ def dispute_list(request):
         'status_choices': status_choices,
         'status_summary': status_summary,
         'zd_subdomain': zd_subdomain,
+        # Disputes with no claim attached — surfaced as a "needs linking" banner.
+        'unmatched_count': Dispute.objects.filter(claim__isnull=True).count(),
     }
 
     return render(request, 'manager/disputes.html', context)
+
+
+@manager_required
+@require_POST
+def dispute_pull_from_paypal(request):
+    """Backfill disputes that predate the webhook: list them from PayPal and
+    ingest each (best-effort match to a claim by buyer email). Disputes with no
+    matching claim land as RECEIVED for manual linking. Manager-triggered button
+    on the dispute list."""
+    from apps.payments.paypal_disputes_service import list_paypal_disputes, ingest_dispute
+
+    dispute_ids = list_paypal_disputes()
+    if not dispute_ids:
+        messages.warning(
+            request,
+            "No disputes returned from PayPal. Check that the PayPal credentials have "
+            "Disputes-API permission and that you're in the right mode (live vs sandbox).")
+        return redirect('disputes:dispute_list')
+
+    created, existing, unmatched, failed = 0, 0, 0, 0
+    for did in dispute_ids:
+        try:
+            dispute, was_created = ingest_dispute(did)
+        except Exception as e:  # one bad dispute must not abort the batch
+            logger.error(f"Pull-from-PayPal: ingest failed for {did}: {e}", exc_info=True)
+            failed += 1
+            continue
+        if dispute is None:
+            failed += 1
+            continue
+        created += 1 if was_created else 0
+        existing += 0 if was_created else 1
+        if dispute.claim_id is None:
+            unmatched += 1
+
+    messages.success(
+        request,
+        f"Pulled {len(dispute_ids)} dispute(s) from PayPal: {created} new, {existing} already known.")
+    if unmatched:
+        messages.warning(
+            request,
+            f"{unmatched} dispute(s) have no matching claim yet — open each and use "
+            "“Link to claim” (filter by status “Received”).")
+    if failed:
+        messages.warning(request, f"{failed} dispute(s) could not be read from PayPal.")
+    return redirect('disputes:dispute_list')
+
+
+@manager_required
+@require_POST
+def dispute_link_claim(request, dispute_id):
+    """Attach an unmatched dispute to an existing claim by reference (Zendesk
+    ticket id, ALF claim id, client email, or LORA claim id). Flips RECEIVED→
+    MATCHED and logs it. The fallback for disputes whose PayPal buyer email
+    didn't auto-match a claim."""
+    dispute = get_object_or_404(Dispute, pk=dispute_id)
+    if dispute.claim_id:
+        messages.info(request, "This dispute is already linked to a claim.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute.id)
+
+    ref = (request.POST.get('claim_ref') or '').strip()
+    if not ref:
+        messages.warning(request, "Enter a claim reference (Zendesk ticket ID, ALF claim ID, or email).")
+        return redirect('disputes:dispute_detail', dispute_id=dispute.id)
+
+    lookup = Q(zd_ticket_id=ref) | Q(alf_claim_id__iexact=ref) | Q(client_email__iexact=ref)
+    if ref.isdigit():
+        lookup |= Q(pk=int(ref))
+    matches = list(Claim.objects.filter(lookup)[:6])
+    if not matches:
+        messages.warning(request, f"No claim found matching '{ref}'.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute.id)
+    if len(matches) > 1:
+        messages.warning(
+            request,
+            f"'{ref}' matches {len(matches)} claims — use a more specific reference "
+            "(Zendesk ticket ID or ALF claim ID).")
+        return redirect('disputes:dispute_detail', dispute_id=dispute.id)
+
+    claim = matches[0]
+    dispute.claim = claim
+    update_fields = ['claim', 'updated_at']
+    if not dispute.zd_ticket_id and claim.zd_ticket_id:
+        dispute.zd_ticket_id = claim.zd_ticket_id
+        update_fields.append('zd_ticket_id')
+    if dispute.status == 'RECEIVED':
+        dispute.status = 'MATCHED'
+        update_fields.append('status')
+    dispute.save(update_fields=update_fields)
+    DisputeActivityLog.objects.create(
+        dispute=dispute, action='DISPUTE_MATCHED',
+        details=f"Manually linked to claim #{claim.id} ({claim.alf_claim_id}) by {request.user}.")
+    messages.success(request, f"Linked dispute to claim #{claim.id} ({claim.alf_claim_id}).")
+    return redirect('disputes:dispute_detail', dispute_id=dispute.id)
 
 
 @manager_required
