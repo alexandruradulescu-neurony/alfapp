@@ -77,10 +77,8 @@ ZENDESK_FIELD_PAYMENT_METHOD: int = 14495509913244    # "Payment Method"
 ZENDESK_FIELD_PAYMENT_STATUS: int = 11761180893980    # "Payment Status"
 ZENDESK_FIELD_WOOCOMMERCE_ID: int = 13484164181916    # "WooCommerce ID"
 ZENDESK_FIELD_TRACKING_INFO: int = 11949753094556     # "3rd Party Tracking Information"
-# PayPal transaction id — cross-checks dispute matching. SET THIS to the numeric
-# id of the Zendesk custom field once it exists; None = not yet wired (the read
-# safely returns '' and dispute matching falls back to the ALF number alone).
-ZENDESK_FIELD_PAYPAL_TXN_ID: "int | None" = None      # "PayPal Transaction ID" (TODO: real field id)
+# PayPal transaction id — cross-checks dispute matching (double-verification).
+ZENDESK_FIELD_PAYPAL_TXN_ID: int = 28164836440220     # "PayPal Transaction ID"
 
 
 def _get_zendesk_auth_headers() -> Dict[str, str]:
