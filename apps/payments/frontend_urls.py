@@ -21,6 +21,10 @@ from apps.payments.frontend_views import (
     dispute_send_evidence,
     dispute_accept_claim,
     dispute_set_category,
+    dispute_prepare_submission,
+    dispute_submit_to_paypal,
+    dispute_manual_reply,
+    dispute_delete_submission_image,
 )
 
 app_name = 'disputes'
@@ -39,6 +43,12 @@ urlpatterns = [
     path('<int:dispute_id>/set-category/', dispute_set_category, name='dispute_set_category'),
     path('<int:dispute_id>/send-evidence/', dispute_send_evidence, name='dispute_send_evidence'),
     path('<int:dispute_id>/accept-claim/', dispute_accept_claim, name='dispute_accept_claim'),
+
+    # Back-and-forth submissions (prepare → submit → reply timeline)
+    path('<int:dispute_id>/prepare-submission/', dispute_prepare_submission, name='dispute_prepare_submission'),
+    path('<int:dispute_id>/submit-to-paypal/', dispute_submit_to_paypal, name='dispute_submit_to_paypal'),
+    path('<int:dispute_id>/manual-reply/', dispute_manual_reply, name='dispute_manual_reply'),
+    path('submission-images/<int:image_id>/delete/', dispute_delete_submission_image, name='dispute_delete_submission_image'),
 
     # Document actions (separate URL namespace for documents)
     path('documents/<int:document_id>/edit/', dispute_edit_document, name='dispute_edit_document'),

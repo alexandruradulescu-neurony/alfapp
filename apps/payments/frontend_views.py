@@ -25,9 +25,12 @@ from django.utils.dateparse import parse_date, parse_datetime
 
 from apps.users.decorators import manager_required
 from apps.claims.models import Claim
-from apps.payments.models import Dispute, DisputeDocument, DisputeActivityLog
-from apps.payments.document_service import generate_response_letter, generate_evidence_report
-from apps.payments.paypal_disputes_service import provide_evidence, accept_claim
+from apps.payments.models import (Dispute, DisputeDocument, DisputeActivityLog,
+                                  DisputeSubmission, DisputeSubmissionImage)
+from apps.payments.document_service import (generate_response_letter, generate_evidence_report,
+                                            build_dispute_narrative_notes, build_dispute_reply_timeline)
+from apps.payments.paypal_disputes_service import (provide_evidence, accept_claim,
+                                                   submit_dispute_response, evidence_type_for_reason)
 
 logger = logging.getLogger(__name__)
 
@@ -399,15 +402,32 @@ def dispute_detail(request, dispute_id):
     raw_payload_json = json.dumps(
         dispute.raw_webhook_payload or {}, indent=2, sort_keys=True, default=str)
 
+    # Back-and-forth: the working draft submission being prepared, the merged
+    # reply timeline, and whether a generated evidence PDF exists to attach.
+    draft_submission = _working_draft(dispute)
+    has_evidence_pdf = (DisputeDocument.objects
+                        .filter(dispute=dispute, doc_type='EVIDENCE_REPORT')
+                        .exclude(file_path='').exists())
+
     context = {
         'dispute': dispute,
         'documents': documents,
         'activity_log': activity_log,
         'claim_evidence': claim_evidence,
         'raw_payload_json': raw_payload_json,
+        'draft_submission': draft_submission,
+        'reply_timeline': build_dispute_reply_timeline(dispute),
+        'submit_endpoint': dispute.submit_endpoint,
+        'has_evidence_pdf': has_evidence_pdf,
+        'evidence_type_default': evidence_type_for_reason(dispute.dispute_reason),
     }
 
     return render(request, 'manager/dispute_detail.html', context)
+
+
+def _working_draft(dispute):
+    """The dispute's current DRAFT submission being prepared (latest), or None."""
+    return dispute.submissions.filter(status='DRAFT').order_by('-created_at').first()
 
 
 @manager_required
@@ -655,6 +675,161 @@ def dispute_send_evidence(request, dispute_id):
         logger.error(f"Error sending evidence for Dispute #{dispute_id}: {e}")
         messages.error(request, f"Error submitting evidence: {str(e)}")
 
+    return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
+
+@manager_required
+@require_POST
+def dispute_prepare_submission(request, dispute_id):
+    """Prepare (draft) the submission to PayPal — feature B.
+
+    Two actions on one form:
+    - action=generate: (re)write the AI evidence narrative into the working
+      DRAFT submission, using the manager's emphasis note.
+    - action=save: store the manager's edits (narrative text, emphasis note,
+      evidence_type, attach-PDF tick) plus any uploaded images.
+
+    POST /manager/disputes/<id>/prepare-submission/
+    """
+    dispute = get_object_or_404(Dispute, pk=dispute_id)
+    action = request.POST.get('action', 'save')
+    draft = _working_draft(dispute)
+    manager_note = (request.POST.get('manager_note') or '').strip()
+
+    if action == 'generate':
+        try:
+            result = build_dispute_narrative_notes(dispute, manager_note=manager_note)
+        except Exception as e:
+            logger.error(f"Narrative generation failed for Dispute #{dispute_id}: {e}")
+            messages.error(request, f"Could not generate the narrative: {e}")
+            return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+        if draft is None:
+            draft = DisputeSubmission(dispute=dispute)
+        draft.notes = result['notes']
+        draft.manager_note = manager_note
+        draft.source = 'AI'  # machine-drafted (template fallback is still AI-origin)
+        draft.status = 'DRAFT'
+        if not draft.evidence_type:
+            draft.evidence_type = evidence_type_for_reason(dispute.dispute_reason)
+        draft.save()
+        if result['source'] == 'FALLBACK':
+            messages.warning(request, "AI was unavailable — generated a template draft. Review it before submitting.")
+        else:
+            messages.success(request, "Draft narrative generated. Review and edit before submitting.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
+    # action == 'save'
+    if draft is None:
+        draft = DisputeSubmission(dispute=dispute, source='MANUAL')
+    notes = request.POST.get('notes', '')
+    if draft.source == 'AI' and notes.strip() != (draft.notes or '').strip():
+        draft.source = 'AI_EDITED'   # AI draft the manager then edited
+    draft.notes = notes
+    draft.manager_note = manager_note
+    draft.attach_evidence_pdf = request.POST.get('attach_evidence_pdf') == 'on'
+    evidence_type = (request.POST.get('evidence_type') or '').strip()
+    if evidence_type:
+        draft.evidence_type = evidence_type
+    draft.status = 'DRAFT'
+    draft.save()
+
+    saved = 0
+    for f in request.FILES.getlist('images'):
+        if f and (getattr(f, 'content_type', '') or '').startswith('image/'):
+            DisputeSubmissionImage.objects.create(submission=draft, file=f, uploaded_by=request.user)
+            saved += 1
+    msg = "Submission draft saved."
+    if saved:
+        msg += f" {saved} image{'s' if saved != 1 else ''} attached."
+    messages.success(request, msg)
+    return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
+
+@manager_required
+@require_POST
+def dispute_submit_to_paypal(request, dispute_id):
+    """Submit the prepared DRAFT to PayPal — feature C. The endpoint
+    (provide-evidence vs provide-supporting-info) is auto-picked by state.
+
+    POST /manager/disputes/<id>/submit-to-paypal/
+    """
+    dispute = get_object_or_404(Dispute, pk=dispute_id)
+    draft = _working_draft(dispute)
+    if draft is None or not (draft.notes or '').strip():
+        messages.error(request, "Prepare a submission first — generate or write the narrative, then save.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
+    endpoint = dispute.submit_endpoint
+    if not endpoint:
+        messages.error(
+            request,
+            "PayPal isn't accepting a submission for this dispute right now — it may "
+            "still be at the inquiry stage (message-only) or already resolved.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
+    try:
+        ok = submit_dispute_response(draft, performed_by=request.user)
+    except Exception as e:
+        logger.error(f"Submit-to-PayPal failed for Dispute #{dispute_id}: {e}")
+        messages.error(request, f"Error submitting to PayPal: {e}")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
+    if ok:
+        messages.success(request, f"Submitted to PayPal via {endpoint}.")
+    else:
+        messages.error(request, "PayPal rejected the submission — see the timeline for the reason. "
+                                "You can edit the draft and try again.")
+    return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
+
+@manager_required
+@require_POST
+def dispute_manual_reply(request, dispute_id):
+    """Paste a plain-text reply and submit it as supporting info — feature D.
+    Only offered while the case is under PayPal review (the follow-up channel).
+
+    POST /manager/disputes/<id>/manual-reply/
+    """
+    dispute = get_object_or_404(Dispute, pk=dispute_id)
+    text = (request.POST.get('reply_text') or '').strip()
+    if not text:
+        messages.error(request, "Type a reply before sending.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+    endpoint = dispute.submit_endpoint
+    if not endpoint:
+        messages.error(request, "PayPal isn't accepting a reply for this dispute right now.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
+    submission = DisputeSubmission.objects.create(
+        dispute=dispute, notes=text, source='MANUAL', status='DRAFT')
+    try:
+        ok = submit_dispute_response(submission, performed_by=request.user)
+    except Exception as e:
+        logger.error(f"Manual reply failed for Dispute #{dispute_id}: {e}")
+        messages.error(request, f"Error sending the reply: {e}")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
+    if ok:
+        messages.success(request, "Reply sent to PayPal.")
+    else:
+        messages.error(request, "PayPal rejected the reply — see the timeline for details.")
+    return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
+
+@manager_required
+@require_POST
+def dispute_delete_submission_image(request, image_id):
+    """Remove an image from a draft submission (before it is sent).
+
+    POST /manager/disputes/submission-images/<id>/delete/
+    """
+    image = get_object_or_404(DisputeSubmissionImage, pk=image_id)
+    dispute_id = image.submission.dispute_id
+    if image.submission.status != 'DRAFT':
+        messages.error(request, "Can't change attachments on an already-submitted entry.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+    image.delete()
+    messages.success(request, "Image removed from the draft.")
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
 

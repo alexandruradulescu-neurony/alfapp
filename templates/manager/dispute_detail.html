@@ -142,6 +142,173 @@
             {% endif %}
         </div>
 
+        <!-- Prepare Submission (back-and-forth: features B + C) -->
+        <div class="card-modern p-6">
+            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
+                <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 m-0">
+                    <i class="bi bi-pencil-square text-base-content/70"></i> Prepare submission to PayPal
+                </h3>
+                {% if submit_endpoint == 'provide-evidence' %}
+                <span class="badge badge-soft-info rounded-full">First response · evidence</span>
+                {% elif submit_endpoint == 'provide-supporting-info' %}
+                <span class="badge badge-soft-warning rounded-full">Under review · follow-up info</span>
+                {% else %}
+                <span class="badge badge-soft-neutral rounded-full">No submission window open</span>
+                {% endif %}
+            </div>
+
+            {% if not submit_endpoint %}
+            <div class="rounded-xl bg-base-200/60 text-base-content/70 p-3 text-sm flex items-start gap-2 mb-4">
+                <i class="bi bi-info-circle shrink-0 mt-0.5"></i>
+                <span>PayPal isn't accepting a submission right now (the case may be at the inquiry
+                stage, which is message-only, or already resolved). You can still draft ahead.</span>
+            </div>
+            {% endif %}
+
+            <!-- Prepare form: generate / save (multipart for images) -->
+            <form method="post" action="{% url 'disputes:dispute_prepare_submission' dispute.id %}"
+                  enctype="multipart/form-data" class="space-y-4">
+                {% csrf_token %}
+
+                <div>
+                    <label class="label pb-1"><span class="label-text font-semibold">What to emphasise (feeds the AI)</span></label>
+                    <textarea name="manager_note" rows="2"
+                              class="textarea textarea-bordered w-full rounded-xl text-sm"
+                              placeholder="e.g. Stress that they emailed us from the same IP they used to file the claim.">{{ draft_submission.manager_note }}</textarea>
+                    <button type="submit" name="action" value="generate" class="btn btn-outline btn-sm rounded-xl mt-2">
+                        <i class="bi bi-magic"></i> Generate draft with AI
+                    </button>
+                    {% if draft_submission %}
+                    <span class="text-xs text-base-content/50 ml-2">Current draft: {{ draft_submission.get_source_display }}</span>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <label class="label pb-1"><span class="label-text font-semibold">Narrative sent to PayPal</span></label>
+                    <textarea name="notes" rows="12"
+                              class="textarea textarea-bordered w-full rounded-xl text-sm font-mono leading-relaxed"
+                              placeholder="Generate a draft above, or write the case here.">{{ draft_submission.notes }}</textarea>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="label pb-1"><span class="label-text font-semibold">PayPal evidence type</span></label>
+                        <input type="text" name="evidence_type"
+                               value="{{ draft_submission.evidence_type|default:evidence_type_default }}"
+                               class="input input-bordered w-full rounded-xl text-sm">
+                        <span class="text-xs text-base-content/50 mt-1 block">Defaulted from the dispute reason; used on the first-evidence submission.</span>
+                    </div>
+                    <div>
+                        <label class="label pb-1"><span class="label-text font-semibold">Attachments</span></label>
+                        <label class="flex items-center gap-2 text-sm {% if not has_evidence_pdf %}opacity-50{% endif %}">
+                            <input type="checkbox" name="attach_evidence_pdf" class="checkbox checkbox-sm"
+                                   {% if draft_submission.attach_evidence_pdf %}checked{% endif %}
+                                   {% if not has_evidence_pdf %}disabled{% endif %}>
+                            Attach the evidence-report PDF
+                        </label>
+                        {% if not has_evidence_pdf %}
+                        <span class="text-xs text-base-content/50 mt-1 block">Generate documents first to enable this.</span>
+                        {% endif %}
+                        <div class="mt-2">
+                            <input type="file" name="images" multiple accept="image/*"
+                                   class="file-input file-input-bordered file-input-sm w-full rounded-xl">
+                            <span class="text-xs text-base-content/50 mt-1 block">Images are always attached to the submission.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" name="action" value="save" class="btn btn-outline rounded-xl">
+                    <i class="bi bi-save"></i> Save draft
+                </button>
+            </form>
+
+            <!-- Attached images on the draft (delete forms must sit OUTSIDE the form above) -->
+            {% if draft_submission and draft_submission.images.all %}
+            <div class="mt-4">
+                <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">Attached images</span>
+                <div class="flex flex-wrap gap-3 mt-2">
+                    {% for img in draft_submission.images.all %}
+                    <div class="relative">
+                        <img src="{{ img.file.url }}" alt="attachment" class="h-20 w-20 object-cover rounded-xl border border-base-200">
+                        <form method="post" action="{% url 'disputes:dispute_delete_submission_image' img.id %}" class="absolute -top-2 -right-2">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-xs btn-circle btn-error" title="Remove">
+                                <i class="bi bi-x"></i>
+                            </button>
+                        </form>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Submit to PayPal (outward, money-relevant — confirm) -->
+            <div class="divider my-5"></div>
+            <form method="post" action="{% url 'disputes:dispute_submit_to_paypal' dispute.id %}"
+                  onsubmit="return confirm('Submit this response to PayPal now? This sends the narrative and any attachments to PayPal.');">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-info w-full rounded-xl text-white"
+                        {% if not draft_submission or not draft_submission.notes or not submit_endpoint %}disabled{% endif %}>
+                    <i class="bi bi-send"></i>
+                    {% if submit_endpoint == 'provide-supporting-info' %}Submit follow-up info to PayPal{% else %}Submit evidence to PayPal{% endif %}
+                </button>
+                {% if not draft_submission or not draft_submission.notes %}
+                <span class="text-xs text-base-content/60 mt-2 block">Prepare and save a draft first.</span>
+                {% endif %}
+            </form>
+        </div>
+
+        <!-- Reply Timeline (feature D) -->
+        <div class="card-modern p-6">
+            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-5">
+                <i class="bi bi-chat-left-dots text-base-content/70"></i> Reply timeline
+            </h3>
+            {% if reply_timeline %}
+            <div class="space-y-5">
+                {% for e in reply_timeline %}
+                <div class="border-l-2 {% if e.actor == 'PayPal' %}border-info/40{% elif e.actor == 'Buyer' %}border-warning/40{% else %}border-primary/30{% endif %} pl-4 relative">
+                    <div class="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full {% if e.actor == 'PayPal' %}bg-info{% elif e.actor == 'Buyer' %}bg-warning{% else %}bg-primary{% endif %}"></div>
+                    <div class="flex justify-between items-start gap-3">
+                        <strong class="text-sm">{{ e.title }}</strong>
+                        <span class="text-xs text-base-content/50 shrink-0">{{ e.when_str|default:"—" }}</span>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 mt-1">
+                        <span class="text-xs text-base-content/60">{{ e.actor }}</span>
+                        {% if e.status %}<span class="badge badge-xs {% if e.status == 'SUBMITTED' %}badge-soft-success{% elif e.status == 'FAILED' %}badge-soft-error{% else %}badge-soft-neutral{% endif %} rounded-full">{{ e.status }}</span>{% endif %}
+                        {% if e.source %}<span class="text-xs text-base-content/50">· {{ e.source }}</span>{% endif %}
+                        {% if e.image_count %}<span class="text-xs text-base-content/50">· {{ e.image_count }} image{{ e.image_count|pluralize }}</span>{% endif %}
+                        {% if e.attached_pdf %}<span class="text-xs text-base-content/50">· report PDF</span>{% endif %}
+                        {% if e.doc_count %}<span class="text-xs text-base-content/50">· {{ e.doc_count }} file{{ e.doc_count|pluralize }}</span>{% endif %}
+                    </div>
+                    {% if e.text %}
+                    <p class="text-sm text-base-content/70 mt-1 whitespace-pre-line">{{ e.text }}</p>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-center py-8">
+                <i class="bi bi-chat-left-dots text-2xl text-base-content/30"></i>
+                <p class="text-base-content/70 mt-2 mb-0 font-medium">No submissions or replies yet</p>
+            </div>
+            {% endif %}
+
+            {% if submit_endpoint == 'provide-supporting-info' %}
+            <div class="divider my-5"></div>
+            <form method="post" action="{% url 'disputes:dispute_manual_reply' dispute.id %}"
+                  onsubmit="return confirm('Send this reply to PayPal as supporting information?');">
+                {% csrf_token %}
+                <label class="label pb-1"><span class="label-text font-semibold">Quick reply (sent as supporting info)</span></label>
+                <textarea name="reply_text" rows="3" required
+                          class="textarea textarea-bordered w-full rounded-xl text-sm"
+                          placeholder="Paste a short reply to add to the case under review."></textarea>
+                <button type="submit" class="btn btn-outline btn-sm rounded-xl mt-2">
+                    <i class="bi bi-reply"></i> Send reply
+                </button>
+            </form>
+            {% endif %}
+        </div>
+
         <!-- Documents Section -->
         <div class="card-modern p-0 overflow-hidden">
             <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 p-6 {% if documents %}border-b border-base-200{% endif %}">
@@ -298,22 +465,12 @@
 
             <div class="divider my-5"></div>
 
-            <!-- Send Evidence (stage-gated: PayPal rejects evidence before CHARGEBACK) -->
-            <form method="post" action="{% url 'disputes:dispute_send_evidence' dispute.id %}">
-                {% csrf_token %}
-                <button type="submit" class="btn btn-info w-full rounded-xl text-white"
-                        {% if dispute.status == 'EVIDENCE_SENT' or not dispute.can_submit_evidence %}disabled{% endif %}>
-                    <i class="bi bi-send"></i> Send Evidence to PayPal
-                </button>
-                {% if dispute.status == 'EVIDENCE_SENT' %}
-                <span class="text-xs text-base-content/60 mt-2 block">Evidence already sent</span>
-                {% elif not dispute.can_submit_evidence %}
-                <span class="text-xs text-base-content/60 mt-2 block">
-                    PayPal accepts evidence only at the chargeback stage
-                    (currently “{{ dispute.dispute_life_cycle_stage|default:'unknown' }}”).
-                </span>
-                {% endif %}
-            </form>
+            <!-- Submitting evidence now lives in the "Prepare submission" panel
+                 (auto-picks provide-evidence vs provide-supporting-info). -->
+            <a href="#" onclick="document.querySelector('textarea[name=notes]')?.scrollIntoView({behavior:'smooth'});return false;"
+               class="btn btn-outline btn-sm w-full rounded-xl">
+                <i class="bi bi-arrow-up"></i> Go to "Prepare submission"
+            </a>
 
             <!-- Accept Claim -->
             <form method="post" action="{% url 'disputes:dispute_accept_claim' dispute.id %}" class="mt-3"

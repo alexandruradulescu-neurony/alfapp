@@ -9,7 +9,7 @@ import base64
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone as _std_timezone
 from typing import Optional, Tuple
 
 import bleach
@@ -1439,6 +1439,72 @@ def build_dispute_narrative_notes(dispute, *, manager_note: str = '', use_ai: bo
             getattr(dispute, 'pk', '?'), len(notes), PAYPAL_NOTES_MAX_CHARS,
         )
     return {'notes': notes, 'source': source, 'sections': sections}
+
+
+_TIMELINE_MIN_DT = datetime.min.replace(tzinfo=_std_timezone.utc)
+
+
+def build_dispute_reply_timeline(dispute) -> list:
+    """Chronological back-and-forth for the dispute page (feature D).
+
+    Merges our own submissions (DisputeSubmission rows) with PayPal's recorded
+    evidences[] and buyer/seller messages[] from the stored payload into one
+    ordered list (oldest first; entries without a timestamp sort to the end).
+    Each entry: {when, when_str, actor, kind, title, status, source, text, ...}.
+    Read-only — purely for display.
+    """
+    entries = []
+
+    _SUB_TITLES = {'EVIDENCE': 'Evidence submitted',
+                   'SUPPORTING_INFO': 'Supporting info submitted',
+                   'MESSAGE': 'Message sent'}
+    for s in dispute.submissions.all():
+        when = s.submitted_at or s.created_at
+        if s.status == 'DRAFT':
+            title = 'Draft prepared (not sent)'
+        elif s.status == 'FAILED':
+            title = 'Submission failed'
+        else:
+            title = _SUB_TITLES.get(s.kind, 'Submission')
+        entries.append({
+            'when': when, 'when_str': _fmt_zd_time(when), 'actor': 'Airport Lost & Found',
+            'kind': 'submission', 'title': title, 'status': s.status,
+            'source': s.get_source_display(), 'text': (s.notes or '')[:600],
+            'image_count': s.images.count(), 'attached_pdf': s.attach_evidence_pdf,
+        })
+
+    payload = dispute.raw_webhook_payload or {}
+    for ev in (payload.get('evidences') or []):
+        src = (ev.get('source') or '').upper()
+        if src == 'REQUESTED_FROM_SELLER':
+            actor, title = 'PayPal', 'PayPal requested information'
+        else:
+            actor, title = 'Airport Lost & Found', 'On file at PayPal'
+        when = _parse_dt(ev.get('date') or ev.get('create_time'))
+        docs = ev.get('documents')
+        if not isinstance(docs, list):
+            docs = (ev.get('evidence_info') or {}).get('documents') or []
+        entries.append({
+            'when': when, 'when_str': _fmt_zd_time(when), 'actor': actor,
+            'kind': 'paypal_evidence', 'title': title, 'status': '',
+            'source': ev.get('evidence_type', ''), 'text': (ev.get('notes') or '')[:600],
+            'doc_count': len(docs) if isinstance(docs, list) else 0,
+        })
+
+    for m in (payload.get('messages') or []):
+        by = (m.get('posted_by') or '').upper()
+        actor = ('Buyer' if by == 'BUYER'
+                 else 'PayPal' if by in ('ARBITER', 'PAYPAL')
+                 else 'Airport Lost & Found')
+        when = _parse_dt(m.get('time_posted') or m.get('create_time'))
+        entries.append({
+            'when': when, 'when_str': _fmt_zd_time(when), 'actor': actor,
+            'kind': 'paypal_message', 'title': 'Message', 'status': '',
+            'source': '', 'text': (m.get('content') or '')[:600],
+        })
+
+    entries.sort(key=lambda e: (e['when'] is None, e['when'] or _TIMELINE_MIN_DT))
+    return entries
 
 
 @transaction.atomic
