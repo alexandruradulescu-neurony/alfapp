@@ -62,20 +62,15 @@ html {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
-/* ── Subtle mesh gradient background ── */
+/* ── App background: calm, flat surface (was a busy mesh gradient) ── */
 body.mesh-bg {
-  background:
-    radial-gradient(ellipse at 20% 0%, oklch(0.85 0.06 270 / 0.15) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 100%, oklch(0.85 0.06 180 / 0.10) 0%, transparent 50%),
-    #f8fafc;
+  background: #f6f7fb;
 }
 
-/* ── Glass morphism utility ── */
+/* ── Side panel: solid, crisp (was translucent glass/blur) ── */
 .glass-panel {
-  background: oklch(1 0 0 / 0.65);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid oklch(0.9 0 0 / 0.5);
+  background: #ffffff;
+  border-right: 1px solid oklch(0.92 0.01 260);
 }
 
 /* ── Sidebar active state ── */
