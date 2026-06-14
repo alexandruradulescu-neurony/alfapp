@@ -91,6 +91,22 @@ class EvidenceNarrative(BaseModel):
     items: list[EvidencePlacement] = Field(default_factory=list)
 
 
+class DisputeNarrative(BaseModel):
+    """Schema for `build_dispute_narrative_notes` in payments/document_service.py.
+
+    The LLM writes ALF's first-person evidence narrative for a PayPal dispute
+    reviewer, in four sections we assemble into the `notes` text submitted to
+    PayPal. Facts come ONLY from the case data provided; the LLM never invents
+    content. All four fields are required — a malformed/short reply raises
+    AIResponseValidationError and the caller falls back to a deterministic
+    template narrative (so a bad AI reply never produces empty evidence)."""
+
+    opening: str
+    authorization: str
+    service_delivery: str
+    closing: str
+
+
 class BriefingSummary(BaseModel):
     """Schema for the Zendesk sidebar briefing (POST /zd/briefing/) and the
     stored claim summary engine. The LLM produces a short summary + a few

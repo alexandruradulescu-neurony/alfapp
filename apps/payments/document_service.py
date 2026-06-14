@@ -1207,6 +1207,240 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
     }
 
 
+# PayPal caps the dispute evidence/supporting-info `notes` field near 2000
+# characters. We do NOT hard-truncate (that could cut a restored name mid-word
+# and the manager reviews/edits before submitting) — we warn past this length.
+PAYPAL_NOTES_MAX_CHARS = 2000
+
+EVIDENCE_NOTES_SYSTEM_PROMPT = (
+    "You are an employee of Airport Lost & Found (ALF), a paid lost-item "
+    "recovery service, writing ALF's own evidence narrative for a PayPal "
+    "dispute. PayPal's dispute reviewer reads this text to decide the case in "
+    "our favour or the customer's, so write a confident, factual, first-person "
+    "case.\n"
+    "VOICE: always 'we', 'our', 'us' for ALF; call the buyer 'the customer'. "
+    "NEVER call ALF 'the merchant' or write in the third person.\n"
+    "Produce FOUR sections as JSON string fields:\n"
+    "- opening: one short paragraph stating we are formally contesting this "
+    "dispute and, in one line, why it is unfounded for THIS dispute reason.\n"
+    "- authorization: the proof the customer themselves authorised this "
+    "purchase — that they personally submitted the claim on our website "
+    "(citing the date/IP if given), supplying details only they could provide "
+    "(their flight, where they lost the item, a description of the item), and "
+    "that they accepted our Terms & Conditions and refund window. Cite the "
+    "specific values you are given.\n"
+    "- service_delivery: the proof we performed the paid service — the fee the "
+    "customer paid and our reference, plus the work shown in the case records "
+    "(verifying the flight, contacting the customer, reporting the lost item to "
+    "the airline and airport lost-&-found offices, and sending status "
+    "updates).\n"
+    "- closing: a brief, explicit request that PayPal resolve the dispute in "
+    "our favour.\n"
+    "RULES: Use ONLY the facts and case records provided in the user message. "
+    "NEVER invent a fact, date, name, amount, flight, or action; if a value is "
+    "missing or marked unknown, leave it out rather than guess. If a "
+    "'manager_emphasis' note is provided, weave its point in where it fits. "
+    "Keep each section tight and free of padding. Return JSON: {\"opening\": "
+    "<str>, \"authorization\": <str>, \"service_delivery\": <str>, "
+    "\"closing\": <str>}."
+)
+
+
+def _lead_with_service(reason: str) -> bool:
+    """Whether the service-delivery proof should lead over the authorisation
+    proof for this dispute reason (not-received / not-as-described win on
+    proof-of-work; everything else leads with who-authorised-it). Derived from
+    the same per-reason ordering the report uses (SECTION_PRIORITY_BY_REASON)."""
+    return _section_priority_for(reason)[0] in ('SUBMISSIONS', 'CLAIM_UPDATES')
+
+
+def _assemble_narrative_notes(sections: dict, reason: str = '') -> str:
+    """Join the four narrative sections into the single plain-text `notes` body
+    PayPal receives. The two middle proofs are ordered (and numbered) for THIS
+    dispute reason; empty sections are skipped."""
+    opening = (sections.get('opening') or '').strip()
+    closing = (sections.get('closing') or '').strip()
+    middle = [
+        ('Proof the customer authorised this purchase', (sections.get('authorization') or '').strip()),
+        ('Proof we delivered the paid service', (sections.get('service_delivery') or '').strip()),
+    ]
+    if _lead_with_service(reason):
+        middle.reverse()
+
+    parts = []
+    if opening:
+        parts.append(opening)
+    n = 1
+    for label, text in middle:
+        if text:
+            parts.append(f"{n}. {label}\n{text}")
+            n += 1
+    if closing:
+        parts.append(closing)
+    return "\n\n".join(parts).strip()
+
+
+def _narrative_untrusted(bundle: dict, max_comments: int = 8, per_comment_chars: int = 400) -> dict:
+    """The case records the AI may ground the service-delivery section in: the
+    cleaned Zendesk comment bodies, fenced under the approved 'zendesk_comment'
+    tag. Empty when there are none."""
+    bodies = []
+    for p in bundle.get('panels', [])[:max_comments]:
+        body = (p.get('body') or '').strip()
+        if not body:
+            continue
+        tag = 'public reply to the customer' if p.get('public') else 'internal note'
+        bodies.append(f"({tag}): {body[:per_comment_chars]}")
+    return {'zendesk_comment': bodies} if bodies else {}
+
+
+def _dispute_narrative_facts(dispute, bundle: dict, *, manager_note: str = '') -> dict:
+    """Trusted, structured case facts handed to the narrative LLM (tokenized by
+    AIClient before sending, restored on the way out). Missing values are marked
+    so the model omits them rather than guessing."""
+    nf = bundle['narrative']
+    identity = bundle['identity']
+    consent = bundle['consent']
+    flight = bundle['flight_card']
+    claim = bundle['claim']
+    framing = bundle['framing']
+
+    facts = {
+        'dispute_reason': dispute.get_dispute_reason_display() if dispute.dispute_reason else 'uncategorised',
+        'why_unfounded': framing['lead'],
+        'customer_name': nf['client_name'],
+        'our_reference': nf['alf_id'] or '(none)',
+        'service_fee': f"{nf['currency']} {nf['fee']}" if nf['fee'] is not None else '(unknown)',
+        'item_lost': nf['object'] or '(not recorded)',
+        'lost_location': ((getattr(claim, 'lost_location', '') or '').strip()[:200]) if claim else '',
+        'flight': (f"{flight['airline']} {flight['number']} {flight['from_iata']}→{flight['to_iata']}"
+                   if flight else '(not recorded)'),
+        'claim_submitted_on': consent.get('when') or '(unknown)',
+        'submission_ip': consent.get('ip') or '(unknown)',
+        'terms_url': nf['terms_url'],
+        'contacted_us_from_same_ip': 'yes' if identity.get('matched') else 'no',
+        'customer_messages_to_us': str(identity.get('client_msg_count') or 0),
+        'updates_we_sent': str(sum(1 for p in bundle.get('panels', []) if p.get('public'))),
+        'strongest_points': ' '.join(bundle.get('bottom_line', [])),
+    }
+    if (manager_note or '').strip():
+        facts['manager_emphasis'] = manager_note.strip()
+    return facts
+
+
+def _fallback_narrative_sections(dispute, bundle: dict) -> dict:
+    """Deterministic narrative used when the LLM is unconfigured or errors —
+    same four-section structure, filled only from case fields (never fabricated)."""
+    nf = bundle['narrative']
+    identity = bundle['identity']
+    consent = bundle['consent']
+    flight = bundle['flight_card']
+    name = nf['client_name']
+    alf = nf['alf_id']
+    fee = f"{nf['currency']} {nf['fee']}" if nf['fee'] is not None else 'the agreed service fee'
+    item = nf['object']
+    clause = _consent_clause(consent)  # " when they submitted the claim on <when>, from IP <ip>"
+
+    opening = (
+        f"We are formally contesting this PayPal dispute. {name} purchased our paid "
+        "lost-item recovery service, authorised us to act on their behalf, and we carried "
+        "out that service in full. The points below set out the evidence."
+    )
+
+    auth = [f"{name} personally submitted this claim through our website{clause}."]
+    if item:
+        auth.append("The submission included details only the customer could provide — "
+                    f"their flight, where the item was lost, and a description of the item ({item}).")
+    else:
+        auth.append("The submission included details only the customer could provide, including "
+                    "their flight, where the item was lost, and a description of the item.")
+    auth.append("In submitting the claim, the customer accepted our Terms and Conditions and "
+                f"refund window ({nf['terms_url']}).")
+    if identity.get('matched'):
+        auth.append("The customer later contacted us from the very same IP address used to submit "
+                    f"the claim ({identity['submission_ip']}), confirming this was the same person.")
+    elif identity.get('client_msg_count'):
+        auth.append("The customer corresponded with us from their own email afterwards — behaviour "
+                    "inconsistent with an unauthorised transaction.")
+    authorization = ' '.join(auth)
+
+    svc = [f"The customer paid {fee} for our service" + (f" (our reference {alf})." if alf else ".")]
+    if flight:
+        svc.append(f"We verified the flight involved ({flight['airline']} {flight['number']}, "
+                   f"{flight['from_iata']}→{flight['to_iata']}).")
+    svc.append("We reported the lost item to the relevant airline and airport lost-and-found "
+               "offices and kept the customer updated on the search.")
+    updates = sum(1 for p in bundle.get('panels', []) if p.get('public'))
+    if updates:
+        svc.append(f"We sent the customer {updates} update{'s' if updates != 1 else ''} during the case.")
+    service_delivery = ' '.join(svc)
+
+    closing = ("Because the customer authorised this purchase and we delivered the service they "
+               "paid for, we respectfully request that PayPal resolve this dispute in our favour.")
+
+    return {'opening': opening, 'authorization': authorization,
+            'service_delivery': service_delivery, 'closing': closing}
+
+
+def build_dispute_narrative_notes(dispute, *, manager_note: str = '', use_ai: bool = True) -> dict:
+    """Write ALF's first-person evidence narrative (the `notes` text PayPal's
+    reviewer reads) for a dispute.
+
+    Returns ``{'notes': <assembled text>, 'source': 'AI'|'FALLBACK',
+    'sections': {opening, authorization, service_delivery, closing}}``.
+
+    The AI path masks the customer's name/email/address/phone before the LLM
+    sees anything and restores the real values on the way out (PayPal is inside
+    the trust zone and must receive the real values). Any AI failure — no key,
+    network, or a malformed reply — falls back to a deterministic template
+    narrative with the same structure. The manager reviews/edits before submit.
+    """
+    bundle = build_dispute_evidence_bundle(dispute, embed_attachments=False, use_ai=False)
+    claim = bundle['claim']
+    sections = None
+    source = 'FALLBACK'
+
+    if use_ai:
+        try:
+            ss = SystemSettings.get_instance()
+            if getattr(ss, 'ai_api_key', ''):
+                from apps.ai.client import AIClient
+                from apps.ai.schemas import DisputeNarrative
+                result = AIClient.complete(
+                    system_prompt=EVIDENCE_NOTES_SYSTEM_PROMPT,
+                    trusted=_dispute_narrative_facts(dispute, bundle, manager_note=manager_note),
+                    untrusted=_narrative_untrusted(bundle),
+                    known_pii=_known_pii_for(claim),
+                    response_schema=DisputeNarrative,
+                    call_site='dispute_narrative_notes',
+                    temperature=0.4,
+                    max_tokens=1200,
+                )
+                sections = {
+                    'opening': result.opening,
+                    'authorization': result.authorization,
+                    'service_delivery': result.service_delivery,
+                    'closing': result.closing,
+                }
+                source = 'AI'
+        except Exception as e:
+            logger.warning(f"Dispute narrative AI unavailable; using deterministic fallback: {e}")
+            sections = None
+
+    if sections is None:
+        sections = _fallback_narrative_sections(dispute, bundle)
+        source = 'FALLBACK'
+
+    notes = _assemble_narrative_notes(sections, reason=dispute.dispute_reason)
+    if len(notes) > PAYPAL_NOTES_MAX_CHARS:
+        logger.warning(
+            "Dispute #%s narrative is %d chars — PayPal caps dispute notes near %d; "
+            "the manager should trim before submitting.",
+            getattr(dispute, 'pk', '?'), len(notes), PAYPAL_NOTES_MAX_CHARS,
+        )
+    return {'notes': notes, 'source': source, 'sections': sections}
+
+
 @transaction.atomic
 def generate_evidence_report(dispute_id: int) -> Optional[DisputeDocument]:
     """
