@@ -671,43 +671,128 @@ def _asset_data_uri(filename: str) -> Optional[str]:
         return None
 
 
-def _attachment_data_uri(content_type: str, content_url: str) -> Optional[str]:
-    """Download an image attachment from Zendesk and return it as a data URI.
-    Non-images and failures return None (so the template just skips them)."""
-    if not (content_type or '').lower().startswith('image/'):
+# Comment images (attachments + inline-pasted) are fetched up to this ceiling
+# then DOWNSCALED before embedding, so a big screenshot still appears (the old
+# 5 MB fetch cap silently dropped large Delta/Denver-style screenshots) while the
+# PDF stays bounded. Images already small + in-bounds pass through untouched.
+_IMG_FETCH_MAX_BYTES = 25_000_000
+_IMG_PASSTHROUGH_BYTES = 1_500_000
+_IMG_EMBED_MAX_DIM = 1600
+_IMG_EMBED_QUALITY = 85
+_PIL_MIME = {'PNG': 'image/png', 'JPEG': 'image/jpeg', 'JPG': 'image/jpeg',
+             'GIF': 'image/gif', 'WEBP': 'image/webp'}
+
+
+def _fetch_no_auth(url: str, max_bytes: int) -> Optional[bytes]:
+    """GET a URL with NO auth header — for Zendesk's pre-signed content CDN
+    (sending our Zendesk token to a non-Zendesk host would be a leak)."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(url, method='GET')
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = resp.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            logger.warning(f"CDN image exceeds {max_bytes} bytes; skipping embed: {url[:120]}")
+            return None
+        return data
+    except Exception as e:
+        logger.warning(f"Could not download CDN image {url[:120]}: {e}")
         return None
-    from apps.integrations.services import fetch_zendesk_attachment_bytes
-    data = fetch_zendesk_attachment_bytes(content_url)
-    if not data:
-        return None
-    return f"data:{content_type};base64,{base64.b64encode(data).decode('utf-8')}"
 
 
-def _inline_image_data_uri(url: str) -> Optional[str]:
-    """Embed an image pasted INLINE into a Zendesk comment body (markdown
-    ``![](url)``) as a data URI.
+def _fetch_zendesk_image_bytes(url: str) -> Optional[bytes]:
+    """Fetch an image referenced from a Zendesk comment — an attachment
+    content_url OR an inline-pasted body image (``![](url)``) — as raw bytes.
 
-    SECURITY: only fetch from our own Zendesk subdomain. fetch_zendesk_attachment_bytes
-    attaches our Zendesk auth headers, so a foreign URL pasted into a comment must
-    never be requested (it would leak the token). Returns None on a non-matching
-    host or any failure; mime is inferred from the URL.
+    SECURITY host policy (our Zendesk auth token must never reach a foreign host):
+      * our own ``<sub>.zendesk.com`` → authenticated GET;
+      * a relative ``/attachments/...`` url → resolved against our subdomain;
+      * Zendesk's signed content CDN (``*.zdusercontent.com`` /
+        ``*.zendeskusercontent.com``) → fetched WITHOUT auth (already pre-signed);
+      * anything else → refused.
+    Logs the reason whenever it returns None so a silent drop is diagnosable.
     """
     if not url:
         return None
     from urllib.parse import urlparse
-    from apps.config.models import SystemSettings
     sub = (SystemSettings.get_instance().zd_subdomain or '').strip().lower()
-    host = (urlparse(url).hostname or '').lower()
-    if not sub or host != f'{sub}.zendesk.com':
-        return None
-    from apps.integrations.services import fetch_zendesk_attachment_bytes
-    data = fetch_zendesk_attachment_bytes(url)
+    parsed = urlparse(url)
+    host = (parsed.hostname or '').lower()
+
+    if not host:  # relative url (e.g. "/attachments/token/...") → our host
+        if not sub:
+            logger.warning("Inline image skipped: relative url but zd_subdomain is unset")
+            return None
+        url = f"https://{sub}.zendesk.com{url if url.startswith('/') else '/' + url}"
+        host = f"{sub}.zendesk.com"
+
+    if sub and host == f"{sub}.zendesk.com":
+        from apps.integrations.services import fetch_zendesk_attachment_bytes
+        data = fetch_zendesk_attachment_bytes(url, max_bytes=_IMG_FETCH_MAX_BYTES)
+        if not data:
+            logger.warning(f"Zendesk image fetch returned nothing: {url[:120]}")
+        return data
+
+    if host.endswith('.zdusercontent.com') or host.endswith('.zendeskusercontent.com'):
+        return _fetch_no_auth(url, _IMG_FETCH_MAX_BYTES)
+
+    logger.warning(f"Inline image skipped: host '{host}' is not our Zendesk host")
+    return None
+
+
+def _downscale_for_embed(data: bytes) -> Tuple[bytes, str]:
+    """Return (bytes, mime) for embedding: small in-bounds images pass through
+    untouched (lossless — keeps screenshot text crisp); oversized ones are
+    resized to fit and recompressed so they EMBED instead of being dropped, and
+    the PDF stays bounded. Falls back to the original bytes if Pillow is missing
+    or the data isn't a decodable image."""
+    try:
+        import io
+        from PIL import Image, ImageOps
+        img = Image.open(io.BytesIO(data))
+        fmt = (img.format or '').upper()
+        if (len(data) <= _IMG_PASSTHROUGH_BYTES
+                and max(img.size) <= _IMG_EMBED_MAX_DIM and fmt in _PIL_MIME):
+            return data, _PIL_MIME[fmt]
+        img = ImageOps.exif_transpose(img)
+        has_alpha = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
+        if max(img.size) > _IMG_EMBED_MAX_DIM:
+            img.thumbnail((_IMG_EMBED_MAX_DIM, _IMG_EMBED_MAX_DIM))
+        out = io.BytesIO()
+        if has_alpha:
+            img.convert('RGBA').save(out, format='PNG', optimize=True)
+            return out.getvalue(), 'image/png'
+        img.convert('RGB').save(out, format='JPEG', quality=_IMG_EMBED_QUALITY, optimize=True)
+        return out.getvalue(), 'image/jpeg'
+    except Exception as e:
+        logger.warning(f"Image downscale skipped ({e}); embedding original bytes")
+        return data, 'image/jpeg'
+
+
+def _embed_image_data_uri(data: Optional[bytes]) -> Optional[str]:
+    """Downscale + base64 image bytes into a ``data:`` URI for the PDF; None if
+    there are no bytes."""
     if not data:
         return None
-    lower = url.lower()
-    mime = ('image/png' if '.png' in lower else 'image/gif' if '.gif' in lower
-            else 'image/webp' if '.webp' in lower else 'image/jpeg')
-    return f"data:{mime};base64,{base64.b64encode(data).decode('utf-8')}"
+    out, mime = _downscale_for_embed(data)
+    return f"data:{mime};base64,{base64.b64encode(out).decode('utf-8')}"
+
+
+def _attachment_data_uri(content_type: str, content_url: str) -> Optional[str]:
+    """Download an image attachment from Zendesk and return it as a data URI.
+    Non-images and failures return None (so the template just skips them); large
+    images are downscaled (not dropped) before embedding."""
+    if not (content_type or '').lower().startswith('image/'):
+        return None
+    return _embed_image_data_uri(_fetch_zendesk_image_bytes(content_url))
+
+
+def _inline_image_data_uri(url: str) -> Optional[str]:
+    """Embed an image pasted INLINE into a Zendesk comment body (markdown
+    ``![](url)``) as a data URI. Host/auth policy + downscaling are handled by
+    _fetch_zendesk_image_bytes / _embed_image_data_uri."""
+    return _embed_image_data_uri(_fetch_zendesk_image_bytes(url))
 
 
 def _zendesk_comment_panels(comments: list, embed_images: bool = True,

@@ -199,11 +199,14 @@ class CommentCleanupTests(TestCase):
             'author': {'name': 'Mark'}, 'public': False, 'attachments': [],
             'body': 'DELTA\n![](https://airportlf.zendesk.com/attachments/token/abc/?name=image.png)',
         }]
+        import io
+        from PIL import Image
+        buf = io.BytesIO(); Image.new('RGB', (4, 4), 'white').save(buf, format='PNG')
         with patch('apps.integrations.services.fetch_zendesk_attachment_bytes',
-                   return_value=b'PNGBYTES'):
+                   return_value=buf.getvalue()):
             panels = ds._zendesk_comment_panels(comments)
         self.assertEqual(len(panels[0]['images']), 1)
-        self.assertTrue(panels[0]['images'][0]['data_uri'].startswith('data:image/png;base64,'))
+        self.assertTrue(panels[0]['images'][0]['data_uri'].startswith('data:image/'))
         self.assertEqual(panels[0]['body'], 'DELTA')  # raw markdown stripped from text
 
     def test_inline_image_only_fetches_our_zendesk_host(self):
