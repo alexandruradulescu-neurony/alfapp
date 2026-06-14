@@ -161,7 +161,11 @@ class TransientDisputePreviewTests(TestCase):
         with patch.object(ds, '_fetch_zendesk_ticket_full',
                           return_value={'ticket': {}, 'comments': COMMENTS}):
             bundle = ds.build_dispute_evidence_bundle(dispute, embed_attachments=False, use_ai=False)
-        self.assertEqual(bundle['screenshots'], [])
+        # The screenshot service was removed; the bundle no longer carries it.
+        self.assertNotIn('screenshots', bundle)
+        # Current bundle shape — and it builds for a transient (unsaved) dispute.
+        for key in ('panels', 'sections', 'flight_card', 'narrative'):
+            self.assertIn(key, bundle)
         self.assertTrue(bundle['flight_card'])
         self.assertEqual(len(bundle['panels']), 2)
 

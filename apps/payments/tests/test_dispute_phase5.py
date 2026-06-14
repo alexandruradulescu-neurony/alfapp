@@ -40,11 +40,15 @@ class EvidenceBundleTests(TestCase):
         d = _dispute(claim=claim, zd_ticket_id='97001')
         with patch.object(ds, '_fetch_zendesk_ticket_full',
                           return_value={'ticket': {'id': '97001'}, 'comments': [{'body': 'hi'}]}):
-            bundle = ds.build_dispute_evidence_bundle(d)
+            bundle = ds.build_dispute_evidence_bundle(d, use_ai=False)
         self.assertEqual(bundle['dispute'], d)
         self.assertEqual(bundle['ticket'], {'id': '97001'})
         self.assertEqual(bundle['comments'], [{'body': 'hi'}])
         self.assertEqual(bundle['category'], 'MERCHANDISE_OR_SERVICE_NOT_RECEIVED')
         self.assertEqual(bundle['category_label'], 'Item/Service Not Received')
-        for key in ('screenshots', 'claim_evidence', 'communication_history', 'generated_at'):
+        for key in ('claim_evidence', 'communication_history', 'generated_at'):
+            self.assertIn(key, bundle)
+        # The screenshot service was removed — the bundle uses panels/sections now.
+        self.assertNotIn('screenshots', bundle)
+        for key in ('panels', 'sections', 'flight_card', 'narrative'):
             self.assertIn(key, bundle)
