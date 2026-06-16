@@ -54,13 +54,6 @@ class ChatAnswer(BaseModel):
     sources: list[Literal["claim", "email", "refund", "zendesk"]] = []
 
 
-class DisputeLetter(BaseModel):
-    """Schema for `_call_qwen_ai` in payments/document_service.py."""
-
-    subject: str = Field(max_length=200)
-    body: str = Field(max_length=5000)
-
-
 class EvidencePlacement(BaseModel):
     """One evidence record's placement in the dispute report narrative."""
 

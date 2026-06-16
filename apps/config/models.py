@@ -339,29 +339,6 @@ Please analyze this claim and provide:
     )
 
     # AI Prompt Templates
-    dispute_response_prompt = models.TextField(
-        default="""You are drafting a professional response letter for a PayPal dispute.
-
-Dispute Information:
-- Reason: {dispute_reason}
-- Amount: {dispute_amount} {dispute_currency}
-- Buyer: {buyer_name} ({buyer_email})
-- Transaction: {transaction_id} on {transaction_date}
-
-Zendesk Ticket Information:
-- Ticket ID: {zd_ticket_id}
-- Subject: {ticket_subject}
-- Status: {ticket_status}
-
-Based on the Zendesk ticket data and communication history, draft a professional response letter that:
-1. Acknowledges the customer's concern
-2. Presents the facts from the ticket history
-3. Explains any resolution actions taken
-4. Maintains a courteous and professional tone
-
-Response Letter:""",
-        help_text='Template for AI-generated dispute response letters'
-    )
     email_analysis_prompt = models.TextField(
         default="""You are analyzing an incoming email for a lost object recovery service.
 

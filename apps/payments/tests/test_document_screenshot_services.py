@@ -1,9 +1,9 @@
 """
-Tests for the payments document service (dispute response letters + evidence reports).
+Tests for the payments document service (dispute evidence reports).
 
 Tests cover:
-- generate_evidence_report, generate_response_letter, regenerate_document
-- Helper functions (_get_weasyprint, _call_qwen_ai, _fetch_zendesk_ticket_full, etc.)
+- generate_evidence_report, regenerate_document
+- Helper functions (_get_weasyprint, _fetch_zendesk_ticket_full, etc.)
 - Error handling, success and failure scenarios
 
 External dependencies (WeasyPrint, OpenAI, file system) are mocked. (The Playwright
@@ -19,11 +19,9 @@ import os
 import tempfile
 
 from apps.payments.document_service import (
-    generate_response_letter,
     generate_evidence_report,
     regenerate_document,
     _get_weasyprint,
-    _call_qwen_ai,
     _fetch_zendesk_ticket_full,
     _fetch_claim_evidence_base64,
     _fetch_communication_history,
@@ -89,7 +87,6 @@ def configured_system_settings():
     settings.zd_subdomain = "testcompany"
     settings.zd_email = "support@testcompany.com"
     settings.zd_token = "test_token"
-    settings.dispute_response_prompt = "You are a dispute resolution assistant. Generate a formal response."
     settings.pii_tokenization_salt = "test_salt_long_enough_for_real_use"
     settings.save()
     return settings
@@ -180,69 +177,6 @@ class TestGetWeasyPrint:
                 HTML, CSS = _get_weasyprint()
                 assert HTML is None
                 assert CSS is None
-
-
-# =============================================================================
-# TESTS FOR _call_qwen_ai HELPER
-# =============================================================================
-
-
-class TestCallQwenAI:
-    """Tests for _call_qwen_ai helper function (new AIClient-based signature)."""
-
-    @pytest.mark.django_db
-    def test_ai_call_success(self, configured_system_settings, mock_openai_client):
-        """Test successful AI API call returns (subject, body) tuple."""
-        trusted = {
-            'dispute_reason': 'MERCHANDISE_NOT_RECEIVED',
-            'dispute_amount': '100.00',
-        }
-
-        subject, body = _call_qwen_ai(
-            system_prompt="You are a dispute writer.",
-            trusted=trusted,
-            untrusted={},
-            known_aliases=[],
-        )
-
-        assert subject is not None
-        assert body is not None
-        mock_openai_client.chat.completions.create.assert_called_once()
-
-    @pytest.mark.django_db
-    def test_ai_call_api_error(self, configured_system_settings):
-        """Test AI call when API raises error."""
-        mock_openai = Mock()
-        mock_openai.chat.completions.create.side_effect = Exception("API Error")
-
-        with patch('apps.ai.client.OpenAI', return_value=mock_openai):
-            with pytest.raises(Exception):
-                _call_qwen_ai(
-                    system_prompt="Test prompt",
-                    trusted={'dispute_reason': 'TEST'},
-                    untrusted={},
-                    known_aliases=[],
-                )
-
-    @pytest.mark.django_db
-    def test_ai_call_untrusted_fields_fenced(self, configured_system_settings, mock_openai_client):
-        """Untrusted Zendesk data must appear in fenced user-role content, not system prompt."""
-        _call_qwen_ai(
-            system_prompt="You are a dispute writer.",
-            trusted={'dispute_reason': 'TEST'},
-            untrusted={'ticket_subject': 'Malicious subject', 'zendesk_comment': ['comment 1']},
-            known_aliases=[],
-        )
-
-        call_kwargs = mock_openai_client.chat.completions.create.call_args.kwargs
-        messages = call_kwargs["messages"]
-        system_content = messages[0]["content"]
-        user_content = messages[1]["content"]
-
-        # System prompt stays clean — no interpolation
-        assert "Malicious subject" not in system_content
-        # Untrusted data is fenced in user role
-        assert "<ticket_subject>" in user_content or "<zendesk_comment" in user_content
 
 
 # =============================================================================
@@ -458,78 +392,6 @@ class TestRenderToPdf:
 
 
 # =============================================================================
-# TESTS FOR generate_response_letter
-# =============================================================================
-
-
-class TestGenerateResponseLetter:
-    """Tests for generate_response_letter function."""
-
-    @pytest.mark.django_db
-    def test_generate_letter_success(self, complete_dispute_setup, mock_openai_client, mock_weasyprint):
-        """Test successful response letter generation."""
-        dispute = complete_dispute_setup['dispute']
-
-        with patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={
-            'subject': 'Test Ticket', 'status': 'open', 'custom_fields': [],
-        }), patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
-            result = generate_response_letter(dispute.id)
-
-            assert result is not None
-            assert isinstance(result, DisputeDocument)
-            assert result.doc_type == 'RESPONSE_LETTER'
-            assert result.status == 'DRAFT'
-            assert result.generated_by == 'AI'
-            assert result.version == 1
-
-            # Verify activity log created
-            log = DisputeActivityLog.objects.filter(
-                dispute=dispute,
-                action='DOCUMENT_GENERATED'
-            ).first()
-            assert log is not None
-
-    @pytest.mark.django_db
-    def test_generate_letter_dispute_not_found(self):
-        """Test when dispute does not exist."""
-        result = generate_response_letter(99999)
-        assert result is None
-
-    @pytest.mark.django_db
-    def test_generate_letter_ai_error(self, complete_dispute_setup):
-        """Test when AI API fails."""
-        dispute = complete_dispute_setup['dispute']
-
-        with patch('apps.payments.document_service._call_qwen_ai', side_effect=Exception("AI Error")), \
-             patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
-             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
-            result = generate_response_letter(dispute.id)
-            assert result is None
-
-    @pytest.mark.django_db
-    def test_generate_letter_pdf_error(self, complete_dispute_setup, mock_openai_client):
-        """Test when PDF generation fails."""
-        dispute = complete_dispute_setup['dispute']
-
-        with patch('apps.payments.document_service._render_to_pdf', return_value=None), \
-             patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
-             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
-            result = generate_response_letter(dispute.id)
-            assert result is None
-
-    @pytest.mark.django_db
-    def test_generate_letter_no_zendesk_ticket(self, complete_dispute_setup, mock_openai_client, mock_weasyprint):
-        """Test generation when Zendesk ticket not found."""
-        dispute = complete_dispute_setup['dispute']
-
-        with patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
-             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
-            result = generate_response_letter(dispute.id)
-            # Should still succeed with default values
-            assert result is not None
-
-
-# =============================================================================
 # TESTS FOR generate_evidence_report
 # =============================================================================
 
@@ -594,26 +456,6 @@ class TestGenerateEvidenceReport:
 
 class TestRegenerateDocument:
     """Tests for regenerate_document function."""
-
-    @pytest.mark.django_db
-    def test_regenerate_response_letter(self, complete_dispute_setup, mock_openai_client, mock_weasyprint):
-        """Test regenerating a response letter."""
-        dispute = complete_dispute_setup['dispute']
-
-        # First generate original document
-        with patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
-             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
-            original = generate_response_letter(dispute.id)
-            assert original is not None
-            assert original.version == 1
-
-        # Regenerate
-        with patch('apps.payments.document_service.fetch_zendesk_ticket_full', return_value={'custom_fields': []}), \
-             patch('apps.payments.document_service.fetch_zendesk_comments', return_value=[]):
-            new_doc = regenerate_document(original.id)
-
-            assert new_doc is not None
-            assert new_doc.version == 2
 
     @pytest.mark.django_db
     def test_regenerate_evidence_report(self, complete_dispute_setup, mock_weasyprint):

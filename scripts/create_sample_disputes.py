@@ -149,44 +149,11 @@ for i, data in enumerate(disputes_data):
         # Create sample documents for second dispute
         if i == 1:
             from apps.payments.models import DisputeDocument
-            
-            # Response letter
-            response_letter = DisputeDocument.objects.create(
-                dispute=dispute,
-                doc_type='RESPONSE_LETTER',
-                status='DRAFT',
-                content_html='''
-                    <p>Dear PayPal Dispute Resolution Team,</p>
-                    
-                    <p>We are writing in response to the dispute filed by {buyer_name} regarding transaction {transaction_id}.</p>
-                    
-                    <h3>Issue Summary</h3>
-                    <p>The customer has reported that the item received was not as described. We take all such reports seriously and have conducted a thorough investigation.</p>
-                    
-                    <h3>Our Findings</h3>
-                    <ul>
-                        <li>Item was shipped in original packaging with protective materials</li>
-                        <li>Tracking confirms delivery on {transaction_date}</li>
-                        <li>Photos provided by customer show damage consistent with shipping mishandling</li>
-                    </ul>
-                    
-                    <h3>Resolution</h3>
-                    <p>We are committed to customer satisfaction and are prepared to offer a full refund upon return of the item.</p>
-                    
-                    <p>Thank you for your attention to this matter.</p>
-                    
-                    <p>Best regards,<br>
-                    Customer Service Team</p>
-                '''.format(
-                    buyer_name=data['buyer_name'],
-                    transaction_id=data['transaction_id'],
-                    transaction_date=data['transaction_date'].strftime('%Y-%m-%d')
-                ),
-                generated_by='AI',
-                version=1
-            )
-            print(f"  - Created response letter (DRAFT)")
-            
+
+            # (The response-letter PDF was dropped — the written argument to PayPal
+            # is now plain text on a DisputeSubmission. Only the evidence report is
+            # a generated document.)
+
             # Evidence report
             evidence_report = DisputeDocument.objects.create(
                 dispute=dispute,

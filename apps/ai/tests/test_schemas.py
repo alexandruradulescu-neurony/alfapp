@@ -4,7 +4,6 @@ from apps.ai.schemas import (
     EmailCategorization,
     TicketExtraction,
     ChatAnswer,
-    DisputeLetter,
 )
 
 
@@ -74,24 +73,6 @@ def test_chat_answer_rejects_unknown_source():
         ChatAnswer.model_validate({
             "answer": "ok",
             "sources": ["claim", "wikipedia"],  # wikipedia not in Literal
-        })
-
-
-# ---- DisputeLetter ----
-
-def test_dispute_letter_caps_body_length():
-    with pytest.raises(ValidationError):
-        DisputeLetter.model_validate({
-            "subject": "Response to dispute",
-            "body": "x" * 5001,
-        })
-
-
-def test_dispute_letter_caps_subject_length():
-    with pytest.raises(ValidationError):
-        DisputeLetter.model_validate({
-            "subject": "x" * 201,
-            "body": "ok",
         })
 
 

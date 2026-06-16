@@ -218,7 +218,7 @@ class EditDocSanitizeTests(_Base):
 
     def test_script_stripped_on_save(self):
         d = _dispute()
-        doc = DisputeDocument.objects.create(dispute=d, doc_type='RESPONSE_LETTER',
+        doc = DisputeDocument.objects.create(dispute=d, doc_type='EVIDENCE_REPORT',
                                              status='DRAFT', generated_by='AI',
                                              content_html='x', version=1)
         with patch('apps.payments.document_service._render_to_pdf', return_value=b'%PDF'):
@@ -228,18 +228,20 @@ class EditDocSanitizeTests(_Base):
         self.assertIn('<p>hi</p>', doc.content_html)
         self.assertNotIn('<script>', doc.content_html)
 
-    def test_response_letter_edit_regenerates_pdf(self):
-        """M4-B: editing a RESPONSE_LETTER re-renders its PDF — submission attaches
-        the stored PDF, so without this the manager's edits never reach PayPal."""
+    def test_evidence_report_edit_regenerates_pdf(self):
+        """Editing the EVIDENCE REPORT re-renders its PDF — a submission can attach
+        the stored PDF, so without this the manager's edits never reach PayPal.
+        (The response letter was dropped; the evidence report is the only PDF-backed
+        document now.)"""
         d = _dispute()
-        doc = DisputeDocument.objects.create(dispute=d, doc_type='RESPONSE_LETTER',
+        doc = DisputeDocument.objects.create(dispute=d, doc_type='EVIDENCE_REPORT',
                                              status='DRAFT', generated_by='AI',
                                              content_html='old body', version=1)
         with patch('apps.payments.document_service._render_to_pdf',
                    return_value=b'%PDF-edited') as render:
             self.web.post(reverse('disputes:dispute_edit_document', args=[doc.id]),
                           {'content_html': 'edited body text', 'version_increment': 'on'})
-            render.assert_called_once()  # the letter PDF was re-rendered
+            render.assert_called_once()  # the evidence-report PDF was re-rendered
         doc.refresh_from_db()
         self.assertEqual(doc.content_html, 'edited body text')
         self.assertTrue(doc.file_path)  # a fresh PDF file was saved

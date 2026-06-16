@@ -33,7 +33,7 @@ from apps.claims.models import Claim
 from apps.claims.services import validate_evidence_image
 from apps.payments.models import (Dispute, DisputeDocument, DisputeActivityLog,
                                   DisputeSubmission, DisputeSubmissionImage)
-from apps.payments.document_service import (generate_response_letter, generate_evidence_report,
+from apps.payments.document_service import (generate_evidence_report,
                                             build_dispute_narrative_notes, build_dispute_reply_timeline)
 from apps.payments.paypal_disputes_service import (provide_evidence, accept_claim,
                                                    submit_dispute_response, evidence_type_for_reason)
@@ -493,37 +493,27 @@ def _working_draft(dispute):
 @require_POST
 def dispute_generate_documents(request, dispute_id):
     """
-    Generate dispute documents (response letter and evidence report).
+    Generate the dispute EVIDENCE REPORT (the only generated document now — the
+    written argument to PayPal is plain text on a submission, not a PDF letter).
 
     POST /manager/disputes/<id>/generate-documents/
-
-    Triggers document generation service for both document types.
     """
     dispute = get_object_or_404(Dispute, pk=dispute_id)
 
     # Validate dispute has Zendesk ticket
     if not dispute.zd_ticket_id:
-        messages.error(request, f"Cannot generate documents: Dispute #{dispute_id} has no Zendesk ticket linked.")
+        messages.error(request, f"Cannot generate the evidence report: Dispute #{dispute_id} has no Zendesk ticket linked.")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
     try:
-        # Generate response letter
-        response_letter = generate_response_letter(dispute_id)
-        if response_letter:
-            messages.success(request, f"Response letter generated successfully (Document #{response_letter.id})")
-        else:
-            messages.warning(request, "Failed to generate response letter")
-
-        # Generate evidence report
         evidence_report = generate_evidence_report(dispute_id)
         if evidence_report:
             messages.success(request, f"Evidence report generated successfully (Document #{evidence_report.id})")
         else:
             messages.warning(request, "Failed to generate evidence report")
-
     except Exception as e:
-        logger.error(f"Error generating documents for Dispute #{dispute_id}: {e}")
-        messages.error(request, f"Error generating documents: {str(e)}")
+        logger.error(f"Error generating evidence report for Dispute #{dispute_id}: {e}")
+        messages.error(request, f"Error generating evidence report: {str(e)}")
 
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
@@ -558,40 +548,24 @@ def dispute_edit_document(request, document_id):
 
         document.save()
 
-        # Re-render the PDF from the edits so the file we submit to PayPal (the
-        # submission attaches the stored PDF, not content_html) reflects the
-        # manager's changes. Without this an edited letter/report was silently
-        # submitted in its original form.
+        # Re-render the PDF from the edits so the file we attach to a PayPal
+        # submission reflects the manager's changes. Only the EVIDENCE REPORT is
+        # PDF-backed now (the response letter was dropped — its argument is plain
+        # text on a submission). A legacy RESPONSE_LETTER row just saves its
+        # content_html above and is not re-rendered (its template is gone).
         regenerated = False
-        if content_html.strip():
+        if content_html.strip() and document.doc_type == DisputeDocument.DOC_TYPE_EVIDENCE_REPORT:
             try:
                 from apps.payments.document_service import _render_to_pdf
                 from django.core.files.base import ContentFile
-                pdf_bytes = filename = None
-                if document.doc_type == DisputeDocument.DOC_TYPE_EVIDENCE_REPORT:
-                    # Evidence reports are full HTML — render the edited body
-                    # directly (strip only scripts/handlers, preserve layout).
-                    pdf_bytes = _render_to_pdf(
-                        strip_active_html(content_html),
-                        f"Dispute #{document.dispute_id} Evidence Report (edited)")
-                    filename = (f"evidence_report_dispute_{document.dispute_id}"
-                                f"_v{document.version}_edited.pdf")
-                elif document.doc_type == DisputeDocument.DOC_TYPE_RESPONSE_LETTER:
-                    # Response letters are plain text rendered through the letter
-                    # template (letterhead + dispute header, body via |linebreaks).
-                    from django.template.loader import render_to_string
-                    from datetime import datetime
-                    html_string = render_to_string('dispute_response_letter.html', {
-                        'dispute': document.dispute,
-                        'ai_generated_content': document.content_html,
-                        'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    })
-                    pdf_bytes = _render_to_pdf(
-                        html_string,
-                        f"Dispute #{document.dispute_id} Response Letter (edited)")
-                    filename = (f"response_letter_dispute_{document.dispute_id}"
-                                f"_v{document.version}_edited.pdf")
-                if pdf_bytes and filename:
+                # Evidence reports are full HTML — render the edited body directly
+                # (strip only scripts/handlers, preserve layout).
+                pdf_bytes = _render_to_pdf(
+                    strip_active_html(content_html),
+                    f"Dispute #{document.dispute_id} Evidence Report (edited)")
+                filename = (f"evidence_report_dispute_{document.dispute_id}"
+                            f"_v{document.version}_edited.pdf")
+                if pdf_bytes:
                     document.file_path.save(filename, ContentFile(pdf_bytes), save=True)
                     regenerated = True
             except Exception as e:

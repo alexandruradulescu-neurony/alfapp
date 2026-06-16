@@ -45,25 +45,6 @@ def _get_weasyprint():
         return None, None
 
 
-def _call_qwen_ai(*, system_prompt: str, trusted: dict, untrusted: dict,
-                  known_aliases: list[str]) -> Tuple[str, str]:
-    """Generate a dispute response letter via the LLM. Returns (subject, body)."""
-    from apps.ai.client import AIClient
-    from apps.ai.schemas import DisputeLetter
-
-    result = AIClient.complete(
-        system_prompt=system_prompt,
-        trusted=trusted,
-        untrusted=untrusted,
-        known_pii={"aliases": known_aliases},
-        response_schema=DisputeLetter,
-        call_site="dispute_letter",
-        temperature=0.5,
-        max_tokens=1500,
-    )
-    return result.subject, result.body
-
-
 def _fetch_zendesk_ticket_full(zd_ticket_id: str) -> dict:
     """
     Fetch complete Zendesk ticket data including custom fields and comments.
@@ -510,10 +491,10 @@ def _persist_document(dispute, *, doc_type: str, generated_by: str, content_html
     The version is computed as max(existing for this dispute+doc_type) + 1, and
     the SAME version flows into the filename, the version field, and the log line,
     so a regenerated v2 is never mislabelled v1 and only one log entry is emitted
-    (fixes the old hardcoded version=1 / _v1_ filename / double-log bug). Shared by
-    both generators so the create+file-save+log block lives in one place."""
-    slug = ('response_letter'
-            if doc_type == DisputeDocument.DOC_TYPE_RESPONSE_LETTER else 'evidence_report')
+    (fixes the old hardcoded version=1 / _v1_ filename / double-log bug). Used by
+    generate_evidence_report (the only generator now that the response letter is
+    gone) — keeps the create+file-save+log block in one place."""
+    slug = 'evidence_report'
     with transaction.atomic():
         # Lock the dispute row so two concurrent generations serialise and take
         # distinct versions instead of both landing on the same one.
@@ -538,127 +519,6 @@ def _persist_document(dispute, *, doc_type: str, generated_by: str, content_html
             details=f"{details} (v{version})",
         )
     return document
-
-
-def generate_response_letter(dispute_or_id):
-    """
-    Generate a professional dispute response letter using AI.
-
-    Accepts either a Dispute instance (for testing/direct use) or a dispute_id
-    integer (for production callers via frontend_views).
-
-    Steps:
-    1. Fetch Dispute with full Zendesk ticket data (custom fields, comments)
-    2. Use AIClient with dispute_response_prompt from SystemSettings
-       - Manager template stays in system role unchanged (no .format() interpolation)
-       - Trusted dispute fields passed as structured text
-       - Untrusted Zendesk ticket/comment data fenced in user role
-    3. Save as DisputeDocument (type=RESPONSE_LETTER, status=DRAFT, generated_by=AI)
-    4. Render to PDF via WeasyPrint
-    5. Log generation to DisputeActivityLog
-
-    Args:
-        dispute_or_id: Dispute instance or integer primary key of the Dispute
-
-    Returns:
-        DisputeDocument instance on success (when called with int), or
-        "<subject>\\n\\n<body>" string (when called with Dispute object), or
-        None on failure.
-    """
-    # Support both dispute_id (int) and dispute object (for testing)
-    if isinstance(dispute_or_id, int):
-        dispute_id = dispute_or_id
-        logger.info(f"Starting response letter generation for Dispute #{dispute_id}")
-        try:
-            dispute = Dispute.objects.select_related('claim').get(pk=dispute_id)
-        except Dispute.DoesNotExist:
-            logger.error(f"Dispute #{dispute_id} not found")
-            return None
-        return_document = True
-    else:
-        dispute = dispute_or_id
-        dispute_id = getattr(dispute, 'pk', None) or getattr(dispute, 'id', 'unknown')
-        logger.info(f"Starting response letter generation for Dispute #{dispute_id}")
-        return_document = False
-
-    try:
-        # Fetch Zendesk ticket and comments using module-level imports (patchable in tests)
-        ticket = fetch_zendesk_ticket_full(dispute.zd_ticket_id) or {}
-        comments = fetch_zendesk_comments(dispute.zd_ticket_id)
-
-        # Read alias from Zendesk custom field so tokenizer ALIAS-tags it
-        # (single shared lookup path — no hardcoded field id here).
-        alias = get_ticket_email_alias(ticket)
-
-        # Trusted: structured dispute fields (sourced from our own DB)
-        trusted = {
-            'dispute_reason': str(dispute.dispute_reason),
-            'dispute_amount': str(dispute.dispute_amount),
-            'buyer_name': str(dispute.buyer_name),
-            'buyer_email': str(dispute.buyer_email),
-            'transaction_id': str(dispute.transaction_id),
-            'transaction_date': str(dispute.transaction_date),
-            'zd_ticket_id': str(dispute.zd_ticket_id),
-        }
-
-        # Untrusted: Zendesk-sourced text — fenced by AIClient, never interpolated
-        untrusted = {
-            'ticket_subject': str(ticket.get('subject', ''))[:200],
-            'ticket_description': str(ticket.get('description', ''))[:1000],
-            'zendesk_comment': [str(c.get('body', ''))[:500] for c in comments[:5]],
-        }
-
-        # Get system prompt template from SystemSettings (passed as-is, no .format())
-        system_settings = SystemSettings.get_instance()
-        ai_prompt = system_settings.dispute_response_prompt
-
-        subject, body = _call_qwen_ai(
-            system_prompt=ai_prompt,
-            trusted=trusted,
-            untrusted=untrusted,
-            known_aliases=[alias] if alias else [],
-        )
-        ai_generated_content = f"{subject}\n\n{body}"
-
-        # When called with a dispute object (e.g. tests), return the text directly
-        if not return_document:
-            return ai_generated_content
-
-        # Production path: render PDF and persist as DisputeDocument
-        template_context = {
-            'dispute': dispute,
-            'ticket': ticket,
-            'comments': comments,
-            'ai_generated_content': ai_generated_content,
-            'generated_at': dj_timezone.localtime().strftime('%Y-%m-%d %H:%M:%S'),
-        }
-
-        html_string = render_to_string('dispute_response_letter.html', template_context)
-        pdf_bytes = _render_to_pdf(html_string, f"Dispute #{dispute_id} Response Letter")
-
-        if not pdf_bytes:
-            logger.error(f"Failed to generate PDF for Dispute #{dispute_id}")
-            return None
-
-        # Persist via the shared helper — auto-versioned filename/content/version/
-        # log, in one narrow transaction. The slow work (Zendesk fetch, LLM,
-        # render) is already done above, outside any transaction.
-        document = _persist_document(
-            dispute,
-            doc_type=DisputeDocument.DOC_TYPE_RESPONSE_LETTER,
-            generated_by=DisputeDocument.GENERATED_BY_AI,
-            content_html=ai_generated_content,
-            pdf_bytes=pdf_bytes,
-            details=(f"AI-generated response letter created. Content length: "
-                     f"{len(ai_generated_content)} chars, PDF size: {len(pdf_bytes)} bytes"),
-        )
-
-        logger.info(f"Successfully generated response letter for Dispute #{dispute_id} (Document #{document.id})")
-        return document
-
-    except Exception as e:
-        logger.error(f"Error generating response letter for Dispute #{dispute_id}: {e}")
-        return None
 
 
 # Category → evidence-report template. Each dispute category can have its own
@@ -1801,16 +1661,20 @@ def regenerate_document(document_id: int) -> Optional[DisputeDocument]:
         old_document = DisputeDocument.objects.get(pk=document_id)
         dispute = old_document.dispute
 
-        # generate_* now auto-increments the version (max + 1) and writes its own
-        # single DOCUMENT_GENERATED log, so the new doc is already correctly
-        # versioned and filename/content/log all agree — no manual bump or second
-        # log here (that produced a v2 mislabelled v1 + a duplicate log line).
-        if old_document.doc_type == DisputeDocument.DOC_TYPE_RESPONSE_LETTER:
-            new_document = generate_response_letter(dispute.id)
-        else:
-            new_document = generate_evidence_report(dispute.id)
+        # Only the evidence report is generated now (the response letter was
+        # dropped — the written argument is plain text on a DisputeSubmission).
+        # Legacy RESPONSE_LETTER rows can't be regenerated; surface that instead
+        # of silently producing an evidence report of the wrong type.
+        if old_document.doc_type != DisputeDocument.DOC_TYPE_EVIDENCE_REPORT:
+            logger.warning(
+                f"Refusing to regenerate document #{document_id}: only evidence "
+                f"reports are generated now (doc_type={old_document.doc_type}).")
+            return None
 
-        return new_document
+        # generate_evidence_report auto-increments the version (max + 1) and writes
+        # its own single DOCUMENT_GENERATED log, so the new doc is already correctly
+        # versioned and filename/content/log all agree.
+        return generate_evidence_report(dispute.id)
 
     except DisputeDocument.DoesNotExist:
         logger.error(f"Document #{document_id} not found")
