@@ -946,188 +946,46 @@ class ZendeskClaimWebhookView(APIView):
                     'custom_status': custom_status,
                 }, status=status.HTTP_200_OK)
 
-            # New ticket at investigation-initiated status — create the claim.
-            from apps.integrations.services import (
-                ZENDESK_FIELD_CLAIM_NUMBER,
-                _get_custom_field_value,
-                analyze_zendesk_ticket_for_claim,
-                parse_alf_claim_id_from_subject,
+            # New ticket at investigation-initiated status — delegate creation to
+            # the shared service (also used by the on-demand backlog import) and
+            # translate its outcome to a response. The view stays thin: secret
+            # check, dispatch, and HTTP mapping only.
+            from apps.integrations.services import create_claim_from_zendesk_ticket
+            result = create_claim_from_zendesk_ticket(
+                ticket_id,
+                status_id=self.INVESTIGATION_STATUS_ID,
+                webhook_requester_email=(data.get('requester') or {}).get('email', '') or '',
+                webhook_requester_id=detail_data.get('requester_id') or '',
             )
-
-            ticket_data = fetch_zendesk_ticket(ticket_id)
-            if not ticket_data:
+            outcome = result['outcome']
+            if outcome == 'fetch_failed':
                 logger.error(f"Failed to fetch Zendesk ticket {ticket_id}")
                 return Response(
                     {'error': 'Failed to fetch Zendesk ticket'},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
-
-            # Form-ticket gate: only the WordPress claim form produces tickets
-            # carrying an ALF claim number (subject or the Claim # field).
-            # Phone calls and client emails auto-created as tickets never have
-            # one — they must not become claims or burn an AI extraction, even
-            # when Zendesk flips them to Investigation initiated (e.g. via the
-            # Open category's default status).
-            alf_claim_id = parse_alf_claim_id_from_subject(subject)
-            if not alf_claim_id:
-                claim_number_value = _get_custom_field_value(
-                    ticket_data.get('custom_fields') or [], ZENDESK_FIELD_CLAIM_NUMBER)
-                alf_claim_id = parse_alf_claim_id_from_subject(claim_number_value or '')
-            if not alf_claim_id:
+            if outcome == 'ignored':
                 logger.info(
                     f"Ignoring webhook for ticket {ticket_id}: no ALF claim number "
                     f"in subject or Claim # field — not a claim-form ticket")
                 return Response({
                     'message': 'Ignored: no ALF claim number — not a claim form ticket',
                 }, status=status.HTTP_200_OK)
-
-            # Fetch comments for LLM analysis
-            comments = fetch_zendesk_comments(ticket_id)
-            ticket_data['comments'] = comments
-
-            # Call LLM to extract claim data
-            try:
-                extracted_data = analyze_zendesk_ticket_for_claim(ticket_data)
-            except Exception as e:
-                logger.error(f"LLM extraction failed: {e}", exc_info=True)
-                # Use empty data - will trigger fallback to requester email
-                extracted_data = {
-                    'client_email': '',
-                    'flight_details': '',
-                    'object_description': '',
-                    'phone': '',
-                    'alternate_email': '',
-                }
-
-            # Prefer the structured "Claim #" Zendesk field over the subject-parsed
-            # ID. The field is authoritative; the subject line is the fallback
-            # (already resolved into alf_claim_id above). Only override when the
-            # field holds a parseable ALF id, so a blank or malformed field value
-            # falls back to the subject-derived id rather than corrupting it.
-            claim_number_field = extracted_data.get('claim_number', '')
-            if claim_number_field:
-                parsed_from_field = parse_alf_claim_id_from_subject(claim_number_field)
-                if parsed_from_field:
-                    alf_claim_id = parsed_from_field
-                    logger.info(f"Using ALF claim ID from Zendesk 'Claim #' field: {alf_claim_id}")
-
-            # Determine if LLM extraction failed
-            llm_failed = not extracted_data.get('client_email') and not extracted_data.get('flight_details')
-
-            # Use requester email as fallback if LLM didn't extract email
-            client_email = extracted_data.get('client_email', '')
-            if not client_email:
-                # Try to get email from webhook requester object (if present)
-                requester_email = data.get('requester', {}).get('email', '')
-                if requester_email:
-                    client_email = requester_email
-                    logger.info(f"Using requester email from webhook as fallback: {client_email}")
-                else:
-                    # Fetch user email from Zendesk API using requester_id
-                    requester_id = detail_data.get('requester_id') or ticket_data.get('requester_id')
-                    if requester_id:
-                        from apps.integrations.services import fetch_zendesk_user
-                        user_data = fetch_zendesk_user(requester_id)
-                        if user_data:
-                            client_email = user_data.get('email', '')
-                            logger.info(f"Using requester email from Zendesk API: {client_email}")
-
-            # If every email-resolution path failed, the claim cannot be routed by
-            # downstream automation. Force the manual-review flag and warn loudly
-            # so operators see it in the queue rather than letting it sit silently.
-            if not client_email:
-                llm_failed = True
-                logger.warning(
-                    f"Could not resolve client_email for Zendesk ticket {ticket_id} "
-                    f"via any path (LLM extraction, webhook requester, Zendesk user API). "
-                    f"Claim will be flagged for manual review."
-                )
-
-            # Resolve the live Zendesk label for the creation status so that a
-            # creation retry (common: the inline AI work can outlive Zendesk's
-            # webhook timeout) lands in _handle_status_change as a same-status
-            # no-op regardless of the label's live casing.
-            creation_status = resolve_custom_status(self.INVESTIGATION_STATUS_ID)
-            creation_status_name = creation_status['name']
-            if creation_status_name == self.INVESTIGATION_STATUS_ID:
-                creation_status_name = 'Investigation initiated'  # resolver unavailable
-            creation_status_category = creation_status['category'] or 'open'
-
-            # Hoist the safe_date call so we compute it once and reuse for both
-            # deadline_date= and deadline_at=.
-            deadline_date_val = safe_date(extracted_data.get('deadline_date', ''))
-
-            # Create Claim. The Claim.objects.filter check above is a cheap
-            # optimization for the common case; concurrent webhooks can still
-            # race past it. The DB-level unique constraint on zd_ticket_id
-            # catches that race here. The atomic() savepoint isolates the
-            # create so that an IntegrityError only rolls back the failed
-            # insert — not any surrounding transaction — leaving us free to
-            # query for the existing Claim afterward.
-            try:
-                with transaction.atomic():
-                    claim = Claim.objects.create(
-                        alf_claim_id=alf_claim_id,
-                        zd_ticket_id=ticket_id,
-                        client_email=client_email,
-                        client_name=extracted_data.get('client_name', ''),
-                        flight_details=extracted_data.get('flight_details', ''),
-                        object_description=extracted_data.get('object_description', ''),
-                        phone=extracted_data.get('phone', ''),
-                        alternate_email=extracted_data.get('alternate_email', ''),
-                        # Extended structured fields (2026-06-10). deadline_date and
-                        # price_paid are coerced to their DB types; bad/empty values
-                        # become None rather than raising.
-                        billing_address=extracted_data.get('billing_address', ''),
-                        shipping_address=extracted_data.get('shipping_address', ''),
-                        incident_details=extracted_data.get('incident_details', ''),
-                        lost_location=extracted_data.get('lost_location', ''),
-                        deadline_date=deadline_date_val,
-                        deadline_time=extracted_data.get('deadline_time', ''),
-                        deadline_timezone=extracted_data.get('deadline_timezone', ''),
-                        price_paid=safe_decimal(extracted_data.get('price_paid', '')),
-                        payment_method=extracted_data.get('payment_method', ''),
-                        payment_status=extracted_data.get('payment_status', ''),
-                        woocommerce_id=extracted_data.get('woocommerce_id', ''),
-                        paypal_transaction_id=extracted_data.get('paypal_transaction_id', ''),
-                        tracking_info=extracted_data.get('tracking_info', ''),
-                        status=creation_status_name,
-                        status_category=creation_status_category,
-                        status_changed_at=timezone.now(),
-                        deadline_at=compute_deadline_at(
-                            deadline_date_val,
-                            extracted_data.get('deadline_time', ''),
-                            extracted_data.get('deadline_timezone', ''),
-                        ),
-                        llm_extraction_failed=llm_failed,
-                        ai_summary='',
-                    )
-            except IntegrityError:
-                # Another concurrent webhook created the Claim between our early
-                # check and our create. Look up the winner and return its info.
-                existing = Claim.objects.filter(zd_ticket_id=ticket_id).first()
-                if not existing:
-                    # IntegrityError for some other reason (e.g., alf_claim_id collision
-                    # with an unrelated claim). Let the outer handler return 500.
-                    raise
+            if outcome == 'already_exists':
+                existing = result['claim']
                 logger.info(
-                    f"Race with concurrent webhook for ticket {ticket_id}; "
-                    f"existing Claim #{existing.id} ({existing.alf_claim_id}) wins."
-                )
+                    f"Webhook for ticket {ticket_id}: Claim #{existing.id} "
+                    f"({existing.alf_claim_id}) already exists.")
                 return Response({
                     'message': 'Claim already exists',
                     'claim_id': existing.id,
                     'alf_claim_id': existing.alf_claim_id,
                 }, status=status.HTTP_200_OK)
 
+            claim = result['claim']
             logger.info(
-                f"Created Claim #{claim.id} ({alf_claim_id}) from Zendesk ticket {ticket_id}. "
-                f"LLM failed: {llm_failed}"
-            )
-
-            # Real AI summary (best-effort — creation never fails on AI)
-            refresh_claim_summary(claim, ticket_data)
-
+                f"Created Claim #{claim.id} ({claim.alf_claim_id}) from Zendesk "
+                f"ticket {ticket_id}. LLM failed: {claim.llm_extraction_failed}")
             return Response({
                 'message': 'Claim created successfully',
                 'claim_id': claim.id,

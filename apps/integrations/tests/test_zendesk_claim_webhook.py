@@ -145,11 +145,11 @@ class TestZendeskClaimWebhookView:
             alternate_email='john.doe.backup@gmail.com',
         )
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket_data), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=mock_comments), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=mock_comments), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted_data), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'), \
-             patch('apps.integrations.views.refresh_claim_summary', return_value=False):
+             patch('apps.integrations.briefing.refresh_claim_summary', return_value=False):
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
@@ -257,11 +257,11 @@ class TestZendeskClaimWebhookView:
 
         payload = _nested_webhook_payload(ticket_id='12345', subject='Lost Item - ALF1234567')
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket_data), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=[]), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted_data), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'), \
-             patch('apps.integrations.views.refresh_claim_summary', return_value=False):
+             patch('apps.integrations.briefing.refresh_claim_summary', return_value=False):
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
@@ -294,7 +294,7 @@ class TestZendeskClaimWebhookView:
 
         payload = _nested_webhook_payload(ticket_id='67890', subject='Lost Item Report')
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket_data), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value=None):
 
             response = api_client.post(
@@ -338,11 +338,11 @@ class TestZendeskClaimWebhookView:
 
         payload = _nested_webhook_payload(ticket_id='12345')
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket_data), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=mock_comments), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=mock_comments), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted_data), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'), \
-             patch('apps.integrations.views.refresh_claim_summary', return_value=False):
+             patch('apps.integrations.briefing.refresh_claim_summary', return_value=False):
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
@@ -383,12 +383,12 @@ class TestZendeskClaimWebhookView:
 
         payload = _nested_webhook_payload(ticket_id='12345')
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket_data), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=[]), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted_data), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'), \
              patch('apps.integrations.services.fetch_zendesk_user', return_value=mock_user_data), \
-             patch('apps.integrations.views.refresh_claim_summary', return_value=False):
+             patch('apps.integrations.briefing.refresh_claim_summary', return_value=False):
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
@@ -427,12 +427,12 @@ class TestZendeskClaimWebhookView:
 
         payload = _nested_webhook_payload(ticket_id='12345')
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket_data), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=[]), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted_data), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'), \
              patch('apps.integrations.services.fetch_zendesk_user', return_value=mock_user_data), \
-             patch('apps.integrations.views.refresh_claim_summary', return_value=False):
+             patch('apps.integrations.briefing.refresh_claim_summary', return_value=False):
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
@@ -453,7 +453,7 @@ class TestZendeskClaimWebhookView:
         """Returns 500 when Zendesk API fails to fetch ticket."""
         payload = _nested_webhook_payload(ticket_id='12345')
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=None):
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=None):
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
                 data=payload,
@@ -529,7 +529,7 @@ class TestZendeskClaimWebhookEdgeCases:
 
         payload = _nested_webhook_payload(ticket_id='12345', subject='')
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket_data), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value=None):
 
             response = api_client.post(
@@ -558,11 +558,11 @@ class TestZendeskClaimWebhookEdgeCases:
 
         payload = _nested_webhook_payload(ticket_id='12345', subject=subject_with_specials)
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket_data), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=[]), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted_data), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'), \
-             patch('apps.integrations.views.refresh_claim_summary', return_value=False):
+             patch('apps.integrations.briefing.refresh_claim_summary', return_value=False):
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
@@ -593,12 +593,12 @@ class TestZendeskClaimWebhookEdgeCases:
 
         payload = _nested_webhook_payload(ticket_id='12345')
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket_data), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=[]), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted_data), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'), \
              patch('apps.integrations.services.fetch_zendesk_user', return_value=None), \
-             patch('apps.integrations.views.refresh_claim_summary', return_value=False):
+             patch('apps.integrations.briefing.refresh_claim_summary', return_value=False):
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
@@ -631,12 +631,12 @@ class TestZendeskClaimWebhookEdgeCases:
 
         payload = _nested_webhook_payload(ticket_id='12345')
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket_data), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=[]), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', side_effect=Exception('LLM API error')), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'), \
              patch('apps.integrations.services.fetch_zendesk_user', return_value=mock_user_data), \
-             patch('apps.integrations.views.refresh_claim_summary', return_value=False):
+             patch('apps.integrations.briefing.refresh_claim_summary', return_value=False):
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
@@ -666,8 +666,8 @@ class TestZendeskClaimWebhookEdgeCases:
         payload = _nested_webhook_payload(ticket_id='12345')
 
         # Simulate a generic (non-IntegrityError) database error
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket_data), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=[]), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket_data), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted_data), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF1234567'), \
              patch('apps.claims.models.Claim.objects.create', side_effect=Exception('DB error')):
@@ -767,8 +767,8 @@ class TestZendeskClaimRaceCondition:
 
         payload = _nested_webhook_payload(ticket_id='12345')
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=[]), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim',
                    side_effect=extraction_with_race_create), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject',
@@ -818,14 +818,14 @@ class TestZendeskClaimEmptyEmailHandling:
         # Payload has NO top-level 'requester' object, so webhook fallback fails.
         payload = _nested_webhook_payload(ticket_id='77001', subject='Lost Item - ALF7700001')
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=[]), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim',
                    return_value=mock_extracted), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject',
                    return_value='ALF7700001'), \
              patch('apps.integrations.services.fetch_zendesk_user', return_value=None), \
-             patch('apps.integrations.views.refresh_claim_summary', return_value=False):
+             patch('apps.integrations.briefing.refresh_claim_summary', return_value=False):
 
             with caplog.at_level('WARNING', logger='apps.integrations.views'):
                 response = api_client.post(
@@ -887,14 +887,14 @@ class TestZendeskClaimEnrichedFields:
         }
         payload = _nested_webhook_payload(ticket_id='88123', subject='Lost item - ALF0000001')
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=[]), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim',
                    return_value=mock_extracted), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject',
                    side_effect=lambda s: 'ALF9990001' if s == 'ALF9990001'
                    else ('ALF0000001' if 'ALF0000001' in (s or '') else None)), \
-             patch('apps.integrations.views.refresh_claim_summary', return_value=False):
+             patch('apps.integrations.briefing.refresh_claim_summary', return_value=False):
 
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
@@ -935,11 +935,11 @@ class TestZendeskClaimEnrichedFields:
         }
         payload = _nested_webhook_payload(ticket_id='88200', subject='Lost item - ALF8820000')
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=[]), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF8820000'), \
-             patch('apps.integrations.views.refresh_claim_summary', return_value=False):
+             patch('apps.integrations.briefing.refresh_claim_summary', return_value=False):
             response = api_client.post(
                 reverse('zendesk-claim-webhook'), data=payload, format='json',
                 HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
@@ -972,11 +972,11 @@ class TestZendeskClaimEnrichedFields:
         }
         payload = _nested_webhook_payload(ticket_id='88201', subject='Lost item - ALF8820001')
 
-        with patch('apps.integrations.views.fetch_zendesk_ticket', return_value=mock_ticket), \
-             patch('apps.integrations.views.fetch_zendesk_comments', return_value=[]), \
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=mock_ticket), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim', return_value=mock_extracted), \
              patch('apps.integrations.services.parse_alf_claim_id_from_subject', return_value='ALF8820001'), \
-             patch('apps.integrations.views.refresh_claim_summary', return_value=False):
+             patch('apps.integrations.briefing.refresh_claim_summary', return_value=False):
             response = api_client.post(
                 reverse('zendesk-claim-webhook'), data=payload, format='json',
                 HTTP_X_WEBHOOK_SECRET=system_settings.sidebar_secret_token,
@@ -1143,9 +1143,9 @@ class TestFormTicketGate:
             self, api_client, system_settings):
         ticket = {'id': '55001', 'subject': 'Incoming call from +40 721 000 000',
                   'custom_fields': []}
-        with patch('apps.integrations.views.fetch_zendesk_ticket',
+        with patch('apps.integrations.services.fetch_zendesk_ticket',
                    return_value=ticket), \
-             patch('apps.integrations.views.fetch_zendesk_comments') as mock_comments, \
+             patch('apps.integrations.services.fetch_zendesk_comments') as mock_comments, \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim') as mock_ai:
             response = self._post(api_client, system_settings,
                                   '55001', 'Incoming call from +40 721 000 000')
@@ -1163,13 +1163,13 @@ class TestFormTicketGate:
         ticket = {'id': '55002', 'subject': 'Lost laptop',
                   'custom_fields': [
                       {'id': ZENDESK_FIELD_CLAIM_NUMBER, 'value': 'ALF7654321'}]}
-        with patch('apps.integrations.views.fetch_zendesk_ticket',
+        with patch('apps.integrations.services.fetch_zendesk_ticket',
                    return_value=ticket), \
-             patch('apps.integrations.views.fetch_zendesk_comments',
+             patch('apps.integrations.services.fetch_zendesk_comments',
                    return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim',
                    return_value=_full_extracted_data()), \
-             patch('apps.integrations.views.refresh_claim_summary',
+             patch('apps.integrations.briefing.refresh_claim_summary',
                    return_value=False):
             response = self._post(api_client, system_settings, '55002', 'Lost laptop')
 
@@ -1181,13 +1181,13 @@ class TestFormTicketGate:
             self, api_client, system_settings):
         ticket = {'id': '55003', 'subject': 'Lost Item - ALF1112223',
                   'custom_fields': []}
-        with patch('apps.integrations.views.fetch_zendesk_ticket',
+        with patch('apps.integrations.services.fetch_zendesk_ticket',
                    return_value=ticket), \
-             patch('apps.integrations.views.fetch_zendesk_comments',
+             patch('apps.integrations.services.fetch_zendesk_comments',
                    return_value=[]), \
              patch('apps.integrations.services.analyze_zendesk_ticket_for_claim',
                    return_value=_full_extracted_data()), \
-             patch('apps.integrations.views.refresh_claim_summary',
+             patch('apps.integrations.briefing.refresh_claim_summary',
                    return_value=False):
             response = self._post(api_client, system_settings,
                                   '55003', 'Lost Item - ALF1112223')

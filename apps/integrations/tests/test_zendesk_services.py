@@ -1552,3 +1552,43 @@ class BuildClaimFactsFamilyTests(TestCase):
             deadline_at=datetime(2026, 7, 1, 23, 59, 59, tzinfo=ZoneInfo('UTC')))
         facts2 = build_claim_facts(claim2)
         self.assertEqual(facts2['deadline'], '2026-07-01')
+
+
+@pytest.mark.django_db
+class TestCreateClaimFromZendeskTicket:
+    """M8: the single creation service shared by the webhook and the on-demand
+    import. Returns a result dict; covers each outcome directly (no HTTP view)."""
+
+    def test_fetch_failed_outcome(self, mock_system_settings):
+        from apps.integrations.services import create_claim_from_zendesk_ticket
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=None):
+            result = create_claim_from_zendesk_ticket('99001', status_id='X')
+        assert result['outcome'] == 'fetch_failed'
+        assert result['claim'] is None
+
+    def test_ignored_when_no_alf_number(self, mock_system_settings):
+        from apps.integrations.services import create_claim_from_zendesk_ticket
+        from apps.claims.models import Claim
+        ticket = {'id': '99002', 'subject': 'Incoming phone call', 'custom_fields': []}
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=ticket):
+            result = create_claim_from_zendesk_ticket('99002', status_id='X')
+        assert result['outcome'] == 'ignored'
+        assert not Claim.objects.filter(zd_ticket_id='99002').exists()
+
+    def test_created_uses_webhook_requester_email_fallback(self, mock_system_settings):
+        from apps.integrations.services import create_claim_from_zendesk_ticket
+        ticket = {'id': '99003', 'subject': 'Lost bag - ALF9009001', 'custom_fields': []}
+        with patch('apps.integrations.services.fetch_zendesk_ticket', return_value=ticket), \
+             patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]), \
+             patch('apps.integrations.services.analyze_zendesk_ticket_for_claim',
+                   return_value={'client_email': '', 'flight_details': ''}), \
+             patch('apps.integrations.services.resolve_custom_status',
+                   return_value={'name': 'Investigation initiated', 'category': 'open'}), \
+             patch('apps.integrations.briefing.refresh_claim_summary', return_value=False):
+            result = create_claim_from_zendesk_ticket(
+                '99003', status_id='X', webhook_requester_email='fallback@e.com')
+        assert result['outcome'] == 'created'
+        claim = result['claim']
+        assert claim.alf_claim_id == 'ALF9009001'
+        assert claim.client_email == 'fallback@e.com'   # webhook-requester fallback used
+        assert claim.llm_extraction_failed is True       # extractor returned no email/flight

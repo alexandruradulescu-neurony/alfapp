@@ -459,29 +459,28 @@ def resolve_custom_status(status_id) -> Dict[str, str]:
     return entry
 
 
-def import_claim_from_zendesk_ticket(zd_ticket_id):
-    """On-demand import of an EXISTING Zendesk claim into LORA.
+def create_claim_from_zendesk_ticket(zd_ticket_id, *, status_id=None,
+                                     webhook_requester_email='',
+                                     webhook_requester_id=''):
+    """Create a Claim from a Zendesk ticket — the single creation path shared by
+    the creation webhook (ZendeskClaimWebhookView) and the on-demand backlog
+    import. (Previously duplicated in both, with a "keep in sync" note.)
 
-    Triggered when an institution email matches a Zendesk ticket that LORA has
-    not mirrored yet — the backlog-transition case, where ~all historic claims
-    live in Zendesk but only a subset are in LORA. Claims are NEVER originated
-    here (the website form + Zendesk own that); this only copies a claim that
-    already exists so the matched email has somewhere to land.
+    Returns a result dict:
+        {'outcome': 'created' | 'already_exists' | 'ignored' | 'fetch_failed',
+         'claim': Claim | None, 'llm_failed': bool}
 
-    Differs from the creation webhook (ZendeskClaimWebhookView) in two ways:
-      * no investigation-initiated status gate — a backlog claim can be at ANY
-        stage, so we import regardless of current status;
-      * status is mirrored from the ticket's CURRENT custom status (a one-time
-        read at import; the webhook stays the ongoing stage writer).
-    It keeps the SAME form-ticket gate: a ticket with no ALF claim number (phone
-    calls / client emails auto-ticketed) is not a claim and is skipped.
-
-    Returns (claim, created): (Claim, True) on import, (existing, False) if it
-    was already present / a concurrent writer won the race, or (None, False)
-    when the ticket is not an importable claim or Zendesk could not be read.
-
-    NOTE: the Claim field mapping below is intentionally kept in sync with
-    ZendeskClaimWebhookView's creation block — change both together.
+    Idempotent: the unique zd_ticket_id plus IntegrityError recovery handle
+    concurrent creators. Does NOT gate on status — the caller decides whether to
+    create at all (the webhook only at investigation-initiated; import at any
+    stage). The two caller-specific differences are parameters:
+      * status: resolve `status_id` if given (the webhook passes its
+        investigation-initiated id), else the ticket's CURRENT custom_status_id
+        (import mirrors the backlog ticket's stage). A raw numeric id never
+        becomes the stored status — it falls back to 'Investigation initiated'.
+      * email: extraction -> `webhook_requester_email` (webhook payload only) ->
+        Zendesk user API (`webhook_requester_id` or the ticket's requester_id).
+    The form-ticket gate (must carry an ALF claim number) is identical for both.
     """
     from django.db import IntegrityError, transaction
     from django.utils import timezone
@@ -493,12 +492,12 @@ def import_claim_from_zendesk_ticket(zd_ticket_id):
     # Never re-import and never burn an LLM call if the claim already exists.
     existing = Claim.objects.filter(zd_ticket_id=zd_ticket_id).first()
     if existing:
-        return existing, False
+        return {'outcome': 'already_exists', 'claim': existing, 'llm_failed': False}
 
     ticket_data = fetch_zendesk_ticket(zd_ticket_id)
     if not ticket_data:
-        logger.error(f"On-demand import: could not fetch Zendesk ticket {zd_ticket_id}")
-        return None, False
+        logger.error(f"create_claim: could not fetch Zendesk ticket {zd_ticket_id}")
+        return {'outcome': 'fetch_failed', 'claim': None, 'llm_failed': False}
 
     # Form-ticket gate — must carry an ALF claim number (subject or Claim # field).
     subject = ticket_data.get('subject') or ''
@@ -509,9 +508,9 @@ def import_claim_from_zendesk_ticket(zd_ticket_id):
         alf_claim_id = parse_alf_claim_id_from_subject(claim_number_value or '')
     if not alf_claim_id:
         logger.info(
-            f"On-demand import: ticket {zd_ticket_id} has no ALF claim number — "
+            f"create_claim: ticket {zd_ticket_id} has no ALF claim number — "
             f"not a claim-form ticket, skipping")
-        return None, False
+        return {'outcome': 'ignored', 'claim': None, 'llm_failed': False}
 
     # LLM extraction (best-effort, same as the webhook).
     ticket_data['comments'] = fetch_zendesk_comments(zd_ticket_id)
@@ -531,10 +530,12 @@ def import_claim_from_zendesk_ticket(zd_ticket_id):
         if parsed_from_field:
             alf_claim_id = parsed_from_field
 
-    # Resolve client email: extraction → Zendesk requester.
+    # Resolve client email: extraction → webhook requester → Zendesk user API.
     client_email = extracted_data.get('client_email', '')
+    if not client_email and webhook_requester_email:
+        client_email = webhook_requester_email
     if not client_email:
-        requester_id = ticket_data.get('requester_id')
+        requester_id = webhook_requester_id or ticket_data.get('requester_id')
         if requester_id:
             user_data = fetch_zendesk_user(requester_id)
             if user_data:
@@ -544,17 +545,19 @@ def import_claim_from_zendesk_ticket(zd_ticket_id):
     if not client_email:
         llm_failed = True
         logger.warning(
-            f"On-demand import: could not resolve client_email for ticket {zd_ticket_id}; "
+            f"create_claim: could not resolve client_email for ticket {zd_ticket_id}; "
             f"claim flagged for manual review")
 
-    # Mirror the ticket's CURRENT custom status (one-time). Never store a raw
-    # numeric id as the status — fall back to a safe named default instead.
+    # Status source: the caller's fixed status_id (the webhook passes its
+    # investigation-initiated id) or the ticket's CURRENT custom status (import
+    # mirrors the backlog stage). Never store a raw numeric id as the status —
+    # fall back to a safe named default instead.
     status_name = 'Investigation initiated'
     status_category = 'open'
-    cur_status_id = ticket_data.get('custom_status_id')
-    if cur_status_id:
-        resolved = resolve_custom_status(cur_status_id)
-        if resolved['name'] and resolved['name'] != str(cur_status_id):
+    resolve_id = status_id or ticket_data.get('custom_status_id')
+    if resolve_id:
+        resolved = resolve_custom_status(resolve_id)
+        if resolved['name'] and resolved['name'] != str(resolve_id):
             status_name = resolved['name']
             status_category = resolved['category'] or 'open'
 
@@ -600,24 +603,45 @@ def import_claim_from_zendesk_ticket(zd_ticket_id):
         if not existing:
             raise
         logger.info(
-            f"On-demand import: race for ticket {zd_ticket_id}; "
+            f"create_claim: race for ticket {zd_ticket_id}; "
             f"existing Claim #{existing.id} wins")
-        return existing, False
+        return {'outcome': 'already_exists', 'claim': existing, 'llm_failed': False}
 
     logger.info(
-        f"On-demand import: created Claim #{claim.id} ({alf_claim_id}) from Zendesk "
+        f"create_claim: created Claim #{claim.id} ({alf_claim_id}) from Zendesk "
         f"ticket {zd_ticket_id} at status '{status_name}'. LLM failed: {llm_failed}")
 
-    # Best-effort real AI summary (import must never fail on the AI call).
+    # Best-effort real AI summary (creation must never fail on the AI call).
     # Lazy import: briefing imports from this module, so a top-level import loops.
     try:
         from apps.integrations.briefing import refresh_claim_summary
         refresh_claim_summary(claim, ticket_data)
     except Exception as e:
         logger.warning(
-            f"On-demand import: AI summary backfill failed for Claim #{claim.id}: {e}")
+            f"create_claim: AI summary backfill failed for Claim #{claim.id}: {e}")
 
-    return claim, True
+    return {'outcome': 'created', 'claim': claim, 'llm_failed': llm_failed}
+
+
+def import_claim_from_zendesk_ticket(zd_ticket_id):
+    """On-demand import of an EXISTING Zendesk claim into LORA (backlog
+    transition: an institution email matched a ticket LORA hasn't mirrored yet).
+
+    Thin wrapper over create_claim_from_zendesk_ticket with no investigation
+    status gate (a backlog claim can be at any stage) and status mirrored from
+    the ticket's CURRENT custom status (status_id=None). Claims are NEVER
+    originated here — this only copies a ticket that already exists in Zendesk.
+
+    Returns (claim, created): (Claim, True) on import, (existing, False) if it
+    was already present / a concurrent writer won the race, or (None, False)
+    when the ticket is not an importable claim or Zendesk could not be read.
+    """
+    result = create_claim_from_zendesk_ticket(str(zd_ticket_id))
+    if result['outcome'] == 'created':
+        return result['claim'], True
+    if result['outcome'] == 'already_exists':
+        return result['claim'], False
+    return None, False
 
 
 def create_zendesk_ticket(
