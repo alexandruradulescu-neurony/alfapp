@@ -58,6 +58,9 @@ _PLACEHOLDER_PATTERN = re.compile(
 )
 
 _ALF_ID_PATTERN = re.compile(r"\bALF\d{7}\b")
+# Deliberately broad: two letters + 2–4 digits also matches some non-flight codes
+# (e.g. "ID4521"). Accepted — over-tokenizing a PII-shaped token is safer than
+# under-tokenizing, and a false <FLIGHT_*> placeholder round-trips back intact.
 _FLIGHT_PATTERN = re.compile(r"\b[A-Z]{2}\d{2,4}\b")
 
 
@@ -157,7 +160,9 @@ class RegexTokenizer:
         # Apply substitutions in reverse order of position so earlier indices stay valid.
         result_parts = []
         cursor = 0
-        for (start, end) in sorted(all_matches.keys()):
+        # Resolve overlaps longest-first (same start -> larger end wins) so a
+        # better/longer number isn't dropped in favour of a shorter earlier one.
+        for (start, end) in sorted(all_matches.keys(), key=lambda s: (s[0], -s[1])):
             if start < cursor:
                 # Overlapping match from a different region — skip
                 continue
@@ -214,7 +219,9 @@ class RegexTokenizer:
                     placeholder = generate_placeholder(
                         "NAME", _part.lower(), salt=self._salt
                     )
-                    mapping[placeholder] = _part.capitalize()
+                    # Store the matched text verbatim so ALL-CAPS ("JOHN") isn't
+                    # restored as title-case ("John"), losing the original casing.
+                    mapping[placeholder] = match.group(0)
                     return placeholder
 
                 text = part_pattern.sub(sub_part, text)

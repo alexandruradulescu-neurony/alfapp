@@ -8,6 +8,7 @@ back out.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -37,9 +38,12 @@ def _resolve_salt() -> bytes:
         ss = SystemSettings.get_instance()
         if ss.pii_tokenization_salt:
             return ss.pii_tokenization_salt.encode("utf-8")
-    except Exception:
-        # If SystemSettings is unavailable, fall through to env var
-        pass
+    except Exception as e:
+        # Don't mask a real DB/config error — log it, then fall through to the
+        # env-var salt so a transient SystemSettings failure stays observable.
+        logger.warning(
+            "AIClient: could not read salt from SystemSettings (%s); "
+            "falling back to env var", e)
 
     env_salt = settings.PII_TOKENIZATION_SALT
     if env_salt:
@@ -179,7 +183,6 @@ class AIClient:
                     "attempting lenient parse. error=%s",
                     call_site, e,
                 )
-                import json
                 try:
                     validated = response_schema.model_validate(json.loads(raw_reply))
                 except Exception:
@@ -192,24 +195,40 @@ class AIClient:
         # Un-tokenize every string field in the validated response.
         untokenized = _untokenize_model(validated, tokenizer, mapping)
 
-        logger.info(
-            "AIClient[%s] OK latency=%dms tokens_in=%d tokens_out=%d",
-            call_site,
-            latency_ms,
-            len(messages[1]["content"]) if len(messages) > 1 else 0,
-            len(raw_reply),
-        )
+        # Prefer the provider's real token usage; fall back to character counts
+        # (clearly labelled) when the response doesn't expose a usage object —
+        # don't report character lengths under "tokens_*" names.
+        usage = getattr(completion, "usage", None)
+        if usage is not None:
+            logger.info(
+                "AIClient[%s] OK latency=%dms tokens_in=%s tokens_out=%s",
+                call_site, latency_ms,
+                getattr(usage, "prompt_tokens", "?"),
+                getattr(usage, "completion_tokens", "?"),
+            )
+        else:
+            logger.info(
+                "AIClient[%s] OK latency=%dms chars_in=%d chars_out=%d",
+                call_site, latency_ms,
+                len(messages[1]["content"]) if len(messages) > 1 else 0,
+                len(raw_reply),
+            )
         return untokenized
 
 
 def _untokenize_model(obj: T, tokenizer: RegexTokenizer, mapping: dict[str, str]) -> T:
-    """Walk a Pydantic model and un-tokenize every string-typed field."""
+    """Walk a Pydantic model and un-tokenize every string-typed field.
+
+    Reconstruct with model_construct (NOT model_validate) so restoring PII
+    placeholders to their full values can't re-trigger field validators — e.g. a
+    soft length cap that would otherwise truncate a restored email/name
+    mid-value (the placeholder is ~16 chars; the real value is longer)."""
     data = obj.model_dump()
     _untokenize_in_place(data, tokenizer, mapping)
-    return type(obj).model_validate(data)
+    return type(obj).model_construct(**data)
 
 
-def _untokenize_in_place(node, tokenizer: RegexTokenizer, mapping: dict[str, str]) -> None:
+def _untokenize_in_place(node: object, tokenizer: RegexTokenizer, mapping: dict[str, str]) -> None:
     if isinstance(node, dict):
         for key, val in list(node.items()):
             if isinstance(val, str):
