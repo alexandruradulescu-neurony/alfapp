@@ -720,6 +720,22 @@ def create_zendesk_ticket(
         return None
 
 
+def create_zendesk_ticket_for_claim(claim) -> Optional[Dict[str, Any]]:
+    """Create a Zendesk ticket for a LORA claim, composing the subject, initial
+    comment and tags from the claim here (in the service) so the view stays a thin
+    dispatch-and-respond. Returns the same dict as create_zendesk_ticket (or None).
+    """
+    return create_zendesk_ticket(
+        subject=f"Lost Object Claim #{claim.id} - {claim.client_email}",
+        comment_body=(
+            f"Claim details:\n\n"
+            f"Flight: {claim.flight_details or 'Not provided'}\n"
+            f"Status: {claim.status}"
+        ),
+        requester_email=claim.client_email,
+        tags=['lora', 'lost-object', f'claim-{claim.id}'],
+    )
+
 
 def search_zendesk_tickets(query: str) -> List[Dict[str, Any]]:
     """
@@ -868,8 +884,8 @@ def search_zendesk_ticket_for_dispute(
     Returns:
         First matching ticket data dict, None if no match
     """
-    def _pick_best_result(results: list, transaction_date: str = '') -> Optional[Dict[str, Any]]:
-        """Pick the most recent ticket from search results."""
+    def _pick_best_result(results: list) -> Optional[Dict[str, Any]]:
+        """Pick the most recent ticket from search results (by created_at desc)."""
         if not results:
             return None
         # Sort by created_at descending to get the most recent ticket
@@ -884,7 +900,7 @@ def search_zendesk_ticket_for_dispute(
     if buyer_email:
         query = f'requester:{buyer_email}'
         results = search_zendesk_tickets(query)
-        best = _pick_best_result(results, transaction_date)
+        best = _pick_best_result(results)
         if best:
             logger.info(f"Found ticket by email search: {best.get('id')}")
             return best
@@ -902,7 +918,7 @@ def search_zendesk_ticket_for_dispute(
     if buyer_name and transaction_date:
         query = f'"{buyer_name}" created>{transaction_date}'
         results = search_zendesk_tickets(query)
-        best = _pick_best_result(results, transaction_date)
+        best = _pick_best_result(results)
         if best:
             logger.info(f"Found ticket by name+date search: {best.get('id')}")
             return best
@@ -920,21 +936,15 @@ def search_zendesk_ticket_for_dispute(
     return None
 
 
-# Zendesk custom field holding the per-ticket inbound email alias
-# (e.g. "client-123@mydomain.com"). See docs/ZENDESK_FIELDS.md.
-EMAIL_ALIAS_FIELD_ID = '13606076120860'
-
-
 def get_ticket_email_alias(ticket_data: Dict[str, Any]) -> str:
-    """Read the email alias custom field from a fetched Zendesk ticket payload.
+    """Read the email alias custom field (ZENDESK_FIELD_ALIAS_EMAIL) from a fetched
+    Zendesk ticket payload, via the shared _get_custom_field_value reader so there
+    is exactly one custom-field lookup path.
 
-    Returns the alias lowercased, or '' when the field is absent/empty.
+    Returns the alias lowercased/stripped, or '' when the field is absent/empty.
     """
-    for field in ticket_data.get('custom_fields') or []:
-        if str(field.get('id')) == EMAIL_ALIAS_FIELD_ID:
-            value = (field.get('value') or '').strip().lower()
-            return value
-    return ''
+    return _get_custom_field_value(
+        ticket_data.get('custom_fields'), ZENDESK_FIELD_ALIAS_EMAIL).strip().lower()
 
 
 def add_zendesk_ticket_tags(zd_ticket_id: str, tags: List[str]) -> bool:
@@ -957,7 +967,8 @@ def add_zendesk_ticket_tags(zd_ticket_id: str, tags: List[str]) -> bool:
             headers=headers,
             method='PUT',
         )
-        with urllib.request.urlopen(req, timeout=30):
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        with urllib.request.urlopen(req, timeout=timeout):
             logger.info(f"Added tags {tags} to Zendesk ticket {zd_ticket_id}")
             return True
     except Exception as e:
@@ -980,7 +991,7 @@ def match_alias_to_zendesk_ticket(alias: str) -> Optional[Dict[str, Any]]:
     try:
         # Search for tickets where the custom field contains the alias
         # Zendesk search syntax: custom_fields_{id}:"value"
-        query = f'custom_fields_{EMAIL_ALIAS_FIELD_ID}:"{alias}"'
+        query = f'custom_fields_{ZENDESK_FIELD_ALIAS_EMAIL}:"{alias}"'
         results = search_zendesk_tickets(query)
         
         if results:
@@ -1089,6 +1100,32 @@ def _compose_object_description(custom_fields: list) -> str:
     return "\n".join(p for p in parts if p)
 
 
+def _comment_author_name(comment: dict) -> str:
+    """Author display name from a comment in either shape the codebase produces:
+    the fetch_zendesk_comments nested form ({'author': {'name': ...}}) or a legacy
+    flat string form ({'author': '<name>'}, as build_ticket_thread renders).
+    Defaults to 'Unknown' — never raises on a string/None author."""
+    author = comment.get('author')
+    if isinstance(author, dict):
+        return author.get('name') or 'Unknown'
+    if isinstance(author, str) and author:
+        return author
+    return 'Unknown'
+
+
+def _build_llm_context(subject: str, description: str, comments: list) -> str:
+    """Free-text context block fed to the ticket-extraction LLM: subject,
+    description, then the first few comments (author-normalised). Pure/string-only
+    so the extraction merge can be exercised without mocking the LLM call."""
+    context = f"Ticket Subject: {subject}\n\n"
+    context += f"Ticket Description:\n{description}\n\n"
+    if comments:
+        context += "Comments:\n"
+        for comment in comments[:5]:  # Limit to first 5 comments
+            context += f"{_comment_author_name(comment)}: {comment.get('body', '')}\n\n"
+    return context
+
+
 def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, str]:
     """Extract claim information from a Zendesk ticket payload.
 
@@ -1151,15 +1188,7 @@ def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, s
         # ------------------------------------------------------------------
         # Step 2: Build free-text context and call LLM for unstructured fields
         # ------------------------------------------------------------------
-        context = f"Ticket Subject: {subject}\n\n"
-        context += f"Ticket Description:\n{description}\n\n"
-
-        if comments:
-            context += "Comments:\n"
-            for comment in comments[:5]:  # Limit to first 5 comments
-                author = comment.get('author', {}).get('name', 'Unknown')
-                body = comment.get('body', '')
-                context += f"{author}: {body}\n\n"
+        context = _build_llm_context(subject, description, comments)
 
         prompt = (
             "Extract the following information from this Zendesk ticket about a lost object claim. "

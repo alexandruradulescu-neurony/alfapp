@@ -267,6 +267,10 @@ QWEN_MODEL = env('QWEN_MODEL', default='qwen-plus')
 ZENDESK_SUBDOMAIN = env('ZENDESK_SUBDOMAIN', default='')
 ZENDESK_TOKEN = env('ZENDESK_TOKEN', default='')
 ZENDESK_EMAIL = env('ZENDESK_EMAIL', default='')
+# Zendesk custom-status id that signals "Investigation Initiated" — a webhook at
+# this status on an unknown ticket triggers full claim creation. Deploy/tenant
+# specific; the default preserves the historical hardcoded value.
+ZENDESK_INVESTIGATION_STATUS_ID = env('ZENDESK_INVESTIGATION_STATUS_ID', default='11688538967068')
 
 # PayPal Configuration
 PAYPAL_CLIENT_ID = env('PAYPAL_CLIENT_ID', default='')

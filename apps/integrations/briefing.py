@@ -6,12 +6,16 @@ view. The sidebar briefing endpoint shares the business context but stays
 read-only (no stored-summary writes from agent clicks). All AI calls go
 through apps/ai/AIClient (PII tokenization — never a passthrough)."""
 import logging
+from typing import Optional, TYPE_CHECKING
 
 from django.utils import timezone
 
 from apps.ai.client import AIClient
 from apps.ai.schemas import BriefingSummary
 from apps.integrations.services import build_claim_facts, build_ticket_thread
+
+if TYPE_CHECKING:
+    from apps.claims.models import Claim
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +80,7 @@ def normalize_fetched_comments(comments):
     return normalized
 
 
-def generate_claim_summary(claim, ticket_data):
+def generate_claim_summary(claim: 'Claim', ticket_data: dict) -> Optional[str]:
     """One AI summary of the case, or None on any AI failure (callers must
     treat the summary as optional — a stage change never depends on it)."""
     facts = build_claim_facts(claim)

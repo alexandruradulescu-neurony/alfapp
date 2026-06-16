@@ -19,9 +19,12 @@ import time
 import urllib.error
 import urllib.request
 from datetime import time as dt_time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from django.utils import timezone
+
+if TYPE_CHECKING:
+    from apps.claims.models import Claim
 
 from apps.ai.client import AIClient
 from apps.ai.schemas import FlightCheck
@@ -34,6 +37,15 @@ logger = logging.getLogger(__name__)
 AERODATABOX_HOST = 'aerodatabox.p.rapidapi.com'
 AERODATABOX_TIMEOUT = 15
 CANDIDATE_LIMIT = 5
+# Pause before the single retry on a 429. NOTE: this is a BLOCKING sleep on the
+# synchronous Django request thread (the sidebar button waits on it), and the
+# lookup→departures rescue can fire it more than once per click — keep it short.
+RATE_LIMIT_RETRY_PAUSE = 1.3
+
+# Sentinel returned by _provider_call when the provider/transport actually failed
+# (as opposed to a legitimate empty/no-data answer). Lets callers map an error to
+# None while still passing a real empty payload ([] / {}) straight through.
+_PROVIDER_ERROR = object()
 
 # Airline designator (RO, W6, 0B, U2) + 1-4 digit flight number, optional space.
 _FLIGHT_NUMBER_PATTERN = re.compile(r'\b([A-Z][A-Z0-9]|[0-9][A-Z])\s?(\d{1,4})\b')
@@ -237,49 +249,76 @@ def _aerodatabox_get(path: str) -> Any:
         except urllib.error.HTTPError as e:
             if e.code == 429 and attempt == 1:
                 logger.info("AeroDataBox per-second rate limit hit; retrying once")
-                time.sleep(1.3)
+                time.sleep(RATE_LIMIT_RETRY_PAUSE)  # blocks the request thread (see constant)
                 continue
             raise
+
+
+def _provider_call(fetch, empty, *, label: str):
+    """Run a provider GET (`fetch`, a zero-arg callable) applying the module's one
+    error policy so both callers translate failures identically:
+    FlightProviderNotConfigured propagates; HTTP 404 → the caller's `empty`
+    sentinel; any other transport/provider error → _PROVIDER_ERROR (logged with
+    `label`). On success returns whatever `fetch` returned."""
+    try:
+        return fetch()
+    except FlightProviderNotConfigured:
+        raise
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return empty
+        logger.error(f"AeroDataBox {label} HTTP {e.code}")
+        return _PROVIDER_ERROR
+    except Exception as e:
+        logger.error(f"AeroDataBox {label} failed: {e}")
+        return _PROVIDER_ERROR
 
 
 def lookup_flight(number: str, date: str) -> Optional[List[Dict[str, Any]]]:
     """Flight legs for a flight number on a local date.
     Returns a list of raw leg dicts; [] when the provider answered but found
     nothing (HTTP 204 empty body, or 404); None on transport/provider errors."""
-    try:
-        result = _aerodatabox_get(f'/flights/number/{number}/{date}')
-    except FlightProviderNotConfigured:
-        raise
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return []
-        logger.error(f"AeroDataBox flight lookup HTTP {e.code} for {number} {date}")
+    result = _provider_call(
+        lambda: _aerodatabox_get(f'/flights/number/{number}/{date}'),
+        empty=[], label=f"flight lookup {number} {date}")
+    if result is _PROVIDER_ERROR:
         return None
-    except Exception as e:
-        logger.error(f"AeroDataBox flight lookup failed for {number} {date}: {e}")
-        return None
-    if isinstance(result, list):
-        return result
-    return []
+    return result if isinstance(result, list) else []
 
 
 def _fetch_departures_window(airport_iata: str, date: str,
                              from_hour: int, to_hour: int) -> Optional[Dict[str, Any]]:
+    """Departures FIDS for one sub-12h window. Returns the provider dict on
+    success, {} on 204/404 'no data', and None on transport/provider error."""
     path = (f'/flights/airports/iata/{airport_iata}'
             f'/{date}T{from_hour:02d}:00/{date}T{to_hour:02d}:59'
             f'?direction=Departure&withCancelled=true&withCodeshared=false&withLeg=false')
-    try:
-        return _aerodatabox_get(path) or {}
-    except FlightProviderNotConfigured:
-        raise
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return {}
-        logger.error(f"AeroDataBox departures HTTP {e.code} for {airport_iata} {date}")
+    result = _provider_call(
+        lambda: _aerodatabox_get(path) or {},
+        empty={}, label=f"departures {airport_iata} {date}")
+    return None if result is _PROVIDER_ERROR else result
+
+
+def _candidate_minute(candidate: Dict[str, str]) -> Optional[int]:
+    """Minute-of-day parsed from a candidate's scheduled_local string (the first
+    HH:MM in it), or None when it has no parseable time."""
+    m = re.search(r'(\d{1,2}):(\d{2})', candidate.get('scheduled_local', '') or '')
+    if not m:
         return None
-    except Exception as e:
-        logger.error(f"AeroDataBox departures failed for {airport_iata} {date}: {e}")
-        return None
+    return int(m.group(1)) * 60 + int(m.group(2))
+
+
+def _rank_candidates(candidates: List[Dict[str, str]],
+                     time_hint: Optional[dt_time]) -> List[Dict[str, str]]:
+    """Order candidates so the CANDIDATE_LIMIT cap keeps the most relevant ones.
+    With a time hint: closest to it first. Without one: chronological. Candidates
+    with no parseable time sort last. Stable, so same-key order is preserved."""
+    if time_hint is not None:
+        target = time_hint.hour * 60 + time_hint.minute
+        return sorted(candidates, key=lambda c: (
+            _candidate_minute(c) is None, abs((_candidate_minute(c) or 0) - target)))
+    return sorted(candidates, key=lambda c: (
+        _candidate_minute(c) is None, _candidate_minute(c) or 0))
 
 
 def find_candidate_flights(airport_iata: str, date: str,
@@ -327,9 +366,16 @@ def find_candidate_flights(airport_iata: str, date: str,
             'destination': destination,
             'scheduled_local': (movement.get('scheduledTime') or {}).get('local', ''),
         })
-        if len(candidates) >= CANDIDATE_LIMIT:
-            break
-    return candidates
+
+    # Rank BEFORE truncating: without a sort the morning window (00:00–11:59)
+    # always filled the cap and afternoon/evening flights were silently dropped —
+    # possibly the one matching the client's loss time. With a time hint we keep
+    # the closest flights; without one, the earliest (deterministic).
+    ranked = _rank_candidates(candidates, time_hint)
+    if len(ranked) > CANDIDATE_LIMIT:
+        logger.info("Flight candidates for %s %s: %d found, keeping the %d most relevant",
+                    airport_iata, date, len(ranked), CANDIDATE_LIMIT)
+    return ranked[:CANDIDATE_LIMIT]
 
 
 def normalize_flight(raw_legs: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -367,9 +413,10 @@ def normalize_flight(raw_legs: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def analyze_flight_match(claim, flight_payload: Optional[Dict[str, Any]] = None,
+def analyze_flight_match(claim: 'Optional[Claim]',
+                         flight_payload: Optional[Dict[str, Any]] = None,
                          candidates: Optional[List[Dict[str, str]]] = None,
-                         flight_details_text: str = ''):
+                         flight_details_text: str = '') -> Optional[FlightCheck]:
     """ONE AIClient call cross-checking flight reality vs the client's report.
     Returns a FlightCheck or None on any AI failure — callers must treat the
     analysis as optional (the lookup result stands on its own).

@@ -7,6 +7,7 @@ import hmac
 import json
 import logging
 
+from django.conf import settings
 from django.core.cache import cache
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -14,7 +15,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 
 from apps.claims.models import Claim, ClaimUpdateTimeline
 from apps.communications.models import EmailLog
@@ -65,6 +66,36 @@ class ZendeskSidebarAuth:
     Validates the Authorization header against the sidebar_secret_token.
     Uses constant-time comparison to prevent timing attacks.
     """
+
+    # Failed-auth brute-force throttle: after this many failures from one client
+    # IP inside the window we return 429 instead of 403.
+    AUTH_FAIL_LIMIT = 5
+    AUTH_FAIL_WINDOW_SECONDS = 300  # 5 minutes
+
+    @classmethod
+    def reject_if_unauthenticated(cls, request, *, context: str = ''):
+        """Authenticate the sidebar token; on failure record the attempt against
+        the caller's real client IP and return the right error Response (429 once
+        AUTH_FAIL_LIMIT is exceeded in the window, else 403). Returns None when
+        authenticated so the caller just proceeds. Centralises the per-IP
+        brute-force throttle that was copy-pasted across every sidebar endpoint.
+
+        IP comes from get_client_ip (the left-most trusted X-Forwarded-For hop),
+        not REMOTE_ADDR — behind Railway's proxy the latter collapses every caller
+        into one bucket and makes the per-IP throttle effectively global."""
+        if cls.authenticate(request):
+            return None
+        ip = get_client_ip(request)
+        cache_key = f'sidebar_auth_fail_{ip}'
+        failed_attempts = cache.get(cache_key, 0)
+        cache.set(cache_key, failed_attempts + 1, cls.AUTH_FAIL_WINDOW_SECONDS)
+        logger.warning(
+            "Failed sidebar auth attempt%s, IP: %s, attempt: %s",
+            f' ({context})' if context else '', ip, failed_attempts + 1)
+        if failed_attempts >= cls.AUTH_FAIL_LIMIT:
+            return Response({'error': 'Too many failed attempts. Please try again later.'},
+                            status=status.HTTP_429_TOO_MANY_REQUESTS)
+        return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
 
     @staticmethod
     def authenticate(request) -> bool:
@@ -153,26 +184,11 @@ class ZendeskSidebarView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Authenticate using sidebar secret token
-        if not ZendeskSidebarAuth.authenticate(request):
-            # Rate limit failed auth attempts by IP
-            ip = get_client_ip(request)
-            cache_key = f'sidebar_auth_fail_{ip}'
-            failed_attempts = cache.get(cache_key, 0)
-            cache.set(cache_key, failed_attempts + 1, 300)  # 5 min window
-            
-            logger.warning(f"Failed sidebar auth attempt for email: {customer_email or 'N/A'}, ticket_id: {ticket_id or 'N/A'}, IP: {ip}, attempt: {failed_attempts + 1}")
-            
-            if failed_attempts >= 5:
-                return Response(
-                    {'error': 'Too many failed attempts. Please try again later.'},
-                    status=status.HTTP_429_TOO_MANY_REQUESTS
-                )
-            
-            return Response(
-                {'error': 'Unauthorized'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        # Authenticate using sidebar secret token (per-IP brute-force throttle).
+        auth_error = ZendeskSidebarAuth.reject_if_unauthenticated(
+            request, context=f"email: {customer_email or 'N/A'}, ticket_id: {ticket_id or 'N/A'}")
+        if auth_error:
+            return auth_error
 
         # Lookup claim
         claim = None
@@ -259,29 +275,28 @@ class ZendeskSidebarView(APIView):
         Get enriched email statistics for a claim.
         Uses optimized queries with .aggregate() for counts.
         """
-        # Total count
-        total_count = EmailLog.objects.filter(claim=claim).count()
-        
-        # Unresolved count: action_required=True AND auto_resolved=False
-        unresolved_count = EmailLog.objects.filter(
-            claim=claim,
-            action_required=True,
-            auto_resolved=False
-        ).count()
-        
+        # Total + unresolved (action_required=True AND auto_resolved=False) in a
+        # single aggregation pass instead of two separate COUNT round-trips.
+        counts = EmailLog.objects.filter(claim=claim).aggregate(
+            total=Count('id'),
+            unresolved=Count('id', filter=Q(action_required=True, auto_resolved=False)),
+        )
+        total_count = counts['total']
+        unresolved_count = counts['unresolved']
+
         # Latest email category (most recent by received_at)
         latest_email = EmailLog.objects.filter(claim=claim).order_by('-received_at').first()
         latest_category = latest_email.category if latest_email else None
-        
+
         # Category breakdown using .values() and .annotate()
         category_breakdown = {}
         category_counts = EmailLog.objects.filter(claim=claim).values('category').annotate(
             count=Count('id')
         ).order_by('-count')
-        
+
         for item in category_counts:
             category_breakdown[item['category']] = item['count']
-        
+
         return {
             'total': total_count,
             'unresolved': unresolved_count,
@@ -329,13 +344,13 @@ class ZendeskSidebarView(APIView):
         # Count SUBMISSION_CONFIRMATION emails
         submission_confirmations = EmailLog.objects.filter(
             claim=claim,
-            category='SUBMISSION_CONFIRMATION'
+            category=EmailLog.CATEGORY_SUBMISSION_CONFIRMATION
         ).count()
-        
+
         # Count GENERAL_CORRESPONDENCE emails (responses)
         general_correspondence = EmailLog.objects.filter(
             claim=claim,
-            category='GENERAL_CORRESPONDENCE'
+            category=EmailLog.CATEGORY_GENERAL_CORRESPONDENCE
         ).count()
         
         return {
@@ -374,16 +389,9 @@ class ZendeskBriefingView(APIView):
     )
 
     def post(self, request):
-        if not ZendeskSidebarAuth.authenticate(request):
-            ip = get_client_ip(request)
-            cache_key = f'sidebar_auth_fail_{ip}'
-            failed_attempts = cache.get(cache_key, 0)
-            cache.set(cache_key, failed_attempts + 1, 300)
-            logger.warning(f"Failed briefing auth attempt, IP: {ip}, attempt: {failed_attempts + 1}")
-            if failed_attempts >= 5:
-                return Response({'error': 'Too many failed attempts. Please try again later.'},
-                                status=status.HTTP_429_TOO_MANY_REQUESTS)
-            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        auth_error = ZendeskSidebarAuth.reject_if_unauthenticated(request, context='briefing')
+        if auth_error:
+            return auth_error
 
         from apps.ai.client import AIClient
         from apps.ai.schemas import BriefingSummary, NextSteps
@@ -521,16 +529,9 @@ class ZendeskDraftView(APIView):
     }
 
     def post(self, request):
-        if not ZendeskSidebarAuth.authenticate(request):
-            ip = get_client_ip(request)
-            cache_key = f'sidebar_auth_fail_{ip}'
-            failed_attempts = cache.get(cache_key, 0)
-            cache.set(cache_key, failed_attempts + 1, 300)
-            logger.warning(f"Failed draft auth attempt, IP: {ip}, attempt: {failed_attempts + 1}")
-            if failed_attempts >= 5:
-                return Response({'error': 'Too many failed attempts. Please try again later.'},
-                                status=status.HTTP_429_TOO_MANY_REQUESTS)
-            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        auth_error = ZendeskSidebarAuth.reject_if_unauthenticated(request, context='draft')
+        if auth_error:
+            return auth_error
 
         from apps.ai.client import AIClient
         from apps.ai.schemas import EmailDraft
@@ -599,16 +600,9 @@ class ZendeskChatView(APIView):
     )
 
     def post(self, request):
-        if not ZendeskSidebarAuth.authenticate(request):
-            ip = get_client_ip(request)
-            cache_key = f'sidebar_auth_fail_{ip}'
-            failed_attempts = cache.get(cache_key, 0)
-            cache.set(cache_key, failed_attempts + 1, 300)
-            logger.warning(f"Failed chat auth attempt, IP: {ip}, attempt: {failed_attempts + 1}")
-            if failed_attempts >= 5:
-                return Response({'error': 'Too many failed attempts. Please try again later.'},
-                                status=status.HTTP_429_TOO_MANY_REQUESTS)
-            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        auth_error = ZendeskSidebarAuth.reject_if_unauthenticated(request, context='chat')
+        if auth_error:
+            return auth_error
 
         from apps.claims.models import Claim
         from apps.agent.services import AgentChatService
@@ -708,13 +702,12 @@ class ZendeskTicketSyncView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
-        # Authenticate
-        if not ZendeskSidebarAuth.authenticate(request):
-            return Response(
-                {'error': 'Unauthorized'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
+        # Authenticate (now consistent with the other sidebar endpoints: per-IP
+        # brute-force throttle, not a bare 403).
+        auth_error = ZendeskSidebarAuth.reject_if_unauthenticated(request, context='ticket-sync')
+        if auth_error:
+            return auth_error
+
         claim_id = request.data.get('claim_id')
         
         if not claim_id:
@@ -724,29 +717,24 @@ class ZendeskTicketSyncView(APIView):
             )
         
         try:
-            from apps.integrations.services import create_zendesk_ticket
-            
+            from apps.integrations.services import create_zendesk_ticket_for_claim
+
             claim = Claim.objects.filter(id=claim_id).first()
             if not claim:
                 return Response(
                     {'error': 'Claim not found'},
                     status=status.HTTP_404_NOT_FOUND
                 )
-            
+
             # Check if ticket already exists
             if claim.zd_ticket_id:
                 return Response({
                     'message': 'Ticket already exists',
                     'zd_ticket_id': claim.zd_ticket_id,
                 })
-            
-            # Create Zendesk ticket
-            ticket_data = create_zendesk_ticket(
-                subject=f"Lost Object Claim #{claim.id} - {claim.client_email}",
-                comment_body=f"Claim details:\n\nFlight: {claim.flight_details or 'Not provided'}\nStatus: {claim.status}",
-                requester_email=claim.client_email,
-                tags=['lora', 'lost-object', f'claim-{claim.id}'],
-            )
+
+            # Create Zendesk ticket (subject/comment/tags composed in the service)
+            ticket_data = create_zendesk_ticket_for_claim(claim)
             
             if ticket_data:
                 # Update claim with ticket ID
@@ -896,8 +884,10 @@ class ZendeskClaimWebhookView(APIView):
     guard; the view-level existence check is an optimisation only.
     """
 
-    # Zendesk custom status ID for "Investigation Initiated"
-    INVESTIGATION_STATUS_ID = '11688538967068'
+    # Zendesk custom status ID for "Investigation Initiated" — deploy/tenant
+    # specific, sourced from settings (env ZENDESK_INVESTIGATION_STATUS_ID) so it
+    # isn't a hardcoded literal in code.
+    INVESTIGATION_STATUS_ID = settings.ZENDESK_INVESTIGATION_STATUS_ID
     permission_classes = [AllowAny]  # Webhook secret verification
 
     def post(self, request):
@@ -1113,16 +1103,9 @@ class ZendeskFlightLookupView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        if not ZendeskSidebarAuth.authenticate(request):
-            ip = get_client_ip(request)
-            cache_key = f'sidebar_auth_fail_{ip}'
-            failed_attempts = cache.get(cache_key, 0)
-            cache.set(cache_key, failed_attempts + 1, 300)
-            logger.warning(f"Failed flight-lookup auth attempt, IP: {ip}, attempt: {failed_attempts + 1}")
-            if failed_attempts >= 5:
-                return Response({'error': 'Too many failed attempts. Please try again later.'},
-                                status=status.HTTP_429_TOO_MANY_REQUESTS)
-            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        auth_error = ZendeskSidebarAuth.reject_if_unauthenticated(request, context='flight-lookup')
+        if auth_error:
+            return auth_error
 
         ticket_id = str(request.data.get('ticket_id', '')).strip()
         if not ticket_id:
@@ -1178,22 +1161,26 @@ class ZendeskFlightLookupView(APIView):
         verdict = derive_flight_verdict(True, analysis)
         flight['verdict'] = verdict
 
+        # Persist the flight data and its timeline entry as one unit — a crash
+        # between them would leave flight_data saved with no matching timeline
+        # row. The external Zendesk note post stays OUTSIDE the transaction (no
+        # network I/O while holding it open).
         if claim:
-            claim.flight_data = flight
-            claim.flight_data_updated_at = timezone.now()
-            claim.save(update_fields=['flight_data', 'flight_data_updated_at', 'updated_at'])
+            with transaction.atomic():
+                claim.flight_data = flight
+                claim.flight_data_updated_at = timezone.now()
+                claim.save(update_fields=['flight_data', 'flight_data_updated_at', 'updated_at'])
+                ClaimUpdateTimeline.objects.create(
+                    claim=claim,
+                    zendesk_ticket_id=claim.zd_ticket_id,
+                    update_type='INFO_UPDATED',
+                    changes_summary=json.dumps({'flight_lookup': {**query, 'found': True,
+                                                                  'verdict': verdict['level']}}),
+                    llm_summary=analysis.summary if analysis else '',
+                )
 
         note_posted = self._post_note(ticket_id, format_flight_note(flight, analysis, verdict))
 
-        if claim:
-            ClaimUpdateTimeline.objects.create(
-                claim=claim,
-                zendesk_ticket_id=claim.zd_ticket_id,
-                update_type='INFO_UPDATED',
-                changes_summary=json.dumps({'flight_lookup': {**query, 'found': True,
-                                                              'verdict': verdict['level']}}),
-                llm_summary=analysis.summary if analysis else '',
-            )
         subject = f"claim #{claim.id}" if claim else f"claimless ticket {ticket_id}"
         logger.info(f"Flight lookup for {subject}: {query['number']} {query['date']} "
                     f"found, verdict={verdict['level']}")
@@ -1359,16 +1346,9 @@ class ZendeskEmailCheckView(APIView):
         from apps.communications.services import (
             EmailNotConfigured, InvalidAlias, check_email_for_ticket)
 
-        if not ZendeskSidebarAuth.authenticate(request):
-            ip = get_client_ip(request)
-            cache_key = f'sidebar_auth_fail_{ip}'
-            failed_attempts = cache.get(cache_key, 0)
-            cache.set(cache_key, failed_attempts + 1, 300)
-            logger.warning(f"Failed email-check auth attempt, IP: {ip}, attempt: {failed_attempts + 1}")
-            if failed_attempts >= 5:
-                return Response({'error': 'Too many failed attempts. Please try again later.'},
-                                status=status.HTTP_429_TOO_MANY_REQUESTS)
-            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        auth_error = ZendeskSidebarAuth.reject_if_unauthenticated(request, context='email-check')
+        if auth_error:
+            return auth_error
 
         ticket_id = str(request.data.get('ticket_id', '')).strip()
         if not ticket_id:
@@ -1430,16 +1410,9 @@ class ZendeskTicketEmailsView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        if not ZendeskSidebarAuth.authenticate(request):
-            ip = get_client_ip(request)
-            cache_key = f'sidebar_auth_fail_{ip}'
-            failed_attempts = cache.get(cache_key, 0)
-            cache.set(cache_key, failed_attempts + 1, 300)
-            logger.warning(f"Failed emails-list auth attempt, IP: {ip}, attempt: {failed_attempts + 1}")
-            if failed_attempts >= 5:
-                return Response({'error': 'Too many failed attempts. Please try again later.'},
-                                status=status.HTTP_429_TOO_MANY_REQUESTS)
-            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        auth_error = ZendeskSidebarAuth.reject_if_unauthenticated(request, context='emails-list')
+        if auth_error:
+            return auth_error
 
         ticket_id = str(request.data.get('ticket_id', '')).strip()
         if not ticket_id:
@@ -1475,16 +1448,9 @@ class ZendeskClientUpdatesView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        if not ZendeskSidebarAuth.authenticate(request):
-            ip = get_client_ip(request)
-            cache_key = f'sidebar_auth_fail_{ip}'
-            failed_attempts = cache.get(cache_key, 0)
-            cache.set(cache_key, failed_attempts + 1, 300)
-            logger.warning(f"Failed updates auth attempt, IP: {ip}, attempt: {failed_attempts + 1}")
-            if failed_attempts >= 5:
-                return Response({'error': 'Too many failed attempts. Please try again later.'},
-                                status=status.HTTP_429_TOO_MANY_REQUESTS)
-            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+        auth_error = ZendeskSidebarAuth.reject_if_unauthenticated(request, context='updates')
+        if auth_error:
+            return auth_error
 
         ticket_id = str(request.data.get('ticket_id', '')).strip()
         claim = Claim.objects.filter(zd_ticket_id=ticket_id).first() if ticket_id else None

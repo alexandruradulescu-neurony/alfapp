@@ -19,7 +19,8 @@ from apps.payments.models import Dispute, DisputeDocument, DisputeActivityLog
 from apps.config.models import SystemSettings
 from apps.communications.models import EmailLog
 from apps.claims.models import ClaimEvidence
-from apps.integrations.services import fetch_zendesk_ticket_full, fetch_zendesk_comments
+from apps.integrations.services import (
+    fetch_zendesk_ticket_full, fetch_zendesk_comments, get_ticket_email_alias)
 
 logger = logging.getLogger(__name__)
 
@@ -512,11 +513,8 @@ def generate_response_letter(dispute_or_id):
         comments = fetch_zendesk_comments(dispute.zd_ticket_id)
 
         # Read alias from Zendesk custom field so tokenizer ALIAS-tags it
-        alias = ""
-        for cf in ticket.get('custom_fields', []):
-            if cf.get('id') == 13606076120860:
-                alias = cf.get('value') or ""
-                break
+        # (single shared lookup path — no hardcoded field id here).
+        alias = get_ticket_email_alias(ticket)
 
         # Trusted: structured dispute fields (sourced from our own DB)
         trusted = {
