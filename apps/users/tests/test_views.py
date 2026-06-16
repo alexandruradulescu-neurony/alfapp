@@ -114,6 +114,31 @@ class TestLoginView:
         assert response.status_code == 403
         assert 'Too many login attempts' in response.content.decode()
 
+    def test_only_failed_logins_are_counted(self):
+        """#14: a SUCCESSFUL login must not increment the throttle counter."""
+        User.objects.create_user(username='thr_ok', password='RightPass123!')
+        ip = '10.0.0.11'
+        cache.delete(f'login_attempts_{ip}')
+        client = Client()
+        resp = client.post('/login/', {'username': 'thr_ok', 'password': 'RightPass123!'},
+                           REMOTE_ADDR=ip)
+        assert resp.status_code == 302
+        assert cache.get(f'login_attempts_{ip}') in (None, 0)
+
+    def test_failed_attempts_count_and_success_resets(self):
+        """#14: failures accrue; a success clears the counter (no shared-IP lockout)."""
+        User.objects.create_user(username='thr_reset', password='RightPass123!')
+        ip = '10.0.0.12'
+        cache.delete(f'login_attempts_{ip}')
+        client = Client()
+        for _ in range(4):
+            client.post('/login/', {'username': 'thr_reset', 'password': 'wrong'}, REMOTE_ADDR=ip)
+        assert cache.get(f'login_attempts_{ip}') == 4
+        resp = client.post('/login/', {'username': 'thr_reset', 'password': 'RightPass123!'},
+                           REMOTE_ADDR=ip)
+        assert resp.status_code == 302
+        assert cache.get(f'login_attempts_{ip}') in (None, 0)  # reset on success
+
     def test_login_authenticated_manager_redirects(self):
         """Test already authenticated manager is redirected."""
         manager = User.objects.create_user(

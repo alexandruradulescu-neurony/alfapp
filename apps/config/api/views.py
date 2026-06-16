@@ -112,7 +112,8 @@ def toggle_setting_flag(request):
     if flag not in TOGGLEABLE_SETTING_FLAGS:
         return Response({'success': False, 'error': f'Unknown flag: {flag}'},
                         status=status.HTTP_400_BAD_REQUEST)
-    enabled = bool(request.data.get('enabled'))
+    from rest_framework.fields import BooleanField
+    enabled = request.data.get('enabled') in BooleanField.TRUE_VALUES
     ss = SystemSettings.get_instance()
     setattr(ss, flag, enabled)
     ss.save(update_fields=[flag, 'updated_at'])

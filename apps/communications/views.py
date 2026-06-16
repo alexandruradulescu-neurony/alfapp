@@ -66,8 +66,10 @@ class EmailLogViewSet(viewsets.ReadOnlyModelViewSet):
         status, or the email's read state in the shared inbox.
         """
         email_log = self.get_object()
-        resolved = request.data.get('resolved', True)
-        email_log.action_required = not bool(resolved)
+        # Parse robustly — a bare bool() makes the string "false" truthy.
+        from rest_framework.fields import BooleanField
+        resolved = request.data.get('resolved', True) in BooleanField.TRUE_VALUES
+        email_log.action_required = not resolved
         email_log.save(update_fields=['action_required'])
         logger.info(
             f"EmailLog #{email_log.id} marked "

@@ -35,6 +35,15 @@ def _wc_credentials():
         raise WooCommerceNotConfigured(
             'WooCommerce store URL and REST API credentials are not configured '
             'in System settings.')
+    # Credentials are sent via HTTP Basic auth, so the store URL MUST be HTTPS
+    # (except explicit local/dev hosts) — refuse to leak them over plaintext.
+    from urllib.parse import urlparse
+    host = (urlparse(url).hostname or '').lower()
+    is_local = host in ('localhost', '127.0.0.1', '::1') or host.endswith('.local')
+    if not url.lower().startswith('https://') and not is_local:
+        raise WooCommerceNotConfigured(
+            'WooCommerce store URL must use HTTPS — credentials are sent via HTTP '
+            'Basic auth and must not go over plaintext.')
     return url, key, secret
 
 

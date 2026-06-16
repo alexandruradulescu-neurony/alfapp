@@ -35,9 +35,11 @@ ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
 # comma-separated list that includes your real domain, e.g.
 #   CSRF_TRUSTED_ORIGINS=https://lora.yourcompany.com
 # Without your production domain here, login and config form POSTs are rejected
-# with a 403 CSRF error. The defaults keep local dev + ngrok working.
+# with a 403 CSRF error. The env value REPLACES this default. The default covers
+# the known production host + local dev only — no transient dev tunnel (ngrok) is
+# trusted by default; add any tunnel you use via the env var while developing.
 CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[
-    'https://neurozen.ngrok.dev',
+    'https://alfapp-production.up.railway.app',
     'http://localhost:8000',
     'http://127.0.0.1:8000',
 ])

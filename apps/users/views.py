@@ -54,24 +54,17 @@ def rate_limit_logins(max_attempts=5, timeout=60):
         @wraps(view_func)
         def _wrapped_view(request, *args, **kwargs):
             if request.method == 'POST':
-                # Get client IP address
                 ip = request.META.get('REMOTE_ADDR', '')
-                cache_key = f'login_attempts_{ip}'
-                
-                # Get current attempts
-                attempts = cache.get(cache_key, 0)
-                
-                if attempts >= max_attempts:
+                # Only ENFORCE the ceiling here — the view records FAILED attempts
+                # and clears the counter on a successful login, so a valid login
+                # from a shared office IP isn't locked out by its own attempts.
+                if cache.get(f'login_attempts_{ip}', 0) >= max_attempts:
                     logger.warning(f"Rate limit exceeded for IP: {ip}")
                     from django.http import HttpResponseForbidden
                     return HttpResponseForbidden(
                         'Too many login attempts. Please try again later.',
                         content_type='text/plain'
                     )
-                
-                # Increment attempts
-                cache.set(cache_key, attempts + 1, timeout)
-            
             return view_func(request, *args, **kwargs)
         return _wrapped_view
     return decorator
@@ -90,10 +83,14 @@ def login_view(request):
 
         user = authenticate(request, username=username, password=password)
 
+        cache_key = f"login_attempts_{request.META.get('REMOTE_ADDR', '')}"
         if user is not None:
+            cache.delete(cache_key)  # reset the failure counter on success
             login(request, user)
             return redirect('manager_dashboard')
         else:
+            # Count only FAILED attempts (the throttle decorator enforces the cap).
+            cache.set(cache_key, cache.get(cache_key, 0) + 1, 60)
             messages.error(request, 'Invalid username or password.')
 
     from django.conf import settings as django_settings

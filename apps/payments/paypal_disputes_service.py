@@ -1042,11 +1042,17 @@ def sync_dispute_from_paypal(dispute_id: str):
     if dispute is None:
         # Unknown dispute updated before we ever ingested it — ingest now.
         dispute, _ = ingest_dispute(dispute_id)
+        if dispute is None:
+            # PayPal unreachable — signal failure so the webhook releases its
+            # idempotency gate and 503s for a retry (don't mark it "processed").
+            raise RuntimeError(f"Could not ingest dispute {dispute_id}: PayPal unreachable")
         return dispute
 
     details = fetch_dispute_details(dispute_id)
     if not details:
-        return dispute
+        # Couldn't fetch — RAISE rather than return quietly, so a webhook caller
+        # doesn't mark the event processed without actually syncing.
+        raise RuntimeError(f"Could not fetch dispute {dispute_id} from PayPal to sync")
 
     update_fields = []
     stage = details.get('dispute_life_cycle_stage', '') or ''

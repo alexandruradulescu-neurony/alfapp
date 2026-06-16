@@ -228,6 +228,49 @@ class WebhookIdempotencyTests(TestCase):
         # gate released → a retry won't short-circuit as "already processed"
         self.assertEqual(ProcessedWebhookEvent.objects.filter(event_id='WH-EXC-1').count(), 0)
 
+    def test_update_event_releases_gate_when_sync_fails(self):
+        # #8: an UPDATED/RESOLVED event whose PayPal fetch fails must 503 + release
+        # the gate, NOT silently mark the event processed without syncing.
+        from apps.payments import paypal_disputes_service as svc
+        from apps.payments.models import ProcessedWebhookEvent
+        event = {'id': 'WH-UPD-1', 'event_type': 'CUSTOMER.DISPUTE.UPDATED',
+                 'resource_type': 'dispute', 'resource': {'dispute_id': 'PP-D-UPD'}}
+        with patch.object(svc, 'verify_webhook_signature', return_value=True), \
+             patch.object(svc, 'sync_dispute_from_paypal', side_effect=RuntimeError('paypal down')):
+            resp = self.api.post('/api/payments/paypal/dispute-webhook/', event, format='json')
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(ProcessedWebhookEvent.objects.filter(event_id='WH-UPD-1').count(), 0)
+
+
+class WooCommerceHttpsTests(TestCase):
+    """#13 — credentials go over HTTP Basic auth, so the store URL must be HTTPS."""
+
+    def _set(self, url):
+        from apps.config.models import SystemSettings
+        ss = SystemSettings.get_instance()
+        ss.woocommerce_store_url = url
+        ss.woocommerce_consumer_key = 'ck'
+        ss.woocommerce_consumer_secret = 'cs'
+        ss.save()
+
+    def test_non_https_rejected(self):
+        from apps.payments.woocommerce_service import _wc_credentials, WooCommerceNotConfigured
+        self._set('http://shop.example.com')
+        with self.assertRaises(WooCommerceNotConfigured):
+            _wc_credentials()
+
+    def test_https_ok(self):
+        from apps.payments.woocommerce_service import _wc_credentials
+        self._set('https://shop.example.com')
+        url, key, secret = _wc_credentials()
+        self.assertTrue(url.startswith('https://'))
+
+    def test_localhost_http_allowed_for_dev(self):
+        from apps.payments.woocommerce_service import _wc_credentials
+        self._set('http://localhost:8080')
+        url, key, secret = _wc_credentials()  # local dev exemption — no raise
+        self.assertEqual(url, 'http://localhost:8080')
+
 
 class StateNormalizationTests(TestCase):
     """The queues read BOTH PayPal keys — a payload carrying only `dispute_state`

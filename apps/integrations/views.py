@@ -296,13 +296,11 @@ class ZendeskSidebarView(APIView):
         # Total count
         total_count = Dispute.objects.filter(claim=claim).count()
         
-        # Active disputes: any dispute that is not in a resolved state
-        # Active statuses: RECEIVED, MATCHED, GATHERING_DATA, DOCUMENTS_READY, UNDER_REVIEW, EVIDENCE_SENT
-        active_statuses = ['RECEIVED', 'MATCHED', 'GATHERING_DATA', 'DOCUMENTS_READY', 'UNDER_REVIEW', 'EVIDENCE_SENT']
-        
+        # Active disputes: any dispute not in a resolved state — single source
+        # of truth on the model (don't duplicate the status list here).
         active_disputes_qs = Dispute.objects.filter(
             claim=claim,
-            status__in=active_statuses
+            status__in=Dispute.ACTIVE_STATUSES
         ).order_by('-created_at')[:5]  # Limit to 5 most recent
         
         active_disputes = [
@@ -1271,7 +1269,8 @@ class ZendeskFlightLookupView(APIView):
         if not ticket_id:
             return Response({'error_message': 'No ticket id received.'},
                             status=status.HTTP_200_OK)
-        refresh = bool(request.data.get('refresh'))
+        from rest_framework.fields import BooleanField
+        refresh = request.data.get('refresh') in BooleanField.TRUE_VALUES
         claim = Claim.objects.filter(zd_ticket_id=ticket_id).first()
 
         if claim:

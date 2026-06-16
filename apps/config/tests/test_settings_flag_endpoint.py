@@ -37,3 +37,11 @@ class ToggleSettingFlagTests(TestCase):
         self.web.force_login(self.mgr)
         resp = self._post({'flag': 'is_superuser', 'enabled': True})
         self.assertEqual(resp.status_code, 400)
+
+    def test_string_false_is_treated_as_false(self):
+        # "false" submitted as TEXT must DISABLE the flag (bare bool() made it truthy).
+        self.web.force_login(self.mgr)
+        self._post({'flag': 'email_sweep_autorun', 'enabled': True})
+        self.assertTrue(SystemSettings.get_instance().email_sweep_autorun)
+        self._post({'flag': 'email_sweep_autorun', 'enabled': 'false'})
+        self.assertFalse(SystemSettings.get_instance().email_sweep_autorun)

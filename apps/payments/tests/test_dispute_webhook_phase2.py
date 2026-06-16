@@ -104,10 +104,20 @@ class DisputeWebhookTests(TestCase):
         self.assertEqual(Dispute.objects.count(), 0)
 
     def test_updated_event_acknowledged(self):
-        with patch.object(svc, 'verify_webhook_signature', return_value=True):
+        # PayPal reachable → the UPDATED event syncs and is acknowledged (200).
+        with patch.object(svc, 'verify_webhook_signature', return_value=True), \
+             patch.object(svc, 'fetch_dispute_details', return_value=DISPUTE_DETAILS):
             resp = self.api.post(URL, _event(event_type='CUSTOMER.DISPUTE.UPDATED',
                                              event_id='WH-4'), format='json')
         self.assertEqual(resp.status_code, 200)
+
+    def test_updated_event_503s_when_paypal_unreachable(self):
+        # #8: can't fetch → 503 (retry), NOT a silent 200 that drops the event.
+        with patch.object(svc, 'verify_webhook_signature', return_value=True), \
+             patch.object(svc, 'fetch_dispute_details', return_value=None):
+            resp = self.api.post(URL, _event(event_type='CUSTOMER.DISPUTE.UPDATED',
+                                             event_id='WH-4b'), format='json')
+        self.assertEqual(resp.status_code, 503)
 
 
 class VerifyWebhookSignatureTests(TestCase):
