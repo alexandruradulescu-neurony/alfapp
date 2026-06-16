@@ -888,9 +888,7 @@ def dispute_manual_reply(request, dispute_id):
     # each create + POST a duplicate supporting-info reply (each click makes its
     # own row, so a row-level claim wouldn't dedupe — this dispute-level mutex
     # does). Released when the call returns.
-    claimed = (Dispute.objects
-               .filter(pk=dispute.pk, outbound_in_flight=False)
-               .update(outbound_in_flight=True))
+    claimed = dispute.claim_outbound()
     if not claimed:
         messages.error(request, "A reply is already being sent — refresh to see the timeline.")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
@@ -904,7 +902,7 @@ def dispute_manual_reply(request, dispute_id):
         messages.error(request, f"Error sending the reply: {e}")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
     finally:
-        Dispute.objects.filter(pk=dispute.pk).update(outbound_in_flight=False)
+        dispute.release_outbound()
 
     if ok:
         messages.success(request, "Reply sent to PayPal.")
@@ -953,10 +951,7 @@ def dispute_accept_claim(request, dispute_id):
     # Atomically claim this money-moving action (compare-and-set) so two
     # concurrent clicks can't both call PayPal's accept-claim. Only the request
     # that flips the flag proceeds; the flag is released when the call returns.
-    claimed = (Dispute.objects
-               .filter(pk=dispute.pk, outbound_in_flight=False)
-               .exclude(status__in=Dispute.TERMINAL_STATUSES)
-               .update(outbound_in_flight=True))
+    claimed = dispute.claim_outbound(exclude_terminal=True)
     if not claimed:
         messages.error(request, "This dispute is already being processed — refresh to see its status.")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
@@ -1002,6 +997,6 @@ def dispute_accept_claim(request, dispute_id):
         messages.error(request, f"Error accepting claim: {str(e)}")
     finally:
         # Release the in-flight claim (accept_claim sets ACCEPTED on success).
-        Dispute.objects.filter(pk=dispute.pk).update(outbound_in_flight=False)
+        dispute.release_outbound()
 
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)

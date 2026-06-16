@@ -10,6 +10,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, Client
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.claims.models import Claim
 from apps.payments import frontend_views as fv
@@ -88,7 +89,8 @@ class ManualReplyGateTests(_Base):
 
     def test_concurrent_reply_rejected_by_mutex(self):
         d = _dispute(raw_webhook_payload={'dispute_state': 'UNDER_PAYPAL_REVIEW'},
-                     outbound_in_flight=True)  # another reply already in flight
+                     outbound_in_flight=True,
+                     outbound_in_flight_at=timezone.now())  # live reply in flight
         with patch.object(fv, 'submit_dispute_response') as submit:
             resp = self.web.post(reverse('disputes:dispute_manual_reply', args=[d.id]),
                                  {'reply_text': 'hi'}, follow=True)
@@ -109,11 +111,34 @@ class AcceptClaimRaceTests(_Base):
         self.assertFalse(d.outbound_in_flight)
 
     def test_concurrent_accept_is_rejected(self):
-        d = _dispute(status='MATCHED', outbound_in_flight=True)  # already in flight
+        d = _dispute(status='MATCHED', outbound_in_flight=True,
+                     outbound_in_flight_at=timezone.now())  # live accept in flight
         with patch.object(fv, 'accept_claim') as ac:
             resp = self.web.post(reverse('disputes:dispute_accept_claim', args=[d.id]), follow=True)
             ac.assert_not_called()
         self.assertContains(resp, 'already being processed')
+
+    def test_stale_lock_is_reclaimed(self):
+        """M3: a lock older than the TTL (worker died mid-call) is re-claimable,
+        so the dispute isn't wedged forever."""
+        from datetime import timedelta
+        stale = timezone.now() - (Dispute.OUTBOUND_INFLIGHT_TTL + timedelta(minutes=1))
+        d = _dispute(status='MATCHED', outbound_in_flight=True, outbound_in_flight_at=stale)
+        with patch.object(fv, 'accept_claim', return_value=True) as ac:
+            self.web.post(reverse('disputes:dispute_accept_claim', args=[d.id]), {'note': 'x'})
+            ac.assert_called_once()  # stale lock reclaimed
+        d.refresh_from_db()
+        self.assertFalse(d.outbound_in_flight)
+
+    def test_stuck_lock_without_timestamp_is_reclaimed(self):
+        """M3: a flag left True with no timestamp (legacy/pre-fix, or a crash
+        before stamping) is treated as abandoned and re-claimable."""
+        d = _dispute(status='MATCHED', outbound_in_flight=True, outbound_in_flight_at=None)
+        with patch.object(fv, 'accept_claim', return_value=True) as ac:
+            self.web.post(reverse('disputes:dispute_accept_claim', args=[d.id]), {'note': 'x'})
+            ac.assert_called_once()
+        d.refresh_from_db()
+        self.assertFalse(d.outbound_in_flight)
 
     def test_flag_released_on_exception(self):
         d = _dispute(status='MATCHED')

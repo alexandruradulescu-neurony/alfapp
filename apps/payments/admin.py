@@ -9,7 +9,16 @@ class DisputeAdmin(admin.ModelAdmin):
     list_filter = ('status', 'dispute_reason', 'created_at')
     search_fields = ('paypal_dispute_id', 'buyer_email', 'transaction_id', 'claim__client_email')
     ordering = ('-created_at',)
-    readonly_fields = ('created_at', 'updated_at', 'raw_webhook_payload')
+    readonly_fields = ('created_at', 'updated_at', 'raw_webhook_payload',
+                       'outbound_in_flight', 'outbound_in_flight_at')
+    actions = ['reset_outbound_lock']
+
+    @admin.action(description='Reset stuck outbound (in-flight) lock')
+    def reset_outbound_lock(self, request, queryset):
+        """Manual escape hatch for a dispute whose outbound lock was left set by a
+        crashed worker (it also auto-expires after Dispute.OUTBOUND_INFLIGHT_TTL)."""
+        updated = queryset.update(outbound_in_flight=False, outbound_in_flight_at=None)
+        self.message_user(request, f"Cleared the outbound lock on {updated} dispute(s).")
 
     fieldsets = (
         ('PayPal Information', {
@@ -30,6 +39,13 @@ class DisputeAdmin(admin.ModelAdmin):
         ('Raw Payload', {
             'fields': ('raw_webhook_payload',),
             'classes': ('collapse',)
+        }),
+        ('Outbound lock', {
+            'fields': ('outbound_in_flight', 'outbound_in_flight_at'),
+            'classes': ('collapse',),
+            'description': ('In-flight guard for PayPal accept/reply. A worker that '
+                            'crashed mid-call can leave this stuck True; it auto-expires '
+                            'after the TTL, or use the "Reset stuck outbound lock" action.'),
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),

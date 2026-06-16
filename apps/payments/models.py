@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
@@ -272,6 +274,37 @@ class Dispute(models.Model):
     # returns. (Cache locks are per-process here — no shared cache — so the
     # guard must live in the DB.)
     outbound_in_flight = models.BooleanField(default=False)
+    # When outbound_in_flight was last set. A worker killed between claiming the
+    # flag and the finally-release would otherwise leave it stuck True forever,
+    # wedging accept-claim / manual-reply on this dispute. With a timestamp the
+    # lock is treated as stale after OUTBOUND_INFLIGHT_TTL and re-claimable.
+    # NULL = idle / never claimed.
+    outbound_in_flight_at = models.DateTimeField(null=True, blank=True)
+
+    # A held lock older than this is considered abandoned (worker died mid-call).
+    OUTBOUND_INFLIGHT_TTL = timedelta(minutes=10)
+
+    def claim_outbound(self, *, exclude_terminal=False) -> bool:
+        """Atomically claim this dispute's outbound channel (compare-and-set).
+        Wins if the lock is free, stale (older than OUTBOUND_INFLIGHT_TTL), or
+        was left set without a timestamp (legacy/crashed). Returns True if this
+        caller now holds the lock. Release with release_outbound()."""
+        from django.db.models import Q
+        now = timezone.now()
+        cutoff = now - self.OUTBOUND_INFLIGHT_TTL
+        qs = Dispute.objects.filter(pk=self.pk).filter(
+            Q(outbound_in_flight=False)
+            | Q(outbound_in_flight_at__lt=cutoff)
+            | Q(outbound_in_flight_at__isnull=True)
+        )
+        if exclude_terminal:
+            qs = qs.exclude(status__in=self.TERMINAL_STATUSES)
+        return bool(qs.update(outbound_in_flight=True, outbound_in_flight_at=now))
+
+    def release_outbound(self) -> None:
+        """Release the outbound channel claimed by claim_outbound()."""
+        Dispute.objects.filter(pk=self.pk).update(
+            outbound_in_flight=False, outbound_in_flight_at=None)
 
     class Meta:
         ordering = ['-created_at']
