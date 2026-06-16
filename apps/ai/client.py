@@ -219,13 +219,16 @@ class AIClient:
 def _untokenize_model(obj: T, tokenizer: RegexTokenizer, mapping: dict[str, str]) -> T:
     """Walk a Pydantic model and un-tokenize every string-typed field.
 
-    Reconstruct with model_construct (NOT model_validate) so restoring PII
-    placeholders to their full values can't re-trigger field validators — e.g. a
-    soft length cap that would otherwise truncate a restored email/name
-    mid-value (the placeholder is ~16 chars; the real value is longer)."""
+    Re-validate with model_validate so nested models in the dumped data are
+    rebuilt into their proper types: model_construct does NOT recurse and would
+    leave nested objects as plain dicts, breaking callers that read their
+    attributes (e.g. the dispute-evidence narrative's list of items). A side
+    effect is that field validators (e.g. soft length caps) re-run on the
+    restored values — accepted, since capping restored PII is rare and far less
+    harmful than returning dict-shaped nested fields."""
     data = obj.model_dump()
     _untokenize_in_place(data, tokenizer, mapping)
-    return type(obj).model_construct(**data)
+    return type(obj).model_validate(data)
 
 
 def _untokenize_in_place(node: object, tokenizer: RegexTokenizer, mapping: dict[str, str]) -> None:

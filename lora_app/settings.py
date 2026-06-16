@@ -350,10 +350,10 @@ LOGGING = {
     'handlers': {
         'console': {'class': 'logging.StreamHandler', 'formatter': 'verbose'},
     },
+    # Configure the ROOT logger only: every logger (apps.*, django.request, …)
+    # propagates here, so all records reach the console handler — and test log
+    # capture (pytest caplog / assertLogs, which attach at the root) keeps working.
+    # Do NOT add per-logger handlers with propagate=False: that detaches them from
+    # the root and silently breaks caplog-based tests.
     'root': {'handlers': ['console'], 'level': env('LOG_LEVEL', default='INFO')},
-    'loggers': {
-        'django.request': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},
-        'apps': {'handlers': ['console'], 'level': env('LOG_LEVEL', default='INFO'),
-                 'propagate': False},
-    },
 }
