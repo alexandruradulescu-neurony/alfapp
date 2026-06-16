@@ -25,6 +25,9 @@ SECRET_KEY = env('SECRET_KEY')
 
 # Separate encryption key for database field encryption (falls back to SECRET_KEY if not set)
 ENCRYPTION_KEY = env('ENCRYPTION_KEY', default='')
+# Previous encryption keys, retained so credentials encrypted under an old key stay
+# decryptable after a key rotation (MultiFernet tries each in turn). Comma-separated.
+ENCRYPTION_KEY_FALLBACKS = env.list('ENCRYPTION_KEY_FALLBACKS', default=[])
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env('DEBUG')
@@ -110,6 +113,18 @@ WSGI_APPLICATION = 'lora_app.wsgi.application'
 # Database
 DATABASES = {
     'default': env.db('DATABASE_URL', default='sqlite:///db.sqlite3')
+}
+
+# Cache — database-backed so per-IP login/sidebar throttle counters are SHARED
+# across gunicorn workers. The default LocMemCache is per-process, so each worker
+# keeps its own counter and the effective limit is multiplied by the worker count.
+# The table is created by a migration (apps/config), so it exists in dev/test/prod
+# after `migrate` (no separate `createcachetable` step needed).
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'lora_cache_table',
+    }
 }
 
 # Custom User Model
@@ -198,7 +213,9 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/hour',
         'user': '1000/hour',
-        'login': '5/min',
+        # Login throttling is enforced by apps.users.views.rate_limit_logins (a
+        # plain Django view, not DRF), so there is intentionally no DRF 'login'
+        # scope here — a scope defined but never wired is a misleading safety net.
         'paypal_webhook': '100/hour',
         'zendesk_sidebar': '30/min',  # Rate limit for Zendesk sidebar widget
     },
@@ -225,6 +242,12 @@ AI_VALIDATION_STRICT = env.bool('AI_VALIDATION_STRICT', default=True)
 AI_TOKENIZER_BACKEND = env('AI_TOKENIZER_BACKEND', default='regex')
 AI_PHONE_DEFAULT_REGION = env('AI_PHONE_DEFAULT_REGION', default='US')
 AI_PHONE_FALLBACK_REGIONS = env.list('AI_PHONE_FALLBACK_REGIONS', default=['GB', 'FR', 'DE', 'IT', 'ES', 'JP'])
+
+# Bound the synchronous LLM call so a slow/hung provider can't tie up a gunicorn
+# worker for the OpenAI SDK default (~600s). complete() runs on the request path
+# (Zendesk briefing/chat), so this caps worst-case per-request worker occupancy.
+AI_TIMEOUT = env.int('AI_TIMEOUT', default=30)  # seconds, per LLM request
+AI_MAX_RETRIES = env.int('AI_MAX_RETRIES', default=1)  # OpenAI SDK auto-retry count
 
 # Legacy Qwen settings (for backward compatibility)
 QWEN_API_BASE = env('QWEN_API_BASE', default='https://dashscope.aliyuncs.com/compatible-mode/v1')
@@ -255,6 +278,13 @@ API_TIMEOUT = env.int('API_TIMEOUT', default=30)  # Default timeout for external
 IMAP_TIMEOUT = env.int('IMAP_TIMEOUT', default=30)  # IMAP connection timeout
 ZENDESK_TIMEOUT = env.int('ZENDESK_TIMEOUT', default=30)  # Zendesk API timeout
 PAYPAL_TIMEOUT = env.int('PAYPAL_TIMEOUT', default=30)  # PayPal API timeout
+
+# Client-IP resolution for per-IP throttling (apps.core.utils.get_client_ip).
+# In production LORA sits behind a single TLS-terminating proxy (Railway), so the
+# real client IP comes from X-Forwarded-For, not REMOTE_ADDR. Off by default under
+# DEBUG (no proxy locally). TRUSTED_PROXY_DEPTH = number of proxies in front.
+USE_X_FORWARDED_FOR = env.bool('USE_X_FORWARDED_FOR', default=not DEBUG)
+TRUSTED_PROXY_DEPTH = env.int('TRUSTED_PROXY_DEPTH', default=1)
 
 # Session Security Settings
 SESSION_COOKIE_HTTPONLY = True

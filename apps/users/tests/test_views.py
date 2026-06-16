@@ -139,6 +139,32 @@ class TestLoginView:
         assert resp.status_code == 302
         assert cache.get(f'login_attempts_{ip}') in (None, 0)  # reset on success
 
+    @pytest.mark.django_db
+    def test_throttle_keys_on_forwarded_client_ip_not_proxy(self):
+        """M6: behind a proxy the throttle must bucket per real client IP
+        (left-most-trusted X-Forwarded-For hop), not the shared REMOTE_ADDR, so
+        one client hitting the cap does not lock out everyone else."""
+        from django.test import override_settings
+        proxy = '10.0.0.1'          # what REMOTE_ADDR would collapse everyone to
+        client_a = '203.0.113.10'
+        client_b = '203.0.113.20'
+        for c in (client_a, client_b):
+            cache.delete(f'login_attempts_{c}')
+        with override_settings(USE_X_FORWARDED_FOR=True, TRUSTED_PROXY_DEPTH=1):
+            client = Client()
+            # client_a exhausts its own bucket
+            for _ in range(5):
+                client.post('/login/', {'username': 'x', 'password': 'wrong'},
+                            REMOTE_ADDR=proxy, HTTP_X_FORWARDED_FOR=client_a)
+            blocked = client.post('/login/', {'username': 'x', 'password': 'wrong'},
+                                  REMOTE_ADDR=proxy, HTTP_X_FORWARDED_FOR=client_a)
+            assert blocked.status_code == 403
+            # client_b shares the proxy IP but must have a separate bucket
+            ok = client.post('/login/', {'username': 'x', 'password': 'wrong'},
+                             REMOTE_ADDR=proxy, HTTP_X_FORWARDED_FOR=client_b)
+            assert ok.status_code != 403
+            assert cache.get(f'login_attempts_{client_b}') == 1
+
     def test_login_authenticated_manager_redirects(self):
         """Test already authenticated manager is redirected."""
         manager = User.objects.create_user(

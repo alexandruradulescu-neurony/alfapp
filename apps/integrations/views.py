@@ -21,6 +21,7 @@ from apps.communications.models import EmailLog
 from apps.config.models import SystemSettings
 from apps.payments.models import Dispute, Refund
 from apps.payments.refund_service import RefundService
+from apps.core.utils import get_client_ip
 from django.utils import timezone
 
 from apps.integrations.services import (
@@ -155,7 +156,7 @@ class ZendeskSidebarView(APIView):
         # Authenticate using sidebar secret token
         if not ZendeskSidebarAuth.authenticate(request):
             # Rate limit failed auth attempts by IP
-            ip = request.META.get('REMOTE_ADDR', '')
+            ip = get_client_ip(request)
             cache_key = f'sidebar_auth_fail_{ip}'
             failed_attempts = cache.get(cache_key, 0)
             cache.set(cache_key, failed_attempts + 1, 300)  # 5 min window
@@ -374,7 +375,7 @@ class ZendeskBriefingView(APIView):
 
     def post(self, request):
         if not ZendeskSidebarAuth.authenticate(request):
-            ip = request.META.get('REMOTE_ADDR', '')
+            ip = get_client_ip(request)
             cache_key = f'sidebar_auth_fail_{ip}'
             failed_attempts = cache.get(cache_key, 0)
             cache.set(cache_key, failed_attempts + 1, 300)
@@ -521,7 +522,7 @@ class ZendeskDraftView(APIView):
 
     def post(self, request):
         if not ZendeskSidebarAuth.authenticate(request):
-            ip = request.META.get('REMOTE_ADDR', '')
+            ip = get_client_ip(request)
             cache_key = f'sidebar_auth_fail_{ip}'
             failed_attempts = cache.get(cache_key, 0)
             cache.set(cache_key, failed_attempts + 1, 300)
@@ -599,7 +600,7 @@ class ZendeskChatView(APIView):
 
     def post(self, request):
         if not ZendeskSidebarAuth.authenticate(request):
-            ip = request.META.get('REMOTE_ADDR', '')
+            ip = get_client_ip(request)
             cache_key = f'sidebar_auth_fail_{ip}'
             failed_attempts = cache.get(cache_key, 0)
             cache.set(cache_key, failed_attempts + 1, 300)
@@ -1255,7 +1256,7 @@ class ZendeskFlightLookupView(APIView):
 
     def post(self, request):
         if not ZendeskSidebarAuth.authenticate(request):
-            ip = request.META.get('REMOTE_ADDR', '')
+            ip = get_client_ip(request)
             cache_key = f'sidebar_auth_fail_{ip}'
             failed_attempts = cache.get(cache_key, 0)
             cache.set(cache_key, failed_attempts + 1, 300)
@@ -1501,7 +1502,7 @@ class ZendeskEmailCheckView(APIView):
             EmailNotConfigured, InvalidAlias, check_email_for_ticket)
 
         if not ZendeskSidebarAuth.authenticate(request):
-            ip = request.META.get('REMOTE_ADDR', '')
+            ip = get_client_ip(request)
             cache_key = f'sidebar_auth_fail_{ip}'
             failed_attempts = cache.get(cache_key, 0)
             cache.set(cache_key, failed_attempts + 1, 300)
@@ -1572,7 +1573,7 @@ class ZendeskTicketEmailsView(APIView):
 
     def post(self, request):
         if not ZendeskSidebarAuth.authenticate(request):
-            ip = request.META.get('REMOTE_ADDR', '')
+            ip = get_client_ip(request)
             cache_key = f'sidebar_auth_fail_{ip}'
             failed_attempts = cache.get(cache_key, 0)
             cache.set(cache_key, failed_attempts + 1, 300)
@@ -1617,7 +1618,7 @@ class ZendeskClientUpdatesView(APIView):
 
     def post(self, request):
         if not ZendeskSidebarAuth.authenticate(request):
-            ip = request.META.get('REMOTE_ADDR', '')
+            ip = get_client_ip(request)
             cache_key = f'sidebar_auth_fail_{ip}'
             failed_attempts = cache.get(cache_key, 0)
             cache.set(cache_key, failed_attempts + 1, 300)

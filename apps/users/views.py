@@ -38,23 +38,26 @@ from apps.claims.models import Claim, ClaimEvidence
 from apps.communications.models import EmailLog
 from apps.config.models import SystemSettings
 from apps.users.models import User
+from apps.core.utils import get_client_ip
+from apps.users.constants import LOGIN_MAX_ATTEMPTS, LOGIN_ATTEMPT_WINDOW_SECONDS
 
 logger = logging.getLogger(__name__)
 
 
-def rate_limit_logins(max_attempts=5, timeout=60):
+def rate_limit_logins(max_attempts=LOGIN_MAX_ATTEMPTS):
     """
     Decorator to rate limit login attempts.
-    
+
     Args:
-        max_attempts: Maximum number of attempts allowed
-        timeout: Time window in seconds (default: 60 seconds = 1 minute)
+        max_attempts: Maximum number of FAILED attempts allowed per client IP
+            within LOGIN_ATTEMPT_WINDOW_SECONDS (the window is owned by the view,
+            which records the failures and clears them on success).
     """
     def decorator(view_func):
         @wraps(view_func)
         def _wrapped_view(request, *args, **kwargs):
             if request.method == 'POST':
-                ip = request.META.get('REMOTE_ADDR', '')
+                ip = get_client_ip(request)
                 # Only ENFORCE the ceiling here — the view records FAILED attempts
                 # and clears the counter on a successful login, so a valid login
                 # from a shared office IP isn't locked out by its own attempts.
@@ -73,7 +76,7 @@ def rate_limit_logins(max_attempts=5, timeout=60):
 # ============== Authentication Views ==============
 
 @login_redirect
-@rate_limit_logins(max_attempts=5, timeout=60)
+@rate_limit_logins(max_attempts=LOGIN_MAX_ATTEMPTS)
 @csrf_protect  # Explicitly enforce CSRF protection
 def login_view(request):
     """Login view with role-based redirect."""
@@ -83,14 +86,14 @@ def login_view(request):
 
         user = authenticate(request, username=username, password=password)
 
-        cache_key = f"login_attempts_{request.META.get('REMOTE_ADDR', '')}"
+        cache_key = f"login_attempts_{get_client_ip(request)}"
         if user is not None:
             cache.delete(cache_key)  # reset the failure counter on success
             login(request, user)
             return redirect('manager_dashboard')
         else:
             # Count only FAILED attempts (the throttle decorator enforces the cap).
-            cache.set(cache_key, cache.get(cache_key, 0) + 1, 60)
+            cache.set(cache_key, cache.get(cache_key, 0) + 1, LOGIN_ATTEMPT_WINDOW_SECONDS)
             messages.error(request, 'Invalid username or password.')
 
     from django.conf import settings as django_settings
