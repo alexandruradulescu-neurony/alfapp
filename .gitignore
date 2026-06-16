@@ -49,3 +49,6 @@ build/
 
 # Dev server output capture
 server_output.txt
+
+# Superpowers brainstorm artifacts
+.superpowers/
