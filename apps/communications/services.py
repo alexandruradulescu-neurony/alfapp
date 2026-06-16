@@ -162,6 +162,33 @@ ANONADDY_ORIGINAL_SENDER_HEADERS = (
 _EMAIL_RE = re.compile(r'[\w.+=-]+@[\w.-]+\.\w+')
 _PLAIN_EMAIL_RE = re.compile(r'[\w.+-]+@[\w.-]+\.\w+')
 
+# Alias-validation pattern — the SINGLE source of truth for the IMAP-interpolation
+# guard. An alias is interpolated into IMAP search commands (search_alias_uids),
+# so it MUST look like a plain email address with no quotes/whitespace/control
+# chars that could break out of the quoted search term. Stricter than the
+# extraction regexes above (anchored, fullmatch) because here we are validating a
+# whole field, not pulling an address out of free text.
+_ALIAS_RE = re.compile(r'[\w.+-]+@[\w-]+(\.[\w-]+)+')
+
+
+def _validate_alias(alias: str) -> str:
+    """Return the alias unchanged if it is a syntactically valid email address,
+    else raise InvalidAlias. Every IMAP path that interpolates the alias into a
+    search command guards through here, so the safety contract (see InvalidAlias)
+    cannot be bypassed by reaching search_alias_uids directly."""
+    if not _ALIAS_RE.fullmatch(alias or ''):
+        raise InvalidAlias(f"Alias {alias!r} doesn't look like an email address")
+    return alias
+
+
+def _is_duplicate_message(message_id: str) -> bool:
+    """True if an EmailLog already exists for this RFC 5322 Message-ID — the
+    process-at-most-once dedup key (see EmailLog.message_id). Blank ids (old rows
+    / messages with no Message-ID) never count as duplicates. The unique
+    constraint is the real guard against same-second races; this is the cheap
+    pre-check both inbound flows share."""
+    return bool(message_id) and EmailLog.objects.filter(message_id=message_id).exists()
+
 
 def decode_alias_encoded_address(addr: str) -> str:
     """Recover the real sender from an AnonAddy-encoded alias address.
@@ -243,22 +270,12 @@ def extract_alias_from_headers(msg: email.message.Message) -> Optional[str]:
         headers_to_check = ['Delivered-To', 'X-Original-To', 'To', 'X-RCPT-TO']
         
         for header_name in headers_to_check:
-            header_value = msg.get(header_name, '')
-            if not header_value:
-                continue
-            
-            # Decode header if necessary
-            header_value = decode_mime_header(header_value)
-            
-            # Extract email address from header
-            email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', header_value)
-            if email_match:
-                matched_email = email_match.group(0).lower()
-                
-                # Check if it matches our configured domain
-                if matched_email.endswith(f'@{email_domain}'):
-                    logger.debug(f"Found alias in {header_name}: {matched_email}")
-                    return matched_email
+            # Extract the first address from the header (single source of truth
+            # for the email regex), then check it against the configured domain.
+            matched_email = _first_email_in_header(msg, header_name)
+            if matched_email and matched_email.endswith(f'@{email_domain}'):
+                logger.debug(f"Found alias in {header_name}: {matched_email}")
+                return matched_email
         
         logger.debug("No matching alias found in headers")
         return None
@@ -606,7 +623,7 @@ def process_single_email(
         # guarantee that (unresolved mail is left UNSEEN on purpose), the
         # Message-ID can.
         message_id = (msg.get('Message-ID') or '').strip()[:512]
-        if message_id and EmailLog.objects.filter(message_id=message_id).exists():
+        if _is_duplicate_message(message_id):
             logger.info(f"Skipping already-processed email UID {uid} (Message-ID match)")
             return None
 
@@ -674,21 +691,10 @@ def process_single_email(
         # Extract raw headers for debugging
         raw_headers = extract_raw_headers(msg)
 
-        # Extract to_email and delivered_to from headers
-        to_email = ''
-        delivered_to = ''
-        
-        to_header = msg.get('To', '')
-        if to_header:
-            to_email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', decode_mime_header(to_header))
-            if to_email_match:
-                to_email = to_email_match.group(0).lower()
-        
-        delivered_to_header = msg.get('Delivered-To', '')
-        if delivered_to_header:
-            delivered_to_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', decode_mime_header(delivered_to_header))
-            if delivered_to_match:
-                delivered_to = delivered_to_match.group(0).lower()
+        # Extract to_email and delivered_to from headers (single source of truth
+        # for the email regex lives in _first_email_in_header).
+        to_email = _first_email_in_header(msg, 'To')
+        delivered_to = _first_email_in_header(msg, 'Delivered-To')
 
         # Call Qwen AI for enhanced analysis (mask client PII when the claim is known)
         ai_result = call_qwen_ai(ai_prompt, body, subject, known_pii=_known_pii_for_email(claim))
@@ -982,6 +988,9 @@ def search_alias_uids(conn: imaplib.IMAP4_SSL, alias: str) -> List[bytes]:
     Checks both the To header and Delivered-To (alias delivery commonly
     surfaces only there); results are unioned.
     """
+    # Self-guard: the alias is interpolated into the IMAP search term below, so
+    # validate here too (callers should already have, but this can't be bypassed).
+    _validate_alias(alias)
     since = imap_since_date()
     quoted = f'"{alias}"'
     uids = set()
@@ -997,8 +1006,8 @@ def search_alias_uids(conn: imaplib.IMAP4_SSL, alias: str) -> List[bytes]:
     return sorted(uids, key=int)
 
 
-def _ai_tags_for(category: str, action_required: bool) -> set:
-    tags = set()
+def _ai_tags_for(category: str, action_required: bool) -> set[str]:
+    tags: set[str] = set()
     if category in AI_TAG_BY_CATEGORY:
         tags.add(AI_TAG_BY_CATEGORY[category])
     if action_required:
@@ -1007,8 +1016,11 @@ def _ai_tags_for(category: str, action_required: bool) -> set:
 
 
 def _first_email_in_header(msg: email.message.Message, header_name: str) -> str:
+    """The first email address found in a single header, lower-cased ('' if none).
+    The one place a single address is pulled from a header — every caller routes
+    through here so the extraction regex lives in exactly one spot."""
     value = decode_mime_header(msg.get(header_name, '') or '')
-    match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', value)
+    match = _PLAIN_EMAIL_RE.search(value)
     return match.group(0).lower() if match else ''
 
 
@@ -1018,7 +1030,7 @@ def _process_ticket_email(
     msg: email.message.Message,
     message_id: str,
     ticket_id: str,
-    claim,
+    claim: Optional[Claim],
     alias: str,
     ai_prompt: str,
 ) -> Dict[str, Any]:
@@ -1095,8 +1107,7 @@ def check_email_for_ticket(ticket_id: str, claim, alias: str) -> Dict[str, Any]:
     Raises EmailNotConfigured when IMAP credentials are missing. IMAP
     connection errors propagate; per-email failures are counted, not raised.
     """
-    if not re.fullmatch(r'[\w.+-]+@[\w-]+(\.[\w-]+)+', alias or ''):
-        raise InvalidAlias(f"Alias {alias!r} doesn't look like an email address")
+    _validate_alias(alias)
 
     results = {
         'alias': alias,
@@ -1129,7 +1140,7 @@ def check_email_for_ticket(ticket_id: str, claim, alias: str) -> Dict[str, Any]:
                     continue
                 msg = email.message_from_bytes(msg_data[0][1])
                 message_id = (msg.get('Message-ID') or '').strip()[:512]
-                if message_id and EmailLog.objects.filter(message_id=message_id).exists():
+                if _is_duplicate_message(message_id):
                     results['already_processed'] += 1
                     continue
                 entry = _process_ticket_email(

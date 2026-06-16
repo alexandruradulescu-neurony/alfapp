@@ -95,12 +95,20 @@ class ClientUpdate(models.Model):
         ('DAY_21', 'Day 21'),
         ('FINAL', 'Final update'),
     ]
+    # State machine values. Use these constants (not bare strings) in filters
+    # and updates so a typo is a NameError, not a silent no-op filter.
+    STATE_SCHEDULED = 'SCHEDULED'   # due_at in the future / not yet prepared
+    STATE_DRAFTED = 'DRAFTED'       # prepared, awaiting agent review/send
+    STATE_SENT = 'SENT'
+    STATE_SKIPPED = 'SKIPPED'       # agent chose not to send, or claim closed
     STATE_CHOICES = [
-        ('SCHEDULED', 'Scheduled'),   # due_at in the future / not yet prepared
-        ('DRAFTED', 'Drafted'),       # prepared, awaiting agent review/send
-        ('SENT', 'Sent'),
-        ('SKIPPED', 'Skipped'),       # agent chose not to send, or claim closed
+        (STATE_SCHEDULED, 'Scheduled'),
+        (STATE_DRAFTED, 'Drafted'),
+        (STATE_SENT, 'Sent'),
+        (STATE_SKIPPED, 'Skipped'),
     ]
+    # The set of "open" states — exactly one is open at a time (the cascade).
+    OPEN_STATES = (STATE_SCHEDULED, STATE_DRAFTED)
 
     claim = models.ForeignKey(
         'claims.Claim', on_delete=models.CASCADE, related_name='follow_up_updates', db_index=True,

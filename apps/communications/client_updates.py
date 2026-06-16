@@ -136,7 +136,7 @@ def schedule_next(claim, submission_anchor=None):
     """Cascade step: ensure the NEXT update exists. No-op if one is already open
     (scheduled or drafted) — we only advance once the current one is resolved.
     Returns the newly-created ClientUpdate, or None if nothing was created."""
-    if claim.follow_up_updates.filter(state__in=['SCHEDULED', 'DRAFTED']).exists():
+    if claim.follow_up_updates.filter(state__in=ClientUpdate.OPEN_STATES).exists():
         return None
     sub_anchor = _submission_anchor(claim, submission_anchor or timezone.now())
     creation_anchor = getattr(claim, 'created_at', None) or sub_anchor
@@ -153,7 +153,7 @@ def schedule_next(claim, submission_anchor=None):
     milestone, due_at = plan[next_index]
     obj, _ = ClientUpdate.objects.get_or_create(
         claim=claim, milestone=milestone,
-        defaults={'due_at': due_at, 'state': 'SCHEDULED'},
+        defaults={'due_at': due_at, 'state': ClientUpdate.STATE_SCHEDULED},
     )
     return obj
 
@@ -180,21 +180,22 @@ def start_client_updates(claim) -> bool:
 def cancel_open_follow_ups(claim):
     """When a claim is solved/closed (or the item is found), stop chasing it —
     skip any not-yet-sent updates. Does NOT advance the cascade."""
-    return claim.follow_up_updates.filter(state__in=['SCHEDULED', 'DRAFTED']).update(
-        state='SKIPPED', updated_at=timezone.now())
+    return claim.follow_up_updates.filter(state__in=ClientUpdate.OPEN_STATES).update(
+        state=ClientUpdate.STATE_SKIPPED, updated_at=timezone.now())
 
 
 def due_follow_ups(claim, now=None):
     """Scheduled updates for ONE claim whose time has come (ready to prepare)."""
     now = now or timezone.now()
-    return claim.follow_up_updates.filter(state='SCHEDULED', due_at__lte=now).order_by('due_at')
+    return claim.follow_up_updates.filter(
+        state=ClientUpdate.STATE_SCHEDULED, due_at__lte=now).order_by('due_at')
 
 
 def due_updates(now=None):
     """Every scheduled update across ALL claims whose time has come — the work
     queue for the autonomous runner."""
     now = now or timezone.now()
-    return (ClientUpdate.objects.filter(state='SCHEDULED', due_at__lte=now)
+    return (ClientUpdate.objects.filter(state=ClientUpdate.STATE_SCHEDULED, due_at__lte=now)
             .select_related('claim').order_by('due_at'))
 
 
@@ -234,7 +235,8 @@ def _since_anchor(claim):
     times = []
     if getattr(claim, 'client_report_sent_at', None):
         times.append(claim.client_report_sent_at)
-    last_followup = claim.follow_up_updates.filter(state='SENT').order_by('-sent_at').first()
+    last_followup = claim.follow_up_updates.filter(
+        state=ClientUpdate.STATE_SENT).order_by('-sent_at').first()
     if last_followup and last_followup.sent_at:
         times.append(last_followup.sent_at)
     if times:
@@ -291,20 +293,26 @@ def _final_template(claim) -> str:
     ])
 
 
-def _draft_follow_up(claim, replies) -> tuple:
+def _draft_follow_up(claim, replies, ss=None) -> tuple:
     """Return (body, has_news). Only CLIENT-SAFE office replies are ever shown to
     the model (CLIENT_SAFE_REPLY_CATEGORIES) — administrative/harmful housekeeping
     is dropped here, deterministically, BEFORE drafting, so it can never reach the
     client even on the unattended autonomous path. With no client-safe news →
     reassuring 'still searching' template (has_news False); otherwise → AI
     progress update (per-office rule), falling back to the template on any AI
-    failure."""
+    failure.
+
+    Pass `ss` (a SystemSettings instance) to reuse one already-loaded singleton —
+    the autonomous runner threads it down so the cadence loop reads it once
+    instead of re-querying get_instance() for every due update."""
     safe = [r for r in replies if r.category in CLIENT_SAFE_REPLY_CATEGORIES]
     if not safe:
         return _no_news_template(claim), False
     try:
         from apps.config.models import SystemSettings
-        if not getattr(SystemSettings.get_instance(), 'ai_api_key', ''):
+        if ss is None:
+            ss = SystemSettings.get_instance()
+        if not getattr(ss, 'ai_api_key', ''):
             return _no_news_template(claim), True
         from apps.ai.client import AIClient
         from apps.ai.schemas import EmailDraft
@@ -333,10 +341,13 @@ def _draft_follow_up(claim, replies) -> tuple:
         return _no_news_template(claim), bool(safe)
 
 
-def prepare_follow_up(update, fetch_email=True):
+def prepare_follow_up(update, fetch_email=True, ss=None):
     """Prepare a due update: optionally pull fresh mail, then draft it and mark
     it DRAFTED for review. The FINAL milestone uses the end-of-service template;
-    every other milestone drafts a progress update from recent office replies."""
+    every other milestone drafts a progress update from recent office replies.
+
+    `ss` (an optional SystemSettings instance) is threaded down to the drafter so
+    the autonomous runner can load the singleton once for the whole queue."""
     claim = update.claim
     if fetch_email and getattr(claim, 'email_alias', '') and getattr(claim, 'zd_ticket_id', ''):
         try:
@@ -347,10 +358,10 @@ def prepare_follow_up(update, fetch_email=True):
     if update.milestone == FINAL_MILESTONE:
         body, has_news = _final_template(claim), False
     else:
-        body, has_news = _draft_follow_up(claim, _recent_office_replies(claim))
+        body, has_news = _draft_follow_up(claim, _recent_office_replies(claim), ss=ss)
     update.draft_body = body
     update.has_news = has_news
-    update.state = 'DRAFTED'
+    update.state = ClientUpdate.STATE_DRAFTED
     update.save(update_fields=['draft_body', 'has_news', 'state', 'updated_at'])
     return update
 
@@ -359,14 +370,21 @@ def send_follow_up(update, body) -> bool:
     """Post the (edited) update as a PUBLIC Zendesk reply, mark it SENT, and
     cascade-schedule the next milestone."""
     body = (body or '').strip()
-    if not body or update.state == 'SENT' or not update.claim.zd_ticket_id:
+    if not body or update.state == ClientUpdate.STATE_SENT or not update.claim.zd_ticket_id:
         return False
     from apps.integrations.services import post_zendesk_comment
     if post_zendesk_comment(update.claim.zd_ticket_id, body, is_internal=False) is None:
         return False
+    # ACCEPTED RISK: we post the public reply first, then record SENT. If the post
+    # succeeds but this save() raises, a later run can re-post the same reply
+    # (double-send). We keep this order deliberately — the alternative (mark SENT
+    # first) risks silently dropping a reply if the post then fails, which is
+    # worse for the client. The _claim_due_update CAS + the in-memory SENT guard
+    # above already collapse the common races; a save() failure right here is rare
+    # and a duplicate "we're still searching" note is the tolerable failure mode.
     update.draft_body = body
     update.sent_at = timezone.now()
-    update.state = 'SENT'
+    update.state = ClientUpdate.STATE_SENT
     update.save(update_fields=['draft_body', 'sent_at', 'state', 'updated_at'])
     schedule_next(update.claim)
     return True
@@ -374,7 +392,7 @@ def send_follow_up(update, body) -> bool:
 
 def skip_follow_up(update):
     """Skip a single update but keep the cadence going (schedule the next one)."""
-    update.state = 'SKIPPED'
+    update.state = ClientUpdate.STATE_SKIPPED
     update.save(update_fields=['state', 'updated_at'])
     schedule_next(update.claim)
     return update
@@ -387,8 +405,9 @@ def _claim_due_update(update_id, now):
     runs (or a runner racing an agent) can't both send it: flip SCHEDULED→DRAFTED
     in a single UPDATE and only proceed if THIS call made the change. Returns the
     refreshed update, or None if someone else already claimed it."""
-    claimed = ClientUpdate.objects.filter(pk=update_id, state='SCHEDULED').update(
-        state='DRAFTED', updated_at=now)
+    claimed = ClientUpdate.objects.filter(
+        pk=update_id, state=ClientUpdate.STATE_SCHEDULED).update(
+        state=ClientUpdate.STATE_DRAFTED, updated_at=now)
     if not claimed:
         return None
     return ClientUpdate.objects.select_related('claim').get(pk=update_id)
@@ -412,7 +431,10 @@ def run_due_updates(now=None) -> dict:
     """
     from apps.config.models import SystemSettings
     now = now or timezone.now()
-    if not getattr(SystemSettings.get_instance(), 'client_updates_autosend', False):
+    # Read the settings singleton ONCE for the whole queue and thread it into the
+    # drafter, rather than re-querying get_instance() for every due update.
+    ss = SystemSettings.get_instance()
+    if not getattr(ss, 'client_updates_autosend', False):
         return {'enabled': False, 'sent': 0, 'held': 0, 'skipped': 0, 'failed': 0,
                 'considered': 0}
 
@@ -427,7 +449,7 @@ def run_due_updates(now=None) -> dict:
             cancel_open_follow_ups(claim)
             skipped += 1
             continue
-        prepare_follow_up(update)  # fetches fresh mail + drafts (FINAL uses its template)
+        prepare_follow_up(update, ss=ss)  # fetches fresh mail + drafts (FINAL uses its template)
         found = object_found(claim)
         if found:
             # Good news (or an ambiguous 'possible match') — a human handles this:
@@ -442,7 +464,7 @@ def run_due_updates(now=None) -> dict:
         else:
             # Transient Zendesk failure — don't strand the cadence on a stuck
             # draft; put it back so the next run retries.
-            update.state = 'SCHEDULED'
+            update.state = ClientUpdate.STATE_SCHEDULED
             update.save(update_fields=['state', 'updated_at'])
             failed += 1
     return {'enabled': True, 'sent': sent, 'held': held, 'skipped': skipped,

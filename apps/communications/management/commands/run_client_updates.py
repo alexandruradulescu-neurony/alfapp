@@ -36,6 +36,9 @@ class Command(BaseCommand):
             self.stdout.write(
                 f"autosend={'ON' if autosend else 'OFF'} — {len(due)} update(s) due "
                 f"as of {timezone.now():%Y-%m-%d %H:%M %Z}:")
+            # Reading u.claim.alf_claim_id below is N+1-safe ONLY because
+            # due_updates() does .select_related('claim'). If that ever changes,
+            # this loop will fire one extra query per due update — keep them together.
             for u in due:
                 self.stdout.write(
                     f"  claim #{u.claim_id} ({u.claim.alf_claim_id or 'no ALF id'}) "
