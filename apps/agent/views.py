@@ -26,8 +26,9 @@ class AgentChatAPIView(APIView):
     POST /api/agent/chat/
     Body: {
         "message": "What's the status of ALF1234567?",
-        "claimIds": [123]  // optional
+        "conversationHistory": [...]  // optional: prior messages for context
     }
+    Claim IDs are detected from the message and history — they are not passed in.
     """
     authentication_classes = [SessionAuthentication]
     permission_classes = [permissions.IsAuthenticated, IsAgentOrManager]

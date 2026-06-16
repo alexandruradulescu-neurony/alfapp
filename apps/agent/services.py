@@ -40,6 +40,10 @@ class AgentChatService:
         "Allowed source values: claim, email, refund, zendesk."
     )
 
+    # Chat-tuning knobs for the LLM call (see process_message).
+    CHAT_TEMPERATURE = 0.7
+    CHAT_MAX_TOKENS = 2000
+
     def __init__(self):
         # Pattern to match ALF claim IDs (e.g., ALF1234567, ALF-1234567, ALF_1234567)
         self.claim_id_pattern = re.compile(r'ALF[-_]?\d{7}', re.IGNORECASE)
@@ -166,8 +170,8 @@ class AgentChatService:
                 known_pii={"aliases": aliases},
                 response_schema=ChatAnswer,
                 call_site="manager_chat",
-                temperature=0.7,
-                max_tokens=2000,
+                temperature=self.CHAT_TEMPERATURE,
+                max_tokens=self.CHAT_MAX_TOKENS,
             )
             return ChatResponse(
                 answer=result.answer,
@@ -407,10 +411,13 @@ class AgentChatService:
                     'error': f'Claim {alf_id} not found in LORA',
                 })
             except Exception as e:
-                logger.error(f"Error fetching context for claim {alf_id}: {e}")
+                # Log the detail server-side; never put raw exception text (which
+                # can carry internal details or unredacted PII) into the context
+                # that is then sent to the LLM.
+                logger.error(f"Error fetching context for claim {alf_id}: {e}", exc_info=True)
                 context['claims'].append({
                     'alf_claim_id': alf_id,
-                    'error': f'Error fetching claim data: {str(e)}',
+                    'error': 'Could not load this claim due to an internal error.',
                 })
         
         return context
