@@ -182,12 +182,14 @@ class Command(BaseCommand):
 
         claims = []
         for data in claims_data:
+            data = dict(data)  # copy so the source list stays re-runnable
             created_at = now - timedelta(days=data.pop("created_offset"))
-            claim = Claim.objects.create(
-                **data,
-                created_at=created_at,
-                updated_at=created_at,
-            )
+            claim = Claim.objects.create(**data)
+            # created_at/updated_at are auto_now_add/auto_now — create() ignores
+            # explicit values, so force the staggered timestamps post-create.
+            Claim.objects.filter(pk=claim.pk).update(
+                created_at=created_at, updated_at=created_at)
+            claim.created_at = claim.updated_at = created_at
             claims.append(claim)
             self.stdout.write(f"  Created claim: {claim.alf_claim_id} ({claim.status})")
 
@@ -195,6 +197,7 @@ class Command(BaseCommand):
 
     def _create_email_logs(self, claims, now):
         """Create 10 email logs linked to claims (2-3 per claim)."""
+        sender_email = "support@lostfound.airline.com"
         email_templates = [
             {
                 "subject": "Claim Submission Confirmation - ALF{claim_id}",
@@ -268,16 +271,19 @@ class Command(BaseCommand):
                     body=body,
                     ai_summary=f"Email regarding claim {claim.alf_claim_id} - {template['category']}",
                     action_required=template["action_required"],
-                    received_at=received_at,
-                    from_email=f"support@lostfound.airline.com",
+                    from_email=sender_email,
                     to_email=claim.client_email,
                     delivered_to=claim.client_email,
                     alias_matched="",
                     zd_ticket_id=claim.zd_ticket_id,
                     category=template["category"],
                     auto_resolved=template["auto_resolved"],
-                    raw_headers=f"From: support@lostfound.airline.com\nTo: {claim.client_email}\nSubject: {subject}\nDate: {received_at}",
+                    raw_headers=f"From: {sender_email}\nTo: {claim.client_email}\n"
+                                f"Subject: {subject}\nDate: {received_at}",
                 )
+                # received_at is auto_now_add — force the historical value post-create.
+                EmailLog.objects.filter(pk=email.pk).update(received_at=received_at)
+                email.received_at = received_at
                 emails.append(email)
                 email_count += 1
 
@@ -323,6 +329,7 @@ class Command(BaseCommand):
 
         disputes = []
         for data in disputes_data:
+            data = dict(data)  # copy so the source list stays re-runnable
             claim = claims[data.pop("claim_index")]
             transaction_days_ago = data.pop("transaction_days_ago")
             seller_response_due_days = data.pop("seller_response_due_days")
@@ -396,6 +403,7 @@ class Command(BaseCommand):
 
         refunds = []
         for data in refunds_data:
+            data = dict(data)  # copy so the source list stays re-runnable
             claim = claims[data.pop("claim_index")]
             created_days_ago = data.pop("created_days_ago")
             processed_at_offset = data.pop("processed_at_offset")
@@ -407,8 +415,6 @@ class Command(BaseCommand):
 
             refund = Refund.objects.create(
                 claim=claim,
-                created_at=created_at,
-                updated_at=created_at,
                 processed_at=processed_at,
                 metadata={
                     "refund_id": data["paypal_refund_id"],
@@ -417,6 +423,11 @@ class Command(BaseCommand):
                 },
                 **data,
             )
+            # created_at/updated_at are auto — force them so processed_at (derived
+            # from created_at) can't end up before the stored created_at.
+            Refund.objects.filter(pk=refund.pk).update(
+                created_at=created_at, updated_at=created_at)
+            refund.created_at = refund.updated_at = created_at
             refunds.append(refund)
             self.stdout.write(f"  Created refund: {refund.paypal_refund_id} - ${refund.amount} ({refund.status}) linked to {claim.alf_claim_id}")
 

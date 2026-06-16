@@ -79,11 +79,12 @@ class Command(BaseCommand):
             return
 
         status, _ = ServiceStatus.objects.get_or_create(
-            service=SCHEDULER_SERVICE, defaults={'status': 'stopped', 'is_enabled': True})
+            service=SCHEDULER_SERVICE,
+            defaults={'status': ServiceStatus.STATUS_STOPPED, 'is_enabled': True})
         if not status.is_enabled:
             self.stdout.write(self.style.WARNING(
                 "Scheduler is disabled (master switch off) — nothing run."))
-            status.status = 'stopped'
+            status.status = ServiceStatus.STATUS_STOPPED
             status.last_checked = timezone.now()
             status.save(update_fields=['status', 'last_checked'])
             return
@@ -98,7 +99,7 @@ class Command(BaseCommand):
                 results[name] = {'error': str(e)}
                 self.stderr.write(self.style.ERROR(f"  {name} FAILED: {e}"))
 
-        status.status = 'error' if errors else 'running'
+        status.status = ServiceStatus.STATUS_ERROR if errors else ServiceStatus.STATUS_RUNNING
         status.last_checked = timezone.now()
         status.last_error = ' | '.join(errors)
         status.metadata = {'ran_at': timezone.now().isoformat(), 'jobs': results}

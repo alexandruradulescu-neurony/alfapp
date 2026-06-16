@@ -18,12 +18,17 @@ class ServiceStatus(models.Model):
         ('SCHEDULER', 'Email Scheduler'),
     ]
     
+    STATUS_CONNECTED = 'connected'
+    STATUS_DISCONNECTED = 'disconnected'
+    STATUS_ERROR = 'error'
+    STATUS_RUNNING = 'running'
+    STATUS_STOPPED = 'stopped'
     STATUS_CHOICES = [
-        ('connected', 'Connected'),
-        ('disconnected', 'Disconnected'),
-        ('error', 'Error'),
-        ('running', 'Running'),
-        ('stopped', 'Stopped'),
+        (STATUS_CONNECTED, 'Connected'),
+        (STATUS_DISCONNECTED, 'Disconnected'),
+        (STATUS_ERROR, 'Error'),
+        (STATUS_RUNNING, 'Running'),
+        (STATUS_STOPPED, 'Stopped'),
     ]
     
     service = models.CharField(
@@ -68,21 +73,21 @@ class ServiceStatus(models.Model):
     
     def mark_connected(self):
         """Mark service as connected."""
-        self.status = 'connected'
+        self.status = self.STATUS_CONNECTED
         self.last_checked = timezone.now()
         self.last_error = ''
         self.save()
-    
+
     def mark_disconnected(self):
         """Mark service as disconnected."""
-        self.status = 'disconnected'
+        self.status = self.STATUS_DISCONNECTED
         self.last_checked = timezone.now()
         self.last_error = ''
         self.save()
-    
+
     def mark_error(self, error_message):
         """Mark service as having an error."""
-        self.status = 'error'
+        self.status = self.STATUS_ERROR
         self.last_checked = timezone.now()
         self.last_error = error_message
         self.save()
@@ -90,11 +95,11 @@ class ServiceStatus(models.Model):
     def get_status_color(self):
         """Return DaisyUI status color class."""
         color_map = {
-            'connected': 'success',
-            'disconnected': 'neutral',
-            'error': 'error',
-            'running': 'primary',
-            'stopped': 'warning',
+            self.STATUS_CONNECTED: 'success',
+            self.STATUS_DISCONNECTED: 'neutral',
+            self.STATUS_ERROR: 'error',
+            self.STATUS_RUNNING: 'primary',
+            self.STATUS_STOPPED: 'warning',
         }
         return color_map.get(self.status, 'neutral')
 
