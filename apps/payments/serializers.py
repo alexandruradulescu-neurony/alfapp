@@ -83,9 +83,17 @@ class RefundCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f'Claim {value} does not exist')
     
     def validate_amount(self, value):
-        """Validate amount is positive."""
+        """Validate amount is positive and under the coarse absolute ceiling.
+        The per-claim price_paid cap (in validate()) is the real over-refund
+        guard; this catches a fat-finger when the claim has no price_paid."""
+        from django.conf import settings
+        from decimal import Decimal
         if value <= 0:
             raise serializers.ValidationError('Amount must be positive')
+        ceiling = Decimal(str(getattr(settings, 'MAX_REFUND_AMOUNT', 100000)))
+        if value > ceiling:
+            raise serializers.ValidationError(
+                f'Amount {value} exceeds the maximum allowed refund ({ceiling}).')
         return value
 
     def validate(self, attrs):
@@ -113,10 +121,10 @@ class RefundStatusUpdateSerializer(serializers.Serializer):
     """Serializer for updating refund status."""
     
     status = serializers.ChoiceField(choices=[
-        ('PENDING', 'Pending'),
-        ('PROCESSING', 'Processing'),
-        ('COMPLETED', 'Completed'),
-        ('FAILED', 'Failed'),
-        ('CANCELLED', 'Cancelled'),
+        (Refund.STATUS_PENDING, 'Pending'),
+        (Refund.STATUS_PROCESSING, 'Processing'),
+        (Refund.STATUS_COMPLETED, 'Completed'),
+        (Refund.STATUS_FAILED, 'Failed'),
+        (Refund.STATUS_CANCELLED, 'Cancelled'),
     ])
     reason = serializers.CharField(required=False, allow_blank=True)

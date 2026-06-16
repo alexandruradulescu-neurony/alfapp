@@ -1,5 +1,8 @@
 """
-Frontend views for Dispute Management (MANAGER role only).
+Frontend views for Dispute Management (authenticated staff only).
+
+(@manager_required is now just a login gate — the manager/agent role split was
+removed in favour of a single trusted-staff user type.)
 
 Provides UI views for managing PayPal disputes:
 - List disputes with filters
@@ -19,7 +22,7 @@ from django.core.paginator import Paginator
 from django.views.decorators.http import require_POST
 
 from decimal import Decimal, InvalidOperation
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
@@ -151,34 +154,37 @@ def dispute_create(request):
 
         currency = ((request.POST.get('dispute_currency', '') or 'USD').strip()[:3] or 'USD').upper()
 
+        # Create the dispute and its creation-log entry as one unit — a crash
+        # between them would leave a dispute with no audit trail.
         try:
-            dispute = Dispute.objects.create(
-                paypal_dispute_id=ppid,
-                paypal_case_id=(request.POST.get('paypal_case_id', '') or '').strip(),
-                claim=claim,
-                zd_ticket_id=claim.zd_ticket_id or '',
-                status='MATCHED',
-                dispute_reason=reason,
-                dispute_amount=amount,
-                dispute_currency=currency,
-                buyer_email=buyer_email,
-                buyer_name=claim.client_name or '',
-                # The PayPal transaction id (used for matching + cross-checks),
-                # NOT the WooCommerce order id. Prefer the real PayPal txn id;
-                # fall back to the order id, then a marker.
-                transaction_id=(claim.paypal_transaction_id or claim.woocommerce_id or 'MANUAL'),
-                transaction_date=claim.created_at or timezone.now(),
-                seller_response_due=_parse_due(request.POST.get('seller_response_due', '')),
-                notes='Manually created in LORA (PayPal dispute did not arrive via webhook).',
-            )
+            with transaction.atomic():
+                dispute = Dispute.objects.create(
+                    paypal_dispute_id=ppid,
+                    paypal_case_id=(request.POST.get('paypal_case_id', '') or '').strip(),
+                    claim=claim,
+                    zd_ticket_id=claim.zd_ticket_id or '',
+                    status=Dispute.STATUS_MATCHED,
+                    dispute_reason=reason,
+                    dispute_amount=amount,
+                    dispute_currency=currency,
+                    buyer_email=buyer_email,
+                    buyer_name=claim.client_name or '',
+                    # The PayPal transaction id (used for matching + cross-checks),
+                    # NOT the WooCommerce order id. Prefer the real PayPal txn id;
+                    # fall back to the order id, then a marker.
+                    transaction_id=(claim.paypal_transaction_id or claim.woocommerce_id or 'MANUAL'),
+                    transaction_date=claim.created_at or timezone.now(),
+                    seller_response_due=_parse_due(request.POST.get('seller_response_due', '')),
+                    notes='Manually created in LORA (PayPal dispute did not arrive via webhook).',
+                )
+                DisputeActivityLog.objects.create(
+                    dispute=dispute, action=DisputeActivityLog.ACTION_STATUS_CHANGED,
+                    details=f"Dispute manually created from claim #{claim.id} "
+                            f"({claim.alf_claim_id or 'no ALF id'}).")
         except IntegrityError:
             messages.error(request, f"A dispute with PayPal ID '{ppid}' already exists.")
             return redirect(f"{request.path}?claim={claim.id}")
 
-        DisputeActivityLog.objects.create(
-            dispute=dispute, action='STATUS_CHANGED',
-            details=f"Dispute manually created from claim #{claim.id} "
-                    f"({claim.alf_claim_id or 'no ALF id'}).")
         messages.success(
             request,
             f"Dispute #{dispute.id} created. Generate the evidence report below, then download or send it.")
@@ -404,14 +410,16 @@ def dispute_link_claim(request, dispute_id):
     if not dispute.zd_ticket_id and claim.zd_ticket_id:
         dispute.zd_ticket_id = claim.zd_ticket_id
         update_fields.append('zd_ticket_id')
-    if dispute.status == 'RECEIVED':
-        dispute.status = 'MATCHED'
+    if dispute.status == Dispute.STATUS_RECEIVED:
+        dispute.status = Dispute.STATUS_MATCHED
         update_fields.append('status')
-    dispute.save(update_fields=update_fields)
-    DisputeActivityLog.objects.create(
-        dispute=dispute, action='DISPUTE_MATCHED',
-        details=(f"Manually linked to claim #{claim.id} ({claim.alf_claim_id}) by {request.user}"
-                 + (" — OVERRIDE: transaction ids differ." if txn_mismatch else ".")))
+    # Link + audit-log as one unit (no linked dispute without its log entry).
+    with transaction.atomic():
+        dispute.save(update_fields=update_fields)
+        DisputeActivityLog.objects.create(
+            dispute=dispute, action=DisputeActivityLog.ACTION_DISPUTE_MATCHED,
+            details=(f"Manually linked to claim #{claim.id} ({claim.alf_claim_id}) by {request.user}"
+                     + (" — OVERRIDE: transaction ids differ." if txn_mismatch else ".")))
     messages.success(request, f"Linked dispute to claim #{claim.id} ({claim.alf_claim_id}).")
     if txn_mismatch:
         messages.warning(request, "Linked despite differing PayPal transaction IDs (manager override).")
@@ -455,7 +463,7 @@ def dispute_detail(request, dispute_id):
     # reply timeline, and whether a generated evidence PDF exists to attach.
     draft_submission = _working_draft(dispute)
     has_evidence_pdf = (DisputeDocument.objects
-                        .filter(dispute=dispute, doc_type='EVIDENCE_REPORT')
+                        .filter(dispute=dispute, doc_type=DisputeDocument.DOC_TYPE_EVIDENCE_REPORT)
                         .exclude(file_path='').exists())
 
     context = {
@@ -477,7 +485,8 @@ def dispute_detail(request, dispute_id):
 
 def _working_draft(dispute):
     """The dispute's current DRAFT submission being prepared (latest), or None."""
-    return dispute.submissions.filter(status='DRAFT').order_by('-created_at').first()
+    return dispute.submissions.filter(
+        status=DisputeSubmission.STATUS_DRAFT).order_by('-created_at').first()
 
 
 @manager_required
@@ -559,7 +568,7 @@ def dispute_edit_document(request, document_id):
                 from apps.payments.document_service import _render_to_pdf
                 from django.core.files.base import ContentFile
                 pdf_bytes = filename = None
-                if document.doc_type == 'EVIDENCE_REPORT':
+                if document.doc_type == DisputeDocument.DOC_TYPE_EVIDENCE_REPORT:
                     # Evidence reports are full HTML — render the edited body
                     # directly (strip only scripts/handlers, preserve layout).
                     pdf_bytes = _render_to_pdf(
@@ -567,7 +576,7 @@ def dispute_edit_document(request, document_id):
                         f"Dispute #{document.dispute_id} Evidence Report (edited)")
                     filename = (f"evidence_report_dispute_{document.dispute_id}"
                                 f"_v{document.version}_edited.pdf")
-                elif document.doc_type == 'RESPONSE_LETTER':
+                elif document.doc_type == DisputeDocument.DOC_TYPE_RESPONSE_LETTER:
                     # Response letters are plain text rendered through the letter
                     # template (letterhead + dispute header, body via |linebreaks).
                     from django.template.loader import render_to_string
@@ -591,7 +600,7 @@ def dispute_edit_document(request, document_id):
         # Log the activity
         DisputeActivityLog.objects.create(
             dispute=document.dispute,
-            action='NOTE_ADDED',
+            action=DisputeActivityLog.ACTION_NOTE_ADDED,
             details=f"Document #{document.id} edited (v{document.version}); "
                     f"PDF {'regenerated' if regenerated else 'not regenerated'}.",
         )
@@ -627,19 +636,19 @@ def dispute_accept_document(request, document_id):
     """
     document = get_object_or_404(DisputeDocument, pk=document_id)
 
-    # Update document status. (accepted_at is a plain DateTimeField with no
-    # auto-set — it must be stamped explicitly; it was being left None forever.)
-    document.status = 'ACCEPTED'
+    # Update document status + audit log as one unit. (accepted_at is a plain
+    # DateTimeField with no auto-set — it must be stamped explicitly; it was being
+    # left None forever.)
+    document.status = DisputeDocument.STATUS_ACCEPTED
     document.accepted_at = timezone.now()
     document.accepted_by = request.user
-    document.save()
-
-    # Log the activity
-    DisputeActivityLog.objects.create(
-        dispute=document.dispute,
-        action='DOCUMENT_ACCEPTED',
-        details=f"Document #{document.id} ({document.get_doc_type_display()}) accepted by {request.user.username}",
-    )
+    with transaction.atomic():
+        document.save(update_fields=['status', 'accepted_at', 'accepted_by', 'updated_at'])
+        DisputeActivityLog.objects.create(
+            dispute=document.dispute,
+            action=DisputeActivityLog.ACTION_DOCUMENT_ACCEPTED,
+            details=f"Document #{document.id} ({document.get_doc_type_display()}) accepted by {request.user.username}",
+        )
 
     messages.success(request, f"Document #{document_id} accepted and ready for submission.")
     return redirect('disputes:dispute_detail', dispute_id=document.dispute_id)
@@ -661,7 +670,7 @@ def dispute_delete_document(request, document_id):
     # Log before deletion
     DisputeActivityLog.objects.create(
         dispute=document.dispute,
-        action='NOTE_ADDED',
+        action=DisputeActivityLog.ACTION_NOTE_ADDED,
         details=f"Document #{document.id} ({document.get_doc_type_display()}) deleted by {request.user.username}",
     )
 
@@ -682,14 +691,19 @@ def dispute_set_category(request, dispute_id):
     """
     dispute = get_object_or_404(Dispute, pk=dispute_id)
     category = request.POST.get('category', '').strip()
-    if category not in dict(Dispute.REASON_CHOICES):
+    # Use the cached VALID_REASONS dict (same validation as dispute_create) rather
+    # than rebuilding dict(REASON_CHOICES) on every request.
+    if category not in Dispute.VALID_REASONS:
         messages.error(request, "Unknown dispute category.")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
     dispute.dispute_reason = category
-    dispute.save(update_fields=['dispute_reason', 'updated_at'])
-    DisputeActivityLog.objects.create(
-        dispute=dispute, action='STATUS_CHANGED', performed_by=request.user,
-        details=f"Category set to {dispute.get_dispute_reason_display()}.")
+    # Category change + its audit-log entry as one unit.
+    with transaction.atomic():
+        dispute.save(update_fields=['dispute_reason', 'updated_at'])
+        DisputeActivityLog.objects.create(
+            dispute=dispute, action=DisputeActivityLog.ACTION_STATUS_CHANGED,
+            performed_by=request.user,
+            details=f"Category set to {dispute.get_dispute_reason_display()}.")
     messages.success(request, f"Category set to {dispute.get_dispute_reason_display()}.")
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
@@ -720,7 +734,7 @@ def dispute_send_evidence(request, dispute_id):
     # Get all accepted documents
     accepted_documents = DisputeDocument.objects.filter(
         dispute=dispute,
-        status='ACCEPTED'
+        status=DisputeDocument.STATUS_ACCEPTED
     )
 
     if not accepted_documents.exists():
@@ -734,6 +748,13 @@ def dispute_send_evidence(request, dispute_id):
             response_texts.append(f"=== {doc.get_doc_type_display()} (v{doc.version}) ===\n{doc.content_html}")
 
     response_text = "\n\n".join(response_texts) if response_texts else "Evidence submitted for dispute resolution."
+
+    # Atomically claim the dispute's outbound channel (same compare-and-set guard
+    # as dispute_accept_claim / dispute_manual_reply) so two concurrent submit
+    # clicks can't both POST evidence to PayPal. Released in finally.
+    if not dispute.claim_outbound():
+        messages.error(request, "Evidence is already being submitted — refresh to see its status.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
     try:
         # Call PayPal API to provide evidence
@@ -751,6 +772,8 @@ def dispute_send_evidence(request, dispute_id):
     except Exception as e:
         logger.error(f"Error sending evidence for Dispute #{dispute_id}: {e}")
         messages.error(request, f"Error submitting evidence: {str(e)}")
+    finally:
+        dispute.release_outbound()
 
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
@@ -784,8 +807,8 @@ def dispute_prepare_submission(request, dispute_id):
             draft = DisputeSubmission(dispute=dispute)
         draft.notes = result['notes']
         draft.manager_note = manager_note
-        draft.source = 'AI'  # machine-drafted (template fallback is still AI-origin)
-        draft.status = 'DRAFT'
+        draft.source = DisputeSubmission.SOURCE_AI  # machine-drafted (template fallback is still AI-origin)
+        draft.status = DisputeSubmission.STATUS_DRAFT
         if not draft.evidence_type:
             draft.evidence_type = evidence_type_for_reason(dispute.dispute_reason)
         draft.save()
@@ -797,17 +820,17 @@ def dispute_prepare_submission(request, dispute_id):
 
     # action == 'save'
     if draft is None:
-        draft = DisputeSubmission(dispute=dispute, source='MANUAL')
+        draft = DisputeSubmission(dispute=dispute, source=DisputeSubmission.SOURCE_MANUAL)
     notes = request.POST.get('notes', '')
-    if draft.source == 'AI' and notes.strip() != (draft.notes or '').strip():
-        draft.source = 'AI_EDITED'   # AI draft the manager then edited
+    if draft.source == DisputeSubmission.SOURCE_AI and notes.strip() != (draft.notes or '').strip():
+        draft.source = DisputeSubmission.SOURCE_AI_EDITED   # AI draft the manager then edited
     draft.notes = notes
     draft.manager_note = manager_note
     draft.attach_evidence_pdf = request.POST.get('attach_evidence_pdf') == 'on'
     evidence_type = (request.POST.get('evidence_type') or '').strip()
     if evidence_type:
         draft.evidence_type = evidence_type
-    draft.status = 'DRAFT'
+    draft.status = DisputeSubmission.STATUS_DRAFT
     draft.save()
 
     saved = 0
@@ -856,8 +879,8 @@ def dispute_submit_to_paypal(request, dispute_id):
     # can't both POST the same submission to PayPal. Only the request whose
     # conditional update touches the row proceeds to the (outside-txn) call.
     claimed = (DisputeSubmission.objects
-               .filter(pk=draft.pk, status='DRAFT')
-               .update(status='SUBMITTING'))
+               .filter(pk=draft.pk, status=DisputeSubmission.STATUS_DRAFT)
+               .update(status=DisputeSubmission.STATUS_SUBMITTING))
     if not claimed:
         messages.error(request, "This submission is already being sent — refresh to see its status.")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
@@ -868,7 +891,9 @@ def dispute_submit_to_paypal(request, dispute_id):
     except Exception as e:
         logger.error(f"Submit-to-PayPal failed for Dispute #{dispute_id}: {e}")
         # Release the claim so the manager can retry.
-        DisputeSubmission.objects.filter(pk=draft.pk, status='SUBMITTING').update(status='DRAFT')
+        (DisputeSubmission.objects
+         .filter(pk=draft.pk, status=DisputeSubmission.STATUS_SUBMITTING)
+         .update(status=DisputeSubmission.STATUS_DRAFT))
         messages.error(request, f"Error submitting to PayPal: {e}")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
@@ -915,7 +940,8 @@ def dispute_manual_reply(request, dispute_id):
 
     try:
         submission = DisputeSubmission.objects.create(
-            dispute=dispute, notes=text, source='MANUAL', status='DRAFT')
+            dispute=dispute, notes=text, source=DisputeSubmission.SOURCE_MANUAL,
+            status=DisputeSubmission.STATUS_DRAFT)
         ok = submit_dispute_response(submission, performed_by=request.user)
     except Exception as e:
         logger.error(f"Manual reply failed for Dispute #{dispute_id}: {e}")
@@ -940,7 +966,7 @@ def dispute_delete_submission_image(request, image_id):
     """
     image = get_object_or_404(DisputeSubmissionImage, pk=image_id)
     dispute_id = image.submission.dispute_id
-    if image.submission.status != 'DRAFT':
+    if image.submission.status != DisputeSubmission.STATUS_DRAFT:
         messages.error(request, "Can't change attachments on an already-submitted entry.")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
     image.delete()
@@ -962,7 +988,7 @@ def dispute_accept_claim(request, dispute_id):
 
     # State guard: don't accept an already-resolved/accepted dispute (would be
     # a no-op at best, a confusing double-action at worst).
-    if dispute.status in ('RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED'):
+    if dispute.status in Dispute.TERMINAL_STATUSES:
         messages.error(
             request,
             f"This dispute is already {dispute.get_status_display()} — nothing to accept.")
@@ -1001,7 +1027,7 @@ def dispute_accept_claim(request, dispute_id):
             except Exception as sync_err:
                 logger.warning(f"Post-accept reconcile sync failed for Dispute #{dispute_id}: {sync_err}")
             dispute.refresh_from_db()
-            if dispute.status in ('RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED'):
+            if dispute.status in Dispute.TERMINAL_STATUSES:
                 messages.warning(
                     request,
                     "PayPal now reports this dispute as resolved — the acceptance went through "

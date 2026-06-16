@@ -11,25 +11,43 @@ class Refund(models.Model):
     Tracks refunds initiated via LORA, WooCommerce, or manually.
     """
     
+    # Status values — reference these constants (not bare strings) everywhere so
+    # a rename is a NameError, not a silently-broken comparison.
+    STATUS_REQUESTED = 'REQUESTED'
+    STATUS_PENDING = 'PENDING'
+    STATUS_PROCESSING = 'PROCESSING'
+    STATUS_COMPLETED = 'COMPLETED'
+    STATUS_FAILED = 'FAILED'
+    STATUS_CANCELLED = 'CANCELLED'
     STATUS_CHOICES = [
-        ('REQUESTED', 'Requested'),
-        ('PENDING', 'Pending'),
-        ('PROCESSING', 'Processing'),
-        ('COMPLETED', 'Completed'),
-        ('FAILED', 'Failed'),
-        ('CANCELLED', 'Cancelled'),
+        (STATUS_REQUESTED, 'Requested'),
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_PROCESSING, 'Processing'),
+        (STATUS_COMPLETED, 'Completed'),
+        (STATUS_FAILED, 'Failed'),
+        (STATUS_CANCELLED, 'Cancelled'),
     ]
-    
+
+    TYPE_FULL = 'FULL'
+    TYPE_PARTIAL = 'PARTIAL'
     TYPE_CHOICES = [
-        ('FULL', 'Full Refund'),
-        ('PARTIAL', 'Partial Refund'),
+        (TYPE_FULL, 'Full Refund'),
+        (TYPE_PARTIAL, 'Partial Refund'),
     ]
-    
+
+    SOURCE_LORA = 'LORA'
+    SOURCE_WOOCOMMERCE = 'WOOCOMMERCE'
+    SOURCE_MANUAL = 'MANUAL'
     SOURCE_CHOICES = [
-        ('LORA', 'LORA Initiated'),
-        ('WOOCOMMERCE', 'WooCommerce/WordPress'),
-        ('MANUAL', 'Manual Entry'),
+        (SOURCE_LORA, 'LORA Initiated'),
+        (SOURCE_WOOCOMMERCE, 'WooCommerce/WordPress'),
+        (SOURCE_MANUAL, 'Manual Entry'),
     ]
+
+    # paypal_refund_id prefixes for WooCommerce-origin rows (a placeholder id is
+    # used until/unless a real PayPal refund id is known).
+    WC_PREFIX = 'WC-'
+    WC_PENDING_PREFIX = 'WC-PENDING-'
     
     # Relationship to Claim (One Claim can have multiple Refunds)
     claim = models.ForeignKey(
@@ -70,7 +88,7 @@ class Refund(models.Model):
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default='REQUESTED',
+        default=STATUS_REQUESTED,
         help_text='Current refund status'
     )
     
@@ -85,7 +103,7 @@ class Refund(models.Model):
     external_source = models.CharField(
         max_length=20,
         choices=SOURCE_CHOICES,
-        default='LORA',
+        default=SOURCE_LORA,
         help_text='Origin of the refund'
     )
     
@@ -131,30 +149,37 @@ class Refund(models.Model):
         return f'Refund {self.id} - {self.currency} {self.amount} ({self.status})'
     
     def mark_completed(self):
-        """Mark refund as completed."""
-        self.status = 'COMPLETED'
+        """Mark refund as completed. Writes only the touched columns so a
+        concurrent writer (e.g. a PayPal webhook vs. an admin action) can't
+        clobber unrelated fields with a stale full-row save."""
+        self.status = self.STATUS_COMPLETED
         self.processed_at = timezone.now()
-        self.save()
-    
+        self.save(update_fields=['status', 'processed_at', 'updated_at'])
+
     def mark_failed(self, error_message=''):
-        """Mark refund as failed."""
-        self.status = 'FAILED'
+        """Mark refund as failed (touched columns only — see mark_completed)."""
+        self.status = self.STATUS_FAILED
         if error_message:
             self.metadata['error_message'] = error_message
-        self.save()
-    
+        self.save(update_fields=['status', 'metadata', 'updated_at'])
+
     def mark_processing(self):
-        """Mark refund as processing."""
-        self.status = 'PROCESSING'
-        self.save()
-    
+        """Mark refund as processing (touched columns only — see mark_completed)."""
+        self.status = self.STATUS_PROCESSING
+        self.save(update_fields=['status', 'updated_at'])
+
+    def mark_cancelled(self):
+        """Mark refund as cancelled (touched columns only — see mark_completed)."""
+        self.status = self.STATUS_CANCELLED
+        self.save(update_fields=['status', 'updated_at'])
+
     @property
     def is_completed(self):
-        return self.status == 'COMPLETED'
-    
+        return self.status == self.STATUS_COMPLETED
+
     @property
     def is_pending(self):
-        return self.status == 'PENDING'
+        return self.status == self.STATUS_PENDING
 
 
 class Dispute(models.Model):
@@ -163,24 +188,35 @@ class Dispute(models.Model):
     Tied to a Claim (required) with its own lifecycle.
     """
 
+    # Status values — reference these constants (not bare strings) in view/service
+    # logic so a rename can't silently break a comparison or a log.
+    STATUS_RECEIVED = 'RECEIVED'
+    STATUS_MATCHED = 'MATCHED'
+    STATUS_GATHERING_DATA = 'GATHERING_DATA'
+    STATUS_DOCUMENTS_READY = 'DOCUMENTS_READY'
+    STATUS_UNDER_REVIEW = 'UNDER_REVIEW'
+    STATUS_EVIDENCE_SENT = 'EVIDENCE_SENT'
+    STATUS_RESOLVED_WON = 'RESOLVED_WON'
+    STATUS_RESOLVED_LOST = 'RESOLVED_LOST'
+    STATUS_ACCEPTED = 'ACCEPTED'
     STATUS_CHOICES = [
-        ('RECEIVED', 'Received'),
-        ('MATCHED', 'Matched to Zendesk Ticket'),
-        ('GATHERING_DATA', 'Gathering Data'),
-        ('DOCUMENTS_READY', 'Documents Ready'),
-        ('UNDER_REVIEW', 'Under Review'),
-        ('EVIDENCE_SENT', 'Evidence Sent to PayPal'),
-        ('RESOLVED_WON', 'Resolved - Won'),
-        ('RESOLVED_LOST', 'Resolved - Lost'),
-        ('ACCEPTED', 'Accepted/Refunded'),
+        (STATUS_RECEIVED, 'Received'),
+        (STATUS_MATCHED, 'Matched to Zendesk Ticket'),
+        (STATUS_GATHERING_DATA, 'Gathering Data'),
+        (STATUS_DOCUMENTS_READY, 'Documents Ready'),
+        (STATUS_UNDER_REVIEW, 'Under Review'),
+        (STATUS_EVIDENCE_SENT, 'Evidence Sent to PayPal'),
+        (STATUS_RESOLVED_WON, 'Resolved - Won'),
+        (STATUS_RESOLVED_LOST, 'Resolved - Lost'),
+        (STATUS_ACCEPTED, 'Accepted/Refunded'),
     ]
 
     # Status groupings — the single source of truth for "is this dispute over?".
     # A dispute in a TERMINAL status no longer needs action and no longer voids
     # the client-update cadence; everything else is ACTIVE.
-    TERMINAL_STATUSES = ('RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED')
-    ACTIVE_STATUSES = ('RECEIVED', 'MATCHED', 'GATHERING_DATA',
-                       'DOCUMENTS_READY', 'UNDER_REVIEW', 'EVIDENCE_SENT')
+    TERMINAL_STATUSES = (STATUS_RESOLVED_WON, STATUS_RESOLVED_LOST, STATUS_ACCEPTED)
+    ACTIVE_STATUSES = (STATUS_RECEIVED, STATUS_MATCHED, STATUS_GATHERING_DATA,
+                       STATUS_DOCUMENTS_READY, STATUS_UNDER_REVIEW, STATUS_EVIDENCE_SENT)
 
     # Must match PayPal's exact `reason` enum (British 'UNAUTHORISED', etc.) —
     # any drift breaks prefill from the webhook. This is the human's category.
@@ -216,7 +252,7 @@ class Dispute(models.Model):
     status = models.CharField(
         max_length=30,
         choices=STATUS_CHOICES,
-        default='RECEIVED',
+        default=STATUS_RECEIVED,
         db_index=True,
     )
 
@@ -327,8 +363,8 @@ class Dispute(models.Model):
     # Stages from which PayPal accepts an evidence upload (INQUIRY is
     # message-only — PayPal rejects provide-evidence there).
     EVIDENCE_STAGES = ('CHARGEBACK', 'PRE_ARBITRATION', 'ARBITRATION')
-    OPEN_STATUSES = ('RECEIVED', 'MATCHED', 'GATHERING_DATA', 'DOCUMENTS_READY',
-                     'UNDER_REVIEW', 'EVIDENCE_SENT')
+    OPEN_STATUSES = (STATUS_RECEIVED, STATUS_MATCHED, STATUS_GATHERING_DATA,
+                     STATUS_DOCUMENTS_READY, STATUS_UNDER_REVIEW, STATUS_EVIDENCE_SENT)
 
     @property
     def can_submit_evidence(self) -> bool:
@@ -379,10 +415,8 @@ class Dispute(models.Model):
     @property
     def deadline_state(self) -> str:
         """'' | overdue | soon | ok — for colour-coding the response deadline."""
-        if not self.seller_response_due or self.status in (
-                'RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED'):
+        if not self.seller_response_due or self.status in self.TERMINAL_STATUSES:
             return ''
-        from django.utils import timezone
         days = (self.seller_response_due - timezone.now()).days
         if days < 0:
             return 'overdue'
@@ -396,21 +430,29 @@ class DisputeDocument(models.Model):
     Response letters and evidence reports for disputes.
     """
 
+    DOC_TYPE_RESPONSE_LETTER = 'RESPONSE_LETTER'
+    DOC_TYPE_EVIDENCE_REPORT = 'EVIDENCE_REPORT'
     DOC_TYPE_CHOICES = [
-        ('RESPONSE_LETTER', 'Response Letter'),
-        ('EVIDENCE_REPORT', 'Evidence Report'),
+        (DOC_TYPE_RESPONSE_LETTER, 'Response Letter'),
+        (DOC_TYPE_EVIDENCE_REPORT, 'Evidence Report'),
     ]
 
+    STATUS_DRAFT = 'DRAFT'
+    STATUS_REVIEW = 'REVIEW'
+    STATUS_ACCEPTED = 'ACCEPTED'
+    STATUS_SENT = 'SENT'
     STATUS_CHOICES = [
-        ('DRAFT', 'Draft'),
-        ('REVIEW', 'Under Review'),
-        ('ACCEPTED', 'Accepted'),
-        ('SENT', 'Sent to PayPal'),
+        (STATUS_DRAFT, 'Draft'),
+        (STATUS_REVIEW, 'Under Review'),
+        (STATUS_ACCEPTED, 'Accepted'),
+        (STATUS_SENT, 'Sent to PayPal'),
     ]
 
+    GENERATED_BY_AI = 'AI'
+    GENERATED_BY_MANUAL = 'MANUAL'
     GENERATED_BY_CHOICES = [
-        ('AI', 'AI Generated'),
-        ('MANUAL', 'Manually Created'),
+        (GENERATED_BY_AI, 'AI Generated'),
+        (GENERATED_BY_MANUAL, 'Manually Created'),
     ]
 
     dispute = models.ForeignKey(
@@ -425,7 +467,7 @@ class DisputeDocument(models.Model):
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default='DRAFT',
+        default=STATUS_DRAFT,
         db_index=True,
     )
     file_path = models.FileField(
@@ -441,7 +483,7 @@ class DisputeDocument(models.Model):
     generated_by = models.CharField(
         max_length=10,
         choices=GENERATED_BY_CHOICES,
-        default='AI',
+        default=GENERATED_BY_AI,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -472,16 +514,25 @@ class DisputeActivityLog(models.Model):
     Audit trail for dispute actions.
     """
 
+    ACTION_DISPUTE_CREATED = 'DISPUTE_CREATED'
+    ACTION_DISPUTE_MATCHED = 'DISPUTE_MATCHED'
+    ACTION_SCREENSHOTS_CAPTURED = 'SCREENSHOTS_CAPTURED'
+    ACTION_DOCUMENT_GENERATED = 'DOCUMENT_GENERATED'
+    ACTION_DOCUMENT_ACCEPTED = 'DOCUMENT_ACCEPTED'
+    ACTION_EVIDENCE_SENT = 'EVIDENCE_SENT'
+    ACTION_STATUS_CHANGED = 'STATUS_CHANGED'
+    ACTION_NOTE_ADDED = 'NOTE_ADDED'
+    ACTION_DISPUTE_RESOLVED = 'DISPUTE_RESOLVED'
     ACTION_CHOICES = [
-        ('DISPUTE_CREATED', 'Dispute Created'),
-        ('DISPUTE_MATCHED', 'Dispute Matched to Ticket'),
-        ('SCREENSHOTS_CAPTURED', 'Screenshots Captured'),
-        ('DOCUMENT_GENERATED', 'Document Generated'),
-        ('DOCUMENT_ACCEPTED', 'Document Accepted'),
-        ('EVIDENCE_SENT', 'Evidence Sent to PayPal'),
-        ('STATUS_CHANGED', 'Status Changed'),
-        ('NOTE_ADDED', 'Note Added'),
-        ('DISPUTE_RESOLVED', 'Dispute Resolved'),
+        (ACTION_DISPUTE_CREATED, 'Dispute Created'),
+        (ACTION_DISPUTE_MATCHED, 'Dispute Matched to Ticket'),
+        (ACTION_SCREENSHOTS_CAPTURED, 'Screenshots Captured'),
+        (ACTION_DOCUMENT_GENERATED, 'Document Generated'),
+        (ACTION_DOCUMENT_ACCEPTED, 'Document Accepted'),
+        (ACTION_EVIDENCE_SENT, 'Evidence Sent to PayPal'),
+        (ACTION_STATUS_CHANGED, 'Status Changed'),
+        (ACTION_NOTE_ADDED, 'Note Added'),
+        (ACTION_DISPUTE_RESOLVED, 'Dispute Resolved'),
     ]
 
     dispute = models.ForeignKey(
@@ -522,27 +573,37 @@ class DisputeSubmission(models.Model):
     rows form the "our side" half of the dispute timeline.
     """
 
+    KIND_EVIDENCE = 'EVIDENCE'
+    KIND_SUPPORTING_INFO = 'SUPPORTING_INFO'
+    KIND_MESSAGE = 'MESSAGE'
     KIND_CHOICES = [
-        ('EVIDENCE', 'First evidence'),
-        ('SUPPORTING_INFO', 'Supporting info'),
-        ('MESSAGE', 'Message to buyer'),
+        (KIND_EVIDENCE, 'First evidence'),
+        (KIND_SUPPORTING_INFO, 'Supporting info'),
+        (KIND_MESSAGE, 'Message to buyer'),
     ]
+    SOURCE_AI = 'AI'
+    SOURCE_AI_EDITED = 'AI_EDITED'
+    SOURCE_MANUAL = 'MANUAL'
     SOURCE_CHOICES = [
-        ('AI', 'AI-drafted'),
-        ('AI_EDITED', 'AI-drafted, edited'),
-        ('MANUAL', 'Manually written'),
+        (SOURCE_AI, 'AI-drafted'),
+        (SOURCE_AI_EDITED, 'AI-drafted, edited'),
+        (SOURCE_MANUAL, 'Manually written'),
     ]
+    STATUS_DRAFT = 'DRAFT'
+    STATUS_SUBMITTING = 'SUBMITTING'   # transient: atomically claimed for an in-flight PayPal POST
+    STATUS_SUBMITTED = 'SUBMITTED'
+    STATUS_FAILED = 'FAILED'
     STATUS_CHOICES = [
-        ('DRAFT', 'Draft'),
-        ('SUBMITTING', 'Submitting'),   # transient: atomically claimed for an in-flight PayPal POST
-        ('SUBMITTED', 'Submitted'),
-        ('FAILED', 'Failed'),
+        (STATUS_DRAFT, 'Draft'),
+        (STATUS_SUBMITTING, 'Submitting'),
+        (STATUS_SUBMITTED, 'Submitted'),
+        (STATUS_FAILED, 'Failed'),
     ]
     # Endpoint each kind maps to (used to label the PayPal action taken).
     KIND_TO_ENDPOINT = {
-        'EVIDENCE': 'provide-evidence',
-        'SUPPORTING_INFO': 'provide-supporting-info',
-        'MESSAGE': 'send-message',
+        KIND_EVIDENCE: 'provide-evidence',
+        KIND_SUPPORTING_INFO: 'provide-supporting-info',
+        KIND_MESSAGE: 'send-message',
     }
 
     dispute = models.ForeignKey(
@@ -550,8 +611,8 @@ class DisputeSubmission(models.Model):
         on_delete=models.CASCADE,
         related_name='submissions',
     )
-    kind = models.CharField(max_length=20, choices=KIND_CHOICES, default='EVIDENCE')
-    source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default='AI')
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES, default=KIND_EVIDENCE)
+    source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default=SOURCE_AI)
     notes = models.TextField(
         blank=True,
         help_text='The narrative text submitted to PayPal (editable while DRAFT)',
@@ -574,7 +635,7 @@ class DisputeSubmission(models.Model):
     status = models.CharField(
         max_length=10,
         choices=STATUS_CHOICES,
-        default='DRAFT',
+        default=STATUS_DRAFT,
         db_index=True,
     )
     submitted_at = models.DateTimeField(null=True, blank=True)
@@ -638,9 +699,11 @@ class ProcessedWebhookEvent(models.Model):
     Prevents duplicate processing of the same webhook event.
     """
 
+    STATUS_PROCESSED = 'processed'
+    STATUS_FAILED = 'failed'
     STATUS_CHOICES = [
-        ('processed', 'Processed'),
-        ('failed', 'Failed'),
+        (STATUS_PROCESSED, 'Processed'),
+        (STATUS_FAILED, 'Failed'),
     ]
 
     event_id = models.CharField(
@@ -670,7 +733,7 @@ class ProcessedWebhookEvent(models.Model):
     )
     status = models.CharField(
         max_length=20,
-        default='processed',
+        default=STATUS_PROCESSED,
         choices=STATUS_CHOICES,
         help_text='Processing status',
     )
@@ -691,49 +754,9 @@ class ProcessedWebhookEvent(models.Model):
     def __str__(self):
         return f"{self.event_type} - {self.event_id} ({self.status})"
 
-    @classmethod
-    def is_already_processed(cls, event_id: str) -> bool:
-        """Check if an event has already been processed."""
-        return cls.objects.filter(event_id=event_id, status='processed').exists()
-
-    @classmethod
-    def mark_as_processed(
-        cls,
-        event_id: str,
-        event_type: str,
-        resource_type: str = '',
-        resource_id: str = '',
-    ) -> 'ProcessedWebhookEvent':
-        """Mark an event as processed."""
-        obj, created = cls.objects.get_or_create(
-            event_id=event_id,
-            defaults={
-                'event_type': event_type,
-                'resource_type': resource_type,
-                'resource_id': resource_id,
-                'status': 'processed',
-            }
-        )
-        return obj
-
-    @classmethod
-    def mark_as_failed(
-        cls,
-        event_id: str,
-        event_type: str,
-        error_message: str,
-        resource_type: str = '',
-        resource_id: str = '',
-    ) -> 'ProcessedWebhookEvent':
-        """Mark an event as failed."""
-        obj, created = cls.objects.get_or_create(
-            event_id=event_id,
-            defaults={
-                'event_type': event_type,
-                'resource_type': resource_type,
-                'resource_id': resource_id,
-                'status': 'failed',
-                'error_message': error_message,
-            }
-        )
-        return obj
+    # NB: idempotency lives in ONE place — the webhook views do an atomic
+    # get_or_create on event_id directly (PayPalDisputeWebhookView /
+    # PayPalWebhookView), which also gives them the `created` flag and the
+    # release-on-failure semantics a helper can't. The former is_already_processed /
+    # mark_as_processed / mark_as_failed classmethods were unused (a second,
+    # divergent idempotency implementation) and were removed.

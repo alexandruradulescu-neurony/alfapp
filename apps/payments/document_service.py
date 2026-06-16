@@ -13,8 +13,12 @@ from datetime import datetime, timezone as _std_timezone
 from typing import Optional, Tuple
 
 from django.conf import settings
+from django.core.exceptions import SuspiciousFileOperation
+from django.core.files.base import ContentFile
 from django.db import transaction
+from django.db.models import Max
 from django.template.loader import render_to_string
+from django.utils import timezone as dj_timezone
 from apps.payments.models import Dispute, DisputeDocument, DisputeActivityLog
 from apps.config.models import SystemSettings
 from apps.communications.models import EmailLog
@@ -42,7 +46,7 @@ def _get_weasyprint():
 
 
 def _call_qwen_ai(*, system_prompt: str, trusted: dict, untrusted: dict,
-                  known_aliases: list[str]):
+                  known_aliases: list[str]) -> Tuple[str, str]:
     """Generate a dispute response letter via the LLM. Returns (subject, body)."""
     from apps.ai.client import AIClient
     from apps.ai.schemas import DisputeLetter
@@ -91,74 +95,106 @@ def _fetch_zendesk_ticket_full(zd_ticket_id: str) -> dict:
 
 
 
+def _sniff_image_mime(data: bytes, fallback: str = 'image/jpeg') -> str:
+    """MIME from the actual image bytes (Pillow), NOT the spoofable filename
+    extension — a mislabeled upload then embeds with its real type. Falls back
+    when Pillow is missing or the bytes aren't a recognised image."""
+    try:
+        import io
+        from PIL import Image
+        fmt = (Image.open(io.BytesIO(data)).format or '').upper()
+        return _PIL_MIME.get(fmt, fallback)
+    except Exception:
+        return fallback
+
+
+def _evidence_within_media_root(evidence) -> bool:
+    """Path-traversal guard for filesystem storage (commonpath, not startswith,
+    so a sibling like '/srv/media_evil' can't pass for MEDIA_ROOT '/srv/media').
+    Remote backends (no local .path) skip the check and rely on the storage API."""
+    try:
+        abs_path = os.path.abspath(evidence.image.path)
+    except NotImplementedError:
+        return True
+    except (SuspiciousFileOperation, ValueError) as e:
+        logger.warning(f"Evidence file path rejected as outside MEDIA_ROOT: {e}")
+        return False
+    media_root = os.path.abspath(settings.MEDIA_ROOT)
+    try:
+        if os.path.commonpath([abs_path, media_root]) != media_root:
+            logger.warning(f"Evidence file path outside MEDIA_ROOT: {abs_path}")
+            return False
+    except ValueError:
+        return False
+    return True
+
+
 def _fetch_claim_evidence_base64(claim) -> list:
     """
     Fetch all claim evidence images and encode as base64 data URIs.
-    
+
+    MIME is sniffed from the actual bytes (Pillow), not the filename extension.
+    Path-guarded to MEDIA_ROOT; file handles are always closed.
+
     Args:
         claim: Claim instance
-        
+
     Returns:
         List of dicts with description, uploaded_at, and data_uri
     """
     evidence_list = []
-    
-    for evidence in claim.evidence.all():
+
+    for evidence in claim.evidence.all().iterator():
+        if not evidence.image:
+            continue
+        if not _evidence_within_media_root(evidence):
+            continue
         try:
-            if evidence.image:
-                # Validate file path is within MEDIA_ROOT (prevent path traversal)
-                abs_path = os.path.abspath(evidence.image.path)
-                media_root = os.path.abspath(settings.MEDIA_ROOT)
-                
-                if not abs_path.startswith(media_root):
-                    logger.warning(f"Evidence file path outside MEDIA_ROOT: {abs_path}")
-                    continue
-                
-                # Open and encode image
-                evidence.image.open('rb')
+            evidence.image.open('rb')
+            try:
                 image_data = evidence.image.read()
-                image_base64 = base64.b64encode(image_data).decode('utf-8')
-                
-                # Determine MIME type
-                file_ext = evidence.image.name.split('.')[-1].lower()
-                mime_type = {
-                    'jpg': 'image/jpeg',
-                    'jpeg': 'image/jpeg',
-                    'png': 'image/png',
-                    'gif': 'image/gif',
-                    'webp': 'image/webp',
-                }.get(file_ext, 'image/jpeg')
-                
-                data_uri = f"data:{mime_type};base64,{image_base64}"
-                
-                evidence_list.append({
-                    'description': evidence.description,
-                    'uploaded_at': evidence.uploaded_at,
-                    'data_uri': data_uri,
-                })
+            finally:
+                evidence.image.close()
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+            mime_type = _sniff_image_mime(image_data)
+            evidence_list.append({
+                'description': evidence.description,
+                'uploaded_at': evidence.uploaded_at,
+                'data_uri': f"data:{mime_type};base64,{image_base64}",
+            })
         except Exception as e:
             logger.warning(f"Error processing evidence {evidence.id}: {e}")
             continue
-    
+
     return evidence_list
 
 
-def _fetch_communication_history(dispute: Dispute) -> list:
+def _fetch_communication_history(dispute: Dispute, claim_emails: Optional[list] = None) -> list:
     """
     Fetch communication history (emails) related to the dispute's claim.
-    
+
+    Pass `claim_emails` (a prefetched list of EmailLog rows for the claim) to
+    avoid re-querying — build_dispute_evidence_bundle loads them once and shares
+    them with this and _identity_context.
+
     Args:
         dispute: Dispute instance
-        
+        claim_emails: optional prefetched EmailLog list for the dispute's claim
+
     Returns:
-        List of email log entries
+        List of email log entries (latest 50, newest first)
     """
     emails = []
-    
+
     if dispute.claim:
         try:
-            email_logs = EmailLog.objects.filter(claim=dispute.claim).order_by('-received_at')[:50]
-            for email_log in email_logs:
+            if claim_emails is None:
+                rows = list(EmailLog.objects.filter(claim=dispute.claim)
+                            .order_by('-received_at')[:50])
+            else:
+                # Newest first, capped at 50 — sorted in Python off the shared list.
+                rows = sorted(claim_emails, key=lambda e: e.received_at, reverse=True)[:50]
+            for email_log in rows:
                 emails.append({
                     'subject': email_log.subject,
                     'body': email_log.body,
@@ -172,7 +208,7 @@ def _fetch_communication_history(dispute: Dispute) -> list:
             logger.info(f"Fetched {len(emails)} emails for dispute {dispute.id}")
         except Exception as e:
             logger.error(f"Error fetching communication history for dispute {dispute.id}: {e}")
-    
+
     return emails
 
 
@@ -466,6 +502,44 @@ def _render_to_pdf(html_string: str, filename_hint: str) -> Optional[bytes]:
         return None
 
 
+def _persist_document(dispute, *, doc_type: str, generated_by: str, content_html: str,
+                      pdf_bytes: bytes, details: str) -> DisputeDocument:
+    """Create an auto-versioned DisputeDocument, save its PDF, and write exactly
+    ONE DOCUMENT_GENERATED activity-log line — all in a narrow transaction.
+
+    The version is computed as max(existing for this dispute+doc_type) + 1, and
+    the SAME version flows into the filename, the version field, and the log line,
+    so a regenerated v2 is never mislabelled v1 and only one log entry is emitted
+    (fixes the old hardcoded version=1 / _v1_ filename / double-log bug). Shared by
+    both generators so the create+file-save+log block lives in one place."""
+    slug = ('response_letter'
+            if doc_type == DisputeDocument.DOC_TYPE_RESPONSE_LETTER else 'evidence_report')
+    with transaction.atomic():
+        # Lock the dispute row so two concurrent generations serialise and take
+        # distinct versions instead of both landing on the same one.
+        Dispute.objects.select_for_update().filter(pk=dispute.pk).first()
+        version = (DisputeDocument.objects
+                   .filter(dispute=dispute, doc_type=doc_type)
+                   .aggregate(m=Max('version'))['m'] or 0) + 1
+        filename = (f"{slug}_dispute_{dispute.pk}_v{version}_"
+                    f"{dj_timezone.now().strftime('%Y%m%d_%H%M%S')}.pdf")
+        document = DisputeDocument.objects.create(
+            dispute=dispute,
+            doc_type=doc_type,
+            status=DisputeDocument.STATUS_DRAFT,
+            generated_by=generated_by,
+            content_html=content_html,
+            version=version,
+        )
+        document.file_path.save(filename, ContentFile(pdf_bytes), save=True)
+        DisputeActivityLog.objects.create(
+            dispute=dispute,
+            action=DisputeActivityLog.ACTION_DOCUMENT_GENERATED,
+            details=f"{details} (v{version})",
+        )
+    return document
+
+
 def generate_response_letter(dispute_or_id):
     """
     Generate a professional dispute response letter using AI.
@@ -556,7 +630,7 @@ def generate_response_letter(dispute_or_id):
             'ticket': ticket,
             'comments': comments,
             'ai_generated_content': ai_generated_content,
-            'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'generated_at': dj_timezone.localtime().strftime('%Y-%m-%d %H:%M:%S'),
         }
 
         html_string = render_to_string('dispute_response_letter.html', template_context)
@@ -566,27 +640,18 @@ def generate_response_letter(dispute_or_id):
             logger.error(f"Failed to generate PDF for Dispute #{dispute_id}")
             return None
 
-        # Persist in a NARROW transaction — the slow work (Zendesk fetch, LLM,
-        # render) is already done above, outside any transaction (project rule:
-        # never hold a DB transaction open across network/render I/O); only the
-        # create + file-save + log need to be all-or-nothing.
-        from django.core.files.base import ContentFile
-        filename = f"response_letter_dispute_{dispute_id}_v1_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        with transaction.atomic():
-            document = DisputeDocument.objects.create(
-                dispute=dispute,
-                doc_type='RESPONSE_LETTER',
-                status='DRAFT',
-                generated_by='AI',
-                content_html=ai_generated_content,
-                version=1,
-            )
-            document.file_path.save(filename, ContentFile(pdf_bytes), save=True)
-            DisputeActivityLog.objects.create(
-                dispute=dispute,
-                action='DOCUMENT_GENERATED',
-                details=f"AI-generated response letter (v1) created. Content length: {len(ai_generated_content)} chars, PDF size: {len(pdf_bytes)} bytes",
-            )
+        # Persist via the shared helper — auto-versioned filename/content/version/
+        # log, in one narrow transaction. The slow work (Zendesk fetch, LLM,
+        # render) is already done above, outside any transaction.
+        document = _persist_document(
+            dispute,
+            doc_type=DisputeDocument.DOC_TYPE_RESPONSE_LETTER,
+            generated_by=DisputeDocument.GENERATED_BY_AI,
+            content_html=ai_generated_content,
+            pdf_bytes=pdf_bytes,
+            details=(f"AI-generated response letter created. Content length: "
+                     f"{len(ai_generated_content)} chars, PDF size: {len(pdf_bytes)} bytes"),
+        )
 
         logger.info(f"Successfully generated response letter for Dispute #{dispute_id} (Document #{document.id})")
         return document
@@ -948,10 +1013,13 @@ def _email_candidate_ips(raw_headers: str) -> set:
     return {ip for ip in _IPV4_RE.findall(raw_headers or '') if not _is_private_ip(ip)}
 
 
-def _identity_context(dispute, ticket: dict) -> dict:
+def _identity_context(dispute, ticket: dict, claim_emails: Optional[list] = None) -> dict:
     """Cross-check the website submission IP against the IP(s) the client later
     emailed from. `matched` is True ONLY on an exact IP match (else the report
-    stays silent, per the brief). Also counts the client's own messages."""
+    stays silent, per the brief). Also counts the client's own messages.
+
+    Pass `claim_emails` (prefetched EmailLog rows for the claim) to reuse the same
+    fetch build_dispute_evidence_bundle does for the communication history."""
     out = {'submission_ip': '', 'matched': False, 'matched_at': None, 'client_msg_count': 0}
     claim = dispute.claim
     if not claim:
@@ -961,7 +1029,11 @@ def _identity_context(dispute, ticket: dict) -> dict:
     if not client_email:
         return out
     sub_ip = out['submission_ip']
-    for el in EmailLog.objects.filter(claim=claim).order_by('received_at'):
+    if claim_emails is None:
+        rows = EmailLog.objects.filter(claim=claim).order_by('received_at')
+    else:
+        rows = sorted(claim_emails, key=lambda e: e.received_at)
+    for el in rows:
         if (el.from_email or '').lower() != client_email:
             continue
         out['client_msg_count'] += 1
@@ -1272,8 +1344,13 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
     ticket = zd_data.get('ticket', {})
     comments = zd_data.get('comments', [])
 
+    # Fetch the claim's emails ONCE and share them with both the communication
+    # history and the identity cross-check (was two queries for the same rows).
+    claim_emails = (list(EmailLog.objects.filter(claim=dispute.claim))
+                    if dispute.claim else [])
+
     evidence_list = _fetch_claim_evidence_base64(dispute.claim) if dispute.claim else []
-    communication_history = _fetch_communication_history(dispute)
+    communication_history = _fetch_communication_history(dispute, claim_emails=claim_emails)
     panels = _zendesk_comment_panels(comments, embed_images=embed_attachments)
     flight_card = _flight_card(dispute.claim)
     framing = CATEGORY_FRAMING.get(dispute.dispute_reason, DEFAULT_FRAMING)
@@ -1299,7 +1376,7 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
     narrative = _narrate_evidence(dispute, items, dispute.claim) if use_ai else None
     sections = _group_into_sections(items, narrative, reason=dispute.dispute_reason)
 
-    identity = _identity_context(dispute, ticket)
+    identity = _identity_context(dispute, ticket, claim_emails=claim_emails)
     claim = dispute.claim
     # The Zendesk ticket is created the instant the form is submitted, so its
     # creation time is the consent moment; pair it with the submission IP.
@@ -1328,7 +1405,7 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
         'communication_history': communication_history,
         'category': dispute.dispute_reason,
         'category_label': dispute.get_dispute_reason_display() if dispute.dispute_reason else '',
-        'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'generated_at': dj_timezone.localtime().strftime('%Y-%m-%d %H:%M:%S'),
     }
 
 
@@ -1689,27 +1766,18 @@ def generate_evidence_report(dispute_id: int) -> Optional[DisputeDocument]:
                 f"Evidence report for Dispute #{dispute_id} is {len(pdf_bytes) // (1024 * 1024)}MB — "
                 f"PayPal evidence uploads are typically capped near 10MB; consider trimming embedded images.")
 
-        # Persist in a NARROW transaction — the slow work (Zendesk fetch, render)
-        # is already done above, outside any transaction (per the project rule of
-        # never holding a DB transaction open across network/render I/O); only the
-        # create + file-save + log need to be all-or-nothing.
-        from django.core.files.base import ContentFile
-        filename = f"evidence_report_dispute_{dispute_id}_v1_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        with transaction.atomic():
-            document = DisputeDocument.objects.create(
-                dispute=dispute,
-                doc_type='EVIDENCE_REPORT',
-                status='DRAFT',
-                generated_by='MANUAL',
-                content_html=html_string,
-                version=1,
-            )
-            document.file_path.save(filename, ContentFile(pdf_bytes), save=True)
-            DisputeActivityLog.objects.create(
-                dispute=dispute,
-                action='DOCUMENT_GENERATED',
-                details=f"Evidence report (v1) created. Evidence: {len(evidence_list)}, Emails: {len(communication_history)}, PDF size: {len(pdf_bytes)} bytes",
-            )
+        # Persist via the shared helper — auto-versioned filename/content/version/
+        # log in one narrow transaction. The slow work (Zendesk fetch, render) is
+        # already done above, outside any transaction.
+        document = _persist_document(
+            dispute,
+            doc_type=DisputeDocument.DOC_TYPE_EVIDENCE_REPORT,
+            generated_by=DisputeDocument.GENERATED_BY_MANUAL,
+            content_html=html_string,
+            pdf_bytes=pdf_bytes,
+            details=(f"Evidence report created. Evidence: {len(evidence_list)}, "
+                     f"Emails: {len(communication_history)}, PDF size: {len(pdf_bytes)} bytes"),
+        )
 
         logger.info(f"Successfully generated evidence report for Dispute #{dispute_id} (Document #{document.id})")
         return document
@@ -1732,26 +1800,18 @@ def regenerate_document(document_id: int) -> Optional[DisputeDocument]:
     try:
         old_document = DisputeDocument.objects.get(pk=document_id)
         dispute = old_document.dispute
-        
-        if old_document.doc_type == 'RESPONSE_LETTER':
+
+        # generate_* now auto-increments the version (max + 1) and writes its own
+        # single DOCUMENT_GENERATED log, so the new doc is already correctly
+        # versioned and filename/content/log all agree — no manual bump or second
+        # log here (that produced a v2 mislabelled v1 + a duplicate log line).
+        if old_document.doc_type == DisputeDocument.DOC_TYPE_RESPONSE_LETTER:
             new_document = generate_response_letter(dispute.id)
         else:
             new_document = generate_evidence_report(dispute.id)
-        
-        if new_document:
-            # Increment version
-            new_document.version = old_document.version + 1
-            new_document.save(update_fields=['version'])
-            
-            # Log the regeneration
-            DisputeActivityLog.objects.create(
-                dispute=dispute,
-                action='DOCUMENT_GENERATED',
-                details=f"Document regenerated (v{new_document.version}) from original v{old_document.version}",
-            )
-        
+
         return new_document
-        
+
     except DisputeDocument.DoesNotExist:
         logger.error(f"Document #{document_id} not found")
         return None

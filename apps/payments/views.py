@@ -5,6 +5,7 @@ DRF ViewSets for Refund API.
 import hmac
 import logging
 import json
+import uuid
 from decimal import Decimal
 from typing import Dict, Any
 
@@ -13,7 +14,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
-from django.db.models import Q, Sum
+from django.db.models import Count, Q, Sum
 from django_filters.rest_framework import DjangoFilterBackend
 from django.conf import settings
 
@@ -26,7 +27,6 @@ from apps.payments.serializers import (
     RefundStatusUpdateSerializer,
 )
 from apps.payments.refund_service import RefundService
-from apps.users.permissions import IsManager, IsAgentOrManager
 
 logger = logging.getLogger(__name__)
 
@@ -170,13 +170,14 @@ class RefundViewSet(viewsets.ModelViewSet):
     Actions:
     - process: POST /api/payments/refunds/process/
     - stats: GET /api/payments/refunds/stats/
-    
-    Note: The 'process' action allows AGENTs to initiate refunds from claim detail page.
-    Other operations (list, create, update, delete) require MANAGER role.
+
+    Auth: every action requires only authentication. (The former AGENT vs MANAGER
+    role distinction was removed — single trusted-staff user model — so there is
+    no per-action permission split anymore.)
     """
 
     queryset = Refund.objects.all().select_related('claim', 'created_by')
-    permission_classes = [IsAuthenticated, IsManager]
+    permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status', 'refund_type', 'external_source', 'claim']
     search_fields = ['paypal_refund_id', 'claim__client_email', 'reason']
@@ -189,15 +190,6 @@ class RefundViewSet(viewsets.ModelViewSet):
     # explicit update_status action.)
     http_method_names = ['get', 'post', 'head', 'options']
 
-    def get_permissions(self):
-        """
-        Allow AGENTs to process refunds from claim detail page.
-        Other operations require MANAGER role.
-        """
-        if self.action == 'process':
-            return [IsAuthenticated(), IsAgentOrManager()]
-        return super().get_permissions()
-    
     def get_serializer_class(self):
         """Return appropriate serializer based on action."""
         if self.action == 'list':
@@ -212,26 +204,24 @@ class RefundViewSet(viewsets.ModelViewSet):
         """
         Create a new refund record (manual entry).
         For PayPal processing, use the 'process' action.
+
+        The money-writing logic lives in RefundService.create_manual_refund (thin
+        view), which is also idempotent within a short window so a double-submit
+        doesn't insert a duplicate money record.
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        import uuid
-        # RefundCreateSerializer exposes the claim under 'claim_id' (validate_claim_id
-        # resolves it to a Claim). The old '.get("claim")' was always None, so manual
-        # refunds were saved orphaned from their claim.
-        refund = Refund.objects.create(
+
+        refund = RefundService().create_manual_refund(
+            # validate_claim_id resolves 'claim_id' to a Claim instance.
             claim=serializer.validated_data.get('claim_id'),
-            paypal_refund_id=f'MANUAL-{uuid.uuid4().hex[:12]}',
             amount=serializer.validated_data['amount'],
             currency=serializer.validated_data.get('currency', 'USD'),
-            status='COMPLETED',
             refund_type=serializer.validated_data['refund_type'],
-            external_source='MANUAL',
             reason=serializer.validated_data['reason'],
-            created_by=request.user,
+            user=request.user,
         )
-        
+
         output_serializer = RefundSerializer(refund)
         return Response(output_serializer.data, status=status.HTTP_201_CREATED)
     
@@ -328,19 +318,26 @@ class RefundViewSet(viewsets.ModelViewSet):
         
         new_status = serializer.validated_data['status']
         reason = serializer.validated_data.get('reason')
-        if reason:
-            refund.metadata['status_change_reason'] = reason
         # Route through the model transitions so side effects are applied — a raw
         # status set to COMPLETED used to leave processed_at empty.
-        if new_status == 'COMPLETED':
+        if new_status == Refund.STATUS_COMPLETED:
             refund.mark_completed()
-        elif new_status == 'FAILED':
-            refund.mark_failed(reason or '')
-        elif new_status == 'PROCESSING':
+        elif new_status == Refund.STATUS_FAILED:
+            refund.mark_failed(reason or '')   # folds reason into metadata itself
+        elif new_status == Refund.STATUS_PROCESSING:
             refund.mark_processing()
+        elif new_status == Refund.STATUS_CANCELLED:
+            refund.mark_cancelled()
         else:
             refund.status = new_status
-            refund.save()
+            refund.save(update_fields=['status', 'updated_at'])
+
+        # Persist the optional human reason. mark_failed already records it; for
+        # the other transitions the mark_* saves are field-scoped (don't touch
+        # metadata), so write it here in its own scoped save.
+        if reason and new_status != Refund.STATUS_FAILED:
+            refund.metadata['status_change_reason'] = reason
+            refund.save(update_fields=['metadata', 'updated_at'])
 
         output_serializer = RefundSerializer(refund)
         return Response(output_serializer.data)
@@ -352,8 +349,6 @@ class RefundViewSet(viewsets.ModelViewSet):
         
         GET /api/payments/refunds/stats/
         """
-        from django.db.models import Sum, Count, Q
-
         queryset = self.get_queryset()
 
         # One aggregate query instead of 1 + 6 + 2 + 3 separate COUNTs. Building
@@ -361,7 +356,7 @@ class RefundViewSet(viewsets.ModelViewSet):
         # including choices with zero refunds.
         agg = queryset.aggregate(
             total_refunds=Count('id'),
-            total_amount=Sum('amount', filter=Q(status='COMPLETED')),
+            total_amount=Sum('amount', filter=Q(status=Refund.STATUS_COMPLETED)),
             **{f'st_{s}': Count('id', filter=Q(status=s)) for s, _ in Refund.STATUS_CHOICES},
             **{f'ty_{t}': Count('id', filter=Q(refund_type=t)) for t, _ in Refund.TYPE_CHOICES},
             **{f'so_{x}': Count('id', filter=Q(external_source=x)) for x, _ in Refund.SOURCE_CHOICES},
@@ -383,7 +378,7 @@ class RefundViewSet(viewsets.ModelViewSet):
 
 class ProofOfWorkPDFView(APIView):
     """Stub view for proof of work PDF generation."""
-    permission_classes = [IsAuthenticated, IsManager]
+    permission_classes = [IsAuthenticated]
     
     def get(self, request, claim_id):
         return Response({'message': 'PDF generation not implemented'})

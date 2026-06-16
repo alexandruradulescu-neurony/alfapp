@@ -19,14 +19,16 @@ import logging
 import socket
 import urllib.request
 import urllib.error
-from typing import Dict, Any, Optional, List
+import uuid
+from typing import Dict, Any, Optional, List, Tuple
 
 from django.core.cache import cache
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from apps.payments.models import Dispute, DisputeDocument, DisputeActivityLog
+from apps.payments.models import (
+    Dispute, DisputeDocument, DisputeActivityLog, DisputeSubmission)
 from apps.config.models import SystemSettings
 
 logger = logging.getLogger(__name__)
@@ -77,14 +79,15 @@ def _encode_multipart(input_json: dict, files: List[dict]):
     (body_bytes, content_type_header). PayPal expects a JSON 'input' part
     describing the evidences plus one part per uploaded file.
     """
-    import uuid
     boundary = f"----LORA{uuid.uuid4().hex}"
     crlf = b'\r\n'
     parts = []
 
     parts.append(b'--' + boundary.encode())
     parts.append(b'Content-Disposition: form-data; name="input"')
-    parts.append(b'Content-Type: application/json')
+    # Declare the charset so strict multipart parsers read non-ASCII notes
+    # (e.g. accented buyer names) correctly — the JSON below is utf-8 encoded.
+    parts.append(b'Content-Type: application/json; charset=utf-8')
     parts.append(b'')
     parts.append(json.dumps(input_json).encode('utf-8'))
 
@@ -103,17 +106,10 @@ def _encode_multipart(input_json: dict, files: List[dict]):
     return body, f'multipart/form-data; boundary={boundary}'
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
-    retry=retry_if_exception_type((
-        urllib.error.HTTPError,
-        urllib.error.URLError,
-        socket.timeout,
-        ConnectionResetError,
-        ConnectionError,
-    ))
-)
+# NB: no @retry here — this function catches HTTPError/URLError/Exception and
+# returns None, so tenacity would never see an exception to retry on (the
+# decorator was inert dead code and was removed). The token is cached for 25 min,
+# so a transient fetch failure is rare and callers already handle None.
 def get_paypal_access_token() -> Optional[str]:
     """
     Get OAuth2 access token from PayPal with caching.
@@ -676,7 +672,8 @@ def _post_dispute_action_multipart(dispute_id: str, action: str,
         return False, {'error': 'unexpected', 'detail': str(e)[:500]}
 
 
-def provide_supporting_info(dispute_id: str, notes: str, files: List[dict] = None):
+def provide_supporting_info(dispute_id: str, notes: str,
+                            files: Optional[List[dict]] = None) -> Tuple[bool, Optional[dict]]:
     """Add supporting info to a dispute already UNDER PayPal review — the
     back-and-forth follow-up channel. Multipart: a JSON `input` part
     {"notes": ...} plus optional document files. Transport only; returns
@@ -685,8 +682,8 @@ def provide_supporting_info(dispute_id: str, notes: str, files: List[dict] = Non
         dispute_id, 'provide-supporting-info', {"notes": notes or ''}, files)
 
 
-def provide_evidence_files(dispute_id: str, notes: str, files: List[dict] = None,
-                           evidence_type: str = DEFAULT_EVIDENCE_TYPE):
+def provide_evidence_files(dispute_id: str, notes: str, files: Optional[List[dict]] = None,
+                           evidence_type: str = DEFAULT_EVIDENCE_TYPE) -> Tuple[bool, Optional[dict]]:
     """First seller response (provide-evidence) carrying a GENERIC files list, so
     a submission can include the evidence-report PDF and the manager's images
     together. Transport only; returns (ok, response). The DB-coupled
@@ -722,14 +719,15 @@ def _read_file_field(field, default_ct: str = 'application/octet-stream'):
             'content_type': _IMAGE_CONTENT_TYPES.get(ext, default_ct)}
 
 
-def _build_submission_files(submission) -> List[dict]:
+def _build_submission_files(submission: DisputeSubmission) -> List[dict]:
     """The files to upload with a submission: the manager's images, plus the
     latest evidence-report PDF when attach_evidence_pdf is ticked. Unreadable
     files are skipped (logged), never crashing the submit."""
     files = []
     if submission.attach_evidence_pdf:
         doc = (DisputeDocument.objects
-               .filter(dispute=submission.dispute, doc_type='EVIDENCE_REPORT')
+               .filter(dispute=submission.dispute,
+                       doc_type=DisputeDocument.DOC_TYPE_EVIDENCE_REPORT)
                .exclude(file_path='').order_by('-created_at').first())
         if doc:
             f = _read_file_field(doc.file_path, default_ct='application/pdf')
@@ -745,7 +743,8 @@ def _build_submission_files(submission) -> List[dict]:
     return files
 
 
-def _record_submission_outcome(submission, *, status, performed_by, response, action=''):
+def _record_submission_outcome(submission: DisputeSubmission, *, status, performed_by,
+                               response, action='') -> None:
     """Persist a submission's terminal state + an activity-log line, in one txn."""
     from django.utils import timezone
     with transaction.atomic():
@@ -753,23 +752,23 @@ def _record_submission_outcome(submission, *, status, performed_by, response, ac
         submission.status = status
         submission.submitted_by = performed_by
         submission.paypal_response = response or {}
-        if status == 'SUBMITTED':
+        if status == DisputeSubmission.STATUS_SUBMITTED:
             submission.submitted_at = timezone.now()
             fields.append('submitted_at')
         submission.save(update_fields=fields)
-        if status == 'SUBMITTED':
+        if status == DisputeSubmission.STATUS_SUBMITTED:
             details = (f"Submitted to PayPal via {action} (submission #{submission.id}).")
-            log_action = 'EVIDENCE_SENT'
+            log_action = DisputeActivityLog.ACTION_EVIDENCE_SENT
         else:
             details = (f"PayPal submission #{submission.id} FAILED ({action or 'no endpoint'}): "
                        f"{str(response)[:300]}")
-            log_action = 'NOTE_ADDED'
+            log_action = DisputeActivityLog.ACTION_NOTE_ADDED
         DisputeActivityLog.objects.create(
             dispute=submission.dispute, action=log_action,
             performed_by=performed_by, details=details)
 
 
-def submit_dispute_response(submission, *, performed_by=None) -> bool:
+def submit_dispute_response(submission: DisputeSubmission, *, performed_by=None) -> bool:
     """Submit a prepared DisputeSubmission to PayPal.
 
     Auto-picks the endpoint from the dispute's current state (provide-evidence
@@ -783,7 +782,8 @@ def submit_dispute_response(submission, *, performed_by=None) -> bool:
     endpoint = dispute.submit_endpoint
     if not endpoint:
         logger.warning(f"Dispute #{dispute.id} has no available PayPal submit endpoint.")
-        _record_submission_outcome(submission, status='FAILED', performed_by=performed_by,
+        _record_submission_outcome(submission, status=DisputeSubmission.STATUS_FAILED,
+                                   performed_by=performed_by,
                                    response={'error': 'no_submit_endpoint'}, action='')
         return False
 
@@ -793,18 +793,20 @@ def submit_dispute_response(submission, *, performed_by=None) -> bool:
         ok, response = provide_evidence_files(
             dispute.paypal_dispute_id, submission.notes, files,
             evidence_type=submission.evidence_type or evidence_type_for_reason(dispute.dispute_reason))
-        submission.kind = 'EVIDENCE'
+        submission.kind = DisputeSubmission.KIND_EVIDENCE
     else:
         ok, response = provide_supporting_info(dispute.paypal_dispute_id, submission.notes, files)
-        submission.kind = 'SUPPORTING_INFO'
+        submission.kind = DisputeSubmission.KIND_SUPPORTING_INFO
     submission.save(update_fields=['kind', 'updated_at'])
 
     if not ok:
-        _record_submission_outcome(submission, status='FAILED', performed_by=performed_by,
+        _record_submission_outcome(submission, status=DisputeSubmission.STATUS_FAILED,
+                                   performed_by=performed_by,
                                    response=response, action=endpoint)
         return False
 
-    _record_submission_outcome(submission, status='SUBMITTED', performed_by=performed_by,
+    _record_submission_outcome(submission, status=DisputeSubmission.STATUS_SUBMITTED,
+                               performed_by=performed_by,
                                response=response, action=endpoint)
     # Re-sync OUTSIDE the DB transaction (network I/O): refresh state + evidences[].
     try:
@@ -890,6 +892,11 @@ def _match_claim_for_dispute(details: dict):
       3. custom — the WooCommerce order id → Claim.woocommerce_id (fallback);
       4. buyer.email — only if PayPal ever does provide it (it usually doesn't).
     Returns a Claim or None.
+
+    N+1 note: this runs up to ~4 Claim.objects lookups per dispute. That's fine —
+    it's called once per dispute on the webhook/backfill path (bounded by dispute
+    count, not row count); don't promote it to a per-row loop without batching the
+    identifier lookups first.
     """
     from apps.claims.models import Claim
     from apps.integrations.services import parse_alf_claim_id_from_subject

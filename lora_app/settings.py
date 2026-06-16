@@ -272,6 +272,11 @@ ZENDESK_EMAIL = env('ZENDESK_EMAIL', default='')
 # specific; the default preserves the historical hardcoded value.
 ZENDESK_INVESTIGATION_STATUS_ID = env('ZENDESK_INVESTIGATION_STATUS_ID', default='11688538967068')
 
+# Coarse absolute ceiling for a single refund — a fat-finger sanity guard for the
+# case where the claim has no price_paid to cap against (the per-claim price_paid
+# cap in RefundCreateSerializer/_reserve_refund is the primary enforcement).
+MAX_REFUND_AMOUNT = env.int('MAX_REFUND_AMOUNT', default=100000)
+
 # PayPal Configuration
 PAYPAL_CLIENT_ID = env('PAYPAL_CLIENT_ID', default='')
 PAYPAL_SECRET = env('PAYPAL_SECRET', default='')

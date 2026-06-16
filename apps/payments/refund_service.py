@@ -10,9 +10,12 @@ Handles refund processing via PayPal API:
 
 import logging
 import uuid
+from datetime import timedelta
 from typing import Dict, Any, Optional
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from django.db import IntegrityError, transaction
+from django.db.models import Sum
+from django.utils import timezone
 from apps.payments.models import Refund
 from apps.claims.models import Claim
 from apps.config.models import SystemSettings
@@ -23,6 +26,19 @@ from apps.payments.woocommerce_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _capture_id_from_refund_resource(resource: dict) -> str:
+    """Best-effort parent-capture id from a PayPal refund resource. Prefers the
+    'up' HATEOAS link (which points at the capture, e.g.
+    .../v2/payments/captures/{id}), then an older breakdown shape. '' if none."""
+    for link in (resource.get('links') or []):
+        if (link.get('rel') or '').lower() in ('up', 'capture'):
+            seg = (link.get('href') or '').rstrip('/').rsplit('/', 1)[-1]
+            if seg:
+                return seg
+    breakdown = resource.get('seller_payable_breakdown') or {}
+    return (breakdown.get('payable_version') or {}).get('id') or ''
 
 
 class RefundService:
@@ -86,7 +102,7 @@ class RefundService:
             # so two refunds for the same claim can't exceed price_paid. Shared
             # with issue_woocommerce_refund via _reserve_refund.
             refund, err = self._reserve_refund(
-                claim, amount, external_source='LORA', reason=reason, user=user,
+                claim, amount, external_source=Refund.SOURCE_LORA, reason=reason, user=user,
                 pending_prefix='PENDING-', paypal_capture_id=capture_id or '',
                 currency='USD', refund_type=refund_type,
             )
@@ -253,9 +269,9 @@ class RefundService:
             if existing_refund:
                 # Update existing refund with webhook data
                 status = event_data.get('resource', {}).get('status', '').upper()
-                if status == 'COMPLETED':
+                if status == Refund.STATUS_COMPLETED:
                     existing_refund.mark_completed()
-                elif status == 'FAILED':
+                elif status == Refund.STATUS_FAILED:
                     existing_refund.mark_failed('PayPal reported failure')
                 
                 logger.info(f"Updated existing refund {refund_id} from webhook")
@@ -268,25 +284,30 @@ class RefundService:
             # Create new refund from webhook
             resource = event_data.get('resource', {})
             amount = Decimal(resource.get('amount', {}).get('value', '0'))
-            currency = resource.get('amount', {}).get('currency_code', 'USD')
-            
-            # Try to find associated claim
-            # This depends on your webhook payload structure
-            claim = None
-            capture_id = resource.get('seller_payable_breakdown', {}).get(
-                'payable_version', {}
-            ).get('id')  # May need adjustment based on actual payload
-            
+            currency = (resource.get('amount', {}).get('currency_code') or 'USD')
+
+            # Resolve the capture id from the documented PAYMENT.CAPTURE.REFUNDED
+            # payload: the refund resource's `links` carry an 'up' link to the
+            # parent capture. Fall back to the older breakdown guess, then flag the
+            # row for reconciliation rather than silently storing a blank capture.
+            capture_id = _capture_id_from_refund_resource(resource)
+            metadata = dict(event_data)
+            if not capture_id:
+                logger.warning(
+                    "PayPal refund webhook %s has no resolvable capture id — "
+                    "marking the refund for reconciliation", refund_id)
+                metadata['needs_reconciliation'] = True
+
             refund = Refund.objects.create(
                 paypal_refund_id=refund_id,
                 paypal_capture_id=capture_id or '',
                 amount=amount,
-                currency=currency,
-                status='COMPLETED',
-                refund_type='FULL',  # May need to determine from amount
-                external_source='LORA',
+                currency=currency.upper()[:3],
+                status=Refund.STATUS_COMPLETED,
+                refund_type=Refund.TYPE_FULL,  # PayPal refund payload doesn't state full/partial
+                external_source=Refund.SOURCE_LORA,
                 reason='PayPal webhook notification',
-                metadata=event_data,
+                metadata=metadata,
             )
             
             logger.info(f"Created refund {refund_id} from webhook")
@@ -306,7 +327,50 @@ class RefundService:
     
     # Refund states that "reserve" money for the over-refund cap (everything
     # except an outright failure counts against the claim's remaining amount).
-    RESERVING_STATUSES = ('PENDING', 'PROCESSING', 'COMPLETED')
+    RESERVING_STATUSES = (Refund.STATUS_PENDING, Refund.STATUS_PROCESSING,
+                          Refund.STATUS_COMPLETED)
+
+    def create_manual_refund(self, *, claim, amount, currency, refund_type, reason,
+                             user, dedup_window_seconds: int = 60) -> Refund:
+        """Record a MANUAL refund (one already issued out-of-band) as COMPLETED.
+        Money-writing logic lives here, not in the view. Idempotent within a short
+        window: a repeated identical submit (same claim/amount/reason) returns the
+        existing row instead of inserting a duplicate money record — best-effort
+        protection against a double-click (a manual single-user action)."""
+        window_start = timezone.now() - timedelta(seconds=dedup_window_seconds)
+        existing = Refund.objects.filter(
+            claim=claim, amount=amount, reason=reason,
+            external_source=Refund.SOURCE_MANUAL,
+            created_at__gte=window_start,
+        ).order_by('-created_at').first()
+        if existing:
+            logger.info(
+                f"Manual refund de-duplicated within {dedup_window_seconds}s "
+                f"window — returning existing row #{existing.id}")
+            return existing
+        return Refund.objects.create(
+            claim=claim,
+            paypal_refund_id=f'MANUAL-{uuid.uuid4().hex[:12]}',
+            amount=amount,
+            currency=currency or 'USD',
+            status=Refund.STATUS_COMPLETED,
+            refund_type=refund_type,
+            external_source=Refund.SOURCE_MANUAL,
+            reason=reason,
+            created_by=user,
+        )
+
+    def _complete_woocommerce_refund(self, refund, wc_refund_id) -> None:
+        """Stamp a reserved/created refund row as the COMPLETED WooCommerce refund
+        (one shared place for the success-finalise both WC paths need): the real
+        WC-{id} so the inbound webhook reconciles to it, status, processed_at, and
+        the refund id in metadata."""
+        refund.paypal_refund_id = f"{Refund.WC_PREFIX}{wc_refund_id}"
+        refund.status = Refund.STATUS_COMPLETED
+        refund.processed_at = timezone.now()
+        refund.metadata['woocommerce_refund_id'] = wc_refund_id
+        refund.save(update_fields=['paypal_refund_id', 'status',
+                                   'processed_at', 'metadata', 'updated_at'])
 
     def _reserve_refund(self, claim, amount, *, external_source, reason, user,
                         pending_prefix, paypal_capture_id='', currency='USD',
@@ -321,7 +385,6 @@ class RefundService:
         external gateway call MUST happen after this, OUTSIDE the transaction,
         so a timeout can't roll back (and hide) a refund the gateway made.
         """
-        from django.db.models import Sum
         try:
             with transaction.atomic():
                 locked = Claim.objects.select_for_update().get(pk=claim.pk)
@@ -337,16 +400,16 @@ class RefundService:
                                       f'refundable amount ({remaining}).'),
                         }
                     resolved_type = refund_type or (
-                        'PARTIAL' if amount < locked.price_paid else 'FULL')
+                        Refund.TYPE_PARTIAL if amount < locked.price_paid else Refund.TYPE_FULL)
                 else:
-                    resolved_type = refund_type or 'FULL'
+                    resolved_type = refund_type or Refund.TYPE_FULL
                 refund = Refund.objects.create(
                     claim=locked,
                     paypal_refund_id=f'{pending_prefix}{uuid.uuid4().hex[:12]}',
                     paypal_capture_id=paypal_capture_id,
                     amount=amount,
                     currency=currency,
-                    status='PENDING',
+                    status=Refund.STATUS_PENDING,
                     refund_type=resolved_type,
                     external_source=external_source,
                     reason=reason,
@@ -378,15 +441,13 @@ class RefundService:
         - the reserved row carries the WooCommerce refund id on success, so
           the cascade's inbound webhook reconciles to it (one record).
         """
-        from django.utils import timezone
-
         order_id = (claim.woocommerce_id or '').strip()
         if not order_id:
             return {'success': False,
                     'error': 'This claim has no WooCommerce order id — cannot issue a refund.'}
         try:
             amount = Decimal(str(amount))
-        except Exception:
+        except (InvalidOperation, TypeError, ValueError):
             return {'success': False, 'error': 'Invalid refund amount.'}
         if amount <= 0:
             return {'success': False, 'error': 'Refund amount must be positive.'}
@@ -394,8 +455,8 @@ class RefundService:
         # Reserve atomically under a row lock so the cap can't be raced (shared
         # with the PayPal-direct path via _reserve_refund).
         refund, err = self._reserve_refund(
-            claim, amount, external_source='WOOCOMMERCE', reason=reason, user=user,
-            pending_prefix='WC-PENDING-', currency='USD',
+            claim, amount, external_source=Refund.SOURCE_WOOCOMMERCE, reason=reason, user=user,
+            pending_prefix=Refund.WC_PENDING_PREFIX, currency='USD',
             metadata={'woocommerce_order_id': order_id, 'initiated_by': 'LORA'},
         )
         if err:
@@ -413,7 +474,7 @@ class RefundService:
                 # Money may have moved — keep the row PENDING (still counts
                 # against the cap) for the inbound webhook to reconcile.
                 refund.metadata['last_error'] = wc.get('error', '')
-                refund.save(update_fields=['metadata'])
+                refund.save(update_fields=['metadata', 'updated_at'])
                 return {'success': False, 'error': wc.get('error'),
                         'indeterminate': True, 'refund': refund}
             refund.mark_failed(wc.get('error', 'WooCommerce refund failed'))
@@ -421,11 +482,7 @@ class RefundService:
 
         # Success — stamp the real WooCommerce refund id so the inbound webhook
         # (WC-{id}) reconciles to this row instead of creating a duplicate.
-        refund.paypal_refund_id = f"WC-{wc['refund_id']}"
-        refund.status = 'COMPLETED'
-        refund.processed_at = timezone.now()
-        refund.metadata['woocommerce_refund_id'] = wc['refund_id']
-        refund.save(update_fields=['paypal_refund_id', 'status', 'processed_at', 'metadata'])
+        self._complete_woocommerce_refund(refund, wc['refund_id'])
         logger.info(f"LORA issued WooCommerce refund {refund.paypal_refund_id} "
                     f"for Claim #{claim.id}")
         return {'success': True, 'refund': refund,
@@ -441,6 +498,10 @@ class RefundService:
         """
         if not claim_number:
             return None
+        # alf_claim_id is unique + db_indexed. __iexact can't use that btree index,
+        # but this runs once per inbound refund webhook (low volume), and the
+        # case-insensitive match guards against any case drift in the id WordPress
+        # sends — an acceptable trade-off here; don't promote it to a hot path.
         claim = Claim.objects.filter(alf_claim_id__iexact=claim_number).first()
         if claim:
             return claim
@@ -482,10 +543,19 @@ class RefundService:
                     'error': f'Claim {claim_number} not found',
                 }
 
+            # Coerce the webhook amount (a str off request.data) to Decimal ONCE,
+            # then use that single value for the reservation match, the price_paid
+            # comparison, and the create — never persist the unvalidated raw value.
+            try:
+                amount = Decimal(str(refund_amount))
+            except (InvalidOperation, TypeError, ValueError):
+                return {'success': False,
+                        'error': f'Invalid refund amount: {refund_amount!r}'}
+
+            wc_id = f'{Refund.WC_PREFIX}{refund_id}'
+
             # Check for existing refund (idempotency under webhook retries)
-            existing_refund = Refund.objects.filter(
-                paypal_refund_id=f'WC-{refund_id}'
-            ).first()
+            existing_refund = Refund.objects.filter(paypal_refund_id=wc_id).first()
 
             if existing_refund:
                 logger.info(f"WooCommerce refund {refund_id} already processed")
@@ -500,19 +570,13 @@ class RefundService:
             # issued from LORA (a PENDING WC-PENDING-* row for this claim and
             # amount), adopt it instead of creating a duplicate.
             reservation = Refund.objects.filter(
-                claim=claim, external_source='WOOCOMMERCE',
-                status__in=('PENDING', 'PROCESSING'),
-                paypal_refund_id__startswith='WC-PENDING-',
-                amount=Decimal(str(refund_amount)),
+                claim=claim, external_source=Refund.SOURCE_WOOCOMMERCE,
+                status__in=(Refund.STATUS_PENDING, Refund.STATUS_PROCESSING),
+                paypal_refund_id__startswith=Refund.WC_PENDING_PREFIX,
+                amount=amount,
             ).order_by('created_at').first()
             if reservation:
-                from django.utils import timezone
-                reservation.paypal_refund_id = f'WC-{refund_id}'
-                reservation.status = 'COMPLETED'
-                reservation.processed_at = timezone.now()
-                reservation.metadata['woocommerce_refund_id'] = refund_id
-                reservation.save(update_fields=['paypal_refund_id', 'status',
-                                                 'processed_at', 'metadata'])
+                self._complete_woocommerce_refund(reservation, refund_id)
                 logger.info(f"Reconciled LORA reservation to WooCommerce refund {refund_id}")
                 return {
                     'success': True,
@@ -524,11 +588,11 @@ class RefundService:
             # Determine full vs partial: trust an explicit payload value,
             # else compare the refunded amount to what the client paid.
             resolved_type = (refund_type or '').upper()
-            if resolved_type not in ('FULL', 'PARTIAL'):
-                if claim.price_paid and Decimal(str(refund_amount)) < claim.price_paid:
-                    resolved_type = 'PARTIAL'
+            if resolved_type not in (Refund.TYPE_FULL, Refund.TYPE_PARTIAL):
+                if claim.price_paid and amount < claim.price_paid:
+                    resolved_type = Refund.TYPE_PARTIAL
                 else:
-                    resolved_type = 'FULL'
+                    resolved_type = Refund.TYPE_FULL
 
             # Atomic create guarded against the check-then-create race: two
             # concurrent deliveries of the same refund_id can both pass the
@@ -541,12 +605,12 @@ class RefundService:
                 with transaction.atomic():
                     refund = Refund.objects.create(
                         claim=claim,
-                        paypal_refund_id=f'WC-{refund_id}',  # Prefix to distinguish from PayPal
-                        amount=refund_amount,
+                        paypal_refund_id=wc_id,  # Prefix to distinguish from PayPal
+                        amount=amount,
                         currency=(currency or 'USD').upper()[:3],
-                        status='COMPLETED',
+                        status=Refund.STATUS_COMPLETED,
                         refund_type=resolved_type,
-                        external_source='WOOCOMMERCE',
+                        external_source=Refund.SOURCE_WOOCOMMERCE,
                         reason=reason,
                         metadata={
                             'woocommerce_order_id': order_id,
@@ -554,9 +618,7 @@ class RefundService:
                         },
                     )
             except IntegrityError:
-                existing = Refund.objects.filter(
-                    paypal_refund_id=f'WC-{refund_id}'
-                ).first()
+                existing = Refund.objects.filter(paypal_refund_id=wc_id).first()
                 if existing is None:
                     raise  # unique violation on some other field — surface it
                 logger.info(

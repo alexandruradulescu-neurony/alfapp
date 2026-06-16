@@ -1,5 +1,4 @@
 from django.contrib import admin
-from django.utils import timezone
 from apps.payments.models import Dispute, DisputeDocument, DisputeActivityLog, ProcessedWebhookEvent, Refund
 
 
@@ -145,17 +144,30 @@ class RefundAdmin(admin.ModelAdmin):
 
     actions = ['mark_completed', 'mark_failed', 'mark_cancelled']
 
+    # These iterate and call the Refund.mark_* model methods rather than a raw
+    # queryset.update(), so a status transition has ONE home and its side effects
+    # (e.g. processed_at on completion, scoped update_fields) apply regardless of
+    # whether the change comes from the webhook, the service, or this admin action.
     def mark_completed(self, request, queryset):
-        count = queryset.update(status='COMPLETED', processed_at=timezone.now())
+        count = 0
+        for refund in queryset:
+            refund.mark_completed()
+            count += 1
         self.message_user(request, f'{count} refunds marked as completed.')
     mark_completed.short_description = 'Mark selected refunds as completed'
 
     def mark_failed(self, request, queryset):
-        count = queryset.update(status='FAILED')
+        count = 0
+        for refund in queryset:
+            refund.mark_failed()
+            count += 1
         self.message_user(request, f'{count} refunds marked as failed.')
     mark_failed.short_description = 'Mark selected refunds as failed'
 
     def mark_cancelled(self, request, queryset):
-        count = queryset.update(status='CANCELLED')
+        count = 0
+        for refund in queryset:
+            refund.mark_cancelled()
+            count += 1
         self.message_user(request, f'{count} refunds marked as cancelled.')
     mark_cancelled.short_description = 'Mark selected refunds as cancelled'
