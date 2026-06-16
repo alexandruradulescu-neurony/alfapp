@@ -76,7 +76,7 @@ class ClaimViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_409_CONFLICT
             )
         except Exception as e:
-            logger.error(f"Error deleting claim: {e}")
+            logger.error(f"Error deleting claim: {e}", exc_info=True)
             return Response(
                 {'detail': 'Error deleting claim.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -101,6 +101,10 @@ class ClaimViewSet(viewsets.ModelViewSet):
         ids = [int(i) for i in ids]
 
         deleted, blocked = [], []
+        # Per-claim transaction boundary is intentional: each claim commits (or is
+        # skipped) independently so one PROTECTED claim can't roll back the rest.
+        # A mid-sweep crash leaves the already-deleted claims committed; the
+        # response reports exactly what was deleted vs blocked.
         for claim in Claim.objects.filter(id__in=ids):
             claim_id = claim.id
             try:
@@ -139,7 +143,7 @@ class ClaimViewSet(viewsets.ModelViewSet):
             return response
             
         except Exception as e:
-            logger.error(f"Error generating proof of work PDF: {e}")
+            logger.error(f"Error generating proof of work PDF: {e}", exc_info=True)
             return Response(
                 {'detail': 'Error generating PDF.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -175,9 +179,10 @@ class ClaimEvidenceViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """
-        Associate evidence with a claim. Mirrors the frontend upload path:
-        AGENTs may only upload to claims assigned to them (or unassigned), and the
-        image is size/type validated (the API previously did neither).
+        Associate evidence with a claim. Mirrors the frontend upload path: the
+        image is size/type validated (the API previously did neither). Any
+        authenticated staff member may upload to any claim — there is no per-user
+        ownership check (the manager/agent role split was removed).
         """
         from django.core.exceptions import ValidationError as DjangoValidationError
         from rest_framework.exceptions import PermissionDenied
@@ -205,7 +210,7 @@ class ClaimEvidenceViewSet(viewsets.ModelViewSet):
         try:
             return super().destroy(request, *args, **kwargs)
         except Exception as e:
-            logger.error(f"Error deleting evidence: {e}")
+            logger.error(f"Error deleting evidence: {e}", exc_info=True)
             return Response(
                 {'detail': 'Error deleting evidence.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -237,18 +242,21 @@ class ClaimUpdateFromZendeskView(APIView):
         ticket_data['comments'] = fetch_zendesk_comments(claim.zd_ticket_id)
 
         extracted = analyze_zendesk_ticket_for_claim(ticket_data)
-
-        updated_fields = refresh_claim_from_zendesk(claim, extracted)
-
+        # AI summary is best-effort (its own save); do it outside the atomic block
+        # so the LLM call never holds a DB transaction open.
         summary_refreshed = refresh_claim_summary(claim, ticket_data)
 
-        ClaimUpdateTimeline.objects.create(
-            claim=claim,
-            zendesk_ticket_id=claim.zd_ticket_id,
-            update_type='INFO_UPDATED',
-            changes_summary=json.dumps({'updated_fields': updated_fields}),
-            llm_summary=claim.ai_summary if summary_refreshed else '',
-        )
+        # The field-merge save and the timeline row are one unit: a crash between
+        # them must not leave an updated claim with no history entry.
+        with transaction.atomic():
+            updated_fields = refresh_claim_from_zendesk(claim, extracted)
+            ClaimUpdateTimeline.objects.create(
+                claim=claim,
+                zendesk_ticket_id=claim.zd_ticket_id,
+                update_type='INFO_UPDATED',
+                changes_summary=json.dumps({'updated_fields': updated_fields}),
+                llm_summary=claim.ai_summary if summary_refreshed else '',
+            )
         logger.info(f"Refreshed claim #{claim.id} from Zendesk: {updated_fields}")
         return Response({
             'message': 'Claim refreshed from Zendesk',

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 from django.conf import settings
 
@@ -246,17 +248,22 @@ class Claim(models.Model):
     def __str__(self):
         return f"Claim #{self.id} ({self.alf_claim_id}) - {self.client_email} ({self.status})"
     
+    # NB: these refund_* properties each hit the DB. They are detail-only — any
+    # list view that renders them per-row must prefetch_related('refunds') to
+    # avoid an N+1 (the ClaimViewSet does not prefetch refunds).
     @property
     def has_refund(self):
         """Check if claim has any refunds."""
         return self.refunds.exists()
-    
+
     @property
     def refund_total(self):
-        """Calculate total refunded amount."""
+        """Total of COMPLETED refunds — always a Decimal."""
         from django.db.models import Sum
+        # 'COMPLETED' mirrors apps.payments.models.Refund's status choice value;
+        # kept as a literal here to avoid a claims->payments import cycle.
         result = self.refunds.filter(status='COMPLETED').aggregate(total=Sum('amount'))
-        return result['total'] or 0
+        return result['total'] or Decimal('0.00')
     
     @property
     def latest_refund(self):
