@@ -209,17 +209,28 @@ class RefundViewSetVerbLockTests(TestCase):
         self.assertTrue(Refund.objects.filter(id=self.refund.id).exists())
 
     def test_manual_create_uses_unique_id(self):
-        # count()+1 collided after deletions; uuid suffix must be unique
+        # count()+1 collided after deletions; uuid suffix must be unique.
+        # Use a claim with refund headroom — self.claim is already fully refunded
+        # (WC-LOCK1 reserves its whole price_paid), which the M2 cap rightly blocks.
         from apps.payments.views import RefundViewSet  # noqa: F401
+        roomy = _claim(alf_claim_id='ALF7012399', zd_ticket_id='70124',
+                       price_paid=Decimal('1000.00'))
         r1 = self.api.post('/api/payments/refunds/', {
-            'claim_id': self.claim.id, 'amount': '5.00',
+            'claim_id': roomy.id, 'amount': '5.00',
             'refund_type': 'PARTIAL', 'reason': 'x'}, format='json')
         r2 = self.api.post('/api/payments/refunds/', {
-            'claim_id': self.claim.id, 'amount': '5.00',
+            'claim_id': roomy.id, 'amount': '5.00',
             'refund_type': 'PARTIAL', 'reason': 'y'}, format='json')
         self.assertEqual(r1.status_code, 201)
         self.assertEqual(r2.status_code, 201)
         self.assertNotEqual(r1.data['paypal_refund_id'], r2.data['paypal_refund_id'])
+
+    def test_manual_create_over_cap_rejected(self):
+        """M2 (defense-in-depth): the create API rejects an over-refund."""
+        resp = self.api.post('/api/payments/refunds/', {
+            'claim_id': self.claim.id, 'amount': '5.00',  # claim already fully refunded
+            'refund_type': 'PARTIAL', 'reason': 'over'}, format='json')
+        self.assertEqual(resp.status_code, 400)
 
 
 # ---- refund-requested queue ----

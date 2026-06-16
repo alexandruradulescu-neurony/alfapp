@@ -23,7 +23,7 @@ from typing import Dict, Any, Optional, List
 
 from django.core.cache import cache
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from apps.payments.models import Dispute, DisputeDocument, DisputeActivityLog
@@ -995,27 +995,41 @@ def ingest_dispute(dispute_id: str, raw_event: dict = None):
 
     claim = _match_claim_for_dispute(details)
 
-    dispute = Dispute.objects.create(
-        paypal_dispute_id=dispute_id,
-        paypal_case_id=details.get('case_id', '') or '',
-        claim=claim,
-        zd_ticket_id=(claim.zd_ticket_id if claim else ''),
-        status='MATCHED' if claim else 'RECEIVED',
-        # Only set reason if it matches our enum; Phase 4 fixes the enum
-        # (incl. British UNAUTHORISED). The raw reason is kept in the payload.
-        dispute_reason=reason if reason in Dispute.VALID_REASONS else '',
-        dispute_amount=amount.get('value') or None,
-        dispute_currency=(amount.get('currency_code') or '')[:3],
-        buyer_email=buyer_email,  # '' allowed when claim is None (model constraint)
-        buyer_name=buyer_name[:255],
-        transaction_id=txn.get('seller_transaction_id', '') or '',
-        transaction_date=(_parse_paypal_time(txn.get('create_time'))
-                          or _parse_paypal_time(details.get('create_time'))
-                          or timezone.now()),
-        seller_response_due=_parse_paypal_time(details.get('seller_response_due_date')),
-        dispute_life_cycle_stage=details.get('dispute_life_cycle_stage', '') or '',
-        raw_webhook_payload=details,
-    )
+    # Atomic create guarded against the check-then-create race: the manual pull
+    # (dispute_pull_from_paypal) calls this in a loop with no ProcessedWebhookEvent
+    # gate, so two concurrent pulls — or a pull racing a webhook — can both pass
+    # the existence check above and the second create() hits the unique
+    # paypal_dispute_id constraint. Adopt the winning row idempotently instead of
+    # raising. The savepoint keeps any enclosing transaction usable for re-fetch.
+    try:
+        with transaction.atomic():
+            dispute = Dispute.objects.create(
+                paypal_dispute_id=dispute_id,
+                paypal_case_id=details.get('case_id', '') or '',
+                claim=claim,
+                zd_ticket_id=(claim.zd_ticket_id if claim else ''),
+                status='MATCHED' if claim else 'RECEIVED',
+                # Only set reason if it matches our enum; Phase 4 fixes the enum
+                # (incl. British UNAUTHORISED). The raw reason is kept in the payload.
+                dispute_reason=reason if reason in Dispute.VALID_REASONS else '',
+                dispute_amount=amount.get('value') or None,
+                dispute_currency=(amount.get('currency_code') or '')[:3],
+                buyer_email=buyer_email,  # '' allowed when claim is None (model constraint)
+                buyer_name=buyer_name[:255],
+                transaction_id=txn.get('seller_transaction_id', '') or '',
+                transaction_date=(_parse_paypal_time(txn.get('create_time'))
+                                  or _parse_paypal_time(details.get('create_time'))
+                                  or timezone.now()),
+                seller_response_due=_parse_paypal_time(details.get('seller_response_due_date')),
+                dispute_life_cycle_stage=details.get('dispute_life_cycle_stage', '') or '',
+                raw_webhook_payload=details,
+            )
+    except IntegrityError:
+        existing = Dispute.objects.filter(paypal_dispute_id=dispute_id).first()
+        if existing is None:
+            raise
+        logger.info(f"Dispute {dispute_id} created concurrently; adopting existing #{existing.id}")
+        return existing, False
     DisputeActivityLog.objects.create(
         dispute=dispute, action='DISPUTE_CREATED',
         details=f"Ingested from PayPal ({details.get('dispute_life_cycle_stage', '?')} stage, "

@@ -82,21 +82,16 @@ class RefundService:
                     'error': 'No PayPal capture id available to refund against',
                 }
 
-            # Create refund record in PENDING state. Use a unique placeholder id
-            # (not '') so two concurrent pending refunds can't collide on the
-            # unique paypal_refund_id column; the real id replaces it on success.
-            refund = Refund.objects.create(
-                claim=claim,
-                paypal_refund_id=f'PENDING-{uuid.uuid4().hex}',
-                paypal_capture_id=capture_id or '',
-                amount=amount,
-                currency='USD',  # TODO: Get from claim or PayPal
-                status='PENDING',
-                refund_type=refund_type,
-                external_source='LORA',
-                reason=reason,
-                created_by=user,
+            # Reserve under the over-refund cap (row-locked) BEFORE calling PayPal,
+            # so two refunds for the same claim can't exceed price_paid. Shared
+            # with issue_woocommerce_refund via _reserve_refund.
+            refund, err = self._reserve_refund(
+                claim, amount, external_source='LORA', reason=reason, user=user,
+                pending_prefix='PENDING-', paypal_capture_id=capture_id or '',
+                currency='USD', refund_type=refund_type,
             )
+            if err:
+                return err
             
             # Call PayPal API to process refund
             paypal_result = self._process_paypal_refund(
@@ -313,6 +308,55 @@ class RefundService:
     # except an outright failure counts against the claim's remaining amount).
     RESERVING_STATUSES = ('PENDING', 'PROCESSING', 'COMPLETED')
 
+    def _reserve_refund(self, claim, amount, *, external_source, reason, user,
+                        pending_prefix, paypal_capture_id='', currency='USD',
+                        refund_type=None, metadata=None):
+        """Reserve `amount` against the claim's remaining refundable amount and
+        create a PENDING Refund — atomically, under a row lock, so the cap can't
+        be raced. Returns (refund, None) on success or (None, error_dict) if the
+        over-refund cap would be breached or the claim vanished.
+
+        Shared by both money-moving paths (initiate_refund / PayPal-direct and
+        issue_woocommerce_refund) so the cap is enforced identically. The
+        external gateway call MUST happen after this, OUTSIDE the transaction,
+        so a timeout can't roll back (and hide) a refund the gateway made.
+        """
+        from django.db.models import Sum
+        try:
+            with transaction.atomic():
+                locked = Claim.objects.select_for_update().get(pk=claim.pk)
+                reserved = locked.refunds.filter(
+                    status__in=self.RESERVING_STATUSES
+                ).aggregate(t=Sum('amount'))['t'] or Decimal('0')
+                if locked.price_paid:
+                    remaining = locked.price_paid - reserved
+                    if amount > remaining:
+                        return None, {
+                            'success': False,
+                            'error': (f'Refund of {amount} exceeds the remaining '
+                                      f'refundable amount ({remaining}).'),
+                        }
+                    resolved_type = refund_type or (
+                        'PARTIAL' if amount < locked.price_paid else 'FULL')
+                else:
+                    resolved_type = refund_type or 'FULL'
+                refund = Refund.objects.create(
+                    claim=locked,
+                    paypal_refund_id=f'{pending_prefix}{uuid.uuid4().hex[:12]}',
+                    paypal_capture_id=paypal_capture_id,
+                    amount=amount,
+                    currency=currency,
+                    status='PENDING',
+                    refund_type=resolved_type,
+                    external_source=external_source,
+                    reason=reason,
+                    created_by=user,
+                    metadata=metadata or {},
+                )
+        except Claim.DoesNotExist:
+            return None, {'success': False, 'error': 'Claim not found.'}
+        return refund, None
+
     def issue_woocommerce_refund(
         self,
         claim: Claim,
@@ -334,9 +378,7 @@ class RefundService:
         - the reserved row carries the WooCommerce refund id on success, so
           the cascade's inbound webhook reconciles to it (one record).
         """
-        from django.db.models import Sum
         from django.utils import timezone
-        import uuid
 
         order_id = (claim.woocommerce_id or '').strip()
         if not order_id:
@@ -349,36 +391,15 @@ class RefundService:
         if amount <= 0:
             return {'success': False, 'error': 'Refund amount must be positive.'}
 
-        # Reserve atomically under a row lock so the cap can't be raced.
-        try:
-            with transaction.atomic():
-                locked = Claim.objects.select_for_update().get(pk=claim.pk)
-                reserved = locked.refunds.filter(
-                    status__in=self.RESERVING_STATUSES
-                ).aggregate(t=Sum('amount'))['t'] or Decimal('0')
-                if locked.price_paid:
-                    remaining = locked.price_paid - reserved
-                    if amount > remaining:
-                        return {'success': False,
-                                'error': f'Refund of {amount} exceeds the remaining '
-                                         f'refundable amount ({remaining}).'}
-                    refund_type = 'PARTIAL' if amount < locked.price_paid else 'FULL'
-                else:
-                    refund_type = 'FULL'
-                refund = Refund.objects.create(
-                    claim=locked,
-                    paypal_refund_id=f'WC-PENDING-{uuid.uuid4().hex[:12]}',
-                    amount=amount,
-                    currency='USD',
-                    status='PENDING',
-                    refund_type=refund_type,
-                    external_source='WOOCOMMERCE',
-                    reason=reason,
-                    created_by=user,
-                    metadata={'woocommerce_order_id': order_id, 'initiated_by': 'LORA'},
-                )
-        except Claim.DoesNotExist:
-            return {'success': False, 'error': 'Claim not found.'}
+        # Reserve atomically under a row lock so the cap can't be raced (shared
+        # with the PayPal-direct path via _reserve_refund).
+        refund, err = self._reserve_refund(
+            claim, amount, external_source='WOOCOMMERCE', reason=reason, user=user,
+            pending_prefix='WC-PENDING-', currency='USD',
+            metadata={'woocommerce_order_id': order_id, 'initiated_by': 'LORA'},
+        )
+        if err:
+            return err
 
         # External call OUTSIDE the transaction.
         try:

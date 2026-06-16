@@ -88,6 +88,26 @@ class RefundCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Amount must be positive')
         return value
 
+    def validate(self, attrs):
+        """Defense-in-depth over-refund cap. The service (_reserve_refund) is the
+        authoritative enforcer under a row lock; this rejects obvious over-refunds
+        at the API boundary before any external call."""
+        from decimal import Decimal
+        from django.db.models import Sum
+        from apps.payments.refund_service import RefundService
+        claim = attrs.get('claim_id')  # validate_claim_id resolves this to a Claim
+        amount = attrs.get('amount')
+        if claim is not None and amount is not None and claim.price_paid:
+            reserved = claim.refunds.filter(
+                status__in=RefundService.RESERVING_STATUSES
+            ).aggregate(t=Sum('amount'))['t'] or Decimal('0')
+            remaining = claim.price_paid - reserved
+            if amount > remaining:
+                raise serializers.ValidationError(
+                    f'Refund of {amount} exceeds the remaining refundable '
+                    f'amount ({remaining}).')
+        return attrs
+
 
 class RefundStatusUpdateSerializer(serializers.Serializer):
     """Serializer for updating refund status."""

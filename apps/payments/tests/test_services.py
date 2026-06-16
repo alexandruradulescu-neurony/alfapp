@@ -65,6 +65,29 @@ class TestRefundServiceInitiateRefund:
         assert "PayPal credentials not configured" in result["error"]
 
     @patch("apps.payments.refund_service.RefundService._process_paypal_refund")
+    def test_initiate_refund_rejected_over_cap(self, mock_process_refund):
+        """M2: a PayPal-direct refund exceeding the claim's remaining refundable
+        amount is rejected BEFORE any PayPal call and reserves nothing — parity
+        with the WooCommerce path."""
+        settings = SystemSettings.objects.get(pk=1)
+        settings.paypal_client_id = "cid"
+        settings.paypal_secret = "sec"
+        settings.save()
+        claim = Claim.objects.create(
+            client_email="cap@example.com", alf_claim_id="ALF3109001",
+            price_paid=Decimal("40.00"),
+        )
+        service = RefundService()
+        result = service.initiate_refund(
+            claim=claim, amount=Decimal("100.00"), reason="too much",
+            user=None, capture_id="CAP-1",
+        )
+        assert result["success"] is False
+        assert "exceeds the remaining" in result["error"]
+        mock_process_refund.assert_not_called()  # capped before the PayPal call
+        assert Refund.objects.filter(claim=claim).count() == 0  # nothing reserved
+
+    @patch("apps.payments.refund_service.RefundService._process_paypal_refund")
     def test_initiate_refund_success_full(self, mock_process_refund):
         """Test successful full refund initiation."""
         # Setup PayPal credentials

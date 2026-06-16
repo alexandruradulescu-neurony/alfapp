@@ -295,6 +295,31 @@ class TestIngestDisputeMatching(TestCase):
             dispute, _created = ingest_dispute('PP-D-TXN')
         self.assertEqual(dispute.claim_id, self.claim.id)
 
+    def test_concurrent_ingest_is_idempotent(self):
+        """G2: a manual pull racing a webhook (or two pulls) can both pass the
+        existence check; the second create() hits the unique paypal_dispute_id
+        constraint and must adopt the winning row, not raise a 500."""
+        from unittest.mock import MagicMock
+        from django.db import IntegrityError
+        from apps.payments import paypal_disputes_service as svc
+        winner = MagicMock(id=777)
+        details = {
+            'case_id': 'C1', 'dispute_amount': {'value': '10.00', 'currency_code': 'USD'},
+            'reason': '', 'dispute_life_cycle_stage': 'INQUIRY',
+            'disputed_transactions': [{}], 'seller_response_due_date': None,
+            'create_time': None,
+        }
+        with patch.object(svc, 'fetch_dispute_details', return_value=details), \
+             patch.object(svc, '_match_claim_for_dispute', return_value=None), \
+             patch.object(svc, 'Dispute') as MockDispute:
+            MockDispute.VALID_REASONS = []
+            # existence check -> miss, then re-fetch after the lost race -> winner
+            MockDispute.objects.filter.return_value.first.side_effect = [None, winner]
+            MockDispute.objects.create.side_effect = IntegrityError('dup')
+            returned, created = svc.ingest_dispute('PP-D-RACE')
+        self.assertFalse(created)
+        self.assertIs(returned, winner)
+
 
 class TestDisputeListViewFilter(TestCase):
     """Default list view shows only disputes that still need a reply; under-review
