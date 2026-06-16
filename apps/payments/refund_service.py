@@ -12,7 +12,7 @@ import logging
 import uuid
 from typing import Dict, Any, Optional
 from decimal import Decimal
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from apps.payments.models import Refund
 from apps.claims.models import Claim
 from apps.config.models import SystemSettings
@@ -509,20 +509,45 @@ class RefundService:
                 else:
                     resolved_type = 'FULL'
 
-            refund = Refund.objects.create(
-                claim=claim,
-                paypal_refund_id=f'WC-{refund_id}',  # Prefix to distinguish from PayPal
-                amount=refund_amount,
-                currency=(currency or 'USD').upper()[:3],
-                status='COMPLETED',
-                refund_type=resolved_type,
-                external_source='WOOCOMMERCE',
-                reason=reason,
-                metadata={
-                    'woocommerce_order_id': order_id,
-                    'woocommerce_refund_id': refund_id,
-                },
-            )
+            # Atomic create guarded against the check-then-create race: two
+            # concurrent deliveries of the same refund_id can both pass the
+            # existence/reservation checks above, so the second create() would
+            # hit the unique paypal_refund_id constraint. Catch that and adopt
+            # the row the winner created — an idempotent success, not a 500.
+            # The savepoint keeps any enclosing transaction usable for the
+            # re-fetch after the IntegrityError.
+            try:
+                with transaction.atomic():
+                    refund = Refund.objects.create(
+                        claim=claim,
+                        paypal_refund_id=f'WC-{refund_id}',  # Prefix to distinguish from PayPal
+                        amount=refund_amount,
+                        currency=(currency or 'USD').upper()[:3],
+                        status='COMPLETED',
+                        refund_type=resolved_type,
+                        external_source='WOOCOMMERCE',
+                        reason=reason,
+                        metadata={
+                            'woocommerce_order_id': order_id,
+                            'woocommerce_refund_id': refund_id,
+                        },
+                    )
+            except IntegrityError:
+                existing = Refund.objects.filter(
+                    paypal_refund_id=f'WC-{refund_id}'
+                ).first()
+                if existing is None:
+                    raise  # unique violation on some other field — surface it
+                logger.info(
+                    f"WooCommerce refund {refund_id} created concurrently; "
+                    f"adopting existing row #{existing.id}"
+                )
+                return {
+                    'success': True,
+                    'refund': existing,
+                    'message': 'Refund already processed',
+                    'already_processed': True,
+                }
 
             logger.info(f"Processed WooCommerce refund {refund_id} for Claim #{claim.id}")
 

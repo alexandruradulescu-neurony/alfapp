@@ -91,6 +91,26 @@ class ProcessWooCommerceRefundTests(TestCase):
         self.assertTrue(again.get('already_processed'))
         self.assertEqual(Refund.objects.filter(paypal_refund_id='WC-1008').count(), 1)
 
+    def test_concurrent_create_race_returns_existing_idempotently(self):
+        """M1: when two deliveries race and both pass the existence check, the
+        second create() hits the unique constraint — it must adopt the winning
+        row and report idempotent success, not surface a generic error/500."""
+        from unittest.mock import MagicMock
+        from django.db import IntegrityError
+        winner = MagicMock(id=999)
+        with patch('apps.payments.refund_service.Refund') as MockRefund:
+            # existence check -> miss, then re-fetch after the race -> winner
+            MockRefund.objects.filter.return_value.first.side_effect = [None, winner]
+            # reservation reconcile query (filter().order_by().first()) -> miss
+            MockRefund.objects.filter.return_value.order_by.return_value.first.return_value = None
+            MockRefund.objects.create.side_effect = IntegrityError('duplicate key')
+            result = self.svc.process_woocommerce_refund(
+                claim_number='ALF7012300', refund_amount=Decimal('89.00'),
+                refund_id='RACE1', order_id='555')
+        self.assertTrue(result['success'])
+        self.assertTrue(result['already_processed'])
+        self.assertIs(result['refund'], winner)
+
 
 # ---- inbound webhook view ----
 
