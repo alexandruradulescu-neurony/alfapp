@@ -17,6 +17,7 @@ refuses to persist the sentinel and raises instead — fail loud, lose nothing.
 import base64
 import hashlib
 import logging
+from functools import lru_cache
 
 from cryptography.fernet import Fernet, MultiFernet
 from cryptography.hazmat.primitives import hashes
@@ -36,8 +37,16 @@ _KEY_LENGTH = 32
 DECRYPTION_FAILED = "\x00__LORA_DECRYPTION_FAILED__\x00"
 
 
+@lru_cache(maxsize=16)
 def _derive_fernet(key: str) -> Fernet:
     """Derive a Fernet from a raw key string via PBKDF2.
+
+    Memoised per key: PBKDF2 at 100k iterations is ~tens of ms, and this is
+    called on EVERY encrypted-field read/write — without the cache, each
+    SystemSettings access re-derives the key for every credential field
+    (the dominant cost in the test suite). The derivation is deterministic per
+    key, so caching by the key string is safe; rotating to a new key is a new
+    cache key (a miss), so override_settings-based rotation tests still work.
 
     The salt is derived deterministically from the key itself (as in the original
     single-key implementation), so the PRIMARY key produces a byte-identical

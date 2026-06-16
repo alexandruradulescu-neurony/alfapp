@@ -129,6 +129,14 @@ CACHES = {
 # Custom User Model
 AUTH_USER_MODEL = 'users.User'
 
+# Test-speed: under pytest, use a fast password hasher. The test fixtures create
+# many users, and the production PBKDF2 hasher (~260k iterations per hash)
+# dominates the suite runtime. This is the standard Django test optimization and
+# only applies when running under pytest — production keeps the secure default.
+import sys as _sys
+if 'pytest' in _sys.modules:
+    PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
+
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {
