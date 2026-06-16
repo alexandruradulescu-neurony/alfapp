@@ -14,15 +14,13 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 
 from apps.claims.models import Claim, ClaimEvidence, ClaimUpdateTimeline
 from apps.claims.serializers import ClaimSerializer, ClaimDetailSerializer, ClaimEvidenceSerializer
-from apps.claims.services import compute_deadline_at
+from apps.claims.services import refresh_claim_from_zendesk
 from apps.users.permissions import IsAgentOrManager
 from apps.integrations.services import (
     fetch_zendesk_ticket,
     fetch_zendesk_comments,
     analyze_zendesk_ticket_for_claim,
     get_ticket_email_alias,
-    safe_date,
-    safe_decimal,
 )
 from apps.integrations.briefing import refresh_claim_summary
 
@@ -225,17 +223,6 @@ class ClaimUpdateFromZendeskView(APIView):
     authentication_classes = [SessionAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
-    OVERWRITE_FIELDS = [
-        'client_email', 'client_name', 'flight_details', 'phone',
-        'billing_address', 'shipping_address', 'incident_details',
-        'lost_location', 'deadline_time', 'deadline_timezone',
-        'payment_method', 'payment_status', 'woocommerce_id', 'tracking_info',
-    ]
-    FILL_ONLY_FIELDS = [
-        'object_description',
-        'alternate_email',  # alternate_email: extractor returns '' today — reserved for when extraction adds it
-    ]
-
     def post(self, request, claim_id):
 
         claim = get_object_or_404(Claim, id=claim_id)
@@ -251,31 +238,7 @@ class ClaimUpdateFromZendeskView(APIView):
 
         extracted = analyze_zendesk_ticket_for_claim(ticket_data)
 
-        updated_fields = []
-        for field in self.OVERWRITE_FIELDS:
-            value = (extracted.get(field) or '').strip()
-            if value and value != (getattr(claim, field) or ''):
-                setattr(claim, field, value)
-                updated_fields.append(field)
-        for field in self.FILL_ONLY_FIELDS:
-            value = (extracted.get(field) or '').strip()
-            if value and not (getattr(claim, field) or ''):
-                setattr(claim, field, value)
-                updated_fields.append(field)
-
-        new_date = safe_date(extracted.get('deadline_date', ''))
-        if new_date and new_date != claim.deadline_date:
-            claim.deadline_date = new_date
-            updated_fields.append('deadline_date')
-        new_price = safe_decimal(extracted.get('price_paid', ''))
-        if new_price is not None and new_price != claim.price_paid:
-            claim.price_paid = new_price
-            updated_fields.append('price_paid')
-
-        claim.deadline_at = compute_deadline_at(
-            claim.deadline_date, claim.deadline_time, claim.deadline_timezone)
-        save_fields = set(updated_fields) | {'deadline_at', 'updated_at'}
-        claim.save(update_fields=list(save_fields))
+        updated_fields = refresh_claim_from_zendesk(claim, extracted)
 
         summary_refreshed = refresh_claim_summary(claim, ticket_data)
 

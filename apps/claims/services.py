@@ -107,3 +107,58 @@ def compute_deadline_at(deadline_date: Optional[date],
     moment = parse_deadline_time(deadline_time) or _END_OF_DAY
     tz = parse_deadline_timezone(deadline_timezone)
     return datetime.combine(deadline_date, moment, tzinfo=tz)
+
+
+# Fields refreshed from a Zendesk ticket. OVERWRITE = Zendesk is the source of
+# truth (structured fields replace the claim value); FILL_ONLY = LLM-inferred
+# values that only populate a blank. claim.status is deliberately NOT here — the
+# webhook owns the stage mirror.
+OVERWRITE_FIELDS = [
+    'client_email', 'client_name', 'flight_details', 'phone',
+    'billing_address', 'shipping_address', 'incident_details',
+    'lost_location', 'deadline_time', 'deadline_timezone',
+    'payment_method', 'payment_status', 'woocommerce_id', 'tracking_info',
+]
+FILL_ONLY_FIELDS = [
+    'object_description',
+    'alternate_email',  # extractor returns '' today — reserved for when it adds it
+]
+
+
+def refresh_claim_from_zendesk(claim, extracted: dict) -> list:
+    """Merge re-extracted ticket facts into `claim` and save it.
+
+    OVERWRITE_FIELDS replace the claim value (Zendesk is the source of truth);
+    FILL_ONLY_FIELDS populate blanks only; deadline_date/price_paid are coerced
+    and applied if changed; deadline_at is recomputed. Never touches claim.status.
+    Returns the list of field names actually changed. Operates on the passed-in
+    instance (no model import), so this module stays migration-safe.
+    """
+    from apps.integrations.services import safe_date, safe_decimal
+
+    updated_fields = []
+    for field in OVERWRITE_FIELDS:
+        value = (extracted.get(field) or '').strip()
+        if value and value != (getattr(claim, field) or ''):
+            setattr(claim, field, value)
+            updated_fields.append(field)
+    for field in FILL_ONLY_FIELDS:
+        value = (extracted.get(field) or '').strip()
+        if value and not (getattr(claim, field) or ''):
+            setattr(claim, field, value)
+            updated_fields.append(field)
+
+    new_date = safe_date(extracted.get('deadline_date', ''))
+    if new_date and new_date != claim.deadline_date:
+        claim.deadline_date = new_date
+        updated_fields.append('deadline_date')
+    new_price = safe_decimal(extracted.get('price_paid', ''))
+    if new_price is not None and new_price != claim.price_paid:
+        claim.price_paid = new_price
+        updated_fields.append('price_paid')
+
+    claim.deadline_at = compute_deadline_at(
+        claim.deadline_date, claim.deadline_time, claim.deadline_timezone)
+    save_fields = set(updated_fields) | {'deadline_at', 'updated_at'}
+    claim.save(update_fields=list(save_fields))
+    return updated_fields
