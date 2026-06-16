@@ -240,7 +240,9 @@
 
     <!-- AI-Generated Response Body -->
     <div class="response-body">
-        {{ ai_generated_content }}
+        {# Plain-text body (subject\n\nbody) — render paragraph/line breaks so the
+           legal PDF isn't a single run-on paragraph. Mirrors comment.body above. #}
+        {{ ai_generated_content|linebreaks }}
     </div>
 
     <!-- Professional Closing -->

@@ -12,7 +12,6 @@ import re
 from datetime import datetime, timezone as _std_timezone
 from typing import Optional, Tuple
 
-import bleach
 from django.conf import settings
 from django.db import transaction
 from django.template.loader import render_to_string
@@ -23,10 +22,6 @@ from apps.claims.models import ClaimEvidence
 from apps.integrations.services import fetch_zendesk_ticket_full, fetch_zendesk_comments
 
 logger = logging.getLogger(__name__)
-
-# Allowed HTML tags and attributes for sanitizing AI-generated content
-ALLOWED_HTML_TAGS = ['p', 'br', 'strong', 'em', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'div', 'span', 'blockquote']
-ALLOWED_HTML_ATTRIBUTES = {}
 
 
 def _get_weasyprint():
