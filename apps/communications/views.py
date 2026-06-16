@@ -37,7 +37,9 @@ class EmailLogViewSet(viewsets.ReadOnlyModelViewSet):
         Filter queryset based on user role and query params.
         Optimized to defer heavy text fields for list operations.
         """
-        queryset = super().get_queryset()
+        # select_related('claim'): the serializer reads claim.id/claim.status, so
+        # without this a list of N emails fires N extra Claim queries (N+1).
+        queryset = super().get_queryset().select_related('claim')
         user = self.request.user
 
         # Defer heavy text fields for list operations to reduce payload size

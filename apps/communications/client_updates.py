@@ -167,9 +167,13 @@ def start_client_updates(claim) -> bool:
             or getattr(claim, 'client_report_sent_at', None)):
         return False
     from apps.communications.client_report import build_client_update_message
+    from django.db import transaction
     claim.client_report_draft = build_client_update_message(claim, polish=False)
-    claim.save(update_fields=['client_report_draft', 'updated_at'])
-    schedule_next(claim, timezone.now())
+    # Draft + first schedule are one unit: a crash between them would leave a
+    # drafted report with no scheduled follow-up cadence.
+    with transaction.atomic():
+        claim.save(update_fields=['client_report_draft', 'updated_at'])
+        schedule_next(claim, timezone.now())
     return True
 
 

@@ -402,6 +402,11 @@ def parse_ai_response(raw_response: str) -> Dict[str, Any]:
     if data is None:
         logger.warning(f"No JSON found in AI response: {raw_response[:100]}")
         return result
+    if not isinstance(data, dict):
+        # Valid JSON but an array/scalar — `key in data` / `data[key]` below would
+        # raise TypeError; degrade to the default result instead of crashing.
+        logger.warning(f"AI response JSON is not an object: {type(data).__name__}")
+        return result
 
     try:
 
@@ -467,8 +472,10 @@ def parse_ai_response(raw_response: str) -> Dict[str, Any]:
 
         return result
 
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse JSON from AI response: {e}")
+    except (TypeError, KeyError, AttributeError) as e:
+        # JSON was already parsed above, so the real risk here is an unexpectedly
+        # shaped field — degrade gracefully rather than 500 the email pipeline.
+        logger.error(f"Malformed field in AI response: {e}")
         logger.debug(f"Raw response: {raw_response}")
 
         # Fallback: try to infer from raw text
@@ -570,25 +577,26 @@ def process_single_email(
     ai_prompt: str,
     email_domain: str,
 ) -> Optional[EmailLog]:
-    # NB: deliberately NOT wrapped in transaction.atomic. The only DB write is
-    # the EmailLog insert (atomic on its own); the surrounding work is external
-    # I/O — Zendesk reads, the LLM call, the Zendesk note, the IMAP flag. Holding
-    # a DB transaction open across those calls means long locks, and rolling the
-    # insert back because a *later* external side effect failed would discard the
-    # record of an email that was in fact processed (re-processing it would then
-    # re-post to Zendesk). The Message-ID dedup + unique constraint guard repeats.
     """
     Process a single email message with alias-based matching and AI categorization.
-    
+
     Args:
         imap_conn: IMAP connection
         uid: Email UID
         msg_data: Raw email data
         ai_prompt: AI analysis prompt template
         email_domain: Configured email domain for alias matching
-        
+
     Returns:
         The created EmailLog or None if skipped
+
+    NB: deliberately NOT wrapped in transaction.atomic. The only DB write is the
+    EmailLog insert (atomic on its own); the surrounding work is external I/O —
+    Zendesk reads, the LLM call, the Zendesk note, the IMAP flag. Holding a DB
+    transaction open across those means long locks, and rolling the insert back
+    because a *later* external side effect failed would discard the record of an
+    email that was in fact processed (re-processing would then re-post to Zendesk).
+    The Message-ID dedup + unique constraint guard against duplicates.
     """
     try:
         # Parse the email
@@ -782,6 +790,11 @@ def process_single_email(
             # All other EmailLog fields have model-level defaults
         )
         return email_log
+    except IntegrityError:
+        # A concurrent sweep inserted the same Message-ID first (unique constraint).
+        # That's a clean dedup, not an error — skip rather than report a failure.
+        logger.info(f"Email UID {uid} already inserted concurrently (Message-ID race) — skipping")
+        return None
     except Exception as e:
         logger.error(f"Error processing email UID {uid}: {e}", exc_info=True)
         # Don't re-raise - continue with next email
