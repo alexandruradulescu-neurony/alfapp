@@ -1,26 +1,10 @@
 from django.contrib.auth.models import AbstractUser
-from django.db import models
 
 
 class User(AbstractUser):
-    """Custom User model with role-based access control."""
-
-    ROLE_CHOICES = [
-        ('MANAGER', 'Manager'),
-        ('AGENT', 'Agent'),
-    ]
-
-    role = models.CharField(
-        max_length=10,
-        choices=ROLE_CHOICES,
-        default='AGENT',
-    )
+    """The single application user. The manager/agent role split was removed —
+    there is one trusted user type (a manager) and access is gated only by
+    authentication. Kept as a custom model so future fields have a home."""
 
     def __str__(self):
-        return f"{self.username} ({self.role})"
-
-    def is_manager(self):
-        return self.role == 'MANAGER'
-
-    def is_agent(self):
-        return self.role == 'AGENT'
+        return self.username

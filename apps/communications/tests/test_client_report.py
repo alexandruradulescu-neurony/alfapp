@@ -56,7 +56,7 @@ class ClientReportTemplateTests(TestCase):
 
 class ClientReportActionTests(TestCase):
     def setUp(self):
-        self.mgr = User.objects.create_user(username='cr_mgr', password='x', role='MANAGER')
+        self.mgr = User.objects.create_user(username='cr_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.mgr)
         self.claim = Claim.objects.create(

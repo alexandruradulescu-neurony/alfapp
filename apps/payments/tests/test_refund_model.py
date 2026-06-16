@@ -15,7 +15,6 @@ class RefundModelTest(TestCase):
         self.user = User.objects.create_user(
             username='testmanager',
             password='testpass',
-            role='MANAGER',
             email='manager@test.com'
         )
         self.claim = Claim.objects.create(

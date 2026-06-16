@@ -184,7 +184,7 @@ class StartTests(TestCase):
         self.assertFalse(cu.start_client_updates(claim))
 
     def test_start_view_initializes_claim(self):
-        mgr = User.objects.create_user(username='start_mgr', password='x', role='MANAGER')
+        mgr = User.objects.create_user(username='start_mgr', password='x')
         web = Client()
         web.force_login(mgr)
         claim = Claim.objects.create(client_email='a@example.com', client_name='Lee', zd_ticket_id='99001')
@@ -196,7 +196,7 @@ class StartTests(TestCase):
 
 class FollowupViewTests(TestCase):
     def setUp(self):
-        self.mgr = User.objects.create_user(username='fu_mgr', password='x', role='MANAGER')
+        self.mgr = User.objects.create_user(username='fu_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.mgr)
         self.claim = Claim.objects.create(client_email='a@example.com', client_name='Lee', zd_ticket_id='97001')

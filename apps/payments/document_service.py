@@ -470,7 +470,6 @@ def _render_to_pdf(html_string: str, filename_hint: str) -> Optional[bytes]:
         return None
 
 
-@transaction.atomic
 def generate_response_letter(dispute_or_id):
     """
     Generate a professional dispute response letter using AI.
@@ -574,24 +573,27 @@ def generate_response_letter(dispute_or_id):
             logger.error(f"Failed to generate PDF for Dispute #{dispute_id}")
             return None
 
-        document = DisputeDocument.objects.create(
-            dispute=dispute,
-            doc_type='RESPONSE_LETTER',
-            status='DRAFT',
-            generated_by='AI',
-            content_html=ai_generated_content,
-            version=1,
-        )
-
+        # Persist in a NARROW transaction — the slow work (Zendesk fetch, LLM,
+        # render) is already done above, outside any transaction (project rule:
+        # never hold a DB transaction open across network/render I/O); only the
+        # create + file-save + log need to be all-or-nothing.
         from django.core.files.base import ContentFile
         filename = f"response_letter_dispute_{dispute_id}_v1_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        document.file_path.save(filename, ContentFile(pdf_bytes), save=True)
-
-        DisputeActivityLog.objects.create(
-            dispute=dispute,
-            action='DOCUMENT_GENERATED',
-            details=f"AI-generated response letter (v1) created. Content length: {len(ai_generated_content)} chars, PDF size: {len(pdf_bytes)} bytes",
-        )
+        with transaction.atomic():
+            document = DisputeDocument.objects.create(
+                dispute=dispute,
+                doc_type='RESPONSE_LETTER',
+                status='DRAFT',
+                generated_by='AI',
+                content_html=ai_generated_content,
+                version=1,
+            )
+            document.file_path.save(filename, ContentFile(pdf_bytes), save=True)
+            DisputeActivityLog.objects.create(
+                dispute=dispute,
+                action='DOCUMENT_GENERATED',
+                details=f"AI-generated response letter (v1) created. Content length: {len(ai_generated_content)} chars, PDF size: {len(pdf_bytes)} bytes",
+            )
 
         logger.info(f"Successfully generated response letter for Dispute #{dispute_id} (Document #{document.id})")
         return document

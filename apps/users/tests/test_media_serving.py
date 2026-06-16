@@ -32,7 +32,7 @@ def test_media_anonymous_is_redirected_to_login(client):
 def test_media_authenticated_missing_file_returns_404(client):
     """An authenticated user passes the login gate; a non-existent file then
     returns 404 (proving the request reached the serve view, not a redirect)."""
-    User.objects.create_user(username='mediamgr', password='pw-test-12345', role='MANAGER')
+    User.objects.create_user(username='mediamgr', password='pw-test-12345')
     client.login(username='mediamgr', password='pw-test-12345')
     resp = client.get('/media/evidence/does-not-exist.jpg', secure=True)
     assert resp.status_code == 404

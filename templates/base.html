@@ -30,22 +30,15 @@
             <!-- Navigation -->
             <nav class="flex-1 px-3 pt-4">
                 <ul class="sidebar-nav flex flex-col gap-1">
-                    {% if user.role == 'MANAGER' %}
-                        <li><a href="{% url 'manager_dashboard' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-speedometer2 text-base w-5 text-center"></i> Dashboard</a></li>
-                        <li><a href="{% url 'manager_claims' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-clipboard-data text-base w-5 text-center"></i> Claims</a></li>
-                        <li><a href="{% url 'agent_emails' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-envelope text-base w-5 text-center"></i> Emails</a></li>
-                        <li><a href="{% url 'disputes:dispute_list' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-exclamation-triangle text-base w-5 text-center"></i> Disputes</a></li>
-                        <li><a href="{% url 'manager_refunds' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-currency-exchange text-base w-5 text-center"></i> Refunds</a></li>
-                        <li><a href="{% url 'agent:agent-chat' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-robot text-base w-5 text-center"></i> AI Agent</a></li>
-                        <li class="mt-5 mb-1"><p class="text-xs font-medium text-base-content/40 px-4">Settings</p></li>
-                        <li><a href="{% url 'manager_settings' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-gear text-base w-5 text-center"></i> Configuration</a></li>
-                        <li><a href="{% url 'manager_users' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-people text-base w-5 text-center"></i> Users</a></li>
-                    {% else %}
-                        <li><a href="{% url 'agent_dashboard' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-speedometer2 text-base w-5 text-center"></i> Dashboard</a></li>
-                        <li><a href="{% url 'agent_claims' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-clipboard-data text-base w-5 text-center"></i> Claims</a></li>
-                        <li><a href="{% url 'agent_emails' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-envelope text-base w-5 text-center"></i> Emails</a></li>
-                        <li><a href="{% url 'agent:agent-chat' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-robot text-base w-5 text-center"></i> AI Agent</a></li>
-                    {% endif %}
+                    <li><a href="{% url 'manager_dashboard' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-speedometer2 text-base w-5 text-center"></i> Dashboard</a></li>
+                    <li><a href="{% url 'manager_claims' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-clipboard-data text-base w-5 text-center"></i> Claims</a></li>
+                    <li><a href="{% url 'agent_emails' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-envelope text-base w-5 text-center"></i> Emails</a></li>
+                    <li><a href="{% url 'disputes:dispute_list' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-exclamation-triangle text-base w-5 text-center"></i> Disputes</a></li>
+                    <li><a href="{% url 'manager_refunds' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-currency-exchange text-base w-5 text-center"></i> Refunds</a></li>
+                    <li><a href="{% url 'agent:agent-chat' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-robot text-base w-5 text-center"></i> AI Agent</a></li>
+                    <li class="mt-5 mb-1"><p class="text-xs font-medium text-base-content/40 px-4">Settings</p></li>
+                    <li><a href="{% url 'manager_settings' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-gear text-base w-5 text-center"></i> Configuration</a></li>
+                    <li><a href="{% url 'manager_users' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-people text-base w-5 text-center"></i> Users</a></li>
                 </ul>
             </nav>
 
@@ -57,7 +50,7 @@
                     </div>
                     <div class="flex-1 min-w-0">
                         <div class="font-semibold text-sm truncate">{{ user.username }}</div>
-                        <div class="text-xs text-base-content/50">{{ user.role }}</div>
+                        <div class="text-xs text-base-content/50">{{ user.email }}</div>
                     </div>
                     <a href="{% url 'logout' %}" class="btn btn-ghost btn-sm btn-square text-base-content/40 hover:text-error transition-colors" title="Logout">
                         <i class="bi bi-box-arrow-right"></i>

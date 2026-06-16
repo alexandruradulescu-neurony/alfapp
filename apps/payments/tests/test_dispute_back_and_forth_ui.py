@@ -60,7 +60,7 @@ class TimelineBuilderTests(TestCase):
 
 class _UITestBase(TestCase):
     def setUp(self):
-        self.mgr = User.objects.create_user(username='ui_mgr', password='x', role='MANAGER')
+        self.mgr = User.objects.create_user(username='ui_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.mgr)
 

@@ -271,7 +271,7 @@ class CheckEmailForTicketTests(TestCase):
 class ClaimCheckEmailEndpointTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(
-            username='emailcheck_agent', password='x', role='AGENT')
+            username='emailcheck_agent', password='x')
         self.api = APIClient()
         self.api.force_authenticate(self.user)
         self.claim = Claim.objects.create(

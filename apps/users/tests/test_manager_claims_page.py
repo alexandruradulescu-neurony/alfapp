@@ -21,7 +21,7 @@ class ManagerClaimsPageTests(TestCase):
         ss.zd_subdomain = 'testco'
         ss.save()
         self.manager = User.objects.create_user(
-            username='page_manager', password='x', role='MANAGER')
+            username='page_manager', password='x')
         self.web = Client()
         self.web.force_login(self.manager)
 

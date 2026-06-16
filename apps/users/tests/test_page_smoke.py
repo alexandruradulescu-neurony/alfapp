@@ -18,7 +18,7 @@ User = get_user_model()
 
 class ManagerPageSmokeTests(TestCase):
     def setUp(self):
-        self.mgr = User.objects.create_user(username='smoke_mgr', password='x', role='MANAGER')
+        self.mgr = User.objects.create_user(username='smoke_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.mgr)
         self.claim = Claim.objects.create(

@@ -61,23 +61,21 @@ class TestLoginView:
         User.objects.create_user(
             username='testagent_login1',
             password='testpass123',
-            role='AGENT'
         )
         client = Client()
         response = client.post('/login/', {
             'username': 'testagent_login1',
             'password': 'testpass123'
         })
-        # Should redirect to agent_dashboard
+        # Single user type — login lands on the manager dashboard
         assert response.status_code == 302
-        assert '/agent/' in response.url
+        assert '/manager/' in response.url
 
     def test_login_post_valid_credentials_manager(self):
         """Test login with valid MANAGER credentials."""
         User.objects.create_user(
             username='testmanager_login1',
             password='testpass123',
-            role='MANAGER'
         )
         client = Client()
         response = client.post('/login/', {
@@ -121,7 +119,6 @@ class TestLoginView:
         manager = User.objects.create_user(
             username='manager_auth_redirect',
             password='testpass123',
-            role='MANAGER'
         )
         client = Client()
         client.login(username='manager_auth_redirect', password='testpass123')
@@ -166,7 +163,6 @@ class TestDashboardRedirect:
         manager = User.objects.create_user(
             username='manager_dash_redirect',
             password='testpass123',
-            role='MANAGER'
         )
         client = Client()
         client.login(username='manager_dash_redirect', password='testpass123')
@@ -179,7 +175,6 @@ class TestDashboardRedirect:
         agent = User.objects.create_user(
             username='agent_dash_redirect',
             password='testpass123',
-            role='AGENT'
         )
         client = Client()
         client.login(username='agent_dash_redirect', password='testpass123')
@@ -206,7 +201,6 @@ class TestAgentDashboard:
         agent = User.objects.create_user(
             username='agent_dash_test',
             password='testpass123',
-            role='AGENT'
         )
         client = Client()
         client.login(username='agent_dash_test', password='testpass123')
@@ -221,7 +215,6 @@ class TestAgentDashboard:
         agent = User.objects.create_user(
             username=f'{test_prefix}user',
             password='testpass123',
-            role='AGENT'
         )
         # Create exactly one claim assigned to this agent
         claim = Claim.objects.create(
@@ -254,7 +247,6 @@ class TestAgentDashboard:
         manager = User.objects.create_user(
             username='manager_agent_dash',
             password='testpass123',
-            role='MANAGER'
         )
         client = Client()
         client.login(username='manager_agent_dash', password='testpass123')
@@ -273,61 +265,12 @@ class TestAgentClaims:
         response = client.get('/agent/claims/')
         assert response.status_code == 302
 
-    def test_agent_claims_shows_assigned_claims(self):
-        """Test agent sees claims assigned to them."""
-        test_prefix = 'test_assigned_'
-        agent = User.objects.create_user(
-            username=f'{test_prefix}agent',
-            password='testpass123',
-            role='AGENT'
-        )
-        # Create claim assigned to this agent
-        claim1 = Claim.objects.create(
-            client_email=f'{test_prefix}1@example.com',
-            assigned_to=agent,
-            flight_details='Flight AA100'
-        )
-        # Create unassigned claim (agents can see these too)
-        claim2 = Claim.objects.create(
-            client_email=f'{test_prefix}2@example.com',
-            assigned_to=None,
-            flight_details='Flight AA101'
-        )
-        # Create claim assigned to different agent (should not be visible)
-        other_agent = User.objects.create_user(
-            username=f'{test_prefix}other_agent',
-            password='testpass123',
-            role='AGENT'
-        )
-        claim3 = Claim.objects.create(
-            client_email=f'{test_prefix}3@example.com',
-            assigned_to=other_agent,
-            flight_details='Flight AA102'
-        )
-
-        client = Client()
-        client.login(username=f'{test_prefix}agent', password='testpass123')
-        response = client.get('/agent/claims/')
-
-        # Get all claims from paginator (may span multiple pages)
-        page_obj = response.context['page_obj']
-        claims_on_page = list(page_obj.object_list)
-        
-        # Verify our assigned claim is in the results
-        claim_ids = [c.id for c in claims_on_page]
-        assert claim1.id in claim_ids
-        # Unassigned claims should also be visible
-        assert claim2.id in claim_ids
-        # Other agent's claim should NOT be visible
-        assert claim3.id not in claim_ids
-
     def test_agent_claims_status_filter(self):
         """Test agent claims status filter."""
         test_prefix = 'test_filter_status_'
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
         # Create claims with different statuses
         claim_initiated = Claim.objects.create(
@@ -365,7 +308,6 @@ class TestAgentClaims:
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
         claim = Claim.objects.create(
             client_email=f'{search_term}@example.com',
@@ -401,7 +343,6 @@ class TestAgentClaimDetail:
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
         claim = Claim.objects.create(
             client_email=f'{test_prefix}client@example.com',
@@ -415,34 +356,6 @@ class TestAgentClaimDetail:
 
         assert response.status_code == 200
         assert response.context['claim'] == claim
-
-    def test_agent_claim_detail_denies_unassigned(self):
-        """Test agent cannot view claim assigned to another agent."""
-        test_prefix = 'test_unassigned_detail_'
-        agent1 = User.objects.create_user(
-            username=f'{test_prefix}agent1',
-            password='testpass123',
-            role='AGENT'
-        )
-        agent2 = User.objects.create_user(
-            username=f'{test_prefix}agent2',
-            password='testpass123',
-            role='AGENT'
-        )
-        claim = Claim.objects.create(
-            client_email=f'{test_prefix}client@example.com',
-            assigned_to=agent2,
-            flight_details='Flight AA100'
-        )
-
-        client = Client()
-        client.login(username=f'{test_prefix}agent1', password='testpass123')
-        response = client.get(f'/agent/claims/{claim.id}/')
-
-        assert response.status_code == 302
-        messages = get_messages_list(response)
-        assert any('not assigned' in str(m).lower() for m in messages)
-
 
 @pytest.mark.django_db
 class TestAgentUploadEvidence:
@@ -460,7 +373,6 @@ class TestAgentUploadEvidence:
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
         claim = Claim.objects.create(
             client_email=f'{test_prefix}client@example.com',
@@ -496,7 +408,6 @@ class TestAgentUploadEvidence:
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
         claim = Claim.objects.create(
             client_email=f'{test_prefix}client@example.com',
@@ -527,7 +438,6 @@ class TestAgentUploadEvidence:
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
         claim = Claim.objects.create(
             client_email=f'{test_prefix}client@example.com',
@@ -558,7 +468,6 @@ class TestAgentUploadEvidence:
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
         claim = Claim.objects.create(
             client_email=f'{test_prefix}client@example.com',
@@ -593,7 +502,6 @@ class TestAgentEmails:
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
         claim = Claim.objects.create(client_email=f'{test_prefix}client@example.com', flight_details='Flight AA100')
         email = EmailLog.objects.create(
@@ -620,7 +528,6 @@ class TestAgentEmails:
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
         claim = Claim.objects.create(client_email=f'{test_prefix}client@example.com', flight_details='Flight AA100')
         email_action = EmailLog.objects.create(
@@ -656,7 +563,6 @@ class TestAgentEmails:
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
         email1 = EmailLog.objects.create(
             subject=f'{test_prefix}subject1',
@@ -690,7 +596,6 @@ class TestAgentEmails:
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
         email = EmailLog.objects.create(
             subject=f'{test_prefix}subject',
@@ -726,7 +631,6 @@ class TestAgentEmailDetail:
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
         email = EmailLog.objects.create(
             subject=f'{test_prefix}subject',
@@ -759,7 +663,6 @@ class TestManagerDashboard:
         manager = User.objects.create_user(
             username='manager_dash_test',
             password='testpass123',
-            role='MANAGER'
         )
         client = Client()
         client.login(username='manager_dash_test', password='testpass123')
@@ -773,7 +676,6 @@ class TestManagerDashboard:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         # Create test data with unique prefix (all open-family so active count >= 3)
         claim1 = Claim.objects.create(
@@ -797,7 +699,6 @@ class TestManagerDashboard:
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
 
         client = Client()
@@ -813,23 +714,9 @@ class TestManagerDashboard:
         assert response.context['solved'] == Claim.objects.filter(status_category='solved').count()
         assert response.context['disputed'] == Dispute.objects.exclude(
             status__in=['RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED']).count()
-        assert response.context['agents_count'] == User.objects.filter(role='AGENT').count()
+        assert response.context['agents_count'] == User.objects.filter().count()
         # And the three claims this test created are all active (family 'open')
         assert response.context['active'] >= 3
-
-    def test_manager_dashboard_denies_agent(self):
-        """Test AGENT cannot access manager dashboard."""
-        test_prefix = 'test_agent_denied_'
-        agent = User.objects.create_user(
-            username=f'{test_prefix}agent',
-            password='testpass123',
-            role='AGENT'
-        )
-        client = Client()
-        client.login(username=f'{test_prefix}agent', password='testpass123')
-        response = client.get('/manager/')
-        assert response.status_code == 403
-
 
 @pytest.mark.django_db
 class TestManagerClaims:
@@ -847,7 +734,6 @@ class TestManagerClaims:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         claim1 = Claim.objects.create(
             client_email=f'{test_prefix}1@example.com',
@@ -876,7 +762,6 @@ class TestManagerClaims:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         claim_initiated = Claim.objects.create(
             client_email=f'{test_prefix}received@example.com',
@@ -908,7 +793,6 @@ class TestManagerClaims:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         claim = Claim.objects.create(
             client_email=f'{test_prefix}search@example.com',
@@ -943,7 +827,6 @@ class TestManagerRefunds:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         claim = Claim.objects.create(client_email=f'{test_prefix}client@example.com', flight_details='Flight AA100')
         refund = Refund.objects.create(
@@ -970,7 +853,6 @@ class TestManagerRefunds:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         claim = Claim.objects.create(client_email=f'{test_prefix}client@example.com', flight_details='Flight AA100')
         refund_completed = Refund.objects.create(
@@ -1007,7 +889,6 @@ class TestManagerRefunds:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         claim = Claim.objects.create(client_email=f'{test_prefix}client@example.com', flight_details='Flight AA100')
         refund = Refund.objects.create(
@@ -1033,33 +914,16 @@ class TestManagerRefunds:
 class TestAgentAssignClaim:
     """Tests for agent_assign_claim view."""
 
-    def test_assign_claim_requires_manager(self):
-        """Test only MANAGER can assign claims."""
-        test_prefix = 'test_assign_perm_'
-        agent = User.objects.create_user(
-            username=f'{test_prefix}agent',
-            password='testpass123',
-            role='AGENT'
-        )
-        claim = Claim.objects.create(client_email=f'{test_prefix}client@example.com', flight_details='Flight AA100')
-
-        client = Client()
-        client.login(username=f'{test_prefix}agent', password='testpass123')
-        response = client.post(f'/manager/claims/{claim.id}/assign/')
-        assert response.status_code == 403
-
     def test_assign_claim_success(self):
         """Test successful claim assignment."""
         test_prefix = 'test_assign_success_'
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
         claim = Claim.objects.create(client_email=f'{test_prefix}client@example.com', flight_details='Flight AA100')
 
@@ -1082,7 +946,6 @@ class TestAgentAssignClaim:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         claim = Claim.objects.create(client_email=f'{test_prefix}client@example.com', flight_details='Flight AA100')
 
@@ -1102,7 +965,6 @@ class TestAgentAssignClaim:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         claim = Claim.objects.create(client_email=f'{test_prefix}client@example.com', flight_details='Flight AA100')
 
@@ -1122,12 +984,10 @@ class TestAgentAssignClaim:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
         claim = Claim.objects.create(
             client_email=f'{test_prefix}client@example.com',
@@ -1152,31 +1012,16 @@ class TestAgentAssignClaim:
 class TestManagerUsers:
     """Tests for manager_users view."""
 
-    def test_manager_users_requires_manager(self):
-        """Test only MANAGER can access user management."""
-        test_prefix = 'test_users_perm_'
-        agent = User.objects.create_user(
-            username=f'{test_prefix}agent',
-            password='testpass123',
-            role='AGENT'
-        )
-        client = Client()
-        client.login(username=f'{test_prefix}agent', password='testpass123')
-        response = client.get('/manager/users/')
-        assert response.status_code == 403
-
     def test_manager_users_shows_users(self):
         """Test manager users view shows users."""
         test_prefix = 'test_users_show_'
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         agent = User.objects.create_user(
             username=f'{test_prefix}agent',
             password='testpass123',
-            role='AGENT'
         )
 
         client = Client()
@@ -1196,7 +1041,6 @@ class TestManagerUsers:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
 
         client = Client()
@@ -1220,7 +1064,6 @@ class TestManagerUsers:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         existing = User.objects.create_user(
             username=f'{test_prefix}existing',
@@ -1238,33 +1081,12 @@ class TestManagerUsers:
         messages = get_messages_list(response)
         assert any('already exists' in str(m).lower() for m in messages)
 
-    def test_create_user_invalid_role(self):
-        """Test user creation with invalid role."""
-        test_prefix = 'test_create_invrole_'
-        manager = User.objects.create_user(
-            username=f'{test_prefix}manager',
-            password='testpass123',
-            role='MANAGER'
-        )
-
-        client = Client()
-        client.login(username=f'{test_prefix}manager', password='testpass123')
-        response = client.post('/manager/users/', {
-            'username': f'{test_prefix}newuser',
-            'password': 'StrongPass123!',
-            'role': 'INVALID_ROLE'
-        })
-
-        messages = get_messages_list(response)
-        assert any('Invalid role' in str(m) for m in messages)
-
     def test_create_user_weak_password(self):
         """Test user creation with weak password."""
         test_prefix = 'test_create_weak_'
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
 
         client = Client()
@@ -1284,7 +1106,6 @@ class TestManagerUsers:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
 
         client = Client()
@@ -1303,26 +1124,12 @@ class TestManagerUsers:
 class TestTestAi:
     """Tests for test_ai view."""
 
-    def test_test_ai_requires_manager(self):
-        """Test only MANAGER can test AI."""
-        test_prefix = 'test_ai_perm_'
-        agent = User.objects.create_user(
-            username=f'{test_prefix}agent',
-            password='testpass123',
-            role='AGENT'
-        )
-        client = Client()
-        client.login(username=f'{test_prefix}agent', password='testpass123')
-        response = client.get('/manager/test-ai/')
-        assert response.status_code == 403
-
     def test_test_ai_renders_template(self):
         """Test test AI view renders template."""
         test_prefix = 'test_ai_render_'
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         client = Client()
         client.login(username=f'{test_prefix}manager', password='testpass123')
@@ -1336,7 +1143,6 @@ class TestTestAi:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         # Ensure no API key
         settings = SystemSettings.get_instance()
@@ -1357,7 +1163,6 @@ class TestTestAi:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         settings = SystemSettings.get_instance()
         settings.ai_api_key = 'test_key'
@@ -1390,7 +1195,6 @@ class TestTestAi:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         settings = SystemSettings.get_instance()
         settings.ai_api_key = 'test_key'
@@ -1418,7 +1222,6 @@ class TestTestAi:
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
             password='testpass123',
-            role='MANAGER'
         )
         settings = SystemSettings.get_instance()
         settings.ai_api_key = 'test_key'

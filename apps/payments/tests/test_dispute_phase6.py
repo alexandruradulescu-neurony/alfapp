@@ -25,7 +25,7 @@ class SanitizeHtmlTests(TestCase):
 
 class AcceptClaimGuardTests(TestCase):
     def setUp(self):
-        self.manager = User.objects.create_user(username='ph6_mgr', password='x', role='MANAGER')
+        self.manager = User.objects.create_user(username='ph6_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.manager)
         self.dispute = Dispute.objects.create(

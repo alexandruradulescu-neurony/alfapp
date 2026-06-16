@@ -92,12 +92,7 @@ def login_view(request):
 
         if user is not None:
             login(request, user)
-
-            # Redirect based on role
-            if user.role == 'MANAGER':
-                return redirect('manager_dashboard')
-            else:
-                return redirect('agent_dashboard')
+            return redirect('manager_dashboard')
         else:
             messages.error(request, 'Invalid username or password.')
 
@@ -114,13 +109,10 @@ def logout_view(request):
 # ============== Dashboard Views ==============
 
 def dashboard_redirect(request):
-    """Redirect to appropriate dashboard based on user role."""
+    """Send users to the single dashboard."""
     if not request.user.is_authenticated:
         return redirect('login')
-    
-    if request.user.role == 'MANAGER':
-        return redirect('manager_dashboard')
-    return redirect('agent_dashboard')
+    return redirect('manager_dashboard')
 
 
 # ============== Agent Views ==============
@@ -205,12 +197,6 @@ def agent_claims(request):
         email_count=Count('emails')
     ).select_related('assigned_to').order_by('-created_at')
     
-    # Filter by assigned user for agents (not managers)
-    if user.role == 'AGENT':
-        claims = claims.filter(
-            models.Q(assigned_to=user) | models.Q(assigned_to__isnull=True)
-        )
-    
     # Filter by status if provided
     status_filter = request.GET.get('status')
     if status_filter:
@@ -279,9 +265,6 @@ def _annotate_deadline(claim, now):
 def claim_client_report_generate(request, claim_id):
     """Regenerate the client 'what we did' update draft (with AI polish) for review."""
     claim = get_object_or_404(Claim, id=claim_id)
-    if request.user.role == 'AGENT' and claim.assigned_to and claim.assigned_to != request.user:
-        messages.error(request, 'You are not assigned to this claim.')
-        return redirect('agent_claims')
     if request.method != 'POST':
         return redirect('agent_claim_detail', claim_id=claim_id)
     if claim.client_report_sent_at:
@@ -298,9 +281,6 @@ def claim_client_report_generate(request, claim_id):
 def claim_client_report_send(request, claim_id):
     """Send the (edited) client update as a PUBLIC reply on the Zendesk ticket."""
     claim = get_object_or_404(Claim, id=claim_id)
-    if request.user.role == 'AGENT' and claim.assigned_to and claim.assigned_to != request.user:
-        messages.error(request, 'You are not assigned to this claim.')
-        return redirect('agent_claims')
     if request.method != 'POST':
         return redirect('agent_claim_detail', claim_id=claim_id)
     if claim.client_report_sent_at:
@@ -333,9 +313,6 @@ def _followup_or_403(request, update_id):
     from apps.communications.models import ClientUpdate
     update = get_object_or_404(ClientUpdate, id=update_id)
     claim = update.claim
-    if request.user.role == 'AGENT' and claim.assigned_to and claim.assigned_to != request.user:
-        messages.error(request, 'You are not assigned to this claim.')
-        return None, redirect('agent_claims')
     return update, claim
 
 
@@ -391,9 +368,6 @@ def client_updates_start(request, claim_id):
     """Manually begin the client-update cadence for an existing claim that never
     auto-triggered (e.g. it was already in the submitted status)."""
     claim = get_object_or_404(Claim, id=claim_id)
-    if request.user.role == 'AGENT' and claim.assigned_to and claim.assigned_to != request.user:
-        messages.error(request, 'You are not assigned to this claim.')
-        return redirect('agent_claims')
     if request.method == 'POST':
         from apps.communications.client_updates import start_client_updates
         if start_client_updates(claim):
@@ -413,12 +387,6 @@ def agent_claim_detail(request, claim_id):
         id=claim_id,
     )
     _annotate_deadline(claim, timezone.now())
-
-    # Check if agent has permission to view this claim
-    if request.user.role == 'AGENT':
-        if claim.assigned_to and claim.assigned_to != request.user:
-            messages.error(request, 'You are not assigned to this claim.')
-            return redirect('agent_claims')
 
     # Get Zendesk subdomain for ticket links
     try:
@@ -469,7 +437,7 @@ def agent_assign_claim(request, claim_id):
                 return redirect('manager_claims')
             
             try:
-                agent = User.objects.get(id=agent_id, role='AGENT')
+                agent = User.objects.get(id=agent_id)
                 claim.assigned_to = agent
                 claim.save(update_fields=['assigned_to', 'updated_at'])
                 messages.success(request, f'Claim assigned to {agent.username}.')
@@ -489,12 +457,6 @@ def agent_assign_claim(request, claim_id):
 def agent_upload_evidence(request, claim_id):
     """Upload evidence for a claim with comprehensive file validation."""
     claim = get_object_or_404(Claim, id=claim_id)
-
-    # Agents can only upload evidence for claims assigned to them (or unassigned)
-    if request.user.role == 'AGENT':
-        if claim.assigned_to and claim.assigned_to != request.user:
-            messages.error(request, 'You are not assigned to this claim.')
-            return redirect('agent_claims')
 
     if request.method == 'POST':
         image = request.FILES.get('image')
@@ -699,7 +661,7 @@ def manager_dashboard(request):
     )
 
     # Agents count
-    agents_count = User.objects.filter(role='AGENT').count()
+    agents_count = User.objects.count()
 
     # Email stats - consolidate into single aggregate query
     email_stats = EmailLog.objects.aggregate(
@@ -1082,19 +1044,16 @@ def manager_users(request):
     users = User.objects.order_by('-date_joined')
 
     if request.method == 'POST':
-        # Create new user
+        # Create new user (single user type — no role)
         username = request.POST.get('username')
         email = request.POST.get('email')
         password = request.POST.get('password')
-        role = request.POST.get('role')
         first_name = request.POST.get('first_name', '')
         last_name = request.POST.get('last_name', '')
 
-        if username and password and role:
+        if username and password:
             if User.objects.filter(username=username).exists():
                 messages.error(request, 'Username already exists.')
-            elif role not in ['AGENT', 'MANAGER']:
-                messages.error(request, 'Invalid role.')
             else:
                 # Validate password strength
                 try:
@@ -1102,7 +1061,7 @@ def manager_users(request):
                 except ValidationError as e:
                     error_messages = ' '.join(e.messages)
                     messages.error(request, f'Weak password: {error_messages}')
-                    return render(request, 'manager/users.html', {'users': users, 'role_choices': User.ROLE_CHOICES})
+                    return render(request, 'manager/users.html', {'users': users})
 
                 try:
                     with transaction.atomic():
@@ -1110,7 +1069,6 @@ def manager_users(request):
                             username=username,
                             email=email,
                             password=password,
-                            role=role,
                             first_name=first_name,
                             last_name=last_name,
                         )
@@ -1121,12 +1079,7 @@ def manager_users(request):
         else:
             messages.error(request, 'Please fill in all required fields.')
 
-    context = {
-        'users': users,
-        'role_choices': User.ROLE_CHOICES,
-    }
-
-    return render(request, 'manager/users.html', context)
+    return render(request, 'manager/users.html', {'users': users})
 
 
 @manager_required

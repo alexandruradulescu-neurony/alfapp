@@ -29,7 +29,7 @@ FLIGHT_DATA = {
 class ClaimDetailPageTests(TestCase):
     def setUp(self):
         self.manager = User.objects.create_user(
-            username='detail_manager', password='x', role='MANAGER')
+            username='detail_manager', password='x')
         self.web = Client()
         self.web.force_login(self.manager)
         self.claim = Claim.objects.create(

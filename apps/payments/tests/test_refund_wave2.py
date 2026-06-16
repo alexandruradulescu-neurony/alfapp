@@ -102,7 +102,7 @@ class WooCommerceClientTests(TestCase):
 class IssueWooCommerceRefundTests(TestCase):
     def setUp(self):
         _configure_wc()
-        self.user = User.objects.create_user(username='wc_mgr', password='x', role='MANAGER')
+        self.user = User.objects.create_user(username='wc_mgr', password='x')
         self.claim = _claim()
         self.svc = RefundService()
 
@@ -230,8 +230,8 @@ class IssueEndpointTests(TestCase):
 
     def setUp(self):
         _configure_wc()
-        self.manager = User.objects.create_user(username='ep_mgr', password='x', role='MANAGER')
-        self.agent = User.objects.create_user(username='ep_agent', password='x', role='AGENT')
+        self.manager = User.objects.create_user(username='ep_mgr', password='x')
+        self.agent = User.objects.create_user(username='ep_agent', password='x')
         self.api = APIClient()
         self.claim = _claim()
 
@@ -244,14 +244,6 @@ class IssueEndpointTests(TestCase):
                 'refund_type': 'FULL', 'reason': 'ok'}, format='json')
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.data['refund']['paypal_refund_id'], 'WC-9300')
-
-    def test_agent_forbidden(self):
-        self.api.force_authenticate(self.agent)
-        resp = self.api.post(self.URL, {
-            'claim_id': self.claim.id, 'amount': '100.00',
-            'refund_type': 'FULL', 'reason': 'ok'}, format='json')
-        self.assertIn(resp.status_code, (403, 401))
-        self.assertEqual(Refund.objects.count(), 0)
 
     def test_indeterminate_returns_502(self):
         self.api.force_authenticate(self.manager)

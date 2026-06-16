@@ -167,7 +167,7 @@ class PayPalWebhookAuthTests(TestCase):
 class RefundViewSetVerbLockTests(TestCase):
     def setUp(self):
         self.manager = User.objects.create_user(
-            username='wave1_mgr', password='x', role='MANAGER')
+            username='wave1_mgr', password='x')
         self.api = APIClient()
         self.api.force_authenticate(self.manager)
         self.claim = _claim()
@@ -207,7 +207,7 @@ class RefundViewSetVerbLockTests(TestCase):
 class RefundRequestedQueueTests(TestCase):
     def setUp(self):
         self.manager = User.objects.create_user(
-            username='wave1_queue_mgr', password='x', role='MANAGER')
+            username='wave1_queue_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.manager)
 

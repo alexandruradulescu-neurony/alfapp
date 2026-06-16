@@ -30,8 +30,8 @@ class ReasonEnumTests(TestCase):
 
 class SetCategoryTests(TestCase):
     def setUp(self):
-        self.manager = User.objects.create_user(username='disp_mgr', password='x', role='MANAGER')
-        self.agent = User.objects.create_user(username='disp_agent', password='x', role='AGENT')
+        self.manager = User.objects.create_user(username='disp_mgr', password='x')
+        self.agent = User.objects.create_user(username='disp_agent', password='x')
         self.web = Client()
         self.web.force_login(self.manager)
         self.dispute = _dispute()
@@ -52,7 +52,7 @@ class SetCategoryTests(TestCase):
 
 class StageGatingActionTests(TestCase):
     def setUp(self):
-        self.manager = User.objects.create_user(username='gate_mgr', password='x', role='MANAGER')
+        self.manager = User.objects.create_user(username='gate_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.manager)
 

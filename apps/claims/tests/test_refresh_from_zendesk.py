@@ -24,7 +24,7 @@ EXTRACTED = {
 class RefreshFromZendeskTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(
-            username='refresh_agent1', password='x', role='AGENT')
+            username='refresh_agent1', password='x')
         self.client_api = APIClient()
         self.client_api.force_authenticate(self.user)
         self.claim = Claim.objects.create(
@@ -59,12 +59,6 @@ class RefreshFromZendeskTests(TestCase):
         entry = self.claim.updates.first()
         self.assertEqual(entry.update_type, 'INFO_UPDATED')
         self.assertIn('flight_details', entry.changes_summary)
-
-    def test_requires_agent_or_manager(self):
-        self.user.role = 'CLIENT'
-        self.user.save()
-        response = self._run()
-        self.assertEqual(response.status_code, 403)
 
     def test_status_is_never_touched(self):
         before = self.claim.status

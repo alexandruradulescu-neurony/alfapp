@@ -28,7 +28,7 @@ class ManagerClaimsImportTests(TestCase):
     def setUp(self):
         SystemSettings.get_instance()
         self.manager = User.objects.create_user(
-            username='imp_mgr', password='x', role='MANAGER')
+            username='imp_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.manager)
 
@@ -85,11 +85,3 @@ class ManagerClaimsImportTests(TestCase):
         self.assertContains(resp, 'Imported 1')   # 501 still imported
         self.assertContains(resp, '1 skipped')    # 500 errored
 
-    def test_non_manager_is_blocked(self):
-        agent = User.objects.create_user(username='imp_agent', password='x', role='AGENT')
-        client = Client()
-        client.force_login(agent)
-        with patch(IMPORT_FN) as mock_import:
-            resp = client.post(self.URL, {'ticket_ids': '1'})
-        mock_import.assert_not_called()
-        self.assertNotEqual(resp.status_code, 200)

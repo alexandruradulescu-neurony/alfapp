@@ -51,50 +51,21 @@ class ClaimViewSet(viewsets.ModelViewSet):
         return ClaimSerializer
 
     def get_queryset(self):
-        """
-        Filter queryset based on user role.
-        Optimized to prevent N+1 queries with select_related, prefetch_related, and annotate.
-        MANAGERs see all claims, AGENTs see all claims (can be modified for multi-tenant).
-        """
-        queryset = super().get_queryset()
-        user = self.request.user
-
-        # Optimize queries: 
-        # - select_related for FK (assigned_to)
-        # - prefetch_related for reverse FK (evidence, emails)
-        # - annotate evidence_count to avoid N+1 in serializer
-        queryset = queryset.select_related('assigned_to').prefetch_related(
+        """All claims, with N+1-avoiding prefetch/annotate. Single trusted user
+        type — no per-user scoping."""
+        return super().get_queryset().select_related('assigned_to').prefetch_related(
             'evidence',
             'emails'
         ).annotate(_evidence_count=Count('evidence', distinct=True))
 
-        if hasattr(user, 'role') and user.role == 'AGENT':
-            # AGENTs can see all claims (adjust if needed for tenant isolation)
-            return queryset
-        return queryset
-
-    def create(self, request, *args, **kwargs):
-        """Only MANAGERs can create claims."""
-        if not hasattr(request.user, 'role') or request.user.role != 'MANAGER':
-            return Response(
-                {'detail': 'Only MANAGERS can create claims.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        return super().create(request, *args, **kwargs)
-
     def destroy(self, request, *args, **kwargs):
-        """Only MANAGERs can delete claims (e.g. junk tickets that slipped in).
+        """Delete a claim (e.g. a junk ticket that slipped in).
 
         Timeline and evidence rows cascade away with the claim. Processed
         emails are kept for audit but detached (their claim link cleared).
         Refunds and disputes PROTECT the claim — a claim with money records
         attached refuses deletion with a clear message.
         """
-        if not hasattr(request.user, 'role') or request.user.role != 'MANAGER':
-            return Response(
-                {'detail': 'Only MANAGERS can delete claims.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
         claim = self.get_object()
         try:
             with transaction.atomic():
@@ -124,11 +95,6 @@ class ClaimViewSet(viewsets.ModelViewSet):
         evidence cascade, refunds/disputes block — blocked claims are skipped
         and reported back, never silently kept or silently lost.
         """
-        if not hasattr(request.user, 'role') or request.user.role != 'MANAGER':
-            return Response(
-                {'detail': 'Only MANAGERS can delete claims.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
         ids = request.data.get('ids')
         if not isinstance(ids, list) or not ids or \
                 not all(str(i).isdigit() for i in ids):
@@ -152,17 +118,7 @@ class ClaimViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='proof-of-work')
     def proof_of_work(self, request, pk=None):
-        """
-        Generate and download proof of work PDF for a claim.
-        Only MANAGERs can access this endpoint.
-        """
-        # Check if user is MANAGER
-        if not hasattr(request.user, 'role') or request.user.role != 'MANAGER':
-            return Response(
-                {'detail': 'Only MANAGERS can download proof of work PDFs.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
+        """Generate and download the proof-of-work PDF for a claim."""
         claim = self.get_object()
         
         try:
@@ -238,9 +194,6 @@ class ClaimEvidenceViewSet(viewsets.ModelViewSet):
             logger.warning(f"Claim {claim_id} not found for evidence upload")
             raise serializers.ValidationError({'claim': 'Claim not found.'})
 
-        if getattr(self.request.user, 'role', None) == 'AGENT':
-            if claim.assigned_to_id and claim.assigned_to_id != self.request.user.id:
-                raise PermissionDenied('You are not assigned to this claim.')
 
         try:
             validate_evidence_image(serializer.validated_data.get('image'))
@@ -250,12 +203,7 @@ class ClaimEvidenceViewSet(viewsets.ModelViewSet):
         serializer.save(claim=claim)
 
     def destroy(self, request, *args, **kwargs):
-        """Only MANAGERs can delete evidence."""
-        if not hasattr(request.user, 'role') or request.user.role != 'MANAGER':
-            return Response(
-                {'detail': 'Only MANAGERS can delete evidence.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        """Delete a piece of claim evidence."""
         try:
             return super().destroy(request, *args, **kwargs)
         except Exception as e:
@@ -289,9 +237,6 @@ class ClaimUpdateFromZendeskView(APIView):
     ]
 
     def post(self, request, claim_id):
-        if not hasattr(request.user, 'role') or request.user.role not in ['AGENT', 'MANAGER']:
-            return Response({'error': 'Permission denied: AGENT or MANAGER role required'},
-                            status=status.HTTP_403_FORBIDDEN)
 
         claim = get_object_or_404(Claim, id=claim_id)
         if not claim.zd_ticket_id:
@@ -364,9 +309,6 @@ class ClaimCheckEmailView(APIView):
         from apps.communications.services import (
             EmailNotConfigured, InvalidAlias, check_email_for_ticket)
 
-        if not hasattr(request.user, 'role') or request.user.role not in ['AGENT', 'MANAGER']:
-            return Response({'error': 'Permission denied: AGENT or MANAGER role required'},
-                            status=status.HTTP_403_FORBIDDEN)
 
         claim = get_object_or_404(Claim, id=claim_id)
         if not claim.zd_ticket_id:

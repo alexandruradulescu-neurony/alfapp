@@ -19,7 +19,7 @@ User = get_user_model()
 class EmailResolveTests(TestCase):
     def setUp(self):
         self.agent = User.objects.create_user(
-            username='resolve_agent', password='x', role='AGENT')
+            username='resolve_agent', password='x')
         self.api = APIClient()
         self.claim = Claim.objects.create(
             client_email='c@example.com', zd_ticket_id='78001')

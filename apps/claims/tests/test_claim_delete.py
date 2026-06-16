@@ -14,9 +14,9 @@ User = get_user_model()
 class ClaimDeleteTests(TestCase):
     def setUp(self):
         self.manager = User.objects.create_user(
-            username='delete_manager', password='x', role='MANAGER')
+            username='delete_manager', password='x')
         self.agent = User.objects.create_user(
-            username='delete_agent', password='x', role='AGENT')
+            username='delete_agent', password='x')
         self.api = APIClient()
         self.claim = Claim.objects.create(
             client_email='junk@example.com', zd_ticket_id='91001',
@@ -44,12 +44,6 @@ class ClaimDeleteTests(TestCase):
         email.refresh_from_db()
         self.assertIsNone(email.claim_id)  # audit row kept, link cleared
 
-    def test_agent_cannot_delete(self):
-        self.api.force_authenticate(self.agent)
-        resp = self.api.delete(self.url)
-        self.assertEqual(resp.status_code, 403)
-        self.assertTrue(Claim.objects.filter(id=self.claim.id).exists())
-
     def test_claim_with_refund_refuses_with_clear_message(self):
         Refund.objects.create(
             claim=self.claim, paypal_refund_id='PPR-DEL-1',
@@ -66,9 +60,9 @@ class ClaimBulkDeleteTests(TestCase):
 
     def setUp(self):
         self.manager = User.objects.create_user(
-            username='bulk_manager', password='x', role='MANAGER')
+            username='bulk_manager', password='x')
         self.agent = User.objects.create_user(
-            username='bulk_agent', password='x', role='AGENT')
+            username='bulk_agent', password='x')
         self.api = APIClient()
         self.junk1 = Claim.objects.create(
             client_email='j1@example.com', zd_ticket_id='92001')
@@ -97,12 +91,6 @@ class ClaimBulkDeleteTests(TestCase):
         # The junk claim's email survives, detached
         self.assertTrue(EmailLog.objects.filter(
             zd_ticket_id='92001', claim__isnull=True).exists())
-
-    def test_agent_cannot_bulk_delete(self):
-        self.api.force_authenticate(self.agent)
-        resp = self.api.post(self.URL, {'ids': [self.junk1.id]}, format='json')
-        self.assertEqual(resp.status_code, 403)
-        self.assertTrue(Claim.objects.filter(id=self.junk1.id).exists())
 
     def test_rejects_malformed_payload(self):
         self.api.force_authenticate(self.manager)

@@ -29,7 +29,7 @@ def _dispute(**kw):
 
 class _Base(TestCase):
     def setUp(self):
-        self.mgr = User.objects.create_user(username='rf_mgr', password='x', role='MANAGER')
+        self.mgr = User.objects.create_user(username='rf_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.mgr)
 

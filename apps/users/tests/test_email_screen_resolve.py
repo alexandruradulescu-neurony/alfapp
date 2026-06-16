@@ -13,7 +13,7 @@ User = get_user_model()
 class EmailScreenResolveTests(TestCase):
     def setUp(self):
         self.manager = User.objects.create_user(
-            username='emailscreen_mgr', password='x', role='MANAGER')
+            username='emailscreen_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.manager)
         self.claim = Claim.objects.create(client_email='c@example.com', zd_ticket_id='79001')

@@ -21,7 +21,6 @@ def agent(db):
     return User.objects.create_user(
         username="api_test_agent",
         password="testpass123",
-        role="AGENT",
     )
 
 

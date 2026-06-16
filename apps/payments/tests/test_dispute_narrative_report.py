@@ -449,7 +449,7 @@ class ManualDisputeCreateTests(TestCase):
         from django.contrib.auth import get_user_model
         from django.test import Client
         User = get_user_model()
-        self.mgr = User.objects.create_user(username='mc_mgr', password='x', role='MANAGER')
+        self.mgr = User.objects.create_user(username='mc_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.mgr)
         self.claim = Claim.objects.create(
@@ -500,7 +500,7 @@ class ReportEditorRenderTests(TestCase):
         from apps.payments.models import DisputeDocument
         self.reverse = reverse
         User = get_user_model()
-        self.mgr = User.objects.create_user(username='ed_mgr', password='x', role='MANAGER')
+        self.mgr = User.objects.create_user(username='ed_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.mgr)
         d = _dispute()

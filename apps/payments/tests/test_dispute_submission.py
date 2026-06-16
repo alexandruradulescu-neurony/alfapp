@@ -175,7 +175,7 @@ class BuildFilesTests(TestCase):
 
 class SubmitOrchestrationTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username='sub_mgr', password='x', role='MANAGER')
+        self.user = User.objects.create_user(username='sub_mgr', password='x')
 
     def test_evidence_path_records_and_resyncs(self):
         d = _dispute(payload={'dispute_state': 'REQUIRED_ACTION'},

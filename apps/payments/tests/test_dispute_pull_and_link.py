@@ -95,7 +95,7 @@ class TestDisputePullView(TestCase):
 
     def setUp(self):
         SystemSettings.get_instance()
-        self.manager = User.objects.create_user(username='pull_mgr', password='x', role='MANAGER')
+        self.manager = User.objects.create_user(username='pull_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.manager)
 
@@ -121,20 +121,10 @@ class TestDisputePullView(TestCase):
         mock_ingest.assert_not_called()
         self.assertContains(resp, 'No disputes returned from PayPal')
 
-    def test_non_manager_blocked(self):
-        agent = User.objects.create_user(username='pull_agent', password='x', role='AGENT')
-        client = Client()
-        client.force_login(agent)
-        with patch(f'{SVC}.list_paypal_disputes') as mock_list:
-            resp = client.post(self.URL)
-        mock_list.assert_not_called()
-        self.assertNotEqual(resp.status_code, 200)
-
-
 class TestDisputeLinkClaimView(TestCase):
     def setUp(self):
         SystemSettings.get_instance()
-        self.manager = User.objects.create_user(username='link_mgr', password='x', role='MANAGER')
+        self.manager = User.objects.create_user(username='link_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.manager)
         self.claim = Claim.objects.create(
@@ -187,23 +177,12 @@ class TestDisputeLinkClaimView(TestCase):
         self.assertEqual(d.claim_id, self.claim.id)  # unchanged
         self.assertContains(resp, 'already linked')
 
-    def test_non_manager_blocked(self):
-        d = _dispute(paypal_dispute_id='PP-D-D')
-        agent = User.objects.create_user(username='link_agent', password='x', role='AGENT')
-        client = Client()
-        client.force_login(agent)
-        resp = client.post(self._url(d), {'claim_ref': '55501'})
-        d.refresh_from_db()
-        self.assertIsNone(d.claim_id)
-        self.assertNotEqual(resp.status_code, 200)
-
-
 class TestDisputePruneResolvedView(TestCase):
     URL = '/manager/disputes/prune-resolved/'
 
     def setUp(self):
         SystemSettings.get_instance()
-        self.manager = User.objects.create_user(username='prune_mgr', password='x', role='MANAGER')
+        self.manager = User.objects.create_user(username='prune_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.manager)
 
@@ -221,16 +200,6 @@ class TestDisputePruneResolvedView(TestCase):
         _dispute(paypal_dispute_id='OPEN-1', raw_webhook_payload={'status': 'UNDER_REVIEW'})
         resp = self.web.post(self.URL, follow=True)
         self.assertContains(resp, 'No resolved disputes')
-
-    def test_non_manager_blocked(self):
-        resolved_d = _dispute(paypal_dispute_id='DONE-1', raw_webhook_payload={'status': 'RESOLVED'})
-        agent = User.objects.create_user(username='prune_agent', password='x', role='AGENT')
-        client = Client()
-        client.force_login(agent)
-        resp = client.post(self.URL)
-        self.assertTrue(Dispute.objects.filter(pk=resolved_d.pk).exists())
-        self.assertNotEqual(resp.status_code, 200)
-
 
 def _paypal_details(dispute_id='PP-D-1', invoice_number='', custom='', buyer_email=None):
     """A realistic PayPal dispute payload (shape taken from a real response —
@@ -334,7 +303,7 @@ class TestDisputeListViewFilter(TestCase):
 
     def setUp(self):
         SystemSettings.get_instance()
-        self.manager = User.objects.create_user(username='view_mgr', password='x', role='MANAGER')
+        self.manager = User.objects.create_user(username='view_mgr', password='x')
         self.web = Client()
         self.web.force_login(self.manager)
         self.action = _dispute(paypal_dispute_id='A1', raw_webhook_payload={
