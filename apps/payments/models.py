@@ -266,6 +266,12 @@ class Dispute(models.Model):
         related_name='assigned_disputes',
     )
 
+    # Transient guard: set True (atomic compare-and-set) while a money-moving
+    # accept-claim is mid-flight to PayPal, so two concurrent clicks can't both
+    # call the API. Cleared when the call returns. (Cache locks are per-process
+    # here — no shared cache — so the guard must live in the DB.)
+    accept_in_flight = models.BooleanField(default=False)
+
     class Meta:
         ordering = ['-created_at']
         indexes = [
@@ -489,6 +495,7 @@ class DisputeSubmission(models.Model):
     ]
     STATUS_CHOICES = [
         ('DRAFT', 'Draft'),
+        ('SUBMITTING', 'Submitting'),   # transient: atomically claimed for an in-flight PayPal POST
         ('SUBMITTED', 'Submitted'),
         ('FAILED', 'Failed'),
     ]

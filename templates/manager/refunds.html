@@ -264,9 +264,9 @@
             <i class="bi bi-currency-exchange text-primary"></i>
             Process Refund
         </h3>
-        <p class="text-sm text-base-content/60 mb-5">Issue a refund against a claim via PayPal.</p>
+        <p class="text-sm text-base-content/60 mb-5">Issue a refund against a claim via WooCommerce (the system of record), which settles it through PayPal.</p>
 
-        <form id="refundForm" method="POST" action="/api/payments/refunds/process/">
+        <form id="refundForm" method="POST" action="/api/payments/refunds/issue/">
             {% csrf_token %}
 
             <div class="form-control mb-4">
@@ -345,7 +345,7 @@ document.getElementById('refundForm').addEventListener('submit', async function(
     const data = Object.fromEntries(formData);
 
     try {
-        const response = await fetch('/api/payments/refunds/process/', {
+        const response = await fetch('/api/payments/refunds/issue/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

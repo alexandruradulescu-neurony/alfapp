@@ -23,8 +23,11 @@ from django.db import IntegrityError
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
+from django.core.exceptions import ValidationError
+
 from apps.users.decorators import manager_required
 from apps.claims.models import Claim
+from apps.claims.services import validate_evidence_image
 from apps.payments.models import (Dispute, DisputeDocument, DisputeActivityLog,
                                   DisputeSubmission, DisputeSubmissionImage)
 from apps.payments.document_service import (generate_response_letter, generate_evidence_report,
@@ -374,6 +377,17 @@ def dispute_link_claim(request, dispute_id):
         dispute=dispute, action='DISPUTE_MATCHED',
         details=f"Manually linked to claim #{claim.id} ({claim.alf_claim_id}) by {request.user}.")
     messages.success(request, f"Linked dispute to claim #{claim.id} ({claim.alf_claim_id}).")
+
+    # Manual linking is a deliberate human override, so don't block — but if the
+    # PayPal transaction ids disagree (the same cross-check auto-matching uses),
+    # warn so the manager can double-check this is the right claim.
+    dispute_txn = (dispute.transaction_id or '').strip()
+    claim_txn = (claim.paypal_transaction_id or '').strip()
+    if dispute_txn and claim_txn and dispute_txn != claim_txn:
+        messages.warning(
+            request,
+            f"Heads up: the PayPal transaction IDs differ (dispute {dispute_txn} vs "
+            f"claim {claim_txn}). Double-check this is the right claim.")
     return redirect('disputes:dispute_detail', dispute_id=dispute.id)
 
 
@@ -486,9 +500,12 @@ def dispute_edit_document(request, document_id):
         version_increment = request.POST.get('version_increment', 'on')
 
         # Don't wipe the document if the editor posted empty content (e.g. the
-        # in-place editor's JS failed to serialise the iframe).
+        # in-place editor's JS failed to serialise the iframe). Store the
+        # SANITIZED HTML (scripts/handlers stripped) — the edit view re-renders
+        # content_html into a srcdoc iframe, so persisting raw editor output
+        # would allow stored XSS in the manager's session.
         if content_html.strip():
-            document.content_html = content_html
+            document.content_html = strip_active_html(content_html)
 
         # Increment version if requested
         if version_increment:
@@ -735,9 +752,17 @@ def dispute_prepare_submission(request, dispute_id):
 
     saved = 0
     for f in request.FILES.getlist('images'):
-        if f and (getattr(f, 'content_type', '') or '').startswith('image/'):
-            DisputeSubmissionImage.objects.create(submission=draft, file=f, uploaded_by=request.user)
-            saved += 1
+        if not f:
+            continue
+        # Validate server-side (size + extension) — don't trust the client's
+        # content_type. Reuses the shared claim-evidence validator.
+        try:
+            validate_evidence_image(f)
+        except ValidationError as e:
+            messages.error(request, f"{f.name}: {'; '.join(e.messages)}")
+            continue
+        DisputeSubmissionImage.objects.create(submission=draft, file=f, uploaded_by=request.user)
+        saved += 1
     msg = "Submission draft saved."
     if saved:
         msg += f" {saved} image{'s' if saved != 1 else ''} attached."
@@ -767,10 +792,23 @@ def dispute_submit_to_paypal(request, dispute_id):
             "still be at the inquiry stage (message-only) or already resolved.")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
+    # Atomically claim the draft (DRAFT -> SUBMITTING) so two concurrent clicks
+    # can't both POST the same submission to PayPal. Only the request whose
+    # conditional update touches the row proceeds to the (outside-txn) call.
+    claimed = (DisputeSubmission.objects
+               .filter(pk=draft.pk, status='DRAFT')
+               .update(status='SUBMITTING'))
+    if not claimed:
+        messages.error(request, "This submission is already being sent — refresh to see its status.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+    draft.refresh_from_db()
+
     try:
         ok = submit_dispute_response(draft, performed_by=request.user)
     except Exception as e:
         logger.error(f"Submit-to-PayPal failed for Dispute #{dispute_id}: {e}")
+        # Release the claim so the manager can retry.
+        DisputeSubmission.objects.filter(pk=draft.pk, status='SUBMITTING').update(status='DRAFT')
         messages.error(request, f"Error submitting to PayPal: {e}")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
@@ -795,9 +833,15 @@ def dispute_manual_reply(request, dispute_id):
     if not text:
         messages.error(request, "Type a reply before sending.")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
-    endpoint = dispute.submit_endpoint
-    if not endpoint:
-        messages.error(request, "PayPal isn't accepting a reply for this dispute right now.")
+    # The quick-reply is the follow-up channel only (provide-supporting-info),
+    # per the design decision. Enforce it server-side, not just in the template,
+    # so a direct POST during the first-response window can't route a bare reply
+    # through provide-evidence.
+    if dispute.submit_endpoint != 'provide-supporting-info':
+        messages.error(
+            request,
+            "This case isn't under PayPal review yet — use the Prepare submission panel "
+            "for the first response.")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
     submission = DisputeSubmission.objects.create(
@@ -853,6 +897,17 @@ def dispute_accept_claim(request, dispute_id):
             f"This dispute is already {dispute.get_status_display()} — nothing to accept.")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
+    # Atomically claim this money-moving action (compare-and-set) so two
+    # concurrent clicks can't both call PayPal's accept-claim. Only the request
+    # that flips the flag proceeds; the flag is released when the call returns.
+    claimed = (Dispute.objects
+               .filter(pk=dispute.pk, accept_in_flight=False)
+               .exclude(status__in=Dispute.TERMINAL_STATUSES)
+               .update(accept_in_flight=True))
+    if not claimed:
+        messages.error(request, "This dispute is already being processed — refresh to see its status.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
     # Get optional note from POST data
     note = request.POST.get('note', '')
 
@@ -871,5 +926,8 @@ def dispute_accept_claim(request, dispute_id):
     except Exception as e:
         logger.error(f"Error accepting claim for Dispute #{dispute_id}: {e}")
         messages.error(request, f"Error accepting claim: {str(e)}")
+    finally:
+        # Release the in-flight claim (accept_claim sets ACCEPTED on success).
+        Dispute.objects.filter(pk=dispute.pk).update(accept_in_flight=False)
 
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)

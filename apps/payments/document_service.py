@@ -1637,7 +1637,6 @@ def build_dispute_reply_timeline(dispute) -> list:
     return entries
 
 
-@transaction.atomic
 def generate_evidence_report(dispute_id: int) -> Optional[DisputeDocument]:
     """
     Generate a comprehensive evidence report for a dispute.
@@ -1695,28 +1694,28 @@ def generate_evidence_report(dispute_id: int) -> Optional[DisputeDocument]:
                 f"Evidence report for Dispute #{dispute_id} is {len(pdf_bytes) // (1024 * 1024)}MB — "
                 f"PayPal evidence uploads are typically capped near 10MB; consider trimming embedded images.")
 
-        # Create DisputeDocument record
-        document = DisputeDocument.objects.create(
-            dispute=dispute,
-            doc_type='EVIDENCE_REPORT',
-            status='DRAFT',
-            generated_by='MANUAL',
-            content_html=html_string,
-            version=1,
-        )
-        
-        # Save PDF file
+        # Persist in a NARROW transaction — the slow work (Zendesk fetch, render)
+        # is already done above, outside any transaction (per the project rule of
+        # never holding a DB transaction open across network/render I/O); only the
+        # create + file-save + log need to be all-or-nothing.
         from django.core.files.base import ContentFile
         filename = f"evidence_report_dispute_{dispute_id}_v1_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-        document.file_path.save(filename, ContentFile(pdf_bytes), save=True)
-        
-        # Log the activity
-        DisputeActivityLog.objects.create(
-            dispute=dispute,
-            action='DOCUMENT_GENERATED',
-            details=f"Evidence report (v1) created. Evidence: {len(evidence_list)}, Emails: {len(communication_history)}, PDF size: {len(pdf_bytes)} bytes",
-        )
-        
+        with transaction.atomic():
+            document = DisputeDocument.objects.create(
+                dispute=dispute,
+                doc_type='EVIDENCE_REPORT',
+                status='DRAFT',
+                generated_by='MANUAL',
+                content_html=html_string,
+                version=1,
+            )
+            document.file_path.save(filename, ContentFile(pdf_bytes), save=True)
+            DisputeActivityLog.objects.create(
+                dispute=dispute,
+                action='DOCUMENT_GENERATED',
+                details=f"Evidence report (v1) created. Evidence: {len(evidence_list)}, Emails: {len(communication_history)}, PDF size: {len(pdf_bytes)} bytes",
+            )
+
         logger.info(f"Successfully generated evidence report for Dispute #{dispute_id} (Document #{document.id})")
         return document
         
