@@ -127,22 +127,30 @@ class PayPalDisputeWebhookView(APIView):
             if not created_gate:
                 return Response({'message': 'Already processed'}, status=status.HTTP_200_OK)
 
-        if event_type == 'CUSTOMER.DISPUTE.CREATED' and dispute_id:
-            dispute, created = ingest_dispute(dispute_id, raw_event=event)
-            if dispute is None:
-                # Couldn't reach PayPal — release the claim so PayPal's retry can
-                # reprocess this event, then 503.
-                if event_id:
-                    ProcessedWebhookEvent.objects.filter(event_id=event_id).delete()
-                return Response({'error': 'Could not fetch dispute details'},
-                                status=status.HTTP_503_SERVICE_UNAVAILABLE)
-            return Response({'message': 'Dispute ingested', 'created': created,
-                             'dispute_id': dispute.id}, status=status.HTTP_200_OK)
+        # Run the side effects under a guard: if ANYTHING fails (PayPal
+        # unreachable OR an exception mid-processing), RELEASE the idempotency
+        # claim and return 5xx so PayPal's retry can reprocess. Otherwise a
+        # raised exception would leave the event marked processed and the retry
+        # would short-circuit ("Already processed"), permanently dropping it.
+        try:
+            if event_type == 'CUSTOMER.DISPUTE.CREATED' and dispute_id:
+                dispute, created = ingest_dispute(dispute_id, raw_event=event)
+                if dispute is None:
+                    raise RuntimeError('ingest_dispute returned no dispute (PayPal unreachable)')
+                return Response({'message': 'Dispute ingested', 'created': created,
+                                 'dispute_id': dispute.id}, status=status.HTTP_200_OK)
 
-        # UPDATED / RESOLVED: refresh the local dispute (stage, deadline, and
-        # won/lost on resolution). The claim row above already guards idempotency.
-        if event_type in ('CUSTOMER.DISPUTE.UPDATED', 'CUSTOMER.DISPUTE.RESOLVED') and dispute_id:
-            sync_dispute_from_paypal(dispute_id)
+            # UPDATED / RESOLVED: refresh the local dispute (stage, deadline, and
+            # won/lost on resolution).
+            if event_type in ('CUSTOMER.DISPUTE.UPDATED', 'CUSTOMER.DISPUTE.RESOLVED') and dispute_id:
+                sync_dispute_from_paypal(dispute_id)
+        except Exception as e:
+            logger.error(
+                f"PayPal dispute webhook side-effect failed (event {event_id}, {event_type}): {e}")
+            if event_id:
+                ProcessedWebhookEvent.objects.filter(event_id=event_id).delete()
+            return Response({'error': 'Processing failed; will retry'},
+                            status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         logger.info(f"PayPal dispute webhook {event_type} acknowledged (event {event_id})")
         return Response({'message': 'Acknowledged'}, status=status.HTTP_200_OK)

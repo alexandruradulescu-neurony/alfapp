@@ -266,11 +266,12 @@ class Dispute(models.Model):
         related_name='assigned_disputes',
     )
 
-    # Transient guard: set True (atomic compare-and-set) while a money-moving
-    # accept-claim is mid-flight to PayPal, so two concurrent clicks can't both
-    # call the API. Cleared when the call returns. (Cache locks are per-process
-    # here — no shared cache — so the guard must live in the DB.)
-    accept_in_flight = models.BooleanField(default=False)
+    # Transient mutex: set True (atomic compare-and-set) while an outbound
+    # PayPal action (accept-claim, manual supporting-info reply) is mid-flight,
+    # so two concurrent clicks can't both call the API. Cleared when the call
+    # returns. (Cache locks are per-process here — no shared cache — so the
+    # guard must live in the DB.)
+    outbound_in_flight = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['-created_at']
@@ -326,6 +327,11 @@ class Dispute(models.Model):
 
         '' means no submission endpoint is available right now.
         """
+        # Manually-created disputes carry a synthetic id (no real PayPal case to
+        # POST to) — the manager downloads the report and uploads it in PayPal by
+        # hand. Refuse the API submit path so it can't 404 against a fake id.
+        if (self.paypal_dispute_id or '').startswith('MANUAL-'):
+            return ''
         if self.status in self.TERMINAL_STATUSES:
             return ''
         payload = self.raw_webhook_payload or {}

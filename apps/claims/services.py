@@ -22,6 +22,23 @@ def validate_evidence_image(image) -> None:
     if ext not in EVIDENCE_ALLOWED_EXTENSIONS:
         raise ValidationError(
             f'Invalid file type. Allowed: {", ".join(EVIDENCE_ALLOWED_EXTENSIONS)}.')
+    # Don't trust the name/extension — confirm the bytes actually decode as an
+    # image (arbitrary bytes named .png are otherwise accepted and later sent to
+    # PayPal / stored). Rewind afterwards so the real save reads from the start.
+    try:
+        from PIL import Image, UnidentifiedImageError
+    except Exception:
+        return  # Pillow unavailable — fall back to size+extension only
+    try:
+        image.seek(0)
+        Image.open(image).verify()
+    except (UnidentifiedImageError, OSError, ValueError):
+        raise ValidationError('File is not a valid image (it could not be decoded).')
+    finally:
+        try:
+            image.seek(0)
+        except Exception:
+            pass
 
 # Common human-typed abbreviations -> IANA zone. Fallback is UTC; precision
 # beyond "right day" is best-effort by design (see spec §6).

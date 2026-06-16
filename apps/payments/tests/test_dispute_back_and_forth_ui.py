@@ -97,7 +97,10 @@ class PrepareSubmissionTests(_UITestBase):
     def test_save_marks_ai_edited_and_attaches_image(self):
         d = _dispute()
         DisputeSubmission.objects.create(dispute=d, notes='AI text', source='AI', status='DRAFT')
-        png = SimpleUploadedFile('shot.png', b'PNGDATA', content_type='image/png')
+        import io
+        from PIL import Image
+        _b = io.BytesIO(); Image.new('RGB', (40, 40), 'white').save(_b, format='PNG')
+        png = SimpleUploadedFile('shot.png', _b.getvalue(), content_type='image/png')
         resp = self.web.post(reverse('disputes:dispute_prepare_submission', args=[d.id]), {
             'action': 'save', 'notes': 'AI text, now edited by hand',
             'manager_note': 'note', 'attach_evidence_pdf': 'on', 'evidence_type': 'PROOF_OF_FULFILLMENT',

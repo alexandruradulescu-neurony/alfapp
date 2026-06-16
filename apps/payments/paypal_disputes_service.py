@@ -1062,8 +1062,11 @@ def sync_dispute_from_paypal(dispute_id: str):
         dispute.dispute_reason = reason
         update_fields.append('dispute_reason')
 
+    # PayPal reports closure in either key — treat both as RESOLVED so a
+    # state-only payload still becomes terminal locally.
     pp_status = (details.get('status') or '').upper()
-    if pp_status == 'RESOLVED':
+    pp_state = (details.get('dispute_state') or '').upper()
+    if pp_status == 'RESOLVED' or pp_state == 'RESOLVED':
         outcome = (details.get('dispute_outcome') or {}).get('outcome_code', '') or ''
         won = 'SELLER' in outcome.upper()  # e.g. RESOLVED_SELLER_FAVOUR
         new_status = 'RESOLVED_WON' if won else 'RESOLVED_LOST'

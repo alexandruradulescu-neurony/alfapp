@@ -65,6 +65,37 @@ def strip_active_html(html: str) -> str:
     return html
 
 
+# --- PayPal state normalization (single source of truth for the queues) -------
+# PayPal exposes its state in TWO payload keys — `status`
+# (WAITING_FOR_SELLER_RESPONSE / UNDER_REVIEW / RESOLVED) and `dispute_state`
+# (REQUIRED_ACTION / UNDER_PAYPAL_REVIEW / RESOLVED). Treat BOTH as authoritative
+# so a payload carrying only one still lands in the right queue (matches
+# Dispute.submit_endpoint, which already reads both).
+
+def _pp_under_review_q():
+    """Dispute is under PayPal review — by EITHER payload key."""
+    return (Q(raw_webhook_payload__status='UNDER_REVIEW') |
+            Q(raw_webhook_payload__dispute_state='UNDER_PAYPAL_REVIEW'))
+
+
+def _pp_resolved_q():
+    """Dispute is resolved/closed at PayPal — by EITHER payload key."""
+    return (Q(raw_webhook_payload__status='RESOLVED') |
+            Q(raw_webhook_payload__dispute_state='RESOLVED'))
+
+
+def _needs_action_qs(qs):
+    """Disputes still needing a reply: not dormant at PayPal (under review OR
+    resolved, by either key) and not in a LORA terminal state. has_key-safe so
+    payload-less (manually created) disputes aren't dropped by the
+    SQL-NULL-in-exclude trap."""
+    status_ok = (~Q(raw_webhook_payload__has_key='status') |
+                 ~Q(raw_webhook_payload__status__in=['UNDER_REVIEW', 'RESOLVED']))
+    state_ok = (~Q(raw_webhook_payload__has_key='dispute_state') |
+                ~Q(raw_webhook_payload__dispute_state__in=['UNDER_PAYPAL_REVIEW', 'RESOLVED']))
+    return qs.filter(status_ok & state_ok).exclude(status__in=Dispute.TERMINAL_STATUSES)
+
+
 def _parse_due(raw: str):
     """Parse a date or datetime string from the form into an aware datetime."""
     raw = (raw or '').strip()
@@ -132,7 +163,10 @@ def dispute_create(request):
                 dispute_currency=currency,
                 buyer_email=buyer_email,
                 buyer_name=claim.client_name or '',
-                transaction_id=claim.woocommerce_id or 'MANUAL',
+                # The PayPal transaction id (used for matching + cross-checks),
+                # NOT the WooCommerce order id. Prefer the real PayPal txn id;
+                # fall back to the order id, then a marker.
+                transaction_id=(claim.paypal_transaction_id or claim.woocommerce_id or 'MANUAL'),
                 transaction_date=claim.created_at or timezone.now(),
                 seller_response_due=_parse_due(request.POST.get('seller_response_due', '')),
                 notes='Manually created in LORA (PayPal dispute did not arrive via webhook).',
@@ -172,20 +206,6 @@ def dispute_list(request):
     search_query = request.GET.get('search', '')
     view = (request.GET.get('view') or 'action').lower()
 
-    # PayPal statuses meaning "nothing for us to do right now" — hidden from the
-    # default view. UNDER_REVIEW = PayPal is deciding; RESOLVED = closed.
-    DORMANT_PP_STATUS = ['UNDER_REVIEW', 'RESOLVED']
-
-    def needs_action(qs):
-        # Disputes that still need a reply/action from us: not under PayPal
-        # review, not closed at PayPal, not in a LORA terminal state. Manually
-        # created disputes (empty payload → no PayPal status) stay visible.
-        # NOTE: use has_key, not exclude(__in): exclude on an absent JSON key
-        # evaluates to SQL NULL and would wrongly drop payload-less disputes.
-        keep = ~Q(raw_webhook_payload__has_key='status') | \
-            ~Q(raw_webhook_payload__status__in=DORMANT_PP_STATUS)
-        return qs.filter(keep).exclude(status__in=Dispute.TERMINAL_STATUSES)
-
     disputes = Dispute.objects.all()
 
     # Apply search filter (ticket ID or email)
@@ -201,15 +221,14 @@ def dispute_list(request):
     if status_filter:
         disputes = disputes.filter(status=status_filter)
     elif view == 'review':
-        disputes = disputes.filter(raw_webhook_payload__status='UNDER_REVIEW')
+        disputes = disputes.filter(_pp_under_review_q())
     elif view == 'resolved':
-        disputes = disputes.filter(
-            Q(raw_webhook_payload__status='RESOLVED') | Q(status__in=Dispute.TERMINAL_STATUSES))
+        disputes = disputes.filter(_pp_resolved_q() | Q(status__in=Dispute.TERMINAL_STATUSES))
     elif view == 'all':
         pass
     else:
         view = 'action'
-        disputes = needs_action(disputes)
+        disputes = _needs_action_qs(disputes)
 
     # Pagination
     paginator = Paginator(disputes, 20)
@@ -234,10 +253,9 @@ def dispute_list(request):
     # Counts for the view tabs (independent of the search/status drilldown).
     _all = Dispute.objects.all()
     view_counts = {
-        'action': needs_action(_all).count(),
-        'review': _all.filter(raw_webhook_payload__status='UNDER_REVIEW').count(),
-        'resolved': _all.filter(
-            Q(raw_webhook_payload__status='RESOLVED') | Q(status__in=Dispute.TERMINAL_STATUSES)).count(),
+        'action': _needs_action_qs(_all).count(),
+        'review': _all.filter(_pp_under_review_q()).count(),
+        'resolved': _all.filter(_pp_resolved_q() | Q(status__in=Dispute.TERMINAL_STATUSES)).count(),
         'all': _all.count(),
     }
 
@@ -261,7 +279,7 @@ def dispute_list(request):
         # Disputes with no claim attached — surfaced as a "needs linking" banner.
         'unmatched_count': Dispute.objects.filter(claim__isnull=True).count(),
         # Disputes PayPal has already closed — offered for one-click cleanup.
-        'resolved_count': Dispute.objects.filter(raw_webhook_payload__status='RESOLVED').count(),
+        'resolved_count': Dispute.objects.filter(_pp_resolved_q()).count(),
     }
 
     return render(request, 'manager/disputes.html', context)
@@ -321,7 +339,7 @@ def dispute_prune_resolved(request):
     raw_webhook_payload, so ONLY PayPal-pulled disputes are touched (manually
     created ones have an empty payload and are never matched). Cascades remove
     their documents/activity log."""
-    resolved = Dispute.objects.filter(raw_webhook_payload__status='RESOLVED')
+    resolved = Dispute.objects.filter(_pp_resolved_q())
     count = resolved.count()
     if not count:
         messages.info(request, "No resolved disputes to remove.")
@@ -364,6 +382,23 @@ def dispute_link_claim(request, dispute_id):
         return redirect('disputes:dispute_detail', dispute_id=dispute.id)
 
     claim = matches[0]
+
+    # Transaction-id cross-check (same key auto-matching uses): if BOTH sides
+    # carry a PayPal transaction id and they DISAGREE, refuse the link unless the
+    # manager explicitly confirms — linking the wrong claim mis-attributes a
+    # dispute to another customer's Zendesk case. Manual linking is the intended
+    # override, but a mismatch must be a deliberate, ticked choice.
+    dispute_txn = (dispute.transaction_id or '').strip()
+    claim_txn = (claim.paypal_transaction_id or '').strip()
+    txn_mismatch = bool(dispute_txn and claim_txn and dispute_txn != claim_txn)
+    if txn_mismatch and not request.POST.get('override'):
+        messages.error(
+            request,
+            f"Not linked — the PayPal transaction IDs differ (dispute {dispute_txn} vs "
+            f"claim {claim_txn}). If this really is the right claim, tick "
+            "“Link even if transaction IDs differ” and try again.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute.id)
+
     dispute.claim = claim
     update_fields = ['claim', 'updated_at']
     if not dispute.zd_ticket_id and claim.zd_ticket_id:
@@ -375,19 +410,11 @@ def dispute_link_claim(request, dispute_id):
     dispute.save(update_fields=update_fields)
     DisputeActivityLog.objects.create(
         dispute=dispute, action='DISPUTE_MATCHED',
-        details=f"Manually linked to claim #{claim.id} ({claim.alf_claim_id}) by {request.user}.")
+        details=(f"Manually linked to claim #{claim.id} ({claim.alf_claim_id}) by {request.user}"
+                 + (" — OVERRIDE: transaction ids differ." if txn_mismatch else ".")))
     messages.success(request, f"Linked dispute to claim #{claim.id} ({claim.alf_claim_id}).")
-
-    # Manual linking is a deliberate human override, so don't block — but if the
-    # PayPal transaction ids disagree (the same cross-check auto-matching uses),
-    # warn so the manager can double-check this is the right claim.
-    dispute_txn = (dispute.transaction_id or '').strip()
-    claim_txn = (claim.paypal_transaction_id or '').strip()
-    if dispute_txn and claim_txn and dispute_txn != claim_txn:
-        messages.warning(
-            request,
-            f"Heads up: the PayPal transaction IDs differ (dispute {dispute_txn} vs "
-            f"claim {claim_txn}). Double-check this is the right claim.")
+    if txn_mismatch:
+        messages.warning(request, "Linked despite differing PayPal transaction IDs (manager override).")
     return redirect('disputes:dispute_detail', dispute_id=dispute.id)
 
 
@@ -416,6 +443,14 @@ def dispute_detail(request, dispute_id):
     raw_payload_json = json.dumps(
         dispute.raw_webhook_payload or {}, indent=2, sort_keys=True, default=str)
 
+    # Zendesk subdomain for the ticket link (was missing — links rendered as
+    # https://.zendesk.com/...). Mirrors dispute_list.
+    try:
+        from apps.config.models import SystemSettings
+        zd_subdomain = SystemSettings.get_instance().zd_subdomain
+    except Exception:
+        zd_subdomain = ''
+
     # Back-and-forth: the working draft submission being prepared, the merged
     # reply timeline, and whether a generated evidence PDF exists to attach.
     draft_submission = _working_draft(dispute)
@@ -429,6 +464,7 @@ def dispute_detail(request, dispute_id):
         'activity_log': activity_log,
         'claim_evidence': claim_evidence,
         'raw_payload_json': raw_payload_json,
+        'zd_subdomain': zd_subdomain,
         'draft_submission': draft_submission,
         'reply_timeline': build_dispute_reply_timeline(dispute),
         'submit_endpoint': dispute.submit_endpoint,
@@ -550,6 +586,10 @@ def dispute_edit_document(request, document_id):
         'document': document,
         'dispute': document.dispute,
         'safe_preview': sanitize_document_html(document.content_html),
+        # Sanitize at render time too (not just on save) so EXISTING rows saved
+        # before the save-path fix can't execute a smuggled <script> in the
+        # srcdoc editor. Layout-preserving strip (scripts/handlers only).
+        'report_srcdoc': strip_active_html(document.content_html or ''),
     }
 
     return render(request, 'manager/dispute_edit_document.html', context)
@@ -844,14 +884,27 @@ def dispute_manual_reply(request, dispute_id):
             "for the first response.")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
-    submission = DisputeSubmission.objects.create(
-        dispute=dispute, notes=text, source='MANUAL', status='DRAFT')
+    # Atomically claim the dispute's outbound channel so two fast clicks can't
+    # each create + POST a duplicate supporting-info reply (each click makes its
+    # own row, so a row-level claim wouldn't dedupe — this dispute-level mutex
+    # does). Released when the call returns.
+    claimed = (Dispute.objects
+               .filter(pk=dispute.pk, outbound_in_flight=False)
+               .update(outbound_in_flight=True))
+    if not claimed:
+        messages.error(request, "A reply is already being sent — refresh to see the timeline.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
     try:
+        submission = DisputeSubmission.objects.create(
+            dispute=dispute, notes=text, source='MANUAL', status='DRAFT')
         ok = submit_dispute_response(submission, performed_by=request.user)
     except Exception as e:
         logger.error(f"Manual reply failed for Dispute #{dispute_id}: {e}")
         messages.error(request, f"Error sending the reply: {e}")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+    finally:
+        Dispute.objects.filter(pk=dispute.pk).update(outbound_in_flight=False)
 
     if ok:
         messages.success(request, "Reply sent to PayPal.")
@@ -901,9 +954,9 @@ def dispute_accept_claim(request, dispute_id):
     # concurrent clicks can't both call PayPal's accept-claim. Only the request
     # that flips the flag proceeds; the flag is released when the call returns.
     claimed = (Dispute.objects
-               .filter(pk=dispute.pk, accept_in_flight=False)
+               .filter(pk=dispute.pk, outbound_in_flight=False)
                .exclude(status__in=Dispute.TERMINAL_STATUSES)
-               .update(accept_in_flight=True))
+               .update(outbound_in_flight=True))
     if not claimed:
         messages.error(request, "This dispute is already being processed — refresh to see its status.")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
@@ -921,13 +974,34 @@ def dispute_accept_claim(request, dispute_id):
         if success:
             messages.success(request, f"Claim accepted for Dispute #{dispute_id}. Refund issued to buyer.")
         else:
-            messages.error(request, "Failed to accept claim via PayPal API. Check logs for details.")
+            # The call didn't confirm success. It may be a definite rejection OR
+            # an indeterminate network failure where PayPal actually accepted and
+            # refunded. Reconcile against PayPal (the source of truth) so the
+            # local status + terminal-guard reflect reality before any retry —
+            # if PayPal did accept, the dispute is now terminal and can't be
+            # re-accepted.
+            try:
+                from apps.payments.paypal_disputes_service import sync_dispute_from_paypal
+                sync_dispute_from_paypal(dispute.paypal_dispute_id)
+            except Exception as sync_err:
+                logger.warning(f"Post-accept reconcile sync failed for Dispute #{dispute_id}: {sync_err}")
+            dispute.refresh_from_db()
+            if dispute.status in ('RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED'):
+                messages.warning(
+                    request,
+                    "PayPal now reports this dispute as resolved — the acceptance went through "
+                    "after all. The status has been updated; no need to retry.")
+            else:
+                messages.error(
+                    request,
+                    "Couldn't confirm the claim was accepted at PayPal. The status has been "
+                    "re-synced — verify in PayPal before retrying to avoid a double refund.")
 
     except Exception as e:
         logger.error(f"Error accepting claim for Dispute #{dispute_id}: {e}")
         messages.error(request, f"Error accepting claim: {str(e)}")
     finally:
         # Release the in-flight claim (accept_claim sets ACCEPTED on success).
-        Dispute.objects.filter(pk=dispute.pk).update(accept_in_flight=False)
+        Dispute.objects.filter(pk=dispute.pk).update(outbound_in_flight=False)
 
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)

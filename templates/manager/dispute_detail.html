@@ -507,6 +507,10 @@
                 <input type="text" name="claim_ref" required
                        class="input input-bordered w-full rounded-xl text-sm"
                        placeholder="Zendesk ticket ID, ALF claim ID, or email">
+                <label class="flex items-center gap-2 text-xs text-base-content/60">
+                    <input type="checkbox" name="override" value="1" class="checkbox checkbox-xs">
+                    Link even if PayPal transaction IDs differ
+                </label>
                 <button type="submit" class="btn btn-primary btn-sm rounded-xl">
                     <i class="bi bi-link-45deg"></i> Link to claim
                 </button>
