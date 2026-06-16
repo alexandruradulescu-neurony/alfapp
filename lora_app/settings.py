@@ -2,7 +2,6 @@
 Django settings for LORA (Lost Object Recovery Automation) project.
 """
 
-import os
 from pathlib import Path
 
 import environ
@@ -213,11 +212,13 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/hour',
         'user': '1000/hour',
-        # Login throttling is enforced by apps.users.views.rate_limit_logins (a
-        # plain Django view, not DRF), so there is intentionally no DRF 'login'
-        # scope here — a scope defined but never wired is a misleading safety net.
-        'paypal_webhook': '100/hour',
-        'zendesk_sidebar': '30/min',  # Rate limit for Zendesk sidebar widget
+        # No custom DRF scopes are kept here: login throttling is enforced by
+        # apps.users.views.rate_limit_logins (a plain Django view), and the
+        # PayPal/Zendesk webhooks are AllowAny + HMAC-secret-verified, relying on
+        # the global anon throttle. A scope defined but never wired (no
+        # ScopedRateThrottle references them) is a misleading safety net.
+        # NOTE: webhook deliveries share the global anon 100/hour bucket — fine at
+        # current volume; give them a dedicated ScopedRateThrottle if it grows.
     },
 }
 
@@ -332,3 +333,27 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
+    # Don't leak full claim/payment URLs (which embed identifiers) to the
+    # third-party CDN origins allowed by the CSP above.
+    SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+
+
+# Logging: a console handler (Railway captures stdout/stderr) so unhandled 500s
+# and integration failures (PayPal/Zendesk/IMAP/LLM) surface in the logs instead
+# of being lost. Level is tunable via the LOG_LEVEL env var.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {'format': '{levelname} {asctime} {name}: {message}', 'style': '{'},
+    },
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler', 'formatter': 'verbose'},
+    },
+    'root': {'handlers': ['console'], 'level': env('LOG_LEVEL', default='INFO')},
+    'loggers': {
+        'django.request': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},
+        'apps': {'handlers': ['console'], 'level': env('LOG_LEVEL', default='INFO'),
+                 'propagate': False},
+    },
+}
