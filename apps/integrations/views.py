@@ -33,11 +33,8 @@ from apps.integrations.services import (
     get_ticket_email_alias,
     post_zendesk_comment,
     resolve_custom_status,
-    safe_date,
-    safe_decimal,
     _compose_flight_details as compose_flight_details,
 )
-from apps.claims.services import compute_deadline_at
 from apps.integrations.briefing import ALF_BUSINESS_CONTEXT, refresh_claim_summary
 from apps.integrations.flight_lookup import (
     FlightProviderNotConfigured,
@@ -80,9 +77,11 @@ class ZendeskSidebarAuth:
         authenticated so the caller just proceeds. Centralises the per-IP
         brute-force throttle that was copy-pasted across every sidebar endpoint.
 
-        IP comes from get_client_ip (the left-most trusted X-Forwarded-For hop),
-        not REMOTE_ADDR — behind Railway's proxy the latter collapses every caller
-        into one bucket and makes the per-IP throttle effectively global."""
+        IP comes from get_client_ip (the entry added by the outermost trusted
+        proxy — the right-most TRUSTED_PROXY_DEPTH hop of X-Forwarded-For, NOT the
+        spoofable left-most client-supplied entry), not REMOTE_ADDR — behind
+        Railway's proxy the latter collapses every caller into one bucket and
+        makes the per-IP throttle effectively global."""
         if cls.authenticate(request):
             return None
         ip = get_client_ip(request)

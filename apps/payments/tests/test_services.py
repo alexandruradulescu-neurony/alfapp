@@ -127,11 +127,18 @@ class TestRefundServiceInitiateRefund:
         claim.refresh_from_db()
         assert claim.status == "Received"  # status unchanged by refund
 
-        # Verify refund record created
+        # Verify refund record created — and that the REAL PayPal refund id +
+        # response + status were actually PERSISTED (not just set in memory). A
+        # field-scoped mark_processing() previously dropped the id/metadata,
+        # leaving the placeholder PENDING-<uuid> id so the refund webhook couldn't
+        # match the row and made a duplicate. `refund` here is a fresh DB fetch.
         refund = Refund.objects.filter(claim=claim).first()
         assert refund is not None
         assert refund.amount == Decimal("100.00")
         assert refund.refund_type == "FULL"
+        assert refund.paypal_refund_id == "REFUND-TEST-123"
+        assert refund.status == "PROCESSING"
+        assert refund.metadata == {"status": "COMPLETED"}
 
     @patch("apps.payments.refund_service.RefundService._process_paypal_refund")
     def test_initiate_refund_success_partial(self, mock_process_refund):

@@ -242,8 +242,12 @@ class ClaimUpdateFromZendeskView(APIView):
         ticket_data['comments'] = fetch_zendesk_comments(claim.zd_ticket_id)
 
         extracted = analyze_zendesk_ticket_for_claim(ticket_data)
-        # AI summary is best-effort (its own save); do it outside the atomic block
-        # so the LLM call never holds a DB transaction open.
+        # AI summary is best-effort (its own save); do it BEFORE the atomic block
+        # so the LLM call never holds a DB transaction open AND so the timeline row
+        # below can record the fresh summary. Trade-off: the summary's PII-alias
+        # hint uses the pre-merge client_name; that's accepted — it only seeds the
+        # tokenizer's known-names optimisation (the tokenizer's own regex still
+        # tags the name), so a renamed client is not a PII leak.
         summary_refreshed = refresh_claim_summary(claim, ticket_data)
 
         # The field-merge save and the timeline row are one unit: a crash between

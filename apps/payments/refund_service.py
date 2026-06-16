@@ -135,9 +135,16 @@ class RefundService:
                     'refund': refund,
                 }
             
+            # Persist the real PayPal refund id + response AND the PROCESSING
+            # status in ONE save. (mark_processing() is field-scoped to
+            # ['status','updated_at'], so calling it here would drop the two
+            # assignments above — leaving the row on its placeholder PENDING-<uuid>
+            # id, which the later PAYMENT.CAPTURE.REFUNDED webhook can't match,
+            # creating a duplicate refund. This must write all four columns.)
             refund.paypal_refund_id = paypal_refund_id
             refund.metadata = paypal_result.get('metadata', {})
-            refund.mark_processing()
+            refund.status = Refund.STATUS_PROCESSING
+            refund.save(update_fields=['paypal_refund_id', 'metadata', 'status', 'updated_at'])
 
             logger.info(f"Refund initiated for Claim #{claim.id}: {paypal_refund_id}")
             
