@@ -116,16 +116,17 @@ class TestConnectionTesterAI:
 
     @patch('apps.config.services.connection_tester.SystemSettings')
     def test_ai_connection_no_settings(self, mock_settings_class):
-        """Test AI connection when SystemSettings doesn't exist."""
-        mock_settings_class.DoesNotExist = SystemSettings.DoesNotExist
-        mock_settings_class.objects.get.side_effect = SystemSettings.DoesNotExist
+        """Test AI connection when credentials are absent (blank, not a missing row)."""
+        # get_instance() always returns a row, so "not configured" now means blank
+        # creds — must report disconnected, not fall through to a real request/error.
+        mock_settings_class.get_instance.return_value = Mock(ai_api_key='')
 
         tester = ConnectionTester()
         result = tester.test_ai()
 
         assert result['success'] is False
         assert result['status'] == 'disconnected'
-        assert result['message'] == 'System settings not configured'
+        assert result['message'] == 'API key not configured'
 
     @patch('apps.config.services.connection_tester.requests.get')
     def test_ai_connection_generic_exception(self, mock_get):
@@ -273,16 +274,16 @@ class TestConnectionTesterIMAP:
 
     @patch('apps.config.services.connection_tester.SystemSettings')
     def test_imap_connection_no_settings(self, mock_settings_class):
-        """Test IMAP connection when SystemSettings doesn't exist."""
-        mock_settings_class.DoesNotExist = SystemSettings.DoesNotExist
-        mock_settings_class.objects.get.side_effect = SystemSettings.DoesNotExist
+        """Test IMAP connection when credentials are absent (blank, not a missing row)."""
+        mock_settings_class.get_instance.return_value = Mock(
+            imap_host='', imap_user='', imap_pass='')
 
         tester = ConnectionTester()
         result = tester.test_imap()
 
         assert result['success'] is False
         assert result['status'] == 'disconnected'
-        assert result['message'] == 'System settings not configured'
+        assert result['message'] == 'IMAP credentials not configured'
 
 
 @pytest.mark.django_db
@@ -413,16 +414,15 @@ class TestConnectionTesterZendesk:
 
     @patch('apps.config.services.connection_tester.SystemSettings')
     def test_zendesk_connection_no_settings(self, mock_settings_class):
-        """Test Zendesk connection when SystemSettings doesn't exist."""
-        mock_settings_class.DoesNotExist = SystemSettings.DoesNotExist
-        mock_settings_class.objects.get.side_effect = SystemSettings.DoesNotExist
+        """Test Zendesk connection when credentials are absent (blank, not a missing row)."""
+        mock_settings_class.get_instance.return_value = Mock(zd_subdomain='', zd_token='')
 
         tester = ConnectionTester()
         result = tester.test_zendesk()
 
         assert result['success'] is False
         assert result['status'] == 'disconnected'
-        assert result['message'] == 'System settings not configured'
+        assert result['message'] == 'Zendesk credentials not configured'
 
 
 @pytest.mark.django_db
@@ -571,16 +571,16 @@ class TestConnectionTesterPayPal:
 
     @patch('apps.config.services.connection_tester.SystemSettings')
     def test_paypal_connection_no_settings(self, mock_settings_class):
-        """Test PayPal connection when SystemSettings doesn't exist."""
-        mock_settings_class.DoesNotExist = SystemSettings.DoesNotExist
-        mock_settings_class.objects.get.side_effect = SystemSettings.DoesNotExist
+        """Test PayPal connection when credentials are absent (blank, not a missing row)."""
+        mock_settings_class.get_instance.return_value = Mock(
+            paypal_client_id='', paypal_secret='')
 
         tester = ConnectionTester()
         result = tester.test_paypal()
 
         assert result['success'] is False
         assert result['status'] == 'disconnected'
-        assert result['message'] == 'System settings not configured'
+        assert result['message'] == 'PayPal credentials not configured'
 
 
 

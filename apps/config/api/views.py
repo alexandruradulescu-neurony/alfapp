@@ -1,5 +1,6 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.fields import BooleanField
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
@@ -112,7 +113,6 @@ def toggle_setting_flag(request):
     if flag not in TOGGLEABLE_SETTING_FLAGS:
         return Response({'success': False, 'error': f'Unknown flag: {flag}'},
                         status=status.HTTP_400_BAD_REQUEST)
-    from rest_framework.fields import BooleanField
     enabled = request.data.get('enabled') in BooleanField.TRUE_VALUES
     ss = SystemSettings.get_instance()
     setattr(ss, flag, enabled)

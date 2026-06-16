@@ -39,9 +39,15 @@ DECRYPTION_FAILED = "\x00__LORA_DECRYPTION_FAILED__\x00"
 def _derive_fernet(key: str) -> Fernet:
     """Derive a Fernet from a raw key string via PBKDF2.
 
-    The salt is derived from the key itself (as in the original single-key
-    implementation), so the PRIMARY key produces a byte-identical Fernet to the
-    pre-rotation code — existing ciphertext keeps decrypting unchanged.
+    The salt is derived deterministically from the key itself (as in the original
+    single-key implementation), so the PRIMARY key produces a byte-identical
+    Fernet to the pre-rotation code — existing ciphertext keeps decrypting
+    unchanged. Trade-off: a key-derived salt is effectively a fixed per-key salt
+    (not a random stored salt), which weakens PBKDF2's guarantees somewhat. It
+    MUST stay deterministic for stored ciphertext to remain decryptable; this is
+    an accepted compromise for a single-tenant internal tool. Set a stable,
+    distinct ENCRYPTION_KEY (see checks.py W001) so credentials don't ride on a
+    rotated SECRET_KEY.
     """
     secret = key.encode("utf-8")
     salt = hashlib.sha256(b"lora_field_encryption_" + secret[:16]).digest()[:16]
@@ -141,8 +147,12 @@ class EncryptedCharField(models.CharField):
 
 
 class EncryptedTextField(models.TextField):
-    """
-    A TextField that encrypts data before saving to the database.
+    """A TextField that encrypts data before saving to the database.
+
+    Provided for parity with EncryptedCharField, for secrets longer than a
+    CharField's max_length. No model field uses it today; it's kept as the
+    sanctioned way to add a future long encrypted field. TextField has no
+    max_length, so (unlike EncryptedCharField) it needs no deconstruct() override.
     """
 
     def from_db_value(self, value, expression, connection):

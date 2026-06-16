@@ -1,5 +1,6 @@
 import imaplib
 import logging
+from datetime import timedelta
 from typing import Dict, Any
 from django.utils import timezone
 import requests
@@ -7,17 +8,23 @@ from apps.config.models import ServiceStatus, SystemSettings
 
 logger = logging.getLogger(__name__)
 
+# Connection-test timeout (seconds) for outbound probes.
+DEFAULT_TIMEOUT_SECONDS = 10
+# A scheduler heartbeat older than this means the Railway cron has gone
+# silent. Keep comfortably above the cron interval so a normal gap isn't flagged.
+SCHEDULER_STALE_AFTER = timedelta(hours=2)
+
 
 class ConnectionTester:
     """Test connections to external services and update their status."""
     
     def __init__(self):
-        self.timeout = 10  # seconds
+        self.timeout = DEFAULT_TIMEOUT_SECONDS
     
     def test_ai(self) -> Dict[str, Any]:
         """Test AI provider connection."""
         try:
-            settings = SystemSettings.objects.get(pk=1)
+            settings = SystemSettings.get_instance()
             
             if not settings.ai_api_key:
                 return self._update_status(
@@ -49,13 +56,6 @@ class ConnectionTester:
                     message='AI provider server not reachable'
                 )
                 
-        except SystemSettings.DoesNotExist:
-            return self._update_status(
-                'AI',
-                'disconnected',
-                success=False,
-                message='System settings not configured'
-            )
         except Exception as e:
             return self._update_status(
                 'AI',
@@ -67,7 +67,7 @@ class ConnectionTester:
     def test_imap(self) -> Dict[str, Any]:
         """Test IMAP email server connection."""
         try:
-            settings = SystemSettings.objects.get(pk=1)
+            settings = SystemSettings.get_instance()
             
             if not settings.imap_host or not settings.imap_user or not settings.imap_pass:
                 return self._update_status(
@@ -89,13 +89,6 @@ class ConnectionTester:
                 message='IMAP server connection successful'
             )
             
-        except SystemSettings.DoesNotExist:
-            return self._update_status(
-                'IMAP',
-                'disconnected',
-                success=False,
-                message='System settings not configured'
-            )
         except imaplib.IMAP4.error as e:
             return self._update_status(
                 'IMAP',
@@ -114,7 +107,7 @@ class ConnectionTester:
     def test_zendesk(self) -> Dict[str, Any]:
         """Test Zendesk API connection."""
         try:
-            settings = SystemSettings.objects.get(pk=1)
+            settings = SystemSettings.get_instance()
             
             if not settings.zd_subdomain or not settings.zd_token:
                 return self._update_status(
@@ -156,13 +149,6 @@ class ConnectionTester:
                     message=f'Zendesk API error: {response.status_code}'
                 )
                 
-        except SystemSettings.DoesNotExist:
-            return self._update_status(
-                'ZENDESK',
-                'disconnected',
-                success=False,
-                message='System settings not configured'
-            )
         except requests.RequestException as e:
             return self._update_status(
                 'ZENDESK',
@@ -174,7 +160,7 @@ class ConnectionTester:
     def test_paypal(self) -> Dict[str, Any]:
         """Test PayPal API connection."""
         try:
-            settings = SystemSettings.objects.get(pk=1)
+            settings = SystemSettings.get_instance()
             
             if not settings.paypal_client_id or not settings.paypal_secret:
                 return self._update_status(
@@ -224,13 +210,6 @@ class ConnectionTester:
                     message=f'PayPal API error: {response.status_code}'
                 )
                 
-        except SystemSettings.DoesNotExist:
-            return self._update_status(
-                'PAYPAL',
-                'disconnected',
-                success=False,
-                message='System settings not configured'
-            )
         except requests.RequestException as e:
             return self._update_status(
                 'PAYPAL',
@@ -244,8 +223,6 @@ class ConnectionTester:
 
         There is no in-process scheduler to poll — health is inferred from the
         master switch and how recently the Railway cron last recorded a run."""
-        from datetime import timedelta
-        STALE_AFTER = timedelta(hours=2)   # a run older than this means the cron is silent
         try:
             status = ServiceStatus.objects.filter(service='SCHEDULER').first()
             if status and not status.is_enabled:
@@ -256,7 +233,7 @@ class ConnectionTester:
                         'message': 'No scheduled run recorded yet — is the Railway cron job set up?'}
             last = status.last_checked
             stamp = last.strftime('%b %d, %H:%M UTC')
-            if timezone.now() - last <= STALE_AFTER:
+            if timezone.now() - last <= SCHEDULER_STALE_AFTER:
                 if status.last_error:
                     return {'success': False, 'status': 'error',
                             'message': f'Last run {stamp} had errors: {status.last_error[:120]}'}
@@ -275,21 +252,19 @@ class ConnectionTester:
         metadata: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """Update service status in database and return result."""
-        status_obj, created = ServiceStatus.objects.get_or_create(
-            service=service,
-            defaults={'status': status, 'is_enabled': True}
-        )
-        
-        status_obj.status = status
-        status_obj.last_checked = timezone.now()
+        # Single-statement upsert avoids an unguarded read-modify-write of the
+        # per-service singleton row when status checks run concurrently. NB:
+        # is_enabled is intentionally NOT in defaults — it must not be reset on
+        # update; a freshly-created row gets the model default (True).
+        defaults = {'status': status, 'last_checked': timezone.now()}
         if not success and message:
-            status_obj.last_error = message
+            defaults['last_error'] = message
         elif success:
-            status_obj.last_error = ''
+            defaults['last_error'] = ''
         if metadata:
-            status_obj.metadata = metadata
-        status_obj.save()
-        
+            defaults['metadata'] = metadata
+        ServiceStatus.objects.update_or_create(service=service, defaults=defaults)
+
         return {
             'success': success,
             'status': status,
@@ -304,7 +279,7 @@ class ConnectionTester:
         that the consumer key/secret are valid with read access.
         """
         try:
-            settings = SystemSettings.objects.get(pk=1)
+            settings = SystemSettings.get_instance()
             url = (settings.woocommerce_store_url or '').strip().rstrip('/')
             key = (settings.woocommerce_consumer_key or '').strip()
             secret = (settings.woocommerce_consumer_secret or '').strip()
@@ -336,10 +311,6 @@ class ConnectionTester:
                 return self._update_status(
                     'WOOCOMMERCE', 'error', success=False,
                     message=f'WooCommerce API error: HTTP {response.status_code}')
-        except SystemSettings.DoesNotExist:
-            return self._update_status(
-                'WOOCOMMERCE', 'disconnected', success=False,
-                message='System settings not configured')
         except requests.RequestException as e:
             return self._update_status(
                 'WOOCOMMERCE', 'error', success=False, message=str(e))
