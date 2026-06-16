@@ -221,11 +221,28 @@ class EditDocSanitizeTests(_Base):
         doc = DisputeDocument.objects.create(dispute=d, doc_type='RESPONSE_LETTER',
                                              status='DRAFT', generated_by='AI',
                                              content_html='x', version=1)
-        self.web.post(reverse('disputes:dispute_edit_document', args=[doc.id]),
-                      {'content_html': '<p>hi</p><script>evil()</script>', 'version_increment': 'on'})
+        with patch('apps.payments.document_service._render_to_pdf', return_value=b'%PDF'):
+            self.web.post(reverse('disputes:dispute_edit_document', args=[doc.id]),
+                          {'content_html': '<p>hi</p><script>evil()</script>', 'version_increment': 'on'})
         doc.refresh_from_db()
         self.assertIn('<p>hi</p>', doc.content_html)
         self.assertNotIn('<script>', doc.content_html)
+
+    def test_response_letter_edit_regenerates_pdf(self):
+        """M4-B: editing a RESPONSE_LETTER re-renders its PDF — submission attaches
+        the stored PDF, so without this the manager's edits never reach PayPal."""
+        d = _dispute()
+        doc = DisputeDocument.objects.create(dispute=d, doc_type='RESPONSE_LETTER',
+                                             status='DRAFT', generated_by='AI',
+                                             content_html='old body', version=1)
+        with patch('apps.payments.document_service._render_to_pdf',
+                   return_value=b'%PDF-edited') as render:
+            self.web.post(reverse('disputes:dispute_edit_document', args=[doc.id]),
+                          {'content_html': 'edited body text', 'version_increment': 'on'})
+            render.assert_called_once()  # the letter PDF was re-rendered
+        doc.refresh_from_db()
+        self.assertEqual(doc.content_html, 'edited body text')
+        self.assertTrue(doc.file_path)  # a fresh PDF file was saved
 
 
 class WebhookIdempotencyTests(TestCase):

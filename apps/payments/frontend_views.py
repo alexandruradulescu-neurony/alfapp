@@ -549,21 +549,41 @@ def dispute_edit_document(request, document_id):
 
         document.save()
 
-        # Re-render the PDF from the edited HTML so the file we submit to PayPal
-        # reflects the manager's edits. Evidence reports are full HTML we can
-        # render directly (strip only scripts/handlers, preserve layout).
+        # Re-render the PDF from the edits so the file we submit to PayPal (the
+        # submission attaches the stored PDF, not content_html) reflects the
+        # manager's changes. Without this an edited letter/report was silently
+        # submitted in its original form.
         regenerated = False
-        if document.doc_type == 'EVIDENCE_REPORT' and content_html.strip():
+        if content_html.strip():
             try:
                 from apps.payments.document_service import _render_to_pdf
                 from django.core.files.base import ContentFile
-                pdf_bytes = _render_to_pdf(
-                    strip_active_html(content_html),
-                    f"Dispute #{document.dispute_id} Evidence Report (edited)")
-                if pdf_bytes:
-                    document.file_path.save(
-                        f"evidence_report_dispute_{document.dispute_id}_v{document.version}_edited.pdf",
-                        ContentFile(pdf_bytes), save=True)
+                pdf_bytes = filename = None
+                if document.doc_type == 'EVIDENCE_REPORT':
+                    # Evidence reports are full HTML — render the edited body
+                    # directly (strip only scripts/handlers, preserve layout).
+                    pdf_bytes = _render_to_pdf(
+                        strip_active_html(content_html),
+                        f"Dispute #{document.dispute_id} Evidence Report (edited)")
+                    filename = (f"evidence_report_dispute_{document.dispute_id}"
+                                f"_v{document.version}_edited.pdf")
+                elif document.doc_type == 'RESPONSE_LETTER':
+                    # Response letters are plain text rendered through the letter
+                    # template (letterhead + dispute header, body via |linebreaks).
+                    from django.template.loader import render_to_string
+                    from datetime import datetime
+                    html_string = render_to_string('dispute_response_letter.html', {
+                        'dispute': document.dispute,
+                        'ai_generated_content': document.content_html,
+                        'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    })
+                    pdf_bytes = _render_to_pdf(
+                        html_string,
+                        f"Dispute #{document.dispute_id} Response Letter (edited)")
+                    filename = (f"response_letter_dispute_{document.dispute_id}"
+                                f"_v{document.version}_edited.pdf")
+                if pdf_bytes and filename:
+                    document.file_path.save(filename, ContentFile(pdf_bytes), save=True)
                     regenerated = True
             except Exception as e:
                 logger.error(f"Failed to re-render edited PDF for document #{document.id}: {e}")

@@ -328,11 +328,9 @@ def list_paypal_disputes(page_size: int = 50, max_pages: int = 20,
     return list(dict.fromkeys(dispute_ids))  # dedupe, preserve order
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
-    retry=retry_if_exception_type((urllib.error.HTTPError, urllib.error.URLError))
-)
+# No @retry here: this swallows HTTPError/URLError and returns False, so a retry
+# decorator never fired anyway — and an evidence submission must not be silently
+# auto-repeated (it could duplicate the submission) without a PayPal idempotency key.
 def provide_evidence(
     dispute_id: str,
     documents: List[DisputeDocument],
@@ -456,11 +454,10 @@ def provide_evidence(
         return False
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
-    retry=retry_if_exception_type((urllib.error.HTTPError, urllib.error.URLError))
-)
+# No @retry here: this swallows HTTPError/URLError and returns False, so a retry
+# decorator never fired anyway — and accepting a claim moves money, so it must not
+# be silently auto-repeated (could double the refund) without a PayPal idempotency
+# key. The caller re-syncs status from PayPal before advising any manual retry.
 def accept_claim(dispute_id: str, note: str = '') -> bool:
     """
     Accept a dispute claim (issue refund) via PayPal API.
