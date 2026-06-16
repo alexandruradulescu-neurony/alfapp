@@ -77,7 +77,16 @@ def _build_tokenizer(known_pii: dict | None) -> RegexTokenizer:
 
 def _build_openai_client() -> OpenAI:
     ss = SystemSettings.get_instance()
-    return OpenAI(api_key=ss.ai_api_key, base_url=ss.ai_api_base)
+    # Bound the call: complete() runs synchronously on the request path (Zendesk
+    # briefing/chat), and the OpenAI SDK defaults to a ~600s timeout + 2 retries,
+    # so without these a hung provider can tie up a gunicorn worker for minutes
+    # and a burst can exhaust the pool. See settings.AI_TIMEOUT / AI_MAX_RETRIES.
+    return OpenAI(
+        api_key=ss.ai_api_key,
+        base_url=ss.ai_api_base,
+        timeout=settings.AI_TIMEOUT,
+        max_retries=settings.AI_MAX_RETRIES,
+    )
 
 
 class AIClient:

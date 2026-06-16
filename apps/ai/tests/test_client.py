@@ -47,6 +47,28 @@ def fake_settings(monkeypatch, db):
 
 
 @pytest.mark.django_db
+def test_openai_client_built_with_bounded_timeout(fake_settings, settings):
+    """M5: the LLM client must be constructed with an explicit timeout +
+    max_retries so a hung provider can't occupy a worker for the SDK default."""
+    settings.AI_TIMEOUT = 17
+    settings.AI_MAX_RETRIES = 1
+    with patch('apps.ai.client.OpenAI') as MockOpenAI:
+        instance = MockOpenAI.return_value
+        instance.chat.completions.create.return_value = _mock_openai_response(
+            '{"category": "A", "note": "ok"}'
+        )
+        AIClient.complete(
+            system_prompt="You are a test.",
+            untrusted={"email_body": "hi"},
+            response_schema=_DummyReply,
+            call_site="test",
+        )
+    _, kwargs = MockOpenAI.call_args
+    assert kwargs.get("timeout") == 17
+    assert kwargs.get("max_retries") == 1
+
+
+@pytest.mark.django_db
 def test_complete_returns_validated_typed_object(fake_settings):
     with patch('apps.ai.client.OpenAI') as MockOpenAI:
         instance = MockOpenAI.return_value
