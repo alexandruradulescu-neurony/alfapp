@@ -44,6 +44,20 @@ from apps.users.constants import LOGIN_MAX_ATTEMPTS, LOGIN_ATTEMPT_WINDOW_SECOND
 logger = logging.getLogger(__name__)
 
 
+def _claim_status_choices():
+    """Distinct, non-empty Claim.status values as (value, label) pairs for the
+    claim-list filter dropdowns (shared by agent_claims and manager_claims)."""
+    return [
+        (s, s) for s in Claim.objects.exclude(status='')
+        .values_list('status', flat=True).distinct().order_by('status')
+    ]
+
+
+def _zendesk_ticket_base(zd_subdomain):
+    """Base URL for linking to a Zendesk ticket ('' when no subdomain is set)."""
+    return f'https://{zd_subdomain}.zendesk.com/agent/tickets/' if zd_subdomain else ''
+
+
 def rate_limit_logins(max_attempts=LOGIN_MAX_ATTEMPTS):
     """
     Decorator to rate limit login attempts.
@@ -79,7 +93,8 @@ def rate_limit_logins(max_attempts=LOGIN_MAX_ATTEMPTS):
 @rate_limit_logins(max_attempts=LOGIN_MAX_ATTEMPTS)
 @csrf_protect  # Explicitly enforce CSRF protection
 def login_view(request):
-    """Login view with role-based redirect."""
+    """Login view. With the role split removed there is a single dashboard, so a
+    successful login always redirects there."""
     if request.method == 'POST':
         username = request.POST.get('username')
         password = request.POST.get('password')
@@ -222,10 +237,7 @@ def agent_claims(request):
         'claims': page_obj,  # For template compatibility
         'status_filter': status_filter,
         'search_query': search_query,
-        'status_choices': [
-            (s, s) for s in Claim.objects.exclude(status='')
-            .values_list('status', flat=True).distinct().order_by('status')
-        ],
+        'status_choices': _claim_status_choices(),
     }
 
     return render(request, 'agent/claims.html', context)
@@ -307,21 +319,20 @@ def claim_client_report_send(request, claim_id):
     return redirect('agent_claim_detail', claim_id=claim_id)
 
 
-def _followup_or_403(request, update_id):
-    """Fetch a ClientUpdate + its claim, enforcing the same assignment guard as
-    the claim page. Returns (update, claim) or (None, redirect)."""
+def _followup_and_claim(request, update_id):
+    """Fetch a ClientUpdate + its claim (404 if the update doesn't exist).
+
+    Post role-removal there is no per-agent assignment guard — all authenticated
+    staff may act on any follow-up — so this always returns (update, claim)."""
     from apps.communications.models import ClientUpdate
     update = get_object_or_404(ClientUpdate, id=update_id)
-    claim = update.claim
-    return update, claim
+    return update, update.claim
 
 
 @agent_required
 def client_followup_prepare(request, update_id):
     """Prepare a due follow-up: read new office replies + draft the update."""
-    update, claim = _followup_or_403(request, update_id)
-    if update is None:
-        return claim
+    update, claim = _followup_and_claim(request, update_id)
     if request.method == 'POST':
         from apps.communications import client_updates as cu
         cu.prepare_follow_up(update)
@@ -332,9 +343,7 @@ def client_followup_prepare(request, update_id):
 @agent_required
 def client_followup_send(request, update_id):
     """Send the (edited) follow-up as a PUBLIC Zendesk reply."""
-    update, claim = _followup_or_403(request, update_id)
-    if update is None:
-        return claim
+    update, claim = _followup_and_claim(request, update_id)
     if request.method == 'POST':
         from apps.communications import client_updates as cu
         if update.state == 'SENT':
@@ -353,9 +362,7 @@ def client_followup_send(request, update_id):
 @agent_required
 def client_followup_skip(request, update_id):
     """Skip a follow-up (agent decides it's not worth sending)."""
-    update, claim = _followup_or_403(request, update_id)
-    if update is None:
-        return claim
+    update, claim = _followup_and_claim(request, update_id)
     if request.method == 'POST':
         from apps.communications import client_updates as cu
         cu.skip_follow_up(update)
@@ -502,30 +509,25 @@ def agent_upload_evidence(request, claim_id):
                             messages.error(request, f'Invalid file type. Detected: {mime}')
                             return redirect('agent_claim_detail', claim_id=claim_id)
                     
-                    # Validate file content using filetype as secondary check
+                    # Validate file content using filetype as secondary check.
+                    tmp_path = None
                     try:
                         with tempfile.NamedTemporaryFile(delete=False) as tmp:
                             for chunk in image.chunks():
                                 tmp.write(chunk)
                             tmp_path = tmp.name
 
-                        # Use filetype to detect actual file type (secondary validation)
+                        # Use filetype to detect the actual file type.
                         kind = filetype.guess(tmp_path)
-
                         if kind is None or kind.mime not in allowed_mime_types:
-                            os.unlink(tmp_path)
                             messages.error(
                                 request,
-                                f'Invalid file content. File does not appear to be a valid image.'
+                                'Invalid file content. File does not appear to be a valid image.'
                             )
                             return redirect('agent_claim_detail', claim_id=claim_id)
 
-                        # File is valid, clean up temp file and save
-                        os.unlink(tmp_path)
-
                         # Sanitize filename to prevent path traversal
                         image.name = get_valid_filename(image.name)
-
                         ClaimEvidence.objects.create(
                             claim=claim,
                             image=image,
@@ -534,8 +536,16 @@ def agent_upload_evidence(request, claim_id):
                         messages.success(request, 'Evidence uploaded successfully.')
 
                     except Exception as e:
-                        logger.error(f"Error processing file upload: {e}")
+                        logger.error(f"Error processing file upload: {e}", exc_info=True)
                         messages.error(request, 'Error processing file. Please try again.')
+                    finally:
+                        # Always remove the validation temp file — including the
+                        # early-return and exception paths (delete=False above).
+                        if tmp_path:
+                            try:
+                                os.unlink(tmp_path)
+                            except OSError:
+                                pass
         else:
             messages.error(request, 'Please select an image file.')
 
@@ -594,7 +604,7 @@ def agent_emails(request):
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    # Get system settings for Zendesk links (cached)
+    # Get system settings for Zendesk links (get_instance hits the DB each call)
     settings = SystemSettings.get_instance()
 
     context = {
@@ -695,7 +705,7 @@ def manager_dashboard(request):
     # Disputes with a response deadline in the next 3 days (or already past),
     # still open — the highest-stakes "act now" number. Missing the deadline
     # auto-loses the dispute.
-    _open_dispute = ~models.Q(status__in=['RESOLVED_WON', 'RESOLVED_LOST', 'ACCEPTED'])
+    _open_dispute = ~models.Q(status__in=Dispute.TERMINAL_STATUSES)
     dispute_stats['due_soon'] = Dispute.objects.filter(
         _open_dispute, seller_response_due__isnull=False,
         seller_response_due__lte=timezone.now() + timedelta(days=3),
@@ -822,12 +832,8 @@ def manager_claims(request):
         'family_filter': family_filter,
         'status_filter': status_filter,
         'search_query': search_query,
-        'zd_ticket_base': (f'https://{zd_subdomain}.zendesk.com/agent/tickets/'
-                           if zd_subdomain else ''),
-        'status_choices': [
-            (s, s) for s in Claim.objects.exclude(status='')
-            .values_list('status', flat=True).distinct().order_by('status')
-        ],
+        'zd_ticket_base': _zendesk_ticket_base(zd_subdomain),
+        'status_choices': _claim_status_choices(),
     }
 
     return render(request, 'manager/claims.html', context)
@@ -951,8 +957,7 @@ def manager_refunds(request):
         'stats': stats,
         'status_choices': Refund.STATUS_CHOICES,
         'source_choices': Refund.SOURCE_CHOICES,
-        'zd_ticket_base': (f'https://{zd_subdomain}.zendesk.com/agent/tickets/'
-                           if zd_subdomain else ''),
+        'zd_ticket_base': _zendesk_ticket_base(zd_subdomain),
     }
 
     return render(request, 'manager/refunds.html', context)
