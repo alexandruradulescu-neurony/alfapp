@@ -916,18 +916,35 @@ def manager_refunds(request):
     )
 
     refunds = Refund.objects.select_related('claim', 'created_by').order_by('-created_at')
-    
-    # Filter by status
+
+    # Headline stats describe the WHOLE refund landscape — they must NOT change
+    # when the list below is narrowed by the status/source/search tab. Compute
+    # them from the unfiltered set in a single aggregate pass, then filter only
+    # the displayed list.
+    stats_agg = Refund.objects.aggregate(
+        total=Count('id'),
+        total_amount=Sum('amount', filter=Q(status=Refund.STATUS_COMPLETED)),
+        pending=Count('id', filter=Q(status=Refund.STATUS_PENDING)),
+        completed=Count('id', filter=Q(status=Refund.STATUS_COMPLETED)),
+        failed=Count('id', filter=Q(status=Refund.STATUS_FAILED)),
+    )
+    stats = {
+        'total': stats_agg['total'],
+        'total_amount': stats_agg['total_amount'] or 0,
+        'pending': stats_agg['pending'],
+        'completed': stats_agg['completed'],
+        'failed': stats_agg['failed'],
+    }
+
+    # Filter the displayed list only (NOT the stats above).
     status_filter = request.GET.get('status')
     if status_filter:
         refunds = refunds.filter(status=status_filter)
-    
-    # Filter by source
+
     source_filter = request.GET.get('source')
     if source_filter:
         refunds = refunds.filter(external_source=source_filter)
-    
-    # Search
+
     search_query = request.GET.get('search')
     if search_query:
         refunds = refunds.filter(
@@ -935,15 +952,6 @@ def manager_refunds(request):
             Q(paypal_refund_id__icontains=search_query) |
             Q(reason__icontains=search_query)
         )
-    
-    # Get statistics
-    stats = {
-        'total': refunds.count(),
-        'total_amount': refunds.filter(status=Refund.STATUS_COMPLETED).aggregate(total=Sum('amount'))['total'] or 0,
-        'pending': refunds.filter(status=Refund.STATUS_PENDING).count(),
-        'completed': refunds.filter(status=Refund.STATUS_COMPLETED).count(),
-        'failed': refunds.filter(status=Refund.STATUS_FAILED).count(),
-    }
 
     # Pagination
     paginator = Paginator(refunds, LIST_PAGE_SIZE)

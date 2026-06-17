@@ -319,6 +319,7 @@ class AgentChatService:
         name_parts = search_term.split()
         query = Q()
         for part in name_parts:
+            query |= Q(client_name__icontains=part)
             query |= Q(client_email__icontains=part)
             query |= Q(alternate_email__icontains=part)
             query |= Q(object_description__icontains=part)
