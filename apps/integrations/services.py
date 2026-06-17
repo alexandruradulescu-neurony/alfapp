@@ -135,6 +135,30 @@ def _get_zendesk_base_url() -> str:
     return f"https://{subdomain}.zendesk.com/api/v2"
 
 
+def _zendesk_request(path: str, *, method: str = 'GET', json_body: Any = None,
+                     timeout: Optional[int] = None) -> Any:
+    """Build and send a Zendesk API request and return the parsed JSON body.
+
+    Centralises the request boilerplate every Zendesk JSON endpoint repeats:
+    base URL + auth headers + JSON body encoding + ZENDESK_TIMEOUT + the urlopen
+    call + json parse. It deliberately does NOT catch anything — it RAISES
+    urllib.error.HTTPError / URLError, ValueError (missing config) and
+    json.JSONDecodeError straight to the caller, so each caller keeps its own
+    except ladder, log message and fallback value unchanged.
+
+    `path` is appended to the Zendesk API base (e.g. f"/tickets/{id}.json" or a
+    pre-encoded f"/search.json?{params}"). `json_body`, when not None, is
+    json.dumps()-encoded as the request body.
+    """
+    url = f"{_get_zendesk_base_url()}{path}"
+    headers = _get_zendesk_auth_headers()
+    data = json.dumps(json_body).encode('utf-8') if json_body is not None else None
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    t = timeout if timeout is not None else getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
+    with urllib.request.urlopen(req, timeout=t) as response:
+        return json.loads(response.read().decode('utf-8'))
+
+
 def post_zendesk_comment(zd_ticket_id: str, comment_body: str, is_internal: bool = True) -> Optional[Dict[str, Any]]:
     """
     Post a comment to a Zendesk ticket.
@@ -151,39 +175,15 @@ def post_zendesk_comment(zd_ticket_id: str, comment_body: str, is_internal: bool
         ValueError: If Zendesk credentials not configured
     """
     try:
-        base_url = _get_zendesk_base_url()
-        headers = _get_zendesk_auth_headers()
-
-        # Zendesk API v2: comments are added via ticket update (PUT), not a separate endpoint
-        url = f"{base_url}/tickets/{zd_ticket_id}.json"
-
-        # Build the request payload
-        payload = {
-            'ticket': {
-                'comment': {
-                    'body': comment_body,
-                    'public': not is_internal,  # Internal note if not public
-                }
-            }
-        }
-
-        data = json.dumps(payload).encode('utf-8')
-
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers=headers,
-            method='PUT'
-        )
-
         logger.info("Posting comment to Zendesk ticket %s", zd_ticket_id)
 
-        # Use configurable timeout
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            logger.info("Successfully posted comment to ticket %s", zd_ticket_id)
-            return result
+        result = _zendesk_request(
+            f"/tickets/{zd_ticket_id}.json",
+            method='PUT',
+            json_body={'ticket': {'comment': {'body': comment_body, 'public': not is_internal}}},
+        )
+        logger.info("Successfully posted comment to ticket %s", zd_ticket_id)
+        return result
             
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
@@ -215,68 +215,55 @@ def fetch_zendesk_comments(zd_ticket_id: str) -> List[Dict[str, Any]]:
         Returns empty list on failure
     """
     try:
-        base_url = _get_zendesk_base_url()
-        headers = _get_zendesk_auth_headers()
-        
-        # Sideload users so we can resolve comment author_id → name (the
-        # comments endpoint returns author_id, not a nested author object).
-        url = f"{base_url}/tickets/{zd_ticket_id}/comments.json?include=users"
-
-        req = urllib.request.Request(
-            url,
-            headers=headers,
-            method='GET'
-        )
-
         logger.info("Fetching comments from Zendesk ticket %s", zd_ticket_id)
 
-        # Use configurable timeout
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            comments_data = result.get('comments', [])
-            users_by_id = {u.get('id'): u for u in result.get('users', [])}
+        # Sideload users so we can resolve comment author_id → name (the
+        # comments endpoint returns author_id, not a nested author object).
+        result = _zendesk_request(f"/tickets/{zd_ticket_id}/comments.json?include=users")
+        comments_data = result.get('comments', [])
+        users_by_id = {u.get('id'): u for u in result.get('users', [])}
 
-            # Transform to simplified format
-            comments = []
-            for comment in comments_data:
-                # Prefer a nested author object if present (some payloads/tests
-                # include it); otherwise resolve author_id via the users sideload.
-                author = comment.get('author') or {}
-                author_id = comment.get('author_id') or author.get('id')
-                sideloaded = users_by_id.get(author_id, {})
-                resolved_name = author.get('name') or sideloaded.get('name') or 'Unknown'
-                resolved_email = author.get('email') or sideloaded.get('email') or ''
-                # Attachments carry the pasted images (airline confirmations,
-                # lost-&-found forms, flight cards) that evidence reports embed.
-                attachments = []
-                for att in (comment.get('attachments') or []):
-                    attachments.append({
-                        'id': att.get('id'),
-                        'file_name': att.get('file_name', ''),
-                        'content_url': att.get('content_url', ''),
-                        'content_type': att.get('content_type', ''),
-                        'size': att.get('size'),
-                        'inline': att.get('inline', False),
-                    })
-                comments.append({
-                    'id': comment.get('id'),
-                    'author': {
-                        'id': author_id,
-                        'name': resolved_name,
-                        'email': resolved_email,
-                    },
-                    'body': comment.get('body', ''),
-                    'html_body': comment.get('html_body', ''),
-                    'public': comment.get('public', False),
-                    'created_at': comment.get('created_at'),
-                    'attachments': attachments,
-                    'channel': (comment.get('via') or {}).get('channel', ''),
+        # Transform to simplified format
+        comments = []
+        for comment in comments_data:
+            # Prefer a nested author object if present (some payloads/tests
+            # include it); otherwise resolve author_id via the users sideload.
+            author = comment.get('author') or {}
+            author_id = comment.get('author_id') or author.get('id')
+            sideloaded = users_by_id.get(author_id, {})
+            resolved_name = author.get('name') or sideloaded.get('name') or 'Unknown'
+            resolved_email = author.get('email') or sideloaded.get('email') or ''
+            # Attachments carry the pasted images (airline confirmations,
+            # lost-&-found forms, flight cards) that evidence reports embed.
+            attachments = []
+            for att in (comment.get('attachments') or []):
+                attachments.append({
+                    'id': att.get('id'),
+                    'file_name': att.get('file_name', ''),
+                    'content_url': att.get('content_url', ''),
+                    'content_type': att.get('content_type', ''),
+                    'size': att.get('size'),
+                    'inline': att.get('inline', False),
                 })
-            
-            logger.info("Fetched %s comments from ticket %s", len(comments), zd_ticket_id)
-            return comments
-            
+            comments.append({
+                'id': comment.get('id'),
+                'author': {
+                    'id': author_id,
+                    'name': resolved_name,
+                    'email': resolved_email,
+                },
+                'body': comment.get('body', ''),
+                'html_body': comment.get('html_body', ''),
+                'public': comment.get('public', False),
+                'created_at': comment.get('created_at'),
+                'attachments': attachments,
+                'channel': (comment.get('via') or {}).get('channel', ''),
+            })
+
+        logger.info("Fetched %s comments from ticket %s", len(comments), zd_ticket_id)
+        return comments
+
+
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
         logger.error("HTTP error fetching comments from Zendesk ticket %s: %s - %s", zd_ticket_id, e.code, error_body)
@@ -330,44 +317,30 @@ def fetch_zendesk_ticket(zd_ticket_id: str) -> Optional[Dict[str, Any]]:
         Ticket data dict on success, None on failure
     """
     try:
-        base_url = _get_zendesk_base_url()
-        headers = _get_zendesk_auth_headers()
-        
-        url = f"{base_url}/tickets/{zd_ticket_id}.json"
-        
-        req = urllib.request.Request(
-            url,
-            headers=headers,
-            method='GET'
-        )
-        
-        # Use configurable timeout
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            ticket = result.get('ticket', {})
-            
-            logger.info("Fetched Zendesk ticket %s", zd_ticket_id)
-            return {
-                'id': ticket.get('id'),
-                'subject': ticket.get('subject'),
-                'description': ticket.get('description'),  # Full ticket description
-                'status': ticket.get('status'),
-                'priority': ticket.get('priority'),
-                'requester_id': ticket.get('requester_id'),
-                'assignee_id': ticket.get('assignee_id'),
-                'created_at': ticket.get('created_at'),
-                'updated_at': ticket.get('updated_at'),
-                'type': ticket.get('type'),
-                'due_at': ticket.get('due_at'),
-                'tags': ticket.get('tags'),
-                'custom_fields': ticket.get('custom_fields'),
-                # Current custom-status id — lets an on-demand import mirror the
-                # ticket's real stage instead of resetting it (the webhook path
-                # ignores this and uses its own creation status).
-                'custom_status_id': ticket.get('custom_status_id'),
-            }
-            
+        result = _zendesk_request(f"/tickets/{zd_ticket_id}.json")
+        ticket = result.get('ticket', {})
+
+        logger.info("Fetched Zendesk ticket %s", zd_ticket_id)
+        return {
+            'id': ticket.get('id'),
+            'subject': ticket.get('subject'),
+            'description': ticket.get('description'),  # Full ticket description
+            'status': ticket.get('status'),
+            'priority': ticket.get('priority'),
+            'requester_id': ticket.get('requester_id'),
+            'assignee_id': ticket.get('assignee_id'),
+            'created_at': ticket.get('created_at'),
+            'updated_at': ticket.get('updated_at'),
+            'type': ticket.get('type'),
+            'due_at': ticket.get('due_at'),
+            'tags': ticket.get('tags'),
+            'custom_fields': ticket.get('custom_fields'),
+            # Current custom-status id — lets an on-demand import mirror the
+            # ticket's real stage instead of resetting it (the webhook path
+            # ignores this and uses its own creation status).
+            'custom_status_id': ticket.get('custom_status_id'),
+        }
+
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
         logger.error("HTTP error fetching Zendesk ticket %s: %s - %s", zd_ticket_id, e.code, error_body)
@@ -393,29 +366,16 @@ def fetch_zendesk_user(user_id: str) -> Optional[Dict[str, Any]]:
         User data dict with email, name, etc. on success, None on failure
     """
     try:
-        base_url = _get_zendesk_base_url()
-        headers = _get_zendesk_auth_headers()
+        result = _zendesk_request(f"/users/{user_id}.json")
+        user = result.get('user', {})
 
-        url = f"{base_url}/users/{user_id}.json"
-
-        req = urllib.request.Request(
-            url,
-            headers=headers,
-            method='GET'
-        )
-
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            user = result.get('user', {})
-
-            logger.info("Fetched Zendesk user %s: %s", user_id, user.get('email', 'no email'))
-            return {
-                'id': user.get('id'),
-                'email': user.get('email'),
-                'name': user.get('name'),
-                'phone': user.get('phone'),
-            }
+        logger.info("Fetched Zendesk user %s: %s", user_id, user.get('email', 'no email'))
+        return {
+            'id': user.get('id'),
+            'email': user.get('email'),
+            'name': user.get('name'),
+            'phone': user.get('phone'),
+        }
 
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
@@ -682,49 +642,34 @@ def create_zendesk_ticket(
         Ticket data dict on success, None on failure
     """
     try:
-        base_url = _get_zendesk_base_url()
-        headers = _get_zendesk_auth_headers()
-        
-        url = f"{base_url}/tickets.json"
-        
-        payload = {
-            'ticket': {
-                'subject': subject,
-                'comment': {
-                    'body': comment_body,
-                },
-                'requester': {
-                    'email': requester_email,
-                },
-                'tags': tags or ['lora', 'lost-object'],
-            }
-        }
-        
-        data = json.dumps(payload).encode('utf-8')
-        
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers=headers,
-            method='POST'
-        )
-        
         logger.info("Creating Zendesk ticket for %s", requester_email)
-        
-        # Use configurable timeout
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            ticket = result.get('ticket', {})
-            
-            logger.info("Created Zendesk ticket #%s for %s", ticket.get('id'), requester_email)
-            return {
-                'id': ticket.get('id'),
-                'subject': ticket.get('subject'),
-                'status': ticket.get('status'),
-                'url': ticket.get('url'),
-            }
-            
+
+        result = _zendesk_request(
+            '/tickets.json',
+            method='POST',
+            json_body={
+                'ticket': {
+                    'subject': subject,
+                    'comment': {
+                        'body': comment_body,
+                    },
+                    'requester': {
+                        'email': requester_email,
+                    },
+                    'tags': tags or ['lora', 'lost-object'],
+                }
+            },
+        )
+        ticket = result.get('ticket', {})
+
+        logger.info("Created Zendesk ticket #%s for %s", ticket.get('id'), requester_email)
+        return {
+            'id': ticket.get('id'),
+            'subject': ticket.get('subject'),
+            'status': ticket.get('status'),
+            'url': ticket.get('url'),
+        }
+
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
         logger.error("HTTP error creating Zendesk ticket: %s - %s", e.code, error_body)
@@ -781,32 +726,16 @@ def search_zendesk_tickets(query: str) -> List[Dict[str, Any]]:
         query = query[:MAX_SEARCH_QUERY_LEN]
 
     try:
-        base_url = _get_zendesk_base_url()
-        headers = _get_zendesk_auth_headers()
-
-        # Zendesk Search API endpoint
-        url = f"{base_url}/search.json"
-
         # Build query params with proper URL encoding to prevent injection
         params = urllib.parse.urlencode({'query': query, 'type': 'ticket'})
-        full_url = f"{url}?{params}"
-
-        req = urllib.request.Request(
-            full_url,
-            headers=headers,
-            method='GET'
-        )
 
         logger.info("Searching Zendesk tickets: %s...", query[:100])
 
-        # Use configurable timeout
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            results = result.get('results', [])
+        result = _zendesk_request(f"/search.json?{params}")
+        results = result.get('results', [])
 
-            logger.info("Found %s tickets matching: %s...", len(results), query[:100])
-            return results
+        logger.info("Found %s tickets matching: %s...", len(results), query[:100])
+        return results
 
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
@@ -833,44 +762,30 @@ def fetch_zendesk_ticket_full(ticket_id: str) -> Optional[Dict[str, Any]]:
         Full ticket data dict with custom fields, None on failure
     """
     try:
-        base_url = _get_zendesk_base_url()
-        headers = _get_zendesk_auth_headers()
-        
-        # Fetch ticket with custom fields included
-        url = f"{base_url}/tickets/{ticket_id}.json"
-        
-        req = urllib.request.Request(
-            url,
-            headers=headers,
-            method='GET'
-        )
-        
         logger.info("Fetching full Zendesk ticket %s", ticket_id)
-        
-        # Use configurable timeout
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            ticket = result.get('ticket', {})
-            
-            if ticket:
-                logger.info("Fetched full Zendesk ticket %s", ticket_id)
-                return {
-                    'id': ticket.get('id'),
-                    'subject': ticket.get('subject'),
-                    'description': ticket.get('description'),
-                    'status': ticket.get('status'),
-                    'priority': ticket.get('priority'),
-                    'requester_id': ticket.get('requester_id'),
-                    'assignee_id': ticket.get('assignee_id'),
-                    'custom_fields': ticket.get('custom_fields', []),
-                    'tags': ticket.get('tags', []),
-                    'created_at': ticket.get('created_at'),
-                    'updated_at': ticket.get('updated_at'),
-                    'url': ticket.get('url'),
-                }
-            return None
-            
+
+        # Fetch ticket with custom fields included
+        result = _zendesk_request(f"/tickets/{ticket_id}.json")
+        ticket = result.get('ticket', {})
+
+        if ticket:
+            logger.info("Fetched full Zendesk ticket %s", ticket_id)
+            return {
+                'id': ticket.get('id'),
+                'subject': ticket.get('subject'),
+                'description': ticket.get('description'),
+                'status': ticket.get('status'),
+                'priority': ticket.get('priority'),
+                'requester_id': ticket.get('requester_id'),
+                'assignee_id': ticket.get('assignee_id'),
+                'custom_fields': ticket.get('custom_fields', []),
+                'tags': ticket.get('tags', []),
+                'created_at': ticket.get('created_at'),
+                'updated_at': ticket.get('updated_at'),
+                'url': ticket.get('url'),
+            }
+        return None
+
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
         logger.error("HTTP error fetching Zendesk ticket %s: %s - %s", ticket_id, e.code, error_body)
