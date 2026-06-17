@@ -159,25 +159,40 @@
                 {% endif %}
             </div>
             {% if reply_timeline %}
-            <div class="space-y-5">
+            <div class="space-y-3">
                 {% for e in reply_timeline %}
-                <div class="border-l-2 {% if e.actor == 'PayPal' %}border-info/40{% elif e.actor == 'Buyer' %}border-warning/40{% else %}border-primary/30{% endif %} pl-4 relative">
-                    <div class="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full {% if e.actor == 'PayPal' %}bg-info{% elif e.actor == 'Buyer' %}bg-warning{% else %}bg-primary{% endif %}"></div>
-                    <div class="flex justify-between items-start gap-3">
-                        <strong class="text-sm">{{ e.title }}</strong>
-                        <span class="text-xs text-base-content/50 shrink-0">{{ e.when_str|default:"—" }}</span>
+                {# Single-column case log: one card per turn, colour-accented by who
+                   spoke (your team = indigo, the buyer = amber, PayPal = blue). #}
+                <div class="rounded-xl border border-base-200 bg-base-100 p-4 border-l-4
+                            {% if e.actor == 'PayPal' %}border-l-info{% elif e.actor == 'Buyer' %}border-l-warning{% else %}border-l-primary{% endif %}">
+                    <div class="flex items-start gap-3">
+                        <div class="shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-base
+                                    {% if e.actor == 'PayPal' %}bg-info/10 text-info{% elif e.actor == 'Buyer' %}bg-warning/10 text-warning{% else %}bg-primary/10 text-primary{% endif %}">
+                            <i class="bi {% if e.actor == 'PayPal' %}bi-paypal{% elif e.actor == 'Buyer' %}bi-person-fill{% else %}bi-headset{% endif %}"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                                <span class="text-sm font-semibold">{{ e.actor }}</span>
+                                <span class="text-xs text-base-content/50">{{ e.title }}</span>
+                                <span class="text-xs text-base-content/40 ml-auto shrink-0">{{ e.when_str|default:"—" }}</span>
+                            </div>
+                            {% if e.status or e.source or e.attached_pdf or e.image_count or e.doc_count %}
+                            <div class="flex flex-wrap items-center gap-1.5 mt-2">
+                                {% if e.status %}<span class="badge badge-xs {% if e.status == 'SUBMITTED' %}badge-soft-success{% elif e.status == 'FAILED' %}badge-soft-error{% else %}badge-soft-neutral{% endif %} rounded-full">{{ e.status }}</span>{% endif %}
+                                {% if e.source %}<span class="text-xs text-base-content/50">{{ e.source }}</span>{% endif %}
+                                {% if e.attached_pdf %}<span class="badge badge-xs badge-soft-info rounded-full"><i class="bi bi-paperclip mr-0.5"></i> report PDF</span>{% endif %}
+                                {% if e.image_count %}<span class="badge badge-xs badge-soft-neutral rounded-full"><i class="bi bi-image mr-0.5"></i> {{ e.image_count }}</span>{% endif %}
+                                {% if e.doc_count %}<span class="badge badge-xs badge-soft-neutral rounded-full"><i class="bi bi-paperclip mr-0.5"></i> {{ e.doc_count }} file{{ e.doc_count|pluralize }}</span>{% endif %}
+                            </div>
+                            {% endif %}
+                            {% if e.text %}
+                            <div class="thread-body text-sm text-base-content/80 mt-2 leading-relaxed whitespace-pre-line {% if e.text|length > 280 %}line-clamp-5{% endif %}">{{ e.text }}</div>
+                            {% if e.text|length > 280 %}
+                            <button type="button" class="thread-toggle text-xs text-primary mt-1.5 hover:underline">Show full message</button>
+                            {% endif %}
+                            {% endif %}
+                        </div>
                     </div>
-                    <div class="flex flex-wrap items-center gap-2 mt-1">
-                        <span class="text-xs text-base-content/60">{{ e.actor }}</span>
-                        {% if e.status %}<span class="badge badge-xs {% if e.status == 'SUBMITTED' %}badge-soft-success{% elif e.status == 'FAILED' %}badge-soft-error{% else %}badge-soft-neutral{% endif %} rounded-full">{{ e.status }}</span>{% endif %}
-                        {% if e.source %}<span class="text-xs text-base-content/50">· {{ e.source }}</span>{% endif %}
-                        {% if e.image_count %}<span class="text-xs text-base-content/50">· {{ e.image_count }} image{{ e.image_count|pluralize }}</span>{% endif %}
-                        {% if e.attached_pdf %}<span class="text-xs text-base-content/50">· report PDF</span>{% endif %}
-                        {% if e.doc_count %}<span class="text-xs text-base-content/50">· {{ e.doc_count }} file{{ e.doc_count|pluralize }}</span>{% endif %}
-                    </div>
-                    {% if e.text %}
-                    <p class="text-sm text-base-content/70 mt-1 whitespace-pre-line">{{ e.text }}</p>
-                    {% endif %}
                 </div>
                 {% endfor %}
             </div>
@@ -559,5 +574,15 @@
     ta.addEventListener('input', update);
     update();
 })();
+
+// Conversation thread — expand/collapse long messages (clamped to 5 lines).
+document.querySelectorAll('.thread-toggle').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+        var body = btn.previousElementSibling;
+        if (!body) return;
+        var clamped = body.classList.toggle('line-clamp-5');
+        btn.textContent = clamped ? 'Show full message' : 'Show less';
+    });
+});
 </script>
 {% endblock %}
