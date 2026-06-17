@@ -189,8 +189,8 @@ class TestZendeskClaimWebhookView:
 
         # The view's early existence check fires AFTER the secret check, so the
         # nested payload must carry the correct investigation status ID.
-        with patch('apps.integrations.views.fetch_zendesk_ticket') as mock_fetch, \
-             patch('apps.integrations.views.resolve_custom_status',
+        with patch('apps.integrations.views.webhooks.fetch_zendesk_ticket') as mock_fetch, \
+             patch('apps.integrations.views.webhooks.resolve_custom_status',
                    return_value={'name': 'Investigation initiated', 'category': 'open'}):
             response = api_client.post(
                 reverse('zendesk-claim-webhook'),
@@ -827,7 +827,7 @@ class TestZendeskClaimEmptyEmailHandling:
              patch('apps.integrations.services.fetch_zendesk_user', return_value=None), \
              patch('apps.integrations.briefing.refresh_claim_summary', return_value=False):
 
-            with caplog.at_level('WARNING', logger='apps.integrations.views'):
+            with caplog.at_level('WARNING', logger='apps.integrations.views.webhooks'):
                 response = api_client.post(
                     reverse('zendesk-claim-webhook'),
                     data=payload,
@@ -1034,11 +1034,11 @@ class WebhookStatusMirrorTests(WebhookTestBase):
     def _payload(self, status_id='222'):
         return json.dumps({'event': {'current': status_id}, 'detail': {'id': '60001'}})
 
-    @patch('apps.integrations.views.refresh_claim_summary', return_value=True)
-    @patch('apps.integrations.views.resolve_custom_status',
+    @patch('apps.integrations.views.webhooks.refresh_claim_summary', return_value=True)
+    @patch('apps.integrations.views.webhooks.resolve_custom_status',
            return_value={'name': 'Claim submitted', 'category': 'open'})
-    @patch('apps.integrations.views.fetch_zendesk_comments', return_value=[])
-    @patch('apps.integrations.views.fetch_zendesk_ticket',
+    @patch('apps.integrations.views.webhooks.fetch_zendesk_comments', return_value=[])
+    @patch('apps.integrations.views.webhooks.fetch_zendesk_ticket',
            return_value={'subject': 's', 'description': 'd', 'comments': []})
     def test_status_change_updates_claim_and_writes_timeline(self, *_mocks):
         response = self._post_webhook(self._payload())
@@ -1051,18 +1051,18 @@ class WebhookStatusMirrorTests(WebhookTestBase):
         self.assertEqual(entry.update_type, 'STATUS_CHANGE')
         self.assertIn('Investigation initiated', entry.changes_summary)
 
-    @patch('apps.integrations.views.resolve_custom_status',
+    @patch('apps.integrations.views.webhooks.resolve_custom_status',
            return_value={'name': 'Investigation initiated', 'category': 'open'})
     def test_same_status_is_a_noop(self, _mock):
         response = self._post_webhook(self._payload('111'))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.claim.updates.count(), 0)
 
-    @patch('apps.integrations.views.refresh_claim_summary', return_value=False)
-    @patch('apps.integrations.views.resolve_custom_status',
+    @patch('apps.integrations.views.webhooks.refresh_claim_summary', return_value=False)
+    @patch('apps.integrations.views.webhooks.resolve_custom_status',
            return_value={'name': 'Object Found', 'category': 'open'})
-    @patch('apps.integrations.views.fetch_zendesk_comments', return_value=[])
-    @patch('apps.integrations.views.fetch_zendesk_ticket', return_value=None)
+    @patch('apps.integrations.views.webhooks.fetch_zendesk_comments', return_value=[])
+    @patch('apps.integrations.views.webhooks.fetch_zendesk_ticket', return_value=None)
     def test_summary_failure_does_not_block_status_update(self, *_mocks):
         response = self._post_webhook(self._payload())
         self.assertEqual(response.status_code, 200)
@@ -1076,7 +1076,7 @@ class WebhookStatusMirrorTests(WebhookTestBase):
         # ai_summary on the claim itself is unchanged from creation ('')
         self.assertEqual(self.claim.ai_summary, '')
 
-    @patch('apps.integrations.views.resolve_custom_status',
+    @patch('apps.integrations.views.webhooks.resolve_custom_status',
            return_value={'name': 'Investigation initiated', 'category': 'open'})
     def test_creation_retry_is_noop(self, _mock_resolve):
         """Creation retry: claim already exists with the creation status name.
@@ -1094,7 +1094,7 @@ class WebhookStatusMirrorTests(WebhookTestBase):
         self.assertEqual(self.claim.status, 'Investigation initiated')
         self.assertEqual(self.claim.updates.count(), 0)
 
-    @patch('apps.integrations.views.resolve_custom_status',
+    @patch('apps.integrations.views.webhooks.resolve_custom_status',
            return_value={'name': '424242', 'category': ''})
     def test_unresolved_status_guard(self, _mock_resolve):
         """Unresolved status id: resolver returns the raw id as the name.
@@ -1111,7 +1111,7 @@ class WebhookStatusMirrorTests(WebhookTestBase):
         self.assertEqual(self.claim.updates.count(), 0)
 
     def test_unknown_ticket_with_non_creation_status_is_ignored(self):
-        with patch('apps.integrations.views.resolve_custom_status',
+        with patch('apps.integrations.views.webhooks.resolve_custom_status',
                    return_value={'name': 'Pending', 'category': 'pending'}):
             response = self._post_webhook(
                 json.dumps(

@@ -307,9 +307,9 @@ class FlightLookupEndpointTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Couldn't read", response.json()['error_message'])
 
-    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
-    @patch('apps.integrations.views.analyze_flight_match', return_value=_fake_check())
-    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
+    @patch('apps.integrations.views.flight.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.flight.analyze_flight_match', return_value=_fake_check())
+    @patch('apps.integrations.views.flight.lookup_flight', return_value=[RAW_LEG])
     def test_success_saves_posts_and_returns(self, mock_lookup, mock_analyze, mock_post):
         response = self._post()
         self.assertEqual(response.status_code, 200)
@@ -327,9 +327,9 @@ class FlightLookupEndpointTests(TestCase):
         note_body = mock_post.call_args.args[1]
         self.assertIn('AI check:', note_body)
 
-    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
-    @patch('apps.integrations.views.analyze_flight_match', return_value=None)
-    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.flight.lookup_flight', return_value=[RAW_LEG])
+    @patch('apps.integrations.views.flight.analyze_flight_match', return_value=None)
+    @patch('apps.integrations.views.flight.post_zendesk_comment', return_value={'ok': True})
     def test_analysis_failure_still_succeeds(self, mock_post, _mock_analyze, _mock_lookup):
         response = self._post()
         self.assertEqual(response.status_code, 200)
@@ -337,9 +337,9 @@ class FlightLookupEndpointTests(TestCase):
         note_body = mock_post.call_args.args[1]
         self.assertNotIn('AI check:', note_body)
 
-    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
-    @patch('apps.integrations.views.analyze_flight_match', return_value=_fake_check())
-    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.flight.lookup_flight', return_value=[RAW_LEG])
+    @patch('apps.integrations.views.flight.analyze_flight_match', return_value=_fake_check())
+    @patch('apps.integrations.views.flight.post_zendesk_comment', return_value={'ok': True})
     def test_cached_second_call_skips_api(self, _mock_post, _mock_analyze, mock_lookup):
         self._post()
         self.assertEqual(mock_lookup.call_count, 1)
@@ -347,35 +347,35 @@ class FlightLookupEndpointTests(TestCase):
         self.assertEqual(mock_lookup.call_count, 1)  # not called again
         self.assertTrue(response.json()['cached'])
 
-    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
-    @patch('apps.integrations.views.analyze_flight_match', return_value=_fake_check())
-    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.flight.lookup_flight', return_value=[RAW_LEG])
+    @patch('apps.integrations.views.flight.analyze_flight_match', return_value=_fake_check())
+    @patch('apps.integrations.views.flight.post_zendesk_comment', return_value={'ok': True})
     def test_refresh_forces_new_lookup(self, _mock_post, _mock_analyze, mock_lookup):
         self._post()
         response = self._post({'ticket_id': '90001', 'refresh': True})
         self.assertEqual(mock_lookup.call_count, 2)
         self.assertFalse(response.json()['cached'])
 
-    @patch('apps.integrations.views.lookup_flight', return_value=None)
+    @patch('apps.integrations.views.flight.lookup_flight', return_value=None)
     def test_provider_down_502_no_note(self, _mock_lookup):
-        with patch('apps.integrations.views.post_zendesk_comment') as mock_post:
+        with patch('apps.integrations.views.flight.post_zendesk_comment') as mock_post:
             response = self._post()
         self.assertEqual(response.status_code, 502)
         mock_post.assert_not_called()
 
-    @patch('apps.integrations.views.lookup_flight',
+    @patch('apps.integrations.views.flight.lookup_flight',
            side_effect=__import__('apps.integrations.flight_lookup', fromlist=['FlightProviderNotConfigured']).FlightProviderNotConfigured('no key'))
     def test_missing_key_503(self, _mock_lookup):
         response = self._post()
         self.assertEqual(response.status_code, 503)
         self.assertIn('not configured', response.json()['error'])
 
-    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
-    @patch('apps.integrations.views.analyze_flight_match', return_value=_fake_check('RO301 at 14:20 fits best.'))
-    @patch('apps.integrations.views.find_candidate_flights',
+    @patch('apps.integrations.views.flight.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.flight.analyze_flight_match', return_value=_fake_check('RO301 at 14:20 fits best.'))
+    @patch('apps.integrations.views.flight.find_candidate_flights',
            return_value=[{'number': 'RO301', 'destination': 'CDG Charles de Gaulle',
                           'scheduled_local': '2026-06-01 14:20+03:00'}])
-    @patch('apps.integrations.views.lookup_flight', return_value=[])
+    @patch('apps.integrations.views.flight.lookup_flight', return_value=[])
     def test_not_found_with_candidates(self, _ml, mock_candidates, _ma, mock_post):
         response = self._post()
         self.assertEqual(response.status_code, 200)
@@ -388,9 +388,9 @@ class FlightLookupEndpointTests(TestCase):
         entry = self.claim.updates.first()
         self.assertIn('"found": false', entry.changes_summary)
 
-    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
-    @patch('apps.integrations.views.find_candidate_flights', return_value=[])
-    @patch('apps.integrations.views.lookup_flight', return_value=[])
+    @patch('apps.integrations.views.flight.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.flight.find_candidate_flights', return_value=[])
+    @patch('apps.integrations.views.flight.lookup_flight', return_value=[])
     def test_not_found_plain_note(self, _ml, _mc, mock_post):
         response = self._post()
         self.assertEqual(response.status_code, 200)
@@ -398,9 +398,9 @@ class FlightLookupEndpointTests(TestCase):
         note_body = mock_post.call_args.args[1]
         self.assertIn('was not found', note_body)
 
-    @patch('apps.integrations.views.post_zendesk_comment', side_effect=RuntimeError('zd down'))
-    @patch('apps.integrations.views.analyze_flight_match', return_value=None)
-    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
+    @patch('apps.integrations.views.flight.post_zendesk_comment', side_effect=RuntimeError('zd down'))
+    @patch('apps.integrations.views.flight.analyze_flight_match', return_value=None)
+    @patch('apps.integrations.views.flight.lookup_flight', return_value=[RAW_LEG])
     def test_note_failure_tolerated(self, _ml, _ma, _mp):
         response = self._post()
         self.assertEqual(response.status_code, 200)
@@ -524,9 +524,9 @@ class VerdictInEndpointTests(FlightLookupEndpointTests):
     """The verdict travels in the response AND is stored inside flight_data
     (so cached responses keep it)."""
 
-    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
-    @patch('apps.integrations.views.analyze_flight_match', return_value=_fake_check())
-    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
+    @patch('apps.integrations.views.flight.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.flight.analyze_flight_match', return_value=_fake_check())
+    @patch('apps.integrations.views.flight.lookup_flight', return_value=[RAW_LEG])
     def test_success_response_and_stored_verdict(self, *_mocks):
         response = self._post()
         data = response.json()
@@ -534,10 +534,10 @@ class VerdictInEndpointTests(FlightLookupEndpointTests):
         self.claim.refresh_from_db()
         self.assertEqual(self.claim.flight_data['verdict']['level'], 'verified')
 
-    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
-    @patch('apps.integrations.views.analyze_flight_match',
+    @patch('apps.integrations.views.flight.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.flight.analyze_flight_match',
            return_value=_fake_check(mismatches=['airport not on route']))
-    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
+    @patch('apps.integrations.views.flight.lookup_flight', return_value=[RAW_LEG])
     def test_mismatch_gives_check_verdict_and_leads_note(self, _ml, _ma, mock_post):
         response = self._post()
         self.assertEqual(response.json()['verdict']['level'], 'check')
@@ -569,10 +569,10 @@ class ClaimlessFlightLookupTests(TestCase):
         return self.api.post(self.url, {'ticket_id': ticket_id},
                              format='json', HTTP_AUTHORIZATION=f'Bearer {SECRET}')
 
-    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
-    @patch('apps.integrations.views.analyze_flight_match', return_value=_fake_check())
-    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
-    @patch('apps.integrations.views.fetch_zendesk_ticket')
+    @patch('apps.integrations.views.flight.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.flight.analyze_flight_match', return_value=_fake_check())
+    @patch('apps.integrations.views.flight.lookup_flight', return_value=[RAW_LEG])
+    @patch('apps.integrations.views.flight.fetch_zendesk_ticket')
     def test_claimless_lookup_from_ticket_fields(self, mock_fetch, mock_lookup,
                                                  mock_analyze, mock_post):
         from apps.claims.models import ClaimUpdateTimeline
@@ -595,23 +595,23 @@ class ClaimlessFlightLookupTests(TestCase):
         kwargs = mock_analyze.call_args.kwargs
         self.assertIn('DL2852', kwargs['flight_details_text'])
 
-    @patch('apps.integrations.views.fetch_zendesk_ticket',
+    @patch('apps.integrations.views.flight.fetch_zendesk_ticket',
            return_value={'custom_fields': []})
     def test_claimless_empty_fields_message(self, _mock_fetch):
         response = self._post()
         self.assertEqual(response.status_code, 200)
         self.assertIn('flight fields', response.json()['error_message'])
 
-    @patch('apps.integrations.views.fetch_zendesk_ticket', return_value=None)
+    @patch('apps.integrations.views.flight.fetch_zendesk_ticket', return_value=None)
     def test_claimless_ticket_fetch_failure_message(self, _mock_fetch):
         response = self._post()
         self.assertEqual(response.status_code, 200)
         self.assertIn("Couldn't read this ticket's fields", response.json()['error_message'])
 
-    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
-    @patch('apps.integrations.views.analyze_flight_match', return_value=_fake_check())
-    @patch('apps.integrations.views.lookup_flight', return_value=[RAW_LEG])
-    @patch('apps.integrations.views.fetch_zendesk_ticket')
+    @patch('apps.integrations.views.flight.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.flight.analyze_flight_match', return_value=_fake_check())
+    @patch('apps.integrations.views.flight.lookup_flight', return_value=[RAW_LEG])
+    @patch('apps.integrations.views.flight.fetch_zendesk_ticket')
     def test_claimless_is_never_cached(self, mock_fetch, mock_lookup, *_mocks):
         mock_fetch.return_value = dict(self.TICKET_FIELDS)
         self._post()
@@ -699,8 +699,8 @@ class OldDateHintTests(TestCase):
             client_email='old-flight@example.com', zd_ticket_id='97001',
             flight_details='Flight: AA377 | Date/Time: 2026-04-01 08:15')
 
-    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
-    @patch('apps.integrations.views.lookup_flight', return_value=[])
+    @patch('apps.integrations.views.flight.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.flight.lookup_flight', return_value=[])
     def test_old_date_not_found_mentions_history_window(self, _ml, _mp):
         response = self.api.post('/api/integrations/zd/flight-lookup/',
                                  {'ticket_id': '97001'}, format='json',
@@ -789,10 +789,10 @@ class NoNumberSearchTests(TestCase):
         windows = [(call.args[2], call.args[3]) for call in mock_window.call_args_list]
         self.assertEqual(windows, [(0, 11), (12, 23)])
 
-    @patch('apps.integrations.views.post_zendesk_comment', return_value={'ok': True})
-    @patch('apps.integrations.views.analyze_flight_match',
+    @patch('apps.integrations.views.flight.post_zendesk_comment', return_value={'ok': True})
+    @patch('apps.integrations.views.flight.analyze_flight_match',
            return_value=_fake_check('AA377 to Phoenix fits the 9:15 bag check.'))
-    @patch('apps.integrations.views.find_candidate_flights')
+    @patch('apps.integrations.views.flight.find_candidate_flights')
     def test_endpoint_searches_without_number(self, mock_candidates, _ma, mock_post):
         from apps.claims.models import ClaimUpdateTimeline
         timeline_before = ClaimUpdateTimeline.objects.count()
@@ -820,7 +820,7 @@ class NoNumberSearchTests(TestCase):
         response = self._post()
         self.assertIn('Airport', response.json()['error_message'])
 
-    @patch('apps.integrations.views.find_candidate_flights', return_value=[])
+    @patch('apps.integrations.views.flight.find_candidate_flights', return_value=[])
     def test_endpoint_reports_empty_departure_search(self, _mock):
         response = self._post()
         self.assertIn('no AA departures found from TPA',
