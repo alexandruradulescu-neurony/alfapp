@@ -179,6 +179,7 @@ def mirror_status_change(claim, custom_status_id) -> dict:
         return {'outcome': 'no_change', 'claim_id': claim.id, 'status': claim.status}
 
     old_status = claim.status
+    old_category = claim.status_category
 
     # Fix 3: write the timeline entry in the same atomic block as the claim save
     # so a crash during the subsequent AI call never leaves the status updated
@@ -196,6 +197,14 @@ def mirror_status_change(claim, custom_status_id) -> dict:
             llm_summary='',
         )
     logger.info("Claim #%s status mirrored: '%s' -> '%s'", claim.id, old_status, new_status)
+
+    # Deterministic status regression: a terminal (Solved) claim reopened to a
+    # non-terminal stage is a red flag (e.g. an agent bouncing a refund dispute
+    # back to 'Investigation initiated'). Only this unambiguous case is hard-flagged.
+    if old_category == 'solved' and resolved['category'] != 'solved':
+        claim.register_risk(
+            reasons=['status_regression'], level='at_risk',
+            detail=f"Reopened from Solved to '{new_status}'")
 
     # Client-update cascade (draft initial message + schedule follow-ups on entry
     # into the submitted status; stop the cadence on close). Best-effort: the

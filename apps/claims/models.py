@@ -9,6 +9,22 @@ DEFAULT_STATUS = 'Investigation initiated'
 DEFAULT_CATEGORY = 'open'
 
 
+RISK_LEVELS = [('none', 'None'), ('watch', 'Watch'), ('at_risk', 'At risk')]
+RISK_RANK = {'none': 0, 'watch': 1, 'at_risk': 2}
+_RANK_LEVEL = {0: 'none', 1: 'watch', 2: 'at_risk'}
+RISK_REASON_CHOICES = [
+    'hostile_language', 'refund_demanded', 'dispute_risk',
+    'status_regression', 'negative_sentiment',
+]
+RISK_REASON_LABELS = {
+    'hostile_language': 'Hostile language',
+    'refund_demanded': 'Refund demanded',
+    'dispute_risk': 'Dispute/chargeback risk',
+    'status_regression': 'Status reopened',
+    'negative_sentiment': 'Negative sentiment',
+}
+
+
 class Claim(models.Model):
     """
     Represents a lost object claim submitted by a client.
@@ -197,6 +213,18 @@ class Claim(models.Model):
         blank=True,
         help_text='When the current status was set (from the Zendesk webhook)'
     )
+
+    # --- Client-risk flag (sticky) ---
+    risk_level = models.CharField(max_length=10, choices=RISK_LEVELS, default='none', blank=True)
+    risk_reasons = models.JSONField(default=list, blank=True)
+    risk_detail = models.CharField(max_length=300, blank=True)
+    risk_first_flagged_at = models.DateTimeField(null=True, blank=True)
+    risk_last_signal_at = models.DateTimeField(null=True, blank=True)
+    risk_acknowledged_at = models.DateTimeField(null=True, blank=True)
+    risk_acknowledged_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='acknowledged_claim_risks')
+
     assigned_to = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -252,6 +280,54 @@ class Claim(models.Model):
 
     def __str__(self) -> str:
         return f"Claim #{self.id} ({self.alf_claim_id}) - {self.client_email} ({self.status})"
+
+    @property
+    def risk_active(self) -> bool:
+        """A raised risk that no one has acknowledged yet — what the badge/filter show."""
+        return self.risk_level != 'none' and self.risk_acknowledged_at is None
+
+    @property
+    def risk_reason_labels(self) -> list:
+        """Human-readable labels for risk_reasons (raw tags -> display strings)."""
+        return [RISK_REASON_LABELS.get(r, r) for r in (self.risk_reasons or [])]
+
+    def register_risk(self, *, reasons, level, detail=''):
+        """Sticky-merge a risk signal. Only ADDS reasons (union) and RAISES level —
+        never downgrades, so a later clean read can't erase a flag. A genuinely new
+        signal (a new reason, or the level rising) after an acknowledgement clears the
+        acknowledgement so the badge returns. Saves only its own fields."""
+        from django.utils import timezone
+        reasons = [r for r in (reasons or []) if r]
+        if level == 'none' and not reasons:
+            return  # nothing to register; never downgrade
+        existing = set(self.risk_reasons or [])
+        incoming = set(reasons)
+        old_rank = RISK_RANK.get(self.risk_level, 0)
+        new_rank = max(old_rank, RISK_RANK.get(level, 0))
+        is_new_signal = bool(incoming - existing) or new_rank > old_rank
+
+        now = timezone.now()
+        self.risk_reasons = sorted(existing | incoming)
+        self.risk_level = _RANK_LEVEL[new_rank]
+        if detail:
+            self.risk_detail = detail[:300]
+        if self.risk_first_flagged_at is None and new_rank > 0:
+            self.risk_first_flagged_at = now
+        self.risk_last_signal_at = now
+        fields = ['risk_reasons', 'risk_level', 'risk_detail',
+                  'risk_first_flagged_at', 'risk_last_signal_at', 'updated_at']
+        if self.risk_acknowledged_at is not None and is_new_signal:
+            self.risk_acknowledged_at = None
+            self.risk_acknowledged_by = None
+            fields += ['risk_acknowledged_at', 'risk_acknowledged_by']
+        self.save(update_fields=fields)
+
+    def acknowledge_risk(self, user):
+        """Clear the active badge (records who/when). Keeps reasons/level for audit."""
+        from django.utils import timezone
+        self.risk_acknowledged_at = timezone.now()
+        self.risk_acknowledged_by = user
+        self.save(update_fields=['risk_acknowledged_at', 'risk_acknowledged_by', 'updated_at'])
 
     # These refund_* properties read the claim's refund set in Python, so a
     # prefetch_related('refunds') makes ALL of them free — zero extra queries.
