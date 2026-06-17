@@ -686,8 +686,9 @@ def provide_evidence_files(dispute_id: str, notes: str, files: Optional[List[dic
                            evidence_type: str = DEFAULT_EVIDENCE_TYPE) -> Tuple[bool, Optional[dict]]:
     """First seller response (provide-evidence) carrying a GENERIC files list, so
     a submission can include the evidence-report PDF and the manager's images
-    together. Transport only; returns (ok, response). The DB-coupled
-    provide_evidence() above stays for the legacy send-evidence view."""
+    together. This is the path submit_dispute_response uses. Transport only;
+    returns (ok, response). (The DB-coupled provide_evidence() above is the older
+    document-list variant, retained as a transport helper.)"""
     input_json = {"evidences": [{
         "evidence_type": evidence_type or DEFAULT_EVIDENCE_TYPE,
         "notes": notes or '',

@@ -67,38 +67,6 @@ class SubmitRaceGuardTests(_Base):
         self.assertEqual(sub.status, 'DRAFT')  # reset so the manager can retry
 
 
-class ManualReplyGateTests(_Base):
-    """H2 — the quick reply is the follow-up channel only, enforced server-side."""
-
-    def test_rejected_in_first_response_window(self):
-        d = _dispute(raw_webhook_payload={'dispute_state': 'REQUIRED_ACTION'},
-                     dispute_life_cycle_stage='CHARGEBACK')  # submit_endpoint == provide-evidence
-        with patch.object(fv, 'submit_dispute_response') as submit:
-            resp = self.web.post(reverse('disputes:dispute_manual_reply', args=[d.id]),
-                                 {'reply_text': 'hi'}, follow=True)
-            submit.assert_not_called()
-        self.assertEqual(d.submissions.count(), 0)
-        self.assertContains(resp, "under PayPal review yet")
-
-    def test_allowed_under_review(self):
-        d = _dispute(raw_webhook_payload={'dispute_state': 'UNDER_PAYPAL_REVIEW'})
-        with patch.object(fv, 'submit_dispute_response', return_value=True) as submit:
-            self.web.post(reverse('disputes:dispute_manual_reply', args=[d.id]), {'reply_text': 'hi'})
-            submit.assert_called_once()
-        self.assertEqual(d.submissions.count(), 1)
-
-    def test_concurrent_reply_rejected_by_mutex(self):
-        d = _dispute(raw_webhook_payload={'dispute_state': 'UNDER_PAYPAL_REVIEW'},
-                     outbound_in_flight=True,
-                     outbound_in_flight_at=timezone.now())  # live reply in flight
-        with patch.object(fv, 'submit_dispute_response') as submit:
-            resp = self.web.post(reverse('disputes:dispute_manual_reply', args=[d.id]),
-                                 {'reply_text': 'hi'}, follow=True)
-            submit.assert_not_called()
-        self.assertEqual(d.submissions.count(), 0)
-        self.assertContains(resp, 'already being sent')
-
-
 class AcceptClaimRaceTests(_Base):
     """H3 — the money-moving accept is claimed via outbound_in_flight, released after."""
 

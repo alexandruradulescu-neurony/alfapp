@@ -56,11 +56,17 @@ class StageGatingActionTests(TestCase):
         self.web = Client()
         self.web.force_login(self.manager)
 
-    def test_send_evidence_blocked_at_inquiry_stage(self):
+    def test_evidence_blocked_at_inquiry_stage(self):
+        """At the INQUIRY stage PayPal is message-only, so no submission window
+        opens (submit_endpoint == '') and the composer can't send — the gate that
+        used to live in the removed send-evidence view, now via submit_endpoint."""
+        from apps.payments.models import DisputeSubmission
         d = _dispute(paypal_dispute_id='PP-D-4002', dispute_life_cycle_stage='INQUIRY')
-        resp = self.web.post(f'/manager/disputes/{d.id}/send-evidence/', follow=True)
+        self.assertEqual(d.submit_endpoint, '')  # no channel offered at inquiry
+        DisputeSubmission.objects.create(dispute=d, notes='ready', status='DRAFT')
+        resp = self.web.post(f'/manager/disputes/{d.id}/submit-to-paypal/', follow=True)
         self.assertEqual(resp.status_code, 200)
         # blocked before reaching PayPal; status unchanged
         d.refresh_from_db()
         self.assertEqual(d.status, 'DOCUMENTS_READY')
-        self.assertContains(resp, 'chargeback stage')
+        self.assertContains(resp, "isn't accepting")

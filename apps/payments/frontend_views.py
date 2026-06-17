@@ -36,7 +36,7 @@ from apps.payments.models import (Dispute, DisputeDocument, DisputeActivityLog,
 from apps.payments.document_service import (generate_evidence_report,
                                             build_dispute_narrative_notes, build_dispute_reply_timeline,
                                             PAYPAL_NOTES_MAX_CHARS)
-from apps.payments.paypal_disputes_service import (provide_evidence, accept_claim,
+from apps.payments.paypal_disputes_service import (accept_claim,
                                                    submit_dispute_response, evidence_type_for_reason)
 
 logger = logging.getLogger(__name__)
@@ -626,36 +626,6 @@ def dispute_edit_document(request, document_id):
 
 @manager_required
 @require_POST
-def dispute_accept_document(request, document_id):
-    """
-    Accept a document (mark as ready for submission).
-
-    POST /manager/documents/<id>/accept/
-
-    Changes document status to ACCEPTED and records acceptance timestamp/user.
-    """
-    document = get_object_or_404(DisputeDocument, pk=document_id)
-
-    # Update document status + audit log as one unit. (accepted_at is a plain
-    # DateTimeField with no auto-set — it must be stamped explicitly; it was being
-    # left None forever.)
-    document.status = DisputeDocument.STATUS_ACCEPTED
-    document.accepted_at = timezone.now()
-    document.accepted_by = request.user
-    with transaction.atomic():
-        document.save(update_fields=['status', 'accepted_at', 'accepted_by', 'updated_at'])
-        DisputeActivityLog.objects.create(
-            dispute=document.dispute,
-            action=DisputeActivityLog.ACTION_DOCUMENT_ACCEPTED,
-            details=f"Document #{document.id} ({document.get_doc_type_display()}) accepted by {request.user.username}",
-        )
-
-    messages.success(request, f"Document #{document_id} accepted and ready for submission.")
-    return redirect('disputes:dispute_detail', dispute_id=document.dispute_id)
-
-
-@manager_required
-@require_POST
 def dispute_delete_document(request, document_id):
     """
     Delete a document.
@@ -705,76 +675,6 @@ def dispute_set_category(request, dispute_id):
             performed_by=request.user,
             details=f"Category set to {dispute.get_dispute_reason_display()}.")
     messages.success(request, f"Category set to {dispute.get_dispute_reason_display()}.")
-    return redirect('disputes:dispute_detail', dispute_id=dispute_id)
-
-
-@manager_required
-@require_POST
-def dispute_send_evidence(request, dispute_id):
-    """
-    Send evidence to PayPal for a dispute.
-
-    POST /manager/disputes/<id>/send-evidence/
-
-    Collects all ACCEPTED documents and submits them via PayPal API.
-    """
-    dispute = get_object_or_404(Dispute, pk=dispute_id)
-
-    # Stage gate: PayPal rejects evidence at the INQUIRY stage (message-only)
-    # and once the case is resolved. Refuse before calling PayPal.
-    if not dispute.can_submit_evidence:
-        messages.error(
-            request,
-            "Evidence can't be submitted yet: PayPal only accepts it once the "
-            "dispute reaches the chargeback stage (it's currently "
-            f"'{dispute.dispute_life_cycle_stage or 'unknown'}'), and not after "
-            "the case is resolved.")
-        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
-
-    # Get all accepted documents
-    accepted_documents = DisputeDocument.objects.filter(
-        dispute=dispute,
-        status=DisputeDocument.STATUS_ACCEPTED
-    )
-
-    if not accepted_documents.exists():
-        messages.error(request, "No accepted documents to submit. Please generate and accept documents first.")
-        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
-
-    # Build response text from document content
-    response_texts = []
-    for doc in accepted_documents:
-        if doc.content_html:
-            response_texts.append(f"=== {doc.get_doc_type_display()} (v{doc.version}) ===\n{doc.content_html}")
-
-    response_text = "\n\n".join(response_texts) if response_texts else "Evidence submitted for dispute resolution."
-
-    # Atomically claim the dispute's outbound channel (same compare-and-set guard
-    # as dispute_accept_claim / dispute_manual_reply) so two concurrent submit
-    # clicks can't both POST evidence to PayPal. Released in finally.
-    if not dispute.claim_outbound():
-        messages.error(request, "Evidence is already being submitted — refresh to see its status.")
-        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
-
-    try:
-        # Call PayPal API to provide evidence
-        success = provide_evidence(
-            dispute_id=dispute.paypal_dispute_id,
-            documents=list(accepted_documents),
-            response_text=response_text,
-        )
-
-        if success:
-            messages.success(request, f"Evidence successfully submitted to PayPal for Dispute #{dispute_id}.")
-        else:
-            messages.error(request, "Failed to submit evidence to PayPal. Check logs for details.")
-
-    except Exception as e:
-        logger.error(f"Error sending evidence for Dispute #{dispute_id}: {e}")
-        messages.error(request, f"Error submitting evidence: {str(e)}")
-    finally:
-        dispute.release_outbound()
-
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
 
@@ -902,58 +802,6 @@ def dispute_submit_to_paypal(request, dispute_id):
     else:
         messages.error(request, "PayPal rejected the submission — see the timeline for the reason. "
                                 "You can edit the draft and try again.")
-    return redirect('disputes:dispute_detail', dispute_id=dispute_id)
-
-
-@manager_required
-@require_POST
-def dispute_manual_reply(request, dispute_id):
-    """Paste a plain-text reply and submit it as supporting info — feature D.
-    Only offered while the case is under PayPal review (the follow-up channel).
-
-    POST /manager/disputes/<id>/manual-reply/
-    """
-    dispute = get_object_or_404(Dispute, pk=dispute_id)
-    text = (request.POST.get('reply_text') or '').strip()
-    if not text:
-        messages.error(request, "Type a reply before sending.")
-        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
-    # The quick-reply is the follow-up channel only (provide-supporting-info),
-    # per the design decision. Enforce it server-side, not just in the template,
-    # so a direct POST during the first-response window can't route a bare reply
-    # through provide-evidence.
-    if dispute.submit_endpoint != 'provide-supporting-info':
-        messages.error(
-            request,
-            "This case isn't under PayPal review yet — use the Prepare submission panel "
-            "for the first response.")
-        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
-
-    # Atomically claim the dispute's outbound channel so two fast clicks can't
-    # each create + POST a duplicate supporting-info reply (each click makes its
-    # own row, so a row-level claim wouldn't dedupe — this dispute-level mutex
-    # does). Released when the call returns.
-    claimed = dispute.claim_outbound()
-    if not claimed:
-        messages.error(request, "A reply is already being sent — refresh to see the timeline.")
-        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
-
-    try:
-        submission = DisputeSubmission.objects.create(
-            dispute=dispute, notes=text, source=DisputeSubmission.SOURCE_MANUAL,
-            status=DisputeSubmission.STATUS_DRAFT)
-        ok = submit_dispute_response(submission, performed_by=request.user)
-    except Exception as e:
-        logger.error(f"Manual reply failed for Dispute #{dispute_id}: {e}")
-        messages.error(request, f"Error sending the reply: {e}")
-        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
-    finally:
-        dispute.release_outbound()
-
-    if ok:
-        messages.success(request, "Reply sent to PayPal.")
-    else:
-        messages.error(request, "PayPal rejected the reply — see the timeline for details.")
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
 

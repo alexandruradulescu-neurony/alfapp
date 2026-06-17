@@ -147,26 +147,6 @@ class SubmitToPayPalTests(_UITestBase):
         self.assertContains(resp, "isn't accepting a reply")  # composer note for a closed window
 
 
-class ManualReplyTests(_UITestBase):
-    def test_manual_reply_creates_submission_and_submits(self):
-        d = _dispute(payload={'dispute_state': 'UNDER_PAYPAL_REVIEW'})
-        with patch.object(fv, 'submit_dispute_response', return_value=True) as submit:
-            resp = self.web.post(reverse('disputes:dispute_manual_reply', args=[d.id]),
-                                 {'reply_text': 'Adding more context.'}, follow=True)
-            submit.assert_called_once()
-        sub = d.submissions.get()
-        self.assertEqual(sub.notes, 'Adding more context.')
-        self.assertEqual(sub.source, 'MANUAL')
-        self.assertContains(resp, 'Reply sent to PayPal')
-
-    def test_manual_reply_requires_text(self):
-        d = _dispute(payload={'dispute_state': 'UNDER_PAYPAL_REVIEW'})
-        with patch.object(fv, 'submit_dispute_response') as submit:
-            self.web.post(reverse('disputes:dispute_manual_reply', args=[d.id]), {'reply_text': '  '})
-            submit.assert_not_called()
-        self.assertEqual(d.submissions.count(), 0)
-
-
 class DeleteImageTests(_UITestBase):
     def test_delete_image_from_draft(self):
         d = _dispute()
