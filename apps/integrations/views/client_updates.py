@@ -41,7 +41,6 @@ class ZendeskClientUpdatesView(APIView):
         return Response({**self._timeline(claim), 'message': message}, status=status.HTTP_200_OK)
 
     def _act(self, request, claim, action) -> str:
-        from django.utils import timezone
         from apps.communications import client_updates as cu
 
         if action == 'start':
@@ -53,22 +52,16 @@ class ZendeskClientUpdatesView(APIView):
 
         if kind == 'initial':
             if action == 'prepare':
-                from apps.communications.client_report import build_client_update_message
-                claim.client_report_draft = build_client_update_message(claim, polish=True)
-                claim.save(update_fields=['client_report_draft', 'updated_at'])
+                cu.regenerate_initial_update(claim)
                 return 'Initial update regenerated.'
             if action == 'send':
                 if claim.client_report_sent_at:
                     return 'The initial update was already sent.'
                 if not body or not claim.zd_ticket_id:
                     return 'Nothing to send.'
-                from apps.integrations.services import post_zendesk_comment
-                if post_zendesk_comment(claim.zd_ticket_id, body, is_internal=False) is None:
-                    return 'Could not post the reply to Zendesk.'
-                claim.client_report_draft = body
-                claim.client_report_sent_at = timezone.now()
-                claim.save(update_fields=['client_report_draft', 'client_report_sent_at', 'updated_at'])
-                return 'Initial update sent as a public reply.'
+                return ('Initial update sent as a public reply.'
+                        if cu.send_initial_update(claim, body)
+                        else 'Could not post the reply to Zendesk.')
             return ''
 
         # follow-up
