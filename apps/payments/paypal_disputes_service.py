@@ -189,6 +189,35 @@ def get_paypal_access_token() -> Optional[str]:
         return None
 
 
+def paypal_json_request(url: str, *, access_token: str, method: str,
+                        payload: Any = None, extra_headers: Optional[Dict[str, str]] = None,
+                        timeout: Optional[int] = None) -> Any:
+    """Build + send a PayPal REST JSON request and return the parsed JSON body.
+
+    Centralises the Bearer-auth + JSON-encode + urlopen + parse boilerplate the
+    dispute/refund JSON endpoints repeat. RAISES on transport/parse errors so each
+    caller keeps its own except ladder and return value. Per-call headers (e.g. a
+    PayPal-Request-Id idempotency key) go in extra_headers.
+
+    Content-Type 'application/json' is set ONLY when there is a payload (POST), to
+    match the existing call sites (the GET status lookup sends Authorization only).
+    `timeout` defaults to settings.PAYPAL_TIMEOUT (the dispute endpoints' existing
+    behaviour); the refund endpoints pass timeout=30 explicitly to stay byte-identical
+    to their previous hard-coded value.
+    """
+    headers = {'Authorization': f'Bearer {access_token}'}
+    data = None
+    if payload is not None:
+        headers['Content-Type'] = 'application/json'
+        data = json.dumps(payload).encode('utf-8')
+    if extra_headers:
+        headers.update(extra_headers)
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    t = timeout if timeout is not None else getattr(settings, 'PAYPAL_TIMEOUT', 30)
+    with urllib.request.urlopen(req, timeout=t) as response:
+        return json.loads(response.read().decode('utf-8'))
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=4, max=10),
@@ -514,26 +543,12 @@ def accept_claim(dispute_id: str, note: str = '') -> bool:
         if note:
             accept_payload["note"] = note
 
-        # Create request
-        request_data = json.dumps(accept_payload).encode('utf-8')
-        request = urllib.request.Request(
-            accept_url,
-            data=request_data,
-            headers={
-                'Authorization': f'Bearer {access_token}',
-                'Content-Type': 'application/json',
-                # Stable idempotency key so a retried accept-claim is deduplicated
-                # PayPal-side and the refund cannot be issued twice.
-                'PayPal-Request-Id': f'accept-claim-{dispute_id}',
-            },
-            method='POST'
-        )
-
-        # Use configurable timeout
-        timeout = getattr(settings, 'PAYPAL_TIMEOUT', 30)
-
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            result = json.loads(response.read().decode('utf-8'))
+        # Stable idempotency key so a retried accept-claim is deduplicated
+        # PayPal-side and the refund cannot be issued twice.
+        result = paypal_json_request(
+            accept_url, access_token=access_token, method='POST',
+            payload=accept_payload,
+            extra_headers={'PayPal-Request-Id': f'accept-claim-{dispute_id}'})
         logger.info(f"Successfully accepted claim for dispute {dispute_id}")
 
         # External call done — persist local state in its own short transaction.
@@ -608,23 +623,9 @@ def send_message(dispute_id: str, message: str) -> bool:
             "message": message
         }
 
-        # Create request
-        request_data = json.dumps(message_payload).encode('utf-8')
-        request = urllib.request.Request(
-            message_url,
-            data=request_data,
-            headers={
-                'Authorization': f'Bearer {access_token}',
-                'Content-Type': 'application/json',
-            },
-            method='POST'
-        )
-
-        # Use configurable timeout
-        timeout = getattr(settings, 'PAYPAL_TIMEOUT', 30)
-
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            result = json.loads(response.read().decode('utf-8'))
+        result = paypal_json_request(
+            message_url, access_token=access_token, method='POST',
+            payload=message_payload)
         logger.info(f"Successfully sent message for dispute {dispute_id}")
 
         # External call done — log the activity in its own short transaction.
@@ -877,14 +878,8 @@ def verify_webhook_signature(request_headers, event: dict) -> bool:
     }
     url = f"{paypal_api_base()}/v1/notifications/verify-webhook-signature"
     try:
-        req = urllib.request.Request(
-            url, data=json.dumps(payload).encode('utf-8'),
-            headers={'Authorization': f'Bearer {access_token}',
-                     'Content-Type': 'application/json'},
-            method='POST')
-        timeout = getattr(settings, 'PAYPAL_TIMEOUT', 30)
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            result = json.loads(response.read().decode('utf-8'))
+        result = paypal_json_request(
+            url, access_token=access_token, method='POST', payload=payload)
         verified = result.get('verification_status') == 'SUCCESS'
         if not verified:
             logger.warning(f"PayPal webhook signature verification: {result.get('verification_status')}")
