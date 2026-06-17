@@ -19,7 +19,8 @@ from django.utils import timezone
 from apps.payments.models import Refund
 from apps.claims.models import Claim
 from apps.config.models import SystemSettings
-from apps.payments.paypal_disputes_service import get_paypal_access_token, paypal_api_base
+from apps.payments.paypal_disputes_service import (
+    get_paypal_access_token, paypal_api_base, paypal_json_request)
 from apps.payments.woocommerce_service import (
     WooCommerceNotConfigured,
     create_woocommerce_refund,
@@ -206,26 +207,16 @@ class RefundService:
                 },
                 'note_to_payer': note_to_payer,
             }
-            
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(payload).encode('utf-8'),
-                headers={
-                    'Content-Type': 'application/json',
-                    'Authorization': f'Bearer {access_token}',
-                },
-                method='POST'
-            )
-            
-            with urllib.request.urlopen(req, timeout=30) as response:
-                result = json.loads(response.read().decode('utf-8'))
-                
-                return {
-                    'success': True,
-                    'refund_id': result.get('id'),
-                    'status': result.get('status'),
-                    'metadata': result,
-                }
+
+            result = paypal_json_request(
+                url, access_token=access_token, method='POST', payload=payload, timeout=30)
+
+            return {
+                'success': True,
+                'refund_id': result.get('id'),
+                'status': result.get('status'),
+                'metadata': result,
+            }
                 
         except urllib.error.HTTPError as e:
             error_body = e.read().decode('utf-8') if e.fp else ''
@@ -696,23 +687,14 @@ class RefundService:
                 return None
             
             url = f"{self.paypal_base_url}/v2/payments/refunds/{refund_id}"
-            
-            req = urllib.request.Request(
-                url,
-                headers={
-                    'Authorization': f'Bearer {access_token}',
-                },
-                method='GET'
-            )
-            
-            with urllib.request.urlopen(req, timeout=30) as response:
-                result = json.loads(response.read().decode('utf-8'))
-                return {
-                    'id': result.get('id'),
-                    'status': result.get('status'),
-                    'amount': result.get('amount'),
-                    'metadata': result,
-                }
+
+            result = paypal_json_request(url, access_token=access_token, method='GET', timeout=30)
+            return {
+                'id': result.get('id'),
+                'status': result.get('status'),
+                'amount': result.get('amount'),
+                'metadata': result,
+            }
                 
         except Exception as e:
             logger.error(f"Error checking refund status: {e}")
