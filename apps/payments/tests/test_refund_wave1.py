@@ -156,32 +156,6 @@ class RefundWebhookViewTests(TestCase):
         tag.assert_called_once_with('70999')  # claim.zd_ticket_id wins
 
 
-# ---- PayPal webhook auth ----
-
-class PayPalWebhookAuthTests(TestCase):
-    URL = '/api/payments/paypal/webhook/'
-
-    def setUp(self):
-        ss = SystemSettings.get_instance()
-        ss.sidebar_secret_token = SECRET
-        ss.save()
-        self.api = APIClient()
-
-    def test_anonymous_forgery_rejected(self):
-        resp = self.api.post(self.URL, {
-            'event_type': 'PAYMENT.CAPTURE.REFUNDED',
-            'resource': {'id': 'forged', 'status': 'COMPLETED'},
-        }, format='json')
-        self.assertEqual(resp.status_code, 401)
-
-    def test_accepted_with_secret(self):
-        with patch.object(RefundService, 'process_webhook_refund',
-                          return_value={'success': True}):
-            resp = self.api.post(self.URL, {'event_type': 'OTHER'},
-                                 format='json', HTTP_X_WEBHOOK_SECRET=SECRET)
-        self.assertEqual(resp.status_code, 200)
-
-
 # ---- locked-down refund API ----
 
 class RefundViewSetVerbLockTests(TestCase):

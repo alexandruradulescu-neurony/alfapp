@@ -17,6 +17,7 @@ from django.conf import settings
 from django.db import IntegrityError
 from django.utils import timezone
 from apps.claims.models import Claim
+from apps.config.encrypted_fields import is_decryption_failure
 from apps.config.models import SystemSettings
 from apps.communications.models import EmailLog
 from apps.integrations.services import (
@@ -831,9 +832,12 @@ def process_incoming_emails() -> Dict[str, Any]:
         stats['errors'] += 1
         return stats
 
-    # Validate credentials
-    if not all([imap_host, imap_user, imap_pass]):
-        logger.error("IMAP credentials not configured in SystemSettings")
+    # Validate credentials — reject blanks AND the decrypt-failure sentinel (a
+    # truthy string), so a mis-keyed credential is never sent to the mail server
+    # as a live password (repeated bad logins can lock the shared mailbox).
+    if not all([imap_host, imap_user, imap_pass]) or any(
+            is_decryption_failure(c) for c in (imap_host, imap_user, imap_pass)):
+        logger.error("IMAP credentials not configured (or failed to decrypt)")
         stats['errors'] += 1
         return stats
 
@@ -883,7 +887,7 @@ def process_incoming_emails() -> Dict[str, Any]:
 
             try:
                 # Fetch email by UID
-                status, msg_data = imap_conn.fetch(uid, '(RFC822)')
+                status, msg_data = imap_conn.fetch(uid, '(BODY.PEEK[])')
 
                 if status != 'OK':
                     logger.warning("Failed to fetch email UID %s", uid_str)
@@ -950,8 +954,11 @@ def open_inbox() -> imaplib.IMAP4_SSL:
     propagate to the caller.
     """
     system_settings = SystemSettings.get_instance()
-    if not all([system_settings.imap_host, system_settings.imap_user,
-                system_settings.imap_pass]):
+    creds = (system_settings.imap_host, system_settings.imap_user,
+             system_settings.imap_pass)
+    # Reject blanks AND the decrypt-failure sentinel (fail closed): never hand a
+    # mis-decrypted credential to the mail server as a live password.
+    if not all(creds) or any(is_decryption_failure(c) for c in creds):
         raise EmailNotConfigured('IMAP credentials not configured in System settings')
     conn = imaplib.IMAP4_SSL(system_settings.imap_host,
                              timeout=getattr(settings, 'IMAP_TIMEOUT', DEFAULT_IMAP_TIMEOUT))
@@ -1111,7 +1118,7 @@ def check_email_for_ticket(ticket_id: str, claim: Optional[Claim], alias: str) -
                 break
             uid_str = uid.decode('utf-8') if isinstance(uid, bytes) else str(uid)
             try:
-                status, msg_data = conn.fetch(uid, '(RFC822)')
+                status, msg_data = conn.fetch(uid, '(BODY.PEEK[])')
                 if status != 'OK' or not msg_data or msg_data[0] is None:
                     logger.warning("Email check: failed to fetch UID %s", uid_str)
                     results['errors'] += 1

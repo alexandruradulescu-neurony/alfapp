@@ -9,6 +9,7 @@ import base64
 import logging
 import os
 import re
+import urllib.request
 from datetime import datetime, timezone as _std_timezone
 from typing import Optional, Tuple
 
@@ -619,6 +620,38 @@ _EVIDENCE_RECORD_TEXT_CHARS = 700     # comment body length sent to the narrativ
 _IMG_USER_AGENT = 'Mozilla/5.0 (compatible; LORA-evidence/1.0)'
 
 
+def _image_host_allowed(host: str) -> bool:
+    """True only for hosts we'll fetch dispute-evidence images from: our own
+    Zendesk subdomain or Zendesk's signed content CDN. Applied to every redirect
+    hop and the final landing host, so an allowlisted URL can't bounce the fetch
+    to an internal/foreign address (SSRF). Mirrors the host policy in
+    _fetch_zendesk_image_bytes."""
+    host = (host or '').lower()
+    if not host:
+        return False
+    sub = (SystemSettings.get_instance().zd_subdomain or '').strip().lower()
+    return (
+        (bool(sub) and host == f"{sub}.zendesk.com")
+        or host.endswith('.zdusercontent.com')
+        or host.endswith('.zendeskusercontent.com')
+    )
+
+
+class _AllowlistRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse to FOLLOW a redirect whose target host is off-allowlist — an
+    allowlisted Zendesk URL must not redirect the fetch to an internal/foreign
+    address. Returning None aborts the redirect before any request is made to
+    the new host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        from urllib.parse import urlparse
+        if not _image_host_allowed(urlparse(newurl).hostname or ''):
+            logger.warning("Refusing image-fetch redirect to off-allowlist host: %s",
+                           newurl[:120])
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _fetch_no_auth(url: str, max_bytes: int) -> Optional[bytes]:
     """GET an image URL with NO Zendesk auth but a browser User-Agent.
 
@@ -627,12 +660,24 @@ def _fetch_no_auth(url: str, max_bytes: int) -> Optional[bytes]:
     the path IS the credential, and the request 302-redirects to the signed
     content CDN (``*.zdusercontent.com``). Also used for the CDN host directly.
     Sending our Basic-auth creds here would be both wrong and a credential leak.
+
+    Redirects are followed ONLY to allowlisted hosts (_AllowlistRedirectHandler),
+    and the host we actually land on is re-checked before the body is read — so a
+    redirect can't be used to reach an internal/foreign address (SSRF).
     """
-    import urllib.request
+    from urllib.parse import urlparse
     try:
         req = urllib.request.Request(url, method='GET', headers={'User-Agent': _IMG_USER_AGENT})
         timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        opener = urllib.request.build_opener(_AllowlistRedirectHandler())
+        with opener.open(req, timeout=timeout) as resp:
+            # Defense in depth: even with the redirect handler, re-check the host
+            # we actually landed on before trusting any bytes.
+            final_host = (urlparse(resp.geturl()).hostname or '').lower()
+            if not _image_host_allowed(final_host):
+                logger.warning("Image fetch landed on off-allowlist host %s; refusing: %s",
+                               final_host, url[:120])
+                return None
             data = resp.read(max_bytes + 1)
         if len(data) > max_bytes:
             logger.warning(f"Image exceeds {max_bytes} bytes; skipping embed: {url[:120]}")
