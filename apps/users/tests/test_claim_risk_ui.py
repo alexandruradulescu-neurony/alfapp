@@ -63,3 +63,28 @@ class RiskFilterTests(TestCase):
     def test_badge_rendered_on_list(self):
         resp = self.client.get(reverse('agent_claims'))
         self.assertContains(resp, 'At risk')
+
+
+class RiskBannerTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='mgr3', password='x')
+        self.client.force_login(self.user)
+        self.claim = Claim.objects.create(client_email='c@example.com', zd_ticket_id='90400',
+                                          alf_claim_id='ALF9040000', client_name='Test')
+
+    def test_banner_shown_when_at_risk(self):
+        self.claim.register_risk(reasons=['refund_demanded'], level='at_risk',
+                                 detail='Client demanded a refund')
+        resp = self.client.get(reverse('agent_claim_detail', args=[self.claim.id]))
+        self.assertContains(resp, 'Client demanded a refund')
+        self.assertContains(resp, 'Acknowledge')
+
+    def test_no_banner_when_clean(self):
+        resp = self.client.get(reverse('agent_claim_detail', args=[self.claim.id]))
+        self.assertNotContains(resp, 'Acknowledge')
+
+    def test_no_banner_after_acknowledge(self):
+        self.claim.register_risk(reasons=['refund_demanded'], level='at_risk', detail='d')
+        self.claim.acknowledge_risk(self.user)
+        resp = self.client.get(reverse('agent_claim_detail', args=[self.claim.id]))
+        self.assertNotContains(resp, 'Acknowledge')
