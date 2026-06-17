@@ -375,7 +375,7 @@ class ZendeskEmailCheckEndpointTests(TestCase):
             client_email='c@example.com', zd_ticket_id='80003', email_alias=ALIAS)
         with patch('apps.communications.services.check_email_for_ticket',
                    return_value=dict(self.ok_results)) as mock_check, \
-             patch('apps.integrations.views.fetch_zendesk_ticket') as mock_fetch:
+             patch('apps.integrations.views.email.fetch_zendesk_ticket') as mock_fetch:
             resp = self.api.post(self.url, {'ticket_id': '80003'},
                                  format='json', **self.auth)
         self.assertEqual(resp.status_code, 200)
@@ -386,7 +386,7 @@ class ZendeskEmailCheckEndpointTests(TestCase):
 
     def test_claimless_ticket_reads_alias_field(self):
         ticket = {'custom_fields': [{'id': 13606076120860, 'value': ALIAS}]}
-        with patch('apps.integrations.views.fetch_zendesk_ticket',
+        with patch('apps.integrations.views.email.fetch_zendesk_ticket',
                    return_value=ticket), \
              patch('apps.communications.services.check_email_for_ticket',
                    return_value=dict(self.ok_results)):
@@ -396,7 +396,7 @@ class ZendeskEmailCheckEndpointTests(TestCase):
         self.assertTrue(resp.data['claimless'])
 
     def test_ticket_without_alias_explains_itself(self):
-        with patch('apps.integrations.views.fetch_zendesk_ticket',
+        with patch('apps.integrations.views.email.fetch_zendesk_ticket',
                    return_value={'custom_fields': []}):
             resp = self.api.post(self.url, {'ticket_id': '99999'},
                                  format='json', **self.auth)
