@@ -230,7 +230,12 @@ def agent_claims(request):
     status_filter = request.GET.get('status')
     if status_filter:
         claims = claims.filter(status=status_filter)
-    
+
+    # Filter by risk: show only unacknowledged flagged claims
+    risk_filter = request.GET.get('risk')
+    if risk_filter:
+        claims = claims.filter(risk_acknowledged_at__isnull=True).exclude(risk_level='none')
+
     # Search
     search_query = request.GET.get('search')
     if search_query:
@@ -239,7 +244,7 @@ def agent_claims(request):
             Q(zd_ticket_id__icontains=search_query) |
             Q(flight_details__icontains=search_query)
         )
-    
+
     # Pagination
     paginator = Paginator(claims, LIST_PAGE_SIZE)
     page_number = request.GET.get('page')
@@ -249,6 +254,7 @@ def agent_claims(request):
         'page_obj': page_obj,
         'claims': page_obj,  # For template compatibility
         'status_filter': status_filter,
+        'risk_filter': risk_filter,
         'search_query': search_query,
         'status_choices': _claim_status_choices(),
     }
@@ -805,6 +811,11 @@ def manager_claims(request):
     if status_filter:
         claims = claims.filter(status=status_filter)
 
+    # Filter by risk: show only unacknowledged flagged claims
+    risk_filter = request.GET.get('risk')
+    if risk_filter:
+        claims = claims.filter(risk_acknowledged_at__isnull=True).exclude(risk_level='none')
+
     search_query = request.GET.get('search')
     if search_query:
         claims = claims.filter(
@@ -836,6 +847,7 @@ def manager_claims(request):
         'stats': stats,
         'family_filter': family_filter,
         'status_filter': status_filter,
+        'risk_filter': risk_filter,
         'search_query': search_query,
         'zd_ticket_base': _zendesk_ticket_base(zd_subdomain),
         'status_choices': _claim_status_choices(),

@@ -44,12 +44,19 @@
                 {% endfor %}
             </select>
         </div>
-        <div class="md:col-span-2">
+        <div class="md:col-span-2 flex items-end">
+            <label class="label cursor-pointer gap-2">
+              <span class="label-text">At risk only</span>
+              <input type="checkbox" name="risk" value="1" class="checkbox checkbox-error"
+                     {% if risk_filter %}checked{% endif %} onchange="this.form.submit()">
+            </label>
+        </div>
+        <div class="md:col-span-1">
             <button type="submit" class="btn btn-primary rounded-xl w-full">
                 <i class="bi bi-search"></i> Filter
             </button>
         </div>
-        <div class="md:col-span-2">
+        <div class="md:col-span-1">
             <a href="{% url 'agent_claims' %}" class="btn btn-outline rounded-xl w-full">
                 <i class="bi bi-x-circle"></i> Clear
             </a>
@@ -90,12 +97,17 @@
                                value="{{ claim.id }}" onchange="updateBulkButton()">
                     </td>
                     {% endif %}
-                    <td class="font-mono text-sm font-medium">#{{ claim.id }}</td>
+                    <td class="font-mono text-sm font-medium">
+                        {% if claim.alf_claim_id %}{{ claim.alf_claim_id }}{% else %}#{{ claim.id }}{% endif %}
+                    </td>
                     <td class="font-medium">{{ claim.client_email }}</td>
                     <td>
                         <span class="badge {% if claim.status_category == 'solved' %}badge-soft-neutral{% elif claim.status_category == 'pending' %}badge-soft-warning{% elif claim.status_category == 'new' %}badge-soft-info{% elif claim.status_category == 'hold' %}badge-soft-neutral{% else %}badge-soft-primary{% endif %}">
                             {{ claim.status }}
                         </span>
+                        {% if claim.risk_active %}
+                        <span class="badge badge-error gap-1" title="{{ claim.risk_reasons|join:', ' }} — {{ claim.risk_detail }}">⚠ At risk</span>
+                        {% endif %}
                     </td>
                     <td class="text-base-content/60">{{ claim.zd_ticket_id|default:"-" }}</td>
                     <td>
@@ -137,11 +149,11 @@
     <div class="flex justify-center p-6 border-t border-base-200">
         <div class="join">
             {% if page_obj.has_previous %}
-            <a href="?page=1{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
+            <a href="?page=1{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
                class="btn btn-sm join-item">
                 <i class="bi bi-chevron-double-left"></i> First
             </a>
-            <a href="?page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
+            <a href="?page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
                class="btn btn-sm join-item">
                 <i class="bi bi-chevron-left"></i> Previous
             </a>
@@ -152,11 +164,11 @@
             </span>
 
             {% if page_obj.has_next %}
-            <a href="?page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
+            <a href="?page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
                class="btn btn-sm join-item">
                 Next <i class="bi bi-chevron-right"></i>
             </a>
-            <a href="?page={{ page_obj.paginator.num_pages }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
+            <a href="?page={{ page_obj.paginator.num_pages }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
                class="btn btn-sm join-item">
                 Last <i class="bi bi-chevron-double-right"></i>
             </a>

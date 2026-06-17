@@ -142,11 +142,18 @@
             </select>
         </div>
         <div class="md:col-span-2 flex items-end">
+            <label class="label cursor-pointer gap-2">
+              <span class="label-text">At risk only</span>
+              <input type="checkbox" name="risk" value="1" class="checkbox checkbox-error"
+                     {% if risk_filter %}checked{% endif %} onchange="this.form.submit()">
+            </label>
+        </div>
+        <div class="md:col-span-1 flex items-end">
             <button type="submit" class="btn btn-primary w-full rounded-xl transition-all duration-200">
                 <i class="bi bi-search"></i> Filter
             </button>
         </div>
-        <div class="md:col-span-2 flex items-end">
+        <div class="md:col-span-1 flex items-end">
             <a href="{% url 'manager_claims' %}" class="btn btn-outline w-full rounded-xl transition-all duration-200">
                 <i class="bi bi-x-circle"></i> Clear
             </a>
@@ -197,6 +204,9 @@
                         <span class="badge {% if claim.status_category == 'solved' %}badge-success{% elif claim.status_category == 'pending' %}badge-warning{% elif claim.status_category == 'new' %}badge-info{% elif claim.status_category == 'hold' %}badge-neutral{% elif claim.status_category == 'open' %}badge-primary{% else %}badge-ghost{% endif %} rounded-full whitespace-nowrap">
                             {{ claim.status }}
                         </span>
+                        {% if claim.risk_active %}
+                        <span class="badge badge-error gap-1" title="{{ claim.risk_reasons|join:', ' }} — {{ claim.risk_detail }}">⚠ At risk</span>
+                        {% endif %}
                         {% if claim.days_in_status is not None and claim.status_category != 'solved' %}
                         <div class="text-xs mt-1 {% if claim.stuck %}text-error font-semibold{% else %}text-base-content/40{% endif %}"
                              {% if claim.stuck %}title="In this status for more than two weeks"{% endif %}>
@@ -272,11 +282,11 @@
     <div class="flex justify-center p-4">
         <div class="join">
             {% if page_obj.has_previous %}
-            <a href="?page=1&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
+            <a href="?page=1&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
                class="btn btn-sm join-item rounded-xl transition-all duration-200">
                 <i class="bi bi-chevron-double-left"></i> First
             </a>
-            <a href="?page={{ page_obj.previous_page_number }}&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
+            <a href="?page={{ page_obj.previous_page_number }}&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
                class="btn btn-sm join-item rounded-xl transition-all duration-200">
                 <i class="bi bi-chevron-left"></i> Previous
             </a>
@@ -287,11 +297,11 @@
             </button>
 
             {% if page_obj.has_next %}
-            <a href="?page={{ page_obj.next_page_number }}&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
+            <a href="?page={{ page_obj.next_page_number }}&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
                class="btn btn-sm join-item rounded-xl transition-all duration-200">
                 Next <i class="bi bi-chevron-right"></i>
             </a>
-            <a href="?page={{ page_obj.paginator.num_pages }}&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}"
+            <a href="?page={{ page_obj.paginator.num_pages }}&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
                class="btn btn-sm join-item rounded-xl transition-all duration-200">
                 Last <i class="bi bi-chevron-double-right"></i>
             </a>
