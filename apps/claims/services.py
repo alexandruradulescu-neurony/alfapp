@@ -139,6 +139,9 @@ def refresh_claim_from_zendesk(claim, extracted: dict) -> list:
     updated_fields = []
     for field in OVERWRITE_FIELDS:
         value = (extracted.get(field) or '').strip()
+        if field == 'client_email':
+            # client_email is a case-sensitive match key; normalize like the API path.
+            value = value.lower()
         if value and value != (getattr(claim, field) or ''):
             setattr(claim, field, value)
             updated_fields.append(field)

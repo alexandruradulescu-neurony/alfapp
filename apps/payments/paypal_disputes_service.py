@@ -644,9 +644,13 @@ def _record_submission_outcome(submission: DisputeSubmission, *, status, perform
     """Persist a submission's terminal state + an activity-log line, in one txn."""
     from django.utils import timezone
     with transaction.atomic():
-        fields = ['status', 'submitted_by', 'paypal_response', 'updated_at']
+        fields = ['status', 'paypal_response', 'updated_at']
         submission.status = status
-        submission.submitted_by = performed_by
+        # Only record the submitter when we actually have one — never NULL out a
+        # previously-recorded human submitter on a system/automated re-record.
+        if performed_by is not None:
+            submission.submitted_by = performed_by
+            fields.append('submitted_by')
         submission.paypal_response = response or {}
         if status == DisputeSubmission.STATUS_SUBMITTED:
             submission.submitted_at = timezone.now()
