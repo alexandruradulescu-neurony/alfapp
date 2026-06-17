@@ -34,7 +34,8 @@ from apps.claims.services import validate_evidence_image
 from apps.payments.models import (Dispute, DisputeDocument, DisputeActivityLog,
                                   DisputeSubmission, DisputeSubmissionImage)
 from apps.payments.document_service import (generate_evidence_report,
-                                            build_dispute_narrative_notes, build_dispute_reply_timeline)
+                                            build_dispute_narrative_notes, build_dispute_reply_timeline,
+                                            PAYPAL_NOTES_MAX_CHARS)
 from apps.payments.paypal_disputes_service import (provide_evidence, accept_claim,
                                                    submit_dispute_response, evidence_type_for_reason)
 
@@ -478,6 +479,9 @@ def dispute_detail(request, dispute_id):
         'submit_endpoint': dispute.submit_endpoint,
         'has_evidence_pdf': has_evidence_pdf,
         'evidence_type_default': evidence_type_for_reason(dispute.dispute_reason),
+        # Soft cap surfaced in the composer's live counter (PayPal caps the notes
+        # field near here; the service also warns past it).
+        'paypal_notes_max': PAYPAL_NOTES_MAX_CHARS,
     }
 
     return render(request, 'manager/dispute_detail.html', context)
@@ -487,6 +491,28 @@ def _working_draft(dispute):
     """The dispute's current DRAFT submission being prepared (latest), or None."""
     return dispute.submissions.filter(
         status=DisputeSubmission.STATUS_DRAFT).order_by('-created_at').first()
+
+
+@manager_required
+@require_POST
+def dispute_refresh_from_paypal(request, dispute_id):
+    """Pull THIS dispute's latest state from PayPal on demand — refreshes the
+    stage, deadline, status, AND the stored raw payload that the conversation
+    thread reads the buyer/PayPal messages + evidences from. Without this the
+    thread only updates after our own submit or an inbound webhook."""
+    dispute = get_object_or_404(Dispute, pk=dispute_id)
+    if (dispute.paypal_dispute_id or '').startswith('MANUAL-'):
+        messages.info(request, "This dispute was created manually — there's nothing to refresh from PayPal.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+    try:
+        from apps.payments.paypal_disputes_service import sync_dispute_from_paypal
+        sync_dispute_from_paypal(dispute.paypal_dispute_id)
+    except Exception as e:
+        logger.error(f"Refresh-from-PayPal failed for Dispute #{dispute_id}: {e}")
+        messages.error(request, f"Couldn't refresh from PayPal: {e}")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+    messages.success(request, "Refreshed from PayPal — the thread shows the latest messages and status.")
+    return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
 
 @manager_required

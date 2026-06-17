@@ -66,12 +66,12 @@ class _UITestBase(TestCase):
 
 
 class DetailRenderTests(_UITestBase):
-    def test_detail_shows_prepare_panel_and_timeline(self):
+    def test_detail_shows_composer_and_thread(self):
         d = _dispute()
         resp = self.web.get(reverse('disputes:dispute_detail', args=[d.id]))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'Prepare submission to PayPal')
-        self.assertContains(resp, 'Reply timeline')
+        self.assertContains(resp, 'Your reply to PayPal')        # the unified composer
+        self.assertContains(resp, 'Conversation with PayPal')    # the thread
 
 
 class PrepareSubmissionTests(_UITestBase):
@@ -144,7 +144,7 @@ class SubmitToPayPalTests(_UITestBase):
         with patch.object(fv, 'submit_dispute_response') as submit:
             resp = self.web.post(reverse('disputes:dispute_submit_to_paypal', args=[d.id]), follow=True)
             submit.assert_not_called()
-        self.assertContains(resp, "isn't accepting a submission")
+        self.assertContains(resp, "isn't accepting a reply")  # composer note for a closed window
 
 
 class ManualReplyTests(_UITestBase):
