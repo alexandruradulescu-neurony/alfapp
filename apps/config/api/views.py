@@ -4,6 +4,7 @@ from rest_framework.fields import BooleanField
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from apps.users.permissions import IsManager
 from apps.config.models import ServiceStatus, SystemSettings
 from apps.config.api.serializers import (
@@ -43,8 +44,8 @@ class ServiceStatusViewSet(viewsets.ReadOnlyModelViewSet):
 @api_view(['POST'])
 @permission_classes([IsManager])
 def test_connection(request, service):
-    """Test connection for a specific service. Manager-only (same as the
-    settings page that hosts it) — probing/altering integrations is privileged."""
+    """Test connection for a specific service. Authenticated-only (role split
+    removed) — same access as the settings page that hosts it."""
     tester = ConnectionTester()
     
     test_methods = {
@@ -70,8 +71,8 @@ def test_connection(request, service):
 @api_view(['POST'])
 @permission_classes([IsManager])
 def toggle_service(request, service):
-    """Toggle enabled state for a service. Manager-only — enabling/disabling
-    integrations (PayPal, scheduler, etc.) is a privileged settings action."""
+    """Toggle enabled state for a service. Authenticated-only (role split
+    removed) — enabling/disabling integrations is a settings action."""
     if service == 'SCHEDULER':
         serializer = ToggleSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -85,14 +86,17 @@ def toggle_service(request, service):
     serializer = ToggleSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     
-    status_obj.is_enabled = serializer.validated_data['enabled']
-    status_obj.save()
-    
+    enabled = serializer.validated_data['enabled']
+    # Targeted single-column write: flip only is_enabled instead of rewriting
+    # status/last_error/metadata from a possibly-stale in-memory copy (which races
+    # the connection tester's update_or_create).
+    ServiceStatus.objects.filter(pk=status_obj.pk).update(is_enabled=enabled)
+
     return Response({
         'success': True,
         'service': service,
-        'is_enabled': status_obj.is_enabled,
-        'message': f'Service {service} {"enabled" if status_obj.is_enabled else "disabled"}'
+        'is_enabled': enabled,
+        'message': f'Service {service} {"enabled" if enabled else "disabled"}'
     })
 
 
@@ -108,14 +112,17 @@ def toggle_setting_flag(request):
     """Instant ON/OFF for a boolean SystemSettings automation switch.
 
     Body: {"flag": "client_updates_autosend", "enabled": true}
-    Manager-only; only allowlisted flags can be changed."""
+    Authenticated-only (role split removed); only allowlisted flags can be changed."""
     flag = (request.data.get('flag') or '').strip()
     if flag not in TOGGLEABLE_SETTING_FLAGS:
         return Response({'success': False, 'error': f'Unknown flag: {flag}'},
                         status=status.HTTP_400_BAD_REQUEST)
     enabled = request.data.get('enabled') in BooleanField.TRUE_VALUES
-    ss = SystemSettings.get_instance()
-    setattr(ss, flag, enabled)
-    ss.save(update_fields=[flag, 'updated_at'])
+    ss = SystemSettings.get_instance()  # ensure the singleton row exists
+    # Targeted single-column write at the DB level: avoids re-saving the whole
+    # in-memory singleton (which can carry decryption sentinels in other fields)
+    # and prevents lost-update races with the settings form. auto_now does not
+    # fire on .update(), so bump updated_at explicitly.
+    SystemSettings.objects.filter(pk=ss.pk).update(**{flag: enabled, 'updated_at': timezone.now()})
     return Response({'success': True, 'flag': flag, 'enabled': enabled,
                      'message': f'{flag} {"enabled" if enabled else "disabled"}'})

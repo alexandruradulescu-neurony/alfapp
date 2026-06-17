@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
+# Default LLM sampling knobs for AIClient.complete(). Tuned for the briefing/chat
+# call sites: low temperature for deterministic structured output, a modest token
+# ceiling sized for the JSON schemas these call sites return.
+DEFAULT_TEMPERATURE: float = 0.3
+DEFAULT_MAX_TOKENS: int = 600
+
 
 def _resolve_salt() -> bytes:
     """Salt resolution order: SystemSettings.pii_tokenization_salt → env var.
@@ -105,8 +111,8 @@ class AIClient:
         known_pii: dict | None = None,
         response_schema: Type[T],
         call_site: str,
-        temperature: float = 0.3,
-        max_tokens: int = 600,
+        temperature: float = DEFAULT_TEMPERATURE,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
     ) -> T:
         """Send a prompt to the LLM and return a validated Pydantic object.
 

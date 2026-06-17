@@ -31,6 +31,13 @@ logger = logging.getLogger(__name__)
 PBKDF2_ITERATIONS = 100_000
 _KEY_LENGTH = 32
 
+# Fernet ciphertext (base64-encoded, with IV/HMAC overhead) is several times
+# larger than its plaintext. To size the DB column we inflate the user-supplied
+# max_length by this multiplier plus a fixed padding — a deliberately generous
+# bound, not an exact ciphertext length.
+_CIPHERTEXT_LENGTH_MULTIPLIER = 4
+_CIPHERTEXT_LENGTH_PADDING = 100
+
 # Returned when stored ciphertext cannot be decrypted with any known key.
 # Intentionally not a plausible real value (NUL-wrapped); get_prep_value refuses
 # to write it back, so a decrypt failure can never overwrite good ciphertext.
@@ -116,7 +123,7 @@ def _encrypt(value):
     try:
         return _get_fernet().encrypt(value.encode("utf-8")).decode("utf-8")
     except Exception as e:
-        logger.error(f"Failed to encrypt field value: {e}")
+        logger.error("Failed to encrypt field value: %s", e)
         raise
 
 
@@ -135,7 +142,10 @@ class EncryptedCharField(models.CharField):
         # Increase max_length to accommodate encrypted data overhead
         if 'max_length' in kwargs:
             # Encrypted data is larger than plaintext
-            kwargs['max_length'] = kwargs['max_length'] * 4 + 100
+            kwargs['max_length'] = (
+                kwargs['max_length'] * _CIPHERTEXT_LENGTH_MULTIPLIER
+                + _CIPHERTEXT_LENGTH_PADDING
+            )
         super().__init__(*args, **kwargs)
 
     def deconstruct(self):

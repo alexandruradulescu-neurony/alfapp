@@ -6,7 +6,7 @@ view. The sidebar briefing endpoint shares the business context but stays
 read-only (no stored-summary writes from agent clicks). All AI calls go
 through apps/ai/AIClient (PII tokenization — never a passthrough)."""
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from django.utils import timezone
 
@@ -18,6 +18,14 @@ if TYPE_CHECKING:
     from apps.claims.models import Claim
 
 logger = logging.getLogger(__name__)
+
+# Most recent ticket comments fed into the claim-summary AI context.
+MAX_THREAD_COMMENTS = 30
+
+# AI-tuning defaults for the claim-summary call (kept named so summary behaviour
+# is tweaked in one place).
+SUMMARY_TEMPERATURE = 0.4
+SUMMARY_MAX_TOKENS = 500
 
 STATUS_VOCABULARY = (
     "Zendesk workflow statuses (the claim's status uses these exact names): "
@@ -61,7 +69,7 @@ SUMMARY_PROMPT = ALF_BUSINESS_CONTEXT + (
 )
 
 
-def normalize_fetched_comments(comments):
+def normalize_fetched_comments(comments: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
     """Server-fetched Zendesk comments ({author:{name}, body, public,
     created_at}) -> the dict shape build_ticket_thread renders."""
     normalized = []
@@ -88,7 +96,7 @@ def generate_claim_summary(claim: 'Claim', ticket_data: dict) -> Optional[str]:
         'subject': ticket_data.get('subject', ''),
         'description': ticket_data.get('description', ''),
         'ticket_created_at': ticket_data.get('created_at', ''),
-        'comments': normalize_fetched_comments(ticket_data.get('comments'))[-30:],
+        'comments': normalize_fetched_comments(ticket_data.get('comments'))[-MAX_THREAD_COMMENTS:],
     })
     known_pii = {'aliases': [], 'names': [n for n in [claim.client_name] if n]}
     try:
@@ -99,20 +107,20 @@ def generate_claim_summary(claim: 'Claim', ticket_data: dict) -> Optional[str]:
             known_pii=known_pii,
             response_schema=BriefingSummary,
             call_site='claim_summary',
-            temperature=0.4,
-            max_tokens=500,
+            temperature=SUMMARY_TEMPERATURE,
+            max_tokens=SUMMARY_MAX_TOKENS,
         )
     except Exception as e:
-        logger.warning(f"Claim summary generation failed for claim #{claim.id}: {e}")
+        logger.warning("Claim summary generation failed for claim #%s: %s", claim.id, e)
         return None
     summary = (result.summary or '').strip()
     if not summary:
-        logger.warning(f"Claim summary came back empty for claim #{claim.id}")
+        logger.warning("Claim summary came back empty for claim #%s", claim.id)
         return None
     return summary
 
 
-def refresh_claim_summary(claim, ticket_data) -> bool:
+def refresh_claim_summary(claim: 'Claim', ticket_data: Dict[str, Any]) -> bool:
     """Regenerate and store the claim's summary. True on success."""
     summary = generate_claim_summary(claim, ticket_data)
     if summary is None:

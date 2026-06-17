@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 
 from apps.config.models import SystemSettings, ServiceStatus
 
@@ -73,10 +75,12 @@ class ServiceStatusAdmin(admin.ModelAdmin):
     
     actions = ['enable_services', 'disable_services']
     
-    def enable_services(self, request, queryset):
+    def enable_services(self, request: HttpRequest, queryset: QuerySet) -> None:
+        """Admin action: enable every ServiceStatus in the selected queryset."""
         queryset.update(is_enabled=True)
     enable_services.short_description = 'Enable selected services'
-    
-    def disable_services(self, request, queryset):
+
+    def disable_services(self, request: HttpRequest, queryset: QuerySet) -> None:
+        """Admin action: disable every ServiceStatus in the selected queryset."""
         queryset.update(is_enabled=False)
     disable_services.short_description = 'Disable selected services'

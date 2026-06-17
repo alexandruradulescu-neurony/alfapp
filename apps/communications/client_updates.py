@@ -30,6 +30,7 @@ from apps.communications.client_report import _known_pii_for, _first_line
 from apps.communications.constants import (
     DEFAULT_SERVICE_LENGTH_DAYS,
     FINAL_MILESTONE,
+    SINCE_ANCHOR_FALLBACK_DAYS,
     cadence_offsets,
 )
 
@@ -68,9 +69,9 @@ FOLLOWUP_SYSTEM_PROMPT = (
 # OBJECT_FOUND stays in the allowlist for drafting, but the runner always HOLDS
 # object-found for a human (it is never auto-sent).
 CLIENT_SAFE_REPLY_CATEGORIES = {
-    'OBJECT_FOUND',
-    'SUBMISSION_CONFIRMATION',
-    'GENERAL_CORRESPONDENCE',
+    EmailLog.CATEGORY_OBJECT_FOUND,
+    EmailLog.CATEGORY_SUBMISSION_CONFIRMATION,
+    EmailLog.CATEGORY_GENERAL_CORRESPONDENCE,
 }
 
 
@@ -203,7 +204,7 @@ def object_found(claim) -> bool:
     """True if any office has reported the item found. This is the good-news
     signal: an agent calls the client and handles it manually, and the final
     end-of-service email is never sent."""
-    return EmailLog.objects.filter(claim=claim, category='OBJECT_FOUND').exists()
+    return EmailLog.objects.filter(claim=claim, category=EmailLog.CATEGORY_OBJECT_FOUND).exists()
 
 
 def claim_is_closed(claim) -> bool:
@@ -214,7 +215,8 @@ def claim_is_closed(claim) -> bool:
     if (getattr(claim, 'status_category', '') or '') == 'solved':
         return True
     try:
-        if claim.refunds.filter(status='COMPLETED').exists():
+        from apps.payments.models import Refund
+        if claim.refunds.filter(status=Refund.STATUS_COMPLETED).exists():
             return True
     except Exception:
         pass
@@ -241,7 +243,8 @@ def _since_anchor(claim):
         times.append(last_followup.sent_at)
     if times:
         return max(times)
-    return getattr(claim, 'created_at', None) or timezone.now() - timedelta(days=30)
+    return getattr(claim, 'created_at', None) or timezone.now() - timedelta(
+        days=SINCE_ANCHOR_FALLBACK_DAYS)
 
 
 def _recent_office_replies(claim):
@@ -336,8 +339,8 @@ def _draft_follow_up(claim, replies, ss=None) -> tuple:
         body = (result.body or '').strip()
         return (body or _no_news_template(claim)), True
     except Exception as e:
-        logger.warning(f"Follow-up AI draft failed for claim #{getattr(claim, 'id', '?')}; "
-                       f"using fallback: {e}")
+        logger.warning("Follow-up AI draft failed for claim #%s; using fallback: %s",
+                       getattr(claim, 'id', '?'), e)
         return _no_news_template(claim), bool(safe)
 
 
@@ -354,7 +357,7 @@ def prepare_follow_up(update, fetch_email=True, ss=None):
             from apps.communications.services import check_email_for_ticket
             check_email_for_ticket(claim.zd_ticket_id, claim, claim.email_alias)
         except Exception as e:
-            logger.warning(f"Follow-up email fetch failed for claim #{claim.id}: {e}")
+            logger.warning("Follow-up email fetch failed for claim #%s: %s", claim.id, e)
     if update.milestone == FINAL_MILESTONE:
         body, has_news = _final_template(claim), False
     else:
@@ -455,8 +458,8 @@ def run_due_updates(now=None) -> dict:
             # Good news (or an ambiguous 'possible match') — a human handles this:
             # they call the client, and decide whether the FINAL note still fits.
             # Leave it DRAFTED; the cascade pauses on the open update.
-            logger.info(f"Claim #{claim.id}: object reported found — holding "
-                        f"{update.milestone} update for an agent instead of auto-sending.")
+            logger.info("Claim #%s: object reported found — holding %s update for an "
+                        "agent instead of auto-sending.", claim.id, update.milestone)
             held += 1
             continue
         if send_follow_up(update, update.draft_body):

@@ -2,6 +2,7 @@ import imaplib
 import logging
 from datetime import timedelta
 from typing import Dict, Any
+from urllib.parse import urlparse
 from django.utils import timezone
 import requests
 from apps.config.models import ServiceStatus, SystemSettings
@@ -10,6 +11,17 @@ logger = logging.getLogger(__name__)
 
 # Connection-test timeout (seconds) for outbound probes.
 DEFAULT_TIMEOUT_SECONDS = 10
+
+
+def _has_http_scheme(url: str) -> bool:
+    """Outbound probes must target an http(s) URL — reject other schemes
+    (file://, etc.) before issuing the request. Private-host blocking is
+    intentionally NOT enforced: this is a single-trusted-operator, self-hostable
+    tool where an AI/store endpoint on a private network is a legitimate config."""
+    try:
+        return urlparse(url).scheme in ('http', 'https')
+    except Exception:
+        return False
 # A scheduler heartbeat older than this means the Railway cron has gone
 # silent. Keep comfortably above the cron interval so a normal gap isn't flagged.
 SCHEDULER_STALE_AFTER = timedelta(hours=2)
@@ -34,6 +46,11 @@ class ConnectionTester:
                     message='API key not configured'
                 )
             
+            if not _has_http_scheme((settings.ai_api_base or '').strip()):
+                return self._update_status(
+                    'AI', 'error', success=False,
+                    message='AI base URL must be a full http(s) URL')
+
             # Simple connectivity test - check if endpoint is reachable
             try:
                 response = requests.get(
@@ -287,6 +304,10 @@ class ConnectionTester:
                 return self._update_status(
                     'WOOCOMMERCE', 'disconnected', success=False,
                     message='WooCommerce store URL and API credentials not configured')
+            if not _has_http_scheme(url):
+                return self._update_status(
+                    'WOOCOMMERCE', 'error', success=False,
+                    message='WooCommerce store URL must be a full http(s) URL')
 
             response = requests.get(
                 f"{url}/wp-json/wc/v3/orders",

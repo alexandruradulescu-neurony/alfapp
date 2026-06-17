@@ -3,6 +3,11 @@ from decimal import Decimal
 from django.db import models
 from django.conf import settings
 
+# Default workflow status for a freshly-created claim. Kept byte-identical to the
+# original field literals so referencing these constants triggers no migration.
+DEFAULT_STATUS = 'Investigation initiated'
+DEFAULT_CATEGORY = 'open'
+
 
 class Claim(models.Model):
     """
@@ -177,13 +182,13 @@ class Claim(models.Model):
     # Workflow
     status = models.CharField(
         max_length=64,
-        default='Investigation initiated',
+        default=DEFAULT_STATUS,
         help_text='Zendesk custom status name (agent view), mirrored verbatim from the ticket'
     )
     status_category = models.CharField(
         max_length=10,
         choices=STATUS_FAMILIES,
-        default='open',
+        default=DEFAULT_CATEGORY,
         blank=True,
         help_text="Zendesk status family — drives grouping/colors; '' when unknown"
     )
@@ -245,31 +250,31 @@ class Claim(models.Model):
             models.Index(fields=['zd_ticket_id']),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Claim #{self.id} ({self.alf_claim_id}) - {self.client_email} ({self.status})"
-    
+
     # NB: these refund_* properties each hit the DB. They are detail-only — any
     # list view that renders them per-row must prefetch_related('refunds') to
     # avoid an N+1 (the ClaimViewSet does not prefetch refunds).
     @property
-    def has_refund(self):
+    def has_refund(self) -> bool:
         """Check if claim has any refunds."""
         return self.refunds.exists()
 
     @property
-    def refund_total(self):
+    def refund_total(self) -> Decimal:
         """Total of COMPLETED refunds — always a Decimal."""
         from django.db.models import Sum
         # 'COMPLETED' mirrors apps.payments.models.Refund's status choice value;
         # kept as a literal here to avoid a claims->payments import cycle.
         result = self.refunds.filter(status='COMPLETED').aggregate(total=Sum('amount'))
         return result['total'] or Decimal('0.00')
-    
+
     @property
     def latest_refund(self):
         """Get the most recent refund."""
         return self.refunds.order_by('-created_at').first()
-    
+
     @property
     def refund_status(self):
         """Get the status of the latest refund."""
@@ -323,7 +328,7 @@ class ClaimUpdateTimeline(models.Model):
             models.Index(fields=['zendesk_ticket_id']),
         ]
     
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Update for Claim #{self.claim_id} - {self.update_type} ({self.created_at:%b %d, %Y})"
 
 
@@ -348,5 +353,5 @@ class ClaimEvidence(models.Model):
     class Meta:
         ordering = ['-uploaded_at']
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Evidence for Claim #{self.claim.id} - {self.description}"

@@ -34,13 +34,13 @@ class ClaimSerializer(serializers.ModelSerializer):
             'status', 'status_category', 'status_changed_at',
         ]
 
-    def get_evidence_count(self, obj):
+    def get_evidence_count(self, obj: Claim) -> int:
         # Use annotated count if available (from ViewSet), otherwise fall back to query
         if hasattr(obj, '_evidence_count'):
             return obj._evidence_count
         return obj.evidence.count()
 
-    def validate_client_email(self, value):
+    def validate_client_email(self, value: str) -> str:
         """Normalize email to lowercase."""
         return value.lower()
 

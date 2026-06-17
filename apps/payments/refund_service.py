@@ -305,20 +305,41 @@ class RefundService:
                     "marking the refund for reconciliation", refund_id)
                 metadata['needs_reconciliation'] = True
 
-            refund = Refund.objects.create(
-                paypal_refund_id=refund_id,
-                paypal_capture_id=capture_id or '',
-                amount=amount,
-                currency=currency.upper()[:3],
-                status=Refund.STATUS_COMPLETED,
-                refund_type=Refund.TYPE_FULL,  # PayPal refund payload doesn't state full/partial
-                external_source=Refund.SOURCE_LORA,
-                reason='PayPal webhook notification',
-                metadata=metadata,
-            )
-            
+            # Atomic create guarded against the check-then-create race: two
+            # concurrent deliveries of the same refund_id can both pass the
+            # existence check above, so the second create() would hit the unique
+            # paypal_refund_id constraint. Catch that and adopt the winner's row
+            # (idempotent success, not a 500). The nested savepoint keeps the
+            # enclosing @transaction.atomic usable for the re-fetch.
+            try:
+                with transaction.atomic():
+                    refund = Refund.objects.create(
+                        paypal_refund_id=refund_id,
+                        paypal_capture_id=capture_id or '',
+                        amount=amount,
+                        currency=currency.upper()[:3],
+                        status=Refund.STATUS_COMPLETED,
+                        refund_type=Refund.TYPE_FULL,  # PayPal refund payload doesn't state full/partial
+                        external_source=Refund.SOURCE_LORA,
+                        reason='PayPal webhook notification',
+                        metadata=metadata,
+                    )
+            except IntegrityError:
+                existing = Refund.objects.filter(paypal_refund_id=refund_id).first()
+                if existing is None:
+                    raise  # unique violation on some other field — surface it
+                logger.info(
+                    f"PayPal refund {refund_id} created concurrently; "
+                    f"adopting existing row #{existing.id}"
+                )
+                return {
+                    'success': True,
+                    'refund': existing,
+                    'message': 'Existing refund updated',
+                }
+
             logger.info(f"Created refund {refund_id} from webhook")
-            
+
             return {
                 'success': True,
                 'refund': refund,

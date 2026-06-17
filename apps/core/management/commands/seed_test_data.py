@@ -7,9 +7,10 @@ Usage:
 """
 
 import random
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import Any
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
 from django.utils import timezone
 
@@ -21,14 +22,20 @@ from apps.payments.models import Refund, Dispute
 class Command(BaseCommand):
     help = "Seed test data for the LORA application"
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
             "--flush",
             action="store_true",
             help="Only delete existing data without creating new test data",
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
+        """Delete existing test data and (unless ``--flush``) reseed fresh data.
+
+        Wraps the whole operation in a single atomic transaction so a failure
+        leaves the database untouched. Any error is re-raised as a
+        ``CommandError`` with the original exception chained for the traceback.
+        """
         self.stdout.write("Starting test data seeding...")
 
         flush_only = options.get("flush", False)
@@ -54,24 +61,33 @@ class Command(BaseCommand):
                 created_counts = self._create_test_data()
 
                 # Print summary
-                self.stdout.write(self.style.SUCCESS("\n" + "=" * 50))
-                self.stdout.write(self.style.SUCCESS("Test data seeding complete!"))
-                self.stdout.write(self.style.SUCCESS("=" * 50))
-                self.stdout.write(self.style.SUCCESS(f"\nDeleted:"))
-                self.stdout.write(self.style.SUCCESS(f"  - {deleted_counts['claims']} claims"))
-                self.stdout.write(self.style.SUCCESS(f"  - {deleted_counts['emails']} emails"))
-                self.stdout.write(self.style.SUCCESS(f"  - {deleted_counts['disputes']} disputes"))
-                self.stdout.write(self.style.SUCCESS(f"  - {deleted_counts['refunds']} refunds"))
-                self.stdout.write(self.style.SUCCESS(f"\nCreated:"))
-                self.stdout.write(self.style.SUCCESS(f"  - {created_counts['claims']} claims"))
-                self.stdout.write(self.style.SUCCESS(f"  - {created_counts['emails']} emails"))
-                self.stdout.write(self.style.SUCCESS(f"  - {created_counts['disputes']} disputes"))
-                self.stdout.write(self.style.SUCCESS(f"  - {created_counts['refunds']} refunds"))
+                self._print_summary(deleted_counts, created_counts)
 
         except Exception as e:
-            raise CommandError(f"Error seeding test data: {str(e)}")
+            raise CommandError(f"Error seeding test data: {str(e)}") from e
 
-    def _delete_existing_data(self):
+    def _print_summary(
+        self, deleted_counts: dict[str, int], created_counts: dict[str, int]
+    ) -> None:
+        """Write the success summary of deleted/created record counts to stdout.
+
+        Output is intentionally byte-identical to the inline writes it replaced.
+        """
+        self.stdout.write(self.style.SUCCESS("\n" + "=" * 50))
+        self.stdout.write(self.style.SUCCESS("Test data seeding complete!"))
+        self.stdout.write(self.style.SUCCESS("=" * 50))
+        self.stdout.write(self.style.SUCCESS(f"\nDeleted:"))
+        self.stdout.write(self.style.SUCCESS(f"  - {deleted_counts['claims']} claims"))
+        self.stdout.write(self.style.SUCCESS(f"  - {deleted_counts['emails']} emails"))
+        self.stdout.write(self.style.SUCCESS(f"  - {deleted_counts['disputes']} disputes"))
+        self.stdout.write(self.style.SUCCESS(f"  - {deleted_counts['refunds']} refunds"))
+        self.stdout.write(self.style.SUCCESS(f"\nCreated:"))
+        self.stdout.write(self.style.SUCCESS(f"  - {created_counts['claims']} claims"))
+        self.stdout.write(self.style.SUCCESS(f"  - {created_counts['emails']} emails"))
+        self.stdout.write(self.style.SUCCESS(f"  - {created_counts['disputes']} disputes"))
+        self.stdout.write(self.style.SUCCESS(f"  - {created_counts['refunds']} refunds"))
+
+    def _delete_existing_data(self) -> dict[str, int]:
         """Delete all existing data except users."""
         counts = {
             "refunds": 0,
@@ -96,8 +112,8 @@ class Command(BaseCommand):
         self.stdout.write(f"Deleted existing data: {counts}")
         return counts
 
-    def _create_test_data(self):
-        """Create realistic test data."""
+    def _create_test_data(self) -> dict[str, int]:
+        """Create realistic test data and return the per-model created counts."""
         now = timezone.now()
 
         # Create 4 claims with different statuses
@@ -119,8 +135,8 @@ class Command(BaseCommand):
             "refunds": len(refunds),
         }
 
-    def _create_claims(self, now):
-        """Create 4 claims with different statuses."""
+    def _create_claims(self, now: datetime) -> list[Claim]:
+        """Create 4 claims with different statuses and staggered timestamps."""
         claims_data = [
             {
                 # Claim 1: active/open — initial investigation
@@ -195,7 +211,7 @@ class Command(BaseCommand):
 
         return claims
 
-    def _create_email_logs(self, claims, now):
+    def _create_email_logs(self, claims: list[Claim], now: datetime) -> list[EmailLog]:
         """Create 10 email logs linked to claims (2-3 per claim)."""
         sender_email = "support@lostfound.airline.com"
         email_templates = [
@@ -290,7 +306,7 @@ class Command(BaseCommand):
         self.stdout.write(f"  Created {len(emails)} email logs")
         return emails
 
-    def _create_disputes(self, claims, now):
+    def _create_disputes(self, claims: list[Claim], now: datetime) -> list[Dispute]:
         """Create 2 disputes linked to claims."""
         disputes_data = [
             {
@@ -354,7 +370,7 @@ class Command(BaseCommand):
 
         return disputes
 
-    def _create_refunds(self, claims, now):
+    def _create_refunds(self, claims: list[Claim], now: datetime) -> list[Refund]:
         """Create 3 refunds linked to claims."""
         refunds_data = [
             {

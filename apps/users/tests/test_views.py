@@ -197,6 +197,18 @@ class TestLogoutView:
         assert response.status_code == 302
         assert '/login/' in response.url
 
+    def test_logout_rejects_get(self):
+        """GET must not log out (logout-CSRF guard) — only POST is allowed."""
+        client = Client()
+        User.objects.create_user(
+            username='testuser_logout_get',
+            password='testpass123'
+        )
+        client.login(username='testuser_logout_get', password='testpass123')
+
+        response = client.get('/logout/')
+        assert response.status_code == 405
+
 
 @pytest.mark.django_db
 class TestDashboardRedirect:

@@ -31,8 +31,8 @@ class ClaimViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing claims.
 
-    - AGENT: Can list, retrieve, update claims
-    - MANAGER: Full access (create, update, delete)
+    A single trusted authenticated user type has full access (list, retrieve,
+    create, update, delete) — there is no agent/manager role split.
     """
 
     queryset = Claim.objects.all()
@@ -76,22 +76,23 @@ class ClaimViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_409_CONFLICT
             )
         except Exception as e:
-            logger.error(f"Error deleting claim: {e}", exc_info=True)
+            logger.error("Error deleting claim: %s", e, exc_info=True)
             return Response(
                 {'detail': 'Error deleting claim.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        logger.info(f"Claim #{kwargs.get('pk')} deleted by {request.user.username}")
+        logger.info("Claim #%s deleted by %s", kwargs.get('pk'), request.user.username)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=['post'], url_path='bulk-delete')
     def bulk_delete(self, request):
         """POST /api/claims/claims/bulk-delete/  Body: {ids: [..]}
 
-        Manager-only bulk cleanup (junk phone/email-ticket claims). Same
-        semantics as single delete, per claim: emails detached, timeline and
-        evidence cascade, refunds/disputes block — blocked claims are skipped
-        and reported back, never silently kept or silently lost.
+        Bulk cleanup (junk phone/email-ticket claims) for the single trusted
+        authenticated user. Same semantics as single delete, per claim: emails
+        detached, timeline and evidence cascade, refunds/disputes block —
+        blocked claims are skipped and reported back, never silently kept or
+        silently lost.
         """
         ids = request.data.get('ids')
         if not isinstance(ids, list) or not ids or \
@@ -114,8 +115,8 @@ class ClaimViewSet(viewsets.ModelViewSet):
                 deleted.append(claim_id)
             except ProtectedError:
                 blocked.append(claim_id)
-        logger.info(f"Bulk claim delete by {request.user.username}: "
-                    f"deleted={deleted}, blocked={blocked}")
+        logger.info("Bulk claim delete by %s: deleted=%s, blocked=%s",
+                    request.user.username, deleted, blocked)
         return Response({'deleted': deleted, 'blocked': blocked})
 
     @action(detail=True, methods=['get'], url_path='proof-of-work')
@@ -139,11 +140,11 @@ class ClaimViewSet(viewsets.ModelViewSet):
             response['Content-Disposition'] = f'attachment; filename="proof_of_work_claim_{claim.id}.pdf"'
             response['Content-Length'] = len(pdf_bytes)
             
-            logger.info(f"Proof of work PDF downloaded for claim #{claim.id} by {request.user}")
+            logger.info("Proof of work PDF downloaded for claim #%s by %s", claim.id, request.user)
             return response
-            
+
         except Exception as e:
-            logger.error(f"Error generating proof of work PDF: {e}", exc_info=True)
+            logger.error("Error generating proof of work PDF: %s", e, exc_info=True)
             return Response(
                 {'detail': 'Error generating PDF.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -154,8 +155,8 @@ class ClaimEvidenceViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing claim evidence.
 
-    - AGENT: Can create and list evidence
-    - MANAGER: Full access
+    A single trusted authenticated user type has full access (create, list,
+    delete) — there is no agent/manager role split.
     """
 
     queryset = ClaimEvidence.objects.all()
@@ -194,7 +195,7 @@ class ClaimEvidenceViewSet(viewsets.ModelViewSet):
         try:
             claim = Claim.objects.get(id=claim_id)
         except (Claim.DoesNotExist, ValueError, TypeError):
-            logger.warning(f"Claim {claim_id} not found for evidence upload")
+            logger.warning("Claim %s not found for evidence upload", claim_id)
             raise serializers.ValidationError({'claim': 'Claim not found.'})
 
 
@@ -210,7 +211,7 @@ class ClaimEvidenceViewSet(viewsets.ModelViewSet):
         try:
             return super().destroy(request, *args, **kwargs)
         except Exception as e:
-            logger.error(f"Error deleting evidence: {e}", exc_info=True)
+            logger.error("Error deleting evidence: %s", e, exc_info=True)
             return Response(
                 {'detail': 'Error deleting evidence.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -261,7 +262,7 @@ class ClaimUpdateFromZendeskView(APIView):
                 changes_summary=json.dumps({'updated_fields': updated_fields}),
                 llm_summary=claim.ai_summary if summary_refreshed else '',
             )
-        logger.info(f"Refreshed claim #{claim.id} from Zendesk: {updated_fields}")
+        logger.info("Refreshed claim #%s from Zendesk: %s", claim.id, updated_fields)
         return Response({
             'message': 'Claim refreshed from Zendesk',
             'updated_fields': updated_fields,
@@ -317,11 +318,11 @@ class ClaimCheckEmailView(APIView):
                           "address — fix the Email Alias field in Zendesk."},
                 status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"Email check failed for claim #{claim.id}: {e}", exc_info=True)
+            logger.error("Email check failed for claim #%s: %s", claim.id, e, exc_info=True)
             return Response({'error': 'Could not reach the mailbox. Try again.'},
                             status=status.HTTP_502_BAD_GATEWAY)
 
         new_count = len(results['processed'])
-        logger.info(f"Email check for claim #{claim.id} ({alias}): "
-                    f"{new_count} new, {results['already_processed']} already processed")
+        logger.info("Email check for claim #%s (%s): %s new, %s already processed",
+                    claim.id, alias, new_count, results['already_processed'])
         return Response({'message': f"{new_count} new email(s) processed", **results})

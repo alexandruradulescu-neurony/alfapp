@@ -16,7 +16,6 @@ real money until explicitly switched to live.
 import base64
 import json
 import logging
-import socket
 import urllib.request
 import urllib.error
 import uuid
@@ -361,6 +360,13 @@ def provide_evidence(
             logger.error(f"Local Dispute record not found for PayPal dispute {dispute_id}")
             return False
 
+        # Idempotency guard: evidence already submitted for this dispute. Don't
+        # re-POST to PayPal on a double-click / retry. Combined with the stable
+        # PayPal-Request-Id below, a duplicate submission is a no-op.
+        if dispute.status == Dispute.STATUS_EVIDENCE_SENT:
+            logger.info(f"Evidence already submitted for dispute {dispute_id}; skipping re-submit")
+            return True
+
         base_url = paypal_api_base()
         evidence_url = f"{base_url}/v1/customer/disputes/{dispute_id}/provide-evidence"
 
@@ -406,6 +412,9 @@ def provide_evidence(
             headers={
                 'Authorization': f'Bearer {access_token}',
                 'Content-Type': content_type,
+                # Stable idempotency key so a retried submission is deduplicated
+                # PayPal-side rather than producing a second evidence record.
+                'PayPal-Request-Id': f'evidence-{dispute_id}',
             },
             method='POST'
         )
@@ -423,13 +432,13 @@ def provide_evidence(
         with transaction.atomic():
             for doc in documents:
                 if doc.file_path:
-                    doc.status = 'SENT'
+                    doc.status = DisputeDocument.STATUS_SENT
                     doc.save(update_fields=['status'])
-            dispute.status = 'EVIDENCE_SENT'
+            dispute.status = Dispute.STATUS_EVIDENCE_SENT
             dispute.save(update_fields=['status'])
             DisputeActivityLog.objects.create(
                 dispute=dispute,
-                action='EVIDENCE_SENT',
+                action=DisputeActivityLog.ACTION_EVIDENCE_SENT,
                 details=f"Evidence submitted to PayPal. Documents: {[d.id for d in documents]}. Response length: {len(response_text)} chars",
             )
 
@@ -451,9 +460,10 @@ def provide_evidence(
 
 
 # No @retry here: this swallows HTTPError/URLError and returns False, so a retry
-# decorator never fired anyway — and accepting a claim moves money, so it must not
-# be silently auto-repeated (could double the refund) without a PayPal idempotency
-# key. The caller re-syncs status from PayPal before advising any manual retry.
+# decorator never fired anyway — and accepting a claim moves money. Double-refund is
+# now guarded two ways: a local status pre-check (skips if already accepted/resolved)
+# and a stable PayPal-Request-Id idempotency key on the POST. The caller still
+# re-syncs status from PayPal before advising any manual retry.
 def accept_claim(dispute_id: str, note: str = '') -> bool:
     """
     Accept a dispute claim (issue refund) via PayPal API.
@@ -482,6 +492,20 @@ def accept_claim(dispute_id: str, note: str = '') -> bool:
             logger.error(f"Local Dispute record not found for PayPal dispute {dispute_id}")
             return False
 
+        # Idempotency guard: accepting a claim issues a refund. If the dispute is
+        # already accepted/resolved, accepting again would move money a second time —
+        # bail without re-POSTing. The stable PayPal-Request-Id below dedups a race.
+        if dispute.status in (
+            Dispute.STATUS_ACCEPTED,
+            Dispute.STATUS_RESOLVED_WON,
+            Dispute.STATUS_RESOLVED_LOST,
+        ):
+            logger.info(
+                f"Dispute {dispute_id} already {dispute.status}; skipping accept-claim "
+                f"to avoid a duplicate refund"
+            )
+            return True
+
         base_url = paypal_api_base()
         accept_url = f"{base_url}/v1/customer/disputes/{dispute_id}/accept-claim"
 
@@ -498,6 +522,9 @@ def accept_claim(dispute_id: str, note: str = '') -> bool:
             headers={
                 'Authorization': f'Bearer {access_token}',
                 'Content-Type': 'application/json',
+                # Stable idempotency key so a retried accept-claim is deduplicated
+                # PayPal-side and the refund cannot be issued twice.
+                'PayPal-Request-Id': f'accept-claim-{dispute_id}',
             },
             method='POST'
         )
@@ -511,11 +538,11 @@ def accept_claim(dispute_id: str, note: str = '') -> bool:
 
         # External call done — persist local state in its own short transaction.
         with transaction.atomic():
-            dispute.status = 'ACCEPTED'
+            dispute.status = Dispute.STATUS_ACCEPTED
             dispute.save(update_fields=['status'])
             DisputeActivityLog.objects.create(
                 dispute=dispute,
-                action='DISPUTE_RESOLVED',
+                action=DisputeActivityLog.ACTION_DISPUTE_RESOLVED,
                 details=f"Claim accepted via PayPal API. Refund issued. Note: {note[:200] if note else 'None'}",
             )
 
@@ -604,7 +631,7 @@ def send_message(dispute_id: str, message: str) -> bool:
         with transaction.atomic():
             DisputeActivityLog.objects.create(
                 dispute=dispute,
-                action='NOTE_ADDED',
+                action=DisputeActivityLog.ACTION_NOTE_ADDED,
                 details=f"Message sent to buyer via PayPal API. Message length: {len(message)} chars",
             )
 
@@ -976,11 +1003,11 @@ def ingest_dispute(dispute_id: str, raw_event: dict = None):
                 existing.claim = claim
                 if not existing.zd_ticket_id and claim.zd_ticket_id:
                     existing.zd_ticket_id = claim.zd_ticket_id
-                if existing.status == 'RECEIVED':
-                    existing.status = 'MATCHED'
+                if existing.status == Dispute.STATUS_RECEIVED:
+                    existing.status = Dispute.STATUS_MATCHED
                 existing.save(update_fields=['claim', 'zd_ticket_id', 'status', 'updated_at'])
                 DisputeActivityLog.objects.create(
-                    dispute=existing, action='DISPUTE_MATCHED',
+                    dispute=existing, action=DisputeActivityLog.ACTION_DISPUTE_MATCHED,
                     details=f"Matched to claim #{claim.id} on re-pull (invoice/order reference).")
         return existing, False
 
@@ -1013,7 +1040,7 @@ def ingest_dispute(dispute_id: str, raw_event: dict = None):
                 paypal_case_id=details.get('case_id', '') or '',
                 claim=claim,
                 zd_ticket_id=(claim.zd_ticket_id if claim else ''),
-                status='MATCHED' if claim else 'RECEIVED',
+                status=Dispute.STATUS_MATCHED if claim else Dispute.STATUS_RECEIVED,
                 # Only set reason if it matches our enum; Phase 4 fixes the enum
                 # (incl. British UNAUTHORISED). The raw reason is kept in the payload.
                 dispute_reason=reason if reason in Dispute.VALID_REASONS else '',
@@ -1036,12 +1063,12 @@ def ingest_dispute(dispute_id: str, raw_event: dict = None):
         logger.info(f"Dispute {dispute_id} created concurrently; adopting existing #{existing.id}")
         return existing, False
     DisputeActivityLog.objects.create(
-        dispute=dispute, action='DISPUTE_CREATED',
+        dispute=dispute, action=DisputeActivityLog.ACTION_DISPUTE_CREATED,
         details=f"Ingested from PayPal ({details.get('dispute_life_cycle_stage', '?')} stage, "
                 f"reason={reason or '?'}). {'Matched claim #%s' % claim.id if claim else 'No claim matched'}.")
     if claim:
         DisputeActivityLog.objects.create(
-            dispute=dispute, action='DISPUTE_MATCHED',
+            dispute=dispute, action=DisputeActivityLog.ACTION_DISPUTE_MATCHED,
             details=f"Matched to claim #{claim.id} by invoice/order reference.")
     logger.info(f"Ingested dispute {dispute_id} (claim={'#%s' % claim.id if claim else 'none'})")
     return dispute, True
@@ -1094,12 +1121,12 @@ def sync_dispute_from_paypal(dispute_id: str):
     if pp_status == 'RESOLVED' or pp_state == 'RESOLVED':
         outcome = (details.get('dispute_outcome') or {}).get('outcome_code', '') or ''
         won = 'SELLER' in outcome.upper()  # e.g. RESOLVED_SELLER_FAVOUR
-        new_status = 'RESOLVED_WON' if won else 'RESOLVED_LOST'
+        new_status = Dispute.STATUS_RESOLVED_WON if won else Dispute.STATUS_RESOLVED_LOST
         if dispute.status != new_status:
             dispute.status = new_status
             update_fields.append('status')
             DisputeActivityLog.objects.create(
-                dispute=dispute, action='DISPUTE_RESOLVED',
+                dispute=dispute, action=DisputeActivityLog.ACTION_DISPUTE_RESOLVED,
                 details=f"PayPal resolved the dispute: {new_status} (outcome={outcome or '?'}).")
 
     # Always refresh the stored raw payload so the list filter (needs-action vs

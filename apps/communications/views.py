@@ -17,8 +17,9 @@ class EmailLogViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ViewSet for viewing email logs.
 
-    Read-only for AGENT and MANAGER.
-    Emails are logged automatically from IMAP integration.
+    Read-only for any authenticated user (the role split was removed — there is
+    one trusted authenticated user type). Emails are logged automatically from
+    the IMAP integration.
     """
 
     queryset = EmailLog.objects.all()
@@ -34,7 +35,7 @@ class EmailLogViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         """
-        Filter queryset based on user role and query params.
+        Filter the queryset by query params.
         Optimized to defer heavy text fields for list operations.
         """
         # select_related('claim'): the serializer reads claim.id/claim.status, so
@@ -52,13 +53,13 @@ class EmailLogViewSet(viewsets.ReadOnlyModelViewSet):
             try:
                 queryset = queryset.filter(claim_id=int(claim_id))
             except (ValueError, TypeError):
-                logger.warning(f"Invalid claim_id parameter: {claim_id}")
+                logger.warning("Invalid claim_id parameter: %s", claim_id)
 
         return queryset
 
     @action(detail=True, methods=['post'])
     def resolve(self, request, pk=None):
-        """Mark an email handled, or reopen it (agent/manager).
+        """Mark an email handled, or reopen it.
 
         POST /api/communications/email-logs/{id}/resolve/  {resolved: bool}
         Clears (or restores) the 'action required' flag — purely a LORA-side
@@ -74,8 +75,10 @@ class EmailLogViewSet(viewsets.ReadOnlyModelViewSet):
         email_log.action_required = not resolved
         email_log.save(update_fields=['action_required'])
         logger.info(
-            f"EmailLog #{email_log.id} marked "
-            f"{'resolved' if resolved else 'needs-attention'} by {request.user.username}")
+            "EmailLog #%s marked %s by %s",
+            email_log.id,
+            'resolved' if resolved else 'needs-attention',
+            request.user.username)
         return Response({'id': email_log.id,
                          'action_required': email_log.action_required},
                         status=status.HTTP_200_OK)

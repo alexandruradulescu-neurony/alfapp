@@ -11,7 +11,7 @@ import re
 import logging
 from datetime import timedelta
 from email.header import decode_header
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -25,12 +25,13 @@ from apps.integrations.services import (
     post_zendesk_comment,
 )
 from apps.ai.exceptions import AIResponseValidationError
-from apps.communications.constants import EMAIL_LOOKBACK_DAYS
+from apps.communications.constants import (
+    DEFAULT_IMAP_TIMEOUT,
+    EMAIL_LOOKBACK_DAYS,
+    MAX_EMAILS_PER_RUN,
+)
 
 logger = logging.getLogger(__name__)
-
-# Maximum number of emails to process per run
-MAX_EMAILS_PER_RUN = 20
 
 # How far back any mailbox read ever looks. The inbox holds years of mail;
 # LORA's window is always the last EMAIL_LOOKBACK_DAYS days (apps.communications.constants),
@@ -43,16 +44,16 @@ IMAP_MONTHS = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
 
 # Categories that can be auto-resolved
 AUTO_RESOLVABLE_CATEGORIES = [
-    'SUBMISSION_CONFIRMATION',
-    'OBJECT_NOT_FOUND',
+    EmailLog.CATEGORY_SUBMISSION_CONFIRMATION,
+    EmailLog.CATEGORY_OBJECT_NOT_FOUND,
 ]
 
 # Category → AI-added Zendesk tag. Routine categories (submission
 # confirmations, general correspondence, unknown) are deliberately untagged.
 AI_TAG_BY_CATEGORY = {
-    'OBJECT_FOUND': 'ai_object_found',
-    'OBJECT_NOT_FOUND': 'ai_object_not_found',
-    'RESUBMISSION_REQUIRED': 'ai_resubmission_required',
+    EmailLog.CATEGORY_OBJECT_FOUND: 'ai_object_found',
+    EmailLog.CATEGORY_OBJECT_NOT_FOUND: 'ai_object_not_found',
+    EmailLog.CATEGORY_RESUBMISSION_REQUIRED: 'ai_resubmission_required',
 }
 # Added whenever the AI says the email needs a human, regardless of category.
 AI_TAG_ATTENTION = 'ai_attention_needed'
@@ -128,7 +129,7 @@ def extract_email_body(msg: email.message.Message) -> str:
                 elif content_type == 'text/html':
                     body_html = part_content
             except Exception as e:
-                logger.warning(f"Error decoding email part: {e}")
+                logger.warning("Error decoding email part: %s", e)
                 continue
     else:
         # Handle non-multipart messages
@@ -138,7 +139,7 @@ def extract_email_body(msg: email.message.Message) -> str:
                 charset = msg.get_content_charset() or 'utf-8'
                 body_text = payload.decode(charset, errors='replace')
         except Exception as e:
-            logger.warning(f"Error decoding email payload: {e}")
+            logger.warning("Error decoding email payload: %s", e)
 
     # Prefer plain text, fall back to HTML (strip tags)
     if body_text:
@@ -274,14 +275,14 @@ def extract_alias_from_headers(msg: email.message.Message) -> Optional[str]:
             # for the email regex), then check it against the configured domain.
             matched_email = _first_email_in_header(msg, header_name)
             if matched_email and matched_email.endswith(f'@{email_domain}'):
-                logger.debug(f"Found alias in {header_name}: {matched_email}")
+                logger.debug("Found alias in %s: %s", header_name, matched_email)
                 return matched_email
         
         logger.debug("No matching alias found in headers")
         return None
         
     except Exception as e:
-        logger.error(f"Error extracting alias from headers: {e}")
+        logger.error("Error extracting alias from headers: %s", e)
         return None
 
 
@@ -295,11 +296,11 @@ def extract_raw_headers(msg: email.message.Message) -> str:
             headers.append(f"{key}: {value}")
         return '\n'.join(headers)
     except Exception as e:
-        logger.warning(f"Error extracting raw headers: {e}")
+        logger.warning("Error extracting raw headers: %s", e)
         return ''
 
 
-def _known_pii_for_email(claim):
+def _known_pii_for_email(claim: Optional[Claim]) -> Optional[Dict[str, Any]]:
     """Client PII (name + address + contact handles) to tokenize before the
     categorizer reaches the LLM provider. Institution replies routinely quote
     the client's name/address, and the LLM provider sits OUTSIDE the trust
@@ -311,7 +312,8 @@ def _known_pii_for_email(claim):
     return _known_pii_for(claim)
 
 
-def call_qwen_ai(prompt: str, email_body: str, subject: str = '', known_pii=None) -> Dict[str, Any]:
+def call_qwen_ai(prompt: str, email_body: str, subject: str = '',
+                 known_pii: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Categorize an inbound email via the LLM.
 
     Migrated to use apps.ai.AIClient for PII tokenization, prompt fencing,
@@ -393,7 +395,7 @@ def parse_ai_response(raw_response: str) -> Dict[str, Any]:
     """
     result = {
         'summary': '',
-        'category': 'UNKNOWN',
+        'category': EmailLog.CATEGORY_UNKNOWN,
         'action_required': False,
         'auto_resolvable': False,
     }
@@ -417,12 +419,12 @@ def parse_ai_response(raw_response: str) -> Dict[str, Any]:
                 pass
 
     if data is None:
-        logger.warning(f"No JSON found in AI response: {raw_response[:100]}")
+        logger.warning("No JSON found in AI response: %s", raw_response[:100])
         return result
     if not isinstance(data, dict):
         # Valid JSON but an array/scalar — `key in data` / `data[key]` below would
         # raise TypeError; degrade to the default result instead of crashing.
-        logger.warning(f"AI response JSON is not an object: {type(data).__name__}")
+        logger.warning("AI response JSON is not an object: %s", type(data).__name__)
         return result
 
     try:
@@ -440,11 +442,9 @@ def parse_ai_response(raw_response: str) -> Dict[str, Any]:
                 category_raw = str(data[key]).strip().upper()
                 break
 
-        # Normalize category to valid choices
-        valid_categories = [
-            'OBJECT_FOUND', 'OBJECT_NOT_FOUND', 'RESUBMISSION_REQUIRED',
-            'SUBMISSION_CONFIRMATION', 'GENERAL_CORRESPONDENCE', 'UNKNOWN'
-        ]
+        # Normalize category to valid choices (derive from the model so a new
+        # category can't drift out of sync with EmailLog.CATEGORY_CHOICES).
+        valid_categories = [c[0] for c in EmailLog.CATEGORY_CHOICES]
 
         if category_raw in valid_categories:
             result['category'] = category_raw
@@ -453,15 +453,15 @@ def parse_ai_response(raw_response: str) -> Dict[str, Any]:
             # IMPORTANT: Check "not found" BEFORE "found" to avoid misclassification
             raw_lower = raw_response.lower()
             if 'not found' in raw_lower or ('lost' in raw_lower and 'object' in raw_lower):
-                result['category'] = 'OBJECT_NOT_FOUND'
+                result['category'] = EmailLog.CATEGORY_OBJECT_NOT_FOUND
             elif 'found' in raw_lower and 'object' in raw_lower:
-                result['category'] = 'OBJECT_FOUND'
+                result['category'] = EmailLog.CATEGORY_OBJECT_FOUND
             elif 'resubmit' in raw_lower or 'additional information' in raw_lower:
-                result['category'] = 'RESUBMISSION_REQUIRED'
+                result['category'] = EmailLog.CATEGORY_RESUBMISSION_REQUIRED
             elif 'confirm' in raw_lower or 'submission' in raw_lower:
-                result['category'] = 'SUBMISSION_CONFIRMATION'
+                result['category'] = EmailLog.CATEGORY_SUBMISSION_CONFIRMATION
             else:
-                result['category'] = 'GENERAL_CORRESPONDENCE'
+                result['category'] = EmailLog.CATEGORY_GENERAL_CORRESPONDENCE
 
         # Extract action_required
         for key in ['action_required', 'actionRequired', 'action', 'Action_Required']:
@@ -492,19 +492,19 @@ def parse_ai_response(raw_response: str) -> Dict[str, Any]:
     except (TypeError, KeyError, AttributeError) as e:
         # JSON was already parsed above, so the real risk here is an unexpectedly
         # shaped field — degrade gracefully rather than 500 the email pipeline.
-        logger.error(f"Malformed field in AI response: {e}")
-        logger.debug(f"Raw response: {raw_response}")
+        logger.error("Malformed field in AI response: %s", e)
+        logger.debug("Raw response: %s", raw_response)
 
         # Fallback: try to infer from raw text
         raw_lower = raw_response.lower()
 
         # Infer category from text (check "not found" before "found")
         if 'not found' in raw_lower or ('lost' in raw_lower and 'object' in raw_lower):
-            result['category'] = 'OBJECT_NOT_FOUND'
+            result['category'] = EmailLog.CATEGORY_OBJECT_NOT_FOUND
         elif 'found' in raw_lower and 'object' in raw_lower:
-            result['category'] = 'OBJECT_FOUND'
+            result['category'] = EmailLog.CATEGORY_OBJECT_FOUND
         elif 'confirm' in raw_lower or 'submission' in raw_lower:
-            result['category'] = 'SUBMISSION_CONFIRMATION'
+            result['category'] = EmailLog.CATEGORY_SUBMISSION_CONFIRMATION
 
         # Use first line as summary
         lines = raw_response.strip().split('\n')
@@ -520,10 +520,10 @@ def mark_email_as_seen(imap_conn: imaplib.IMAP4_SSL, uid: str) -> bool:
     """
     try:
         imap_conn.store(uid, '+FLAGS', '\\Seen')
-        logger.debug(f"Marked email {uid} as SEEN")
+        logger.debug("Marked email %s as SEEN", uid)
         return True
     except Exception as e:
-        logger.error(f"Failed to mark email {uid} as SEEN: {e}")
+        logger.error("Failed to mark email %s as SEEN: %s", uid, e)
         return False
 
 
@@ -576,14 +576,14 @@ def post_ai_summary_to_zendesk(
         )
 
         if result:
-            logger.info(f"Posted email + AI summary to Zendesk ticket {zd_ticket_id}")
+            logger.info("Posted email + AI summary to Zendesk ticket %s", zd_ticket_id)
             return True
         else:
-            logger.warning(f"Failed to post email + AI summary to Zendesk ticket {zd_ticket_id}")
+            logger.warning("Failed to post email + AI summary to Zendesk ticket %s", zd_ticket_id)
             return False
 
     except Exception as e:
-        logger.error(f"Error posting to Zendesk for ticket {zd_ticket_id}: {e}")
+        logger.error("Error posting to Zendesk for ticket %s: %s", zd_ticket_id, e)
         return False
 
 
@@ -624,13 +624,13 @@ def process_single_email(
         # Message-ID can.
         message_id = (msg.get('Message-ID') or '').strip()[:512]
         if _is_duplicate_message(message_id):
-            logger.info(f"Skipping already-processed email UID {uid} (Message-ID match)")
+            logger.info("Skipping already-processed email UID %s (Message-ID match)", uid)
             return None
 
         # Extract sender email
         from_email = extract_from_email(msg)
         if not from_email:
-            logger.warning(f"Could not extract from_email from message UID {uid}")
+            logger.warning("Could not extract from_email from message UID %s", uid)
             return None
 
         # Extract alias from headers (To, Delivered-To, etc.)
@@ -643,13 +643,13 @@ def process_single_email(
 
         # Step 1: Try alias-based matching via Zendesk custom field
         if alias:
-            logger.info(f"Attempting to match alias {alias} to Zendesk ticket")
+            logger.info("Attempting to match alias %s to Zendesk ticket", alias)
             ticket_data = match_alias_to_zendesk_ticket(alias)
 
             if ticket_data:
                 zd_ticket_id = str(ticket_data.get('id', ''))
                 matched_via = 'alias'
-                logger.info(f"✓ Matched alias {alias} to Zendesk ticket {zd_ticket_id}")
+                logger.info("✓ Matched alias %s to Zendesk ticket %s", alias, zd_ticket_id)
 
                 # Try to find associated claim
                 claim = Claim.objects.filter(zd_ticket_id=zd_ticket_id).first()
@@ -669,20 +669,20 @@ def process_single_email(
                             f"Imported claim #{claim.id} from Zendesk ticket "
                             f"{zd_ticket_id} on inbound email (created={created})")
             else:
-                logger.warning(f"✗ No Zendesk ticket found for alias {alias}")
+                logger.warning("✗ No Zendesk ticket found for alias %s", alias)
         else:
-            logger.warning(f"✗ No alias found in email headers")
+            logger.warning("✗ No alias found in email headers")
 
         # Log matching result
         if zd_ticket_id:
-            logger.info(f"Email will be posted to Zendesk ticket {zd_ticket_id}")
+            logger.info("Email will be posted to Zendesk ticket %s", zd_ticket_id)
         else:
-            logger.warning(f"Email will NOT be posted to Zendesk (no ticket match)")
+            logger.warning("Email will NOT be posted to Zendesk (no ticket match)")
         
         # Extract email body
         body = extract_email_body(msg)
         if not body:
-            logger.warning(f"Empty body for message UID {uid}")
+            logger.warning("Empty body for message UID %s", uid)
             body = '(No content extracted)'
 
         # Get subject
@@ -706,7 +706,7 @@ def process_single_email(
             # New AIClient path returned structured fields directly
             parsed = {
                 'summary': ai_result.get('summary', ''),
-                'category': ai_result.get('category', 'UNKNOWN'),
+                'category': ai_result.get('category', EmailLog.CATEGORY_UNKNOWN),
                 'action_required': ai_result.get('action_required', False),
                 'auto_resolvable': ai_result.get('auto_resolvable', False),
             }
@@ -718,10 +718,10 @@ def process_single_email(
         if parsed.get('auto_resolvable', False) and parsed.get('category') in AUTO_RESOLVABLE_CATEGORIES:
             auto_resolved = True
             should_mark_as_seen = True
-            logger.info(f"Email auto-resolved: category={parsed['category']}, UID={uid}")
+            logger.info("Email auto-resolved: category=%s, UID=%s", parsed['category'], uid)
         else:
             # Leave unread for agent attention
-            logger.info(f"Email requires agent attention: category={parsed['category']}, UID={uid}")
+            logger.info("Email requires agent attention: category=%s, UID=%s", parsed['category'], uid)
 
         # Create EmailLog entry
         email_log = EmailLog.objects.create(
@@ -749,7 +749,7 @@ def process_single_email(
         # Post full email + AI summary to Zendesk — only if matched via alias
         # (from_email fallback is unreliable and could post to wrong ticket)
         if zd_ticket_id and matched_via == 'alias':
-            logger.info(f"Posting email to Zendesk ticket {zd_ticket_id}...")
+            logger.info("Posting email to Zendesk ticket %s...", zd_ticket_id)
             success = post_ai_summary_to_zendesk(
                 zd_ticket_id=zd_ticket_id,
                 parsed=parsed,
@@ -759,22 +759,22 @@ def process_single_email(
                 alias=alias or '',
             )
             if success:
-                logger.info(f"✓ Successfully posted email to Zendesk ticket {zd_ticket_id}")
+                logger.info("✓ Successfully posted email to Zendesk ticket %s", zd_ticket_id)
             else:
-                logger.error(f"✗ Failed to post email to Zendesk ticket {zd_ticket_id}")
+                logger.error("✗ Failed to post email to Zendesk ticket %s", zd_ticket_id)
         elif zd_ticket_id and matched_via != 'alias':
             logger.info(
                 f"Skipping Zendesk posting for ticket {zd_ticket_id} — "
                 f"matched via {matched_via}, not alias (risk of wrong ticket)"
             )
         else:
-            logger.warning(f"Skipping Zendesk posting — no ticket ID or match")
+            logger.warning("Skipping Zendesk posting — no ticket ID or match")
 
         # Mark email as SEEN only if auto-resolved
         if should_mark_as_seen:
             mark_email_as_seen(imap_conn, uid)
         else:
-            logger.debug(f"Leaving email UNSEEN for agent attention: UID={uid}")
+            logger.debug("Leaving email UNSEEN for agent attention: UID=%s", uid)
 
         return email_log
 
@@ -789,7 +789,7 @@ def process_single_email(
         email_log = EmailLog.objects.create(
             subject=(subject if 'subject' in locals() else f'[Extraction failed UID {uid}]')[:500],
             body=body if 'body' in locals() else '',
-            category='UNKNOWN',
+            category=EmailLog.CATEGORY_UNKNOWN,
             action_required=True,  # signals manual review
             auto_resolved=False,
             message_id=message_id if 'message_id' in locals() else '',
@@ -799,10 +799,10 @@ def process_single_email(
     except IntegrityError:
         # A concurrent sweep inserted the same Message-ID first (unique constraint).
         # That's a clean dedup, not an error — skip rather than report a failure.
-        logger.info(f"Email UID {uid} already inserted concurrently (Message-ID race) — skipping")
+        logger.info("Email UID %s already inserted concurrently (Message-ID race) — skipping", uid)
         return None
     except Exception as e:
-        logger.error(f"Error processing email UID {uid}: {e}", exc_info=True)
+        logger.error("Error processing email UID %s: %s", uid, e, exc_info=True)
         # Don't re-raise - continue with next email
         return None
 
@@ -848,7 +848,7 @@ def process_incoming_emails() -> Dict[str, Any]:
         ai_prompt = system_settings.email_analysis_prompt
         email_domain = system_settings.email_domain
     except Exception as e:
-        logger.error(f"Failed to load SystemSettings: {e}")
+        logger.error("Failed to load SystemSettings: %s", e)
         stats['errors'] += 1
         return stats
 
@@ -863,12 +863,12 @@ def process_incoming_emails() -> Dict[str, Any]:
         logger.warning("Email domain not configured in SystemSettings - alias matching disabled")
 
     # Get configurable timeout
-    imap_timeout = getattr(settings, 'IMAP_TIMEOUT', 30)
+    imap_timeout = getattr(settings, 'IMAP_TIMEOUT', DEFAULT_IMAP_TIMEOUT)
 
     imap_conn = None
     try:
         # Step 1: Connect to IMAP
-        logger.info(f"Connecting to IMAP server: {imap_host}")
+        logger.info("Connecting to IMAP server: %s", imap_host)
         imap_conn = imaplib.IMAP4_SSL(imap_host, timeout=imap_timeout)
 
         # Login
@@ -895,7 +895,7 @@ def process_incoming_emails() -> Dict[str, Any]:
 
         # Limit to first 20 emails
         uid_list = uid_list[:MAX_EMAILS_PER_RUN]
-        logger.info(f"Found {len(uid_list)} UNSEEN emails (processing up to {MAX_EMAILS_PER_RUN})")
+        logger.info("Found %s UNSEEN emails (processing up to %s)", len(uid_list), MAX_EMAILS_PER_RUN)
 
         # Step 3: Process each email
         for uid in uid_list:
@@ -907,7 +907,7 @@ def process_incoming_emails() -> Dict[str, Any]:
                 status, msg_data = imap_conn.fetch(uid, '(RFC822)')
 
                 if status != 'OK':
-                    logger.warning(f"Failed to fetch email UID {uid_str}")
+                    logger.warning("Failed to fetch email UID %s", uid_str)
                     stats['errors'] += 1
                     continue
 
@@ -931,15 +931,15 @@ def process_incoming_emails() -> Dict[str, Any]:
                     stats['skipped_no_match'] += 1
 
             except Exception as e:
-                logger.error(f"Error processing email UID {uid_str}: {e}")
+                logger.error("Error processing email UID %s: %s", uid_str, e)
                 stats['errors'] += 1
                 continue
 
-        logger.info(f"Email processing complete. Stats: {stats}")
+        logger.info("Email processing complete. Stats: %s", stats)
 
     except Exception as e:
         # Catch all exceptions including IMAP errors
-        logger.error(f"IMAP error during email processing: {e}")
+        logger.error("IMAP error during email processing: %s", e)
         stats['errors'] += 1
 
     finally:
@@ -950,7 +950,7 @@ def process_incoming_emails() -> Dict[str, Any]:
                 imap_conn.logout()
                 logger.info("IMAP connection closed")
             except Exception as e:
-                logger.warning(f"Error closing IMAP connection: {e}")
+                logger.warning("Error closing IMAP connection: %s", e)
 
     return stats
 
@@ -976,7 +976,7 @@ def open_inbox() -> imaplib.IMAP4_SSL:
                 system_settings.imap_pass]):
         raise EmailNotConfigured('IMAP credentials not configured in System settings')
     conn = imaplib.IMAP4_SSL(system_settings.imap_host,
-                             timeout=getattr(settings, 'IMAP_TIMEOUT', 30))
+                             timeout=getattr(settings, 'IMAP_TIMEOUT', DEFAULT_IMAP_TIMEOUT))
     conn.login(system_settings.imap_user, system_settings.imap_pass)
     conn.select('INBOX')
     return conn
@@ -1060,7 +1060,7 @@ def _process_ticket_email(
         delivered_to=_first_email_in_header(msg, 'Delivered-To'),
         alias_matched=alias,
         zd_ticket_id=str(ticket_id),
-        category=parsed.get('category', 'UNKNOWN'),
+        category=parsed.get('category', EmailLog.CATEGORY_UNKNOWN),
         auto_resolved=auto_resolved,
         raw_headers=extract_raw_headers(msg),
         message_id=message_id,
@@ -1089,7 +1089,7 @@ def _process_ticket_email(
         'email_log_id': email_log.id,
         'subject': subject[:200],
         'from_email': from_email,
-        'category': parsed.get('category', 'UNKNOWN'),
+        'category': parsed.get('category', EmailLog.CATEGORY_UNKNOWN),
         'summary': parsed.get('summary', ''),
         'action_required': bool(parsed.get('action_required')),
         'auto_resolved': auto_resolved,
@@ -1097,7 +1097,7 @@ def _process_ticket_email(
     }
 
 
-def check_email_for_ticket(ticket_id: str, claim, alias: str) -> Dict[str, Any]:
+def check_email_for_ticket(ticket_id: str, claim: Optional[Claim], alias: str) -> Dict[str, Any]:
     """Check the mailbox for new mail addressed to one ticket's alias.
 
     Each new email gets: AI categorization, an EmailLog row (linked to the
@@ -1135,7 +1135,7 @@ def check_email_for_ticket(ticket_id: str, claim, alias: str) -> Dict[str, Any]:
             try:
                 status, msg_data = conn.fetch(uid, '(RFC822)')
                 if status != 'OK' or not msg_data or msg_data[0] is None:
-                    logger.warning(f"Email check: failed to fetch UID {uid_str}")
+                    logger.warning("Email check: failed to fetch UID %s", uid_str)
                     results['errors'] += 1
                     continue
                 msg = email.message_from_bytes(msg_data[0][1])

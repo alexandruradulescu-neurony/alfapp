@@ -9,19 +9,36 @@ import logging
 import urllib.parse
 import urllib.request
 import urllib.error
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 
 from django.conf import settings
 from django.core.cache import cache
 
 from apps.config.models import SystemSettings
 
+if TYPE_CHECKING:
+    from apps.claims.models import Claim
+
 logger = logging.getLogger(__name__)
 
+# Default per-request timeout (seconds) for outbound Zendesk HTTP calls when
+# settings.ZENDESK_TIMEOUT is not set. Replaces the bare `30` literal that was
+# repeated at every call site.
+ZENDESK_DEFAULT_TIMEOUT: int = 30
 
-def safe_date(value):
+# Maximum length of a Zendesk search query string; longer queries are truncated.
+MAX_SEARCH_QUERY_LEN: int = 1000
+
+# Maximum number of leading comments fed into the ticket-extraction LLM context.
+LLM_CONTEXT_MAX_COMMENTS: int = 5
+
+# Tag applied to a Zendesk ticket once its refund has been processed.
+REFUND_TAG: str = 'refunded'
+
+
+def safe_date(value: Any) -> Optional[date]:
     """Parse a Zendesk date string ('YYYY-MM-DD') into a date, or None on failure."""
     if not value:
         return None
@@ -31,7 +48,7 @@ def safe_date(value):
         return None
 
 
-def safe_decimal(value):
+def safe_decimal(value: Any) -> Optional[Decimal]:
     """Parse a numeric value into Decimal, or None on failure."""
     if value in (None, ''):
         return None
@@ -159,30 +176,30 @@ def post_zendesk_comment(zd_ticket_id: str, comment_body: str, is_internal: bool
             method='PUT'
         )
 
-        logger.info(f"Posting comment to Zendesk ticket {zd_ticket_id}")
+        logger.info("Posting comment to Zendesk ticket %s", zd_ticket_id)
 
         # Use configurable timeout
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
         with urllib.request.urlopen(req, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
-            logger.info(f"Successfully posted comment to ticket {zd_ticket_id}")
+            logger.info("Successfully posted comment to ticket %s", zd_ticket_id)
             return result
             
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
-        logger.error(f"HTTP error posting to Zendesk ticket {zd_ticket_id}: {e.code} - {error_body}")
+        logger.error("HTTP error posting to Zendesk ticket %s: %s - %s", zd_ticket_id, e.code, error_body)
         return None
         
     except urllib.error.URLError as e:
-        logger.error(f"URL error posting to Zendesk ticket {zd_ticket_id}: {e.reason}")
+        logger.error("URL error posting to Zendesk ticket %s: %s", zd_ticket_id, e.reason)
         return None
         
     except ValueError as e:
-        logger.error(f"Configuration error: {e}")
+        logger.error("Configuration error: %s", e)
         return None
         
     except Exception as e:
-        logger.error(f"Unexpected error posting to Zendesk ticket {zd_ticket_id}: {e}")
+        logger.error("Unexpected error posting to Zendesk ticket %s: %s", zd_ticket_id, e)
         return None
 
 
@@ -211,10 +228,10 @@ def fetch_zendesk_comments(zd_ticket_id: str) -> List[Dict[str, Any]]:
             method='GET'
         )
 
-        logger.info(f"Fetching comments from Zendesk ticket {zd_ticket_id}")
+        logger.info("Fetching comments from Zendesk ticket %s", zd_ticket_id)
 
         # Use configurable timeout
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
         with urllib.request.urlopen(req, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
             comments_data = result.get('comments', [])
@@ -257,24 +274,24 @@ def fetch_zendesk_comments(zd_ticket_id: str) -> List[Dict[str, Any]]:
                     'channel': (comment.get('via') or {}).get('channel', ''),
                 })
             
-            logger.info(f"Fetched {len(comments)} comments from ticket {zd_ticket_id}")
+            logger.info("Fetched %s comments from ticket %s", len(comments), zd_ticket_id)
             return comments
             
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
-        logger.error(f"HTTP error fetching comments from Zendesk ticket {zd_ticket_id}: {e.code} - {error_body}")
+        logger.error("HTTP error fetching comments from Zendesk ticket %s: %s - %s", zd_ticket_id, e.code, error_body)
         return []
         
     except urllib.error.URLError as e:
-        logger.error(f"URL error fetching comments from Zendesk ticket {zd_ticket_id}: {e.reason}")
+        logger.error("URL error fetching comments from Zendesk ticket %s: %s", zd_ticket_id, e.reason)
         return []
         
     except ValueError as e:
-        logger.error(f"Configuration error: {e}")
+        logger.error("Configuration error: %s", e)
         return []
         
     except Exception as e:
-        logger.error(f"Unexpected error fetching comments from Zendesk ticket {zd_ticket_id}: {e}")
+        logger.error("Unexpected error fetching comments from Zendesk ticket %s: %s", zd_ticket_id, e)
         return []
 
 
@@ -290,15 +307,15 @@ def fetch_zendesk_attachment_bytes(content_url: str, max_bytes: int = 5_000_000)
         headers = _get_zendesk_auth_headers()
         # content_url is already a fully-qualified Zendesk URL.
         req = urllib.request.Request(content_url, headers=headers, method='GET')
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
         with urllib.request.urlopen(req, timeout=timeout) as response:
             data = response.read(max_bytes + 1)
             if len(data) > max_bytes:
-                logger.warning(f"Zendesk attachment exceeds {max_bytes} bytes; skipping embed: {content_url}")
+                logger.warning("Zendesk attachment exceeds %s bytes; skipping embed: %s", max_bytes, content_url)
                 return None
             return data
     except Exception as e:
-        logger.warning(f"Could not download Zendesk attachment {content_url}: {e}")
+        logger.warning("Could not download Zendesk attachment %s: %s", content_url, e)
         return None
 
 
@@ -325,12 +342,12 @@ def fetch_zendesk_ticket(zd_ticket_id: str) -> Optional[Dict[str, Any]]:
         )
         
         # Use configurable timeout
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
         with urllib.request.urlopen(req, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
             ticket = result.get('ticket', {})
             
-            logger.info(f"Fetched Zendesk ticket {zd_ticket_id}")
+            logger.info("Fetched Zendesk ticket %s", zd_ticket_id)
             return {
                 'id': ticket.get('id'),
                 'subject': ticket.get('subject'),
@@ -353,15 +370,15 @@ def fetch_zendesk_ticket(zd_ticket_id: str) -> Optional[Dict[str, Any]]:
             
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
-        logger.error(f"HTTP error fetching Zendesk ticket {zd_ticket_id}: {e.code} - {error_body}")
+        logger.error("HTTP error fetching Zendesk ticket %s: %s - %s", zd_ticket_id, e.code, error_body)
         return None
         
     except urllib.error.URLError as e:
-        logger.error(f"URL error fetching Zendesk ticket {zd_ticket_id}: {e.reason}")
+        logger.error("URL error fetching Zendesk ticket %s: %s", zd_ticket_id, e.reason)
         return None
         
     except Exception as e:
-        logger.error(f"Unexpected error fetching Zendesk ticket {zd_ticket_id}: {e}")
+        logger.error("Unexpected error fetching Zendesk ticket %s: %s", zd_ticket_id, e)
         return None
 
 
@@ -387,12 +404,12 @@ def fetch_zendesk_user(user_id: str) -> Optional[Dict[str, Any]]:
             method='GET'
         )
 
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
         with urllib.request.urlopen(req, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
             user = result.get('user', {})
 
-            logger.info(f"Fetched Zendesk user {user_id}: {user.get('email', 'no email')}")
+            logger.info("Fetched Zendesk user %s: %s", user_id, user.get('email', 'no email'))
             return {
                 'id': user.get('id'),
                 'email': user.get('email'),
@@ -402,15 +419,15 @@ def fetch_zendesk_user(user_id: str) -> Optional[Dict[str, Any]]:
 
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
-        logger.error(f"HTTP error fetching Zendesk user {user_id}: {e.code} - {error_body}")
+        logger.error("HTTP error fetching Zendesk user %s: %s - %s", user_id, e.code, error_body)
         return None
 
     except urllib.error.URLError as e:
-        logger.error(f"URL error fetching Zendesk user {user_id}: {e.reason}")
+        logger.error("URL error fetching Zendesk user %s: %s", user_id, e.reason)
         return None
 
     except Exception as e:
-        logger.error(f"Unexpected error fetching Zendesk user {user_id}: {e}")
+        logger.error("Unexpected error fetching Zendesk user %s: %s", user_id, e)
         return None
 
 
@@ -418,14 +435,14 @@ CUSTOM_STATUS_CACHE_KEY = 'zd_custom_statuses_v1'
 CUSTOM_STATUS_CACHE_TTL = 60 * 60 * 24  # 24h; unknown ids force a refresh anyway
 
 
-def _fetch_custom_statuses(timeout=None) -> Dict[str, Dict[str, str]]:
+def _fetch_custom_statuses(timeout: Optional[int] = None) -> Dict[str, Dict[str, str]]:
     """GET /api/v2/custom_statuses.json -> {id: {'name', 'category'}}.
     Raises on configuration/network errors (caller decides the fallback).
     Pass a short timeout for best-effort UI fetches that must not block a page."""
     base_url = _get_zendesk_base_url()
     headers = _get_zendesk_auth_headers()
     req = urllib.request.Request(f"{base_url}/custom_statuses.json", headers=headers, method='GET')
-    timeout = timeout or getattr(settings, 'ZENDESK_TIMEOUT', 30)
+    timeout = timeout or getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
     with urllib.request.urlopen(req, timeout=timeout) as response:
         result = json.loads(response.read().decode('utf-8'))
     mapping = {}
@@ -434,11 +451,11 @@ def _fetch_custom_statuses(timeout=None) -> Dict[str, Dict[str, str]]:
             'name': cs.get('agent_label', '') or '',
             'category': cs.get('status_category', '') or '',
         }
-    logger.info(f"Fetched {len(mapping)} Zendesk custom statuses")
+    logger.info("Fetched %s Zendesk custom statuses", len(mapping))
     return mapping
 
 
-def resolve_custom_status(status_id) -> Dict[str, str]:
+def resolve_custom_status(status_id: Any) -> Dict[str, str]:
     """Translate a Zendesk custom-status id to {'name', 'category'}.
     Cached; an unknown id forces one refresh (covers statuses added in
     Zendesk after the cache was filled). Total failure -> id as name,
@@ -450,18 +467,19 @@ def resolve_custom_status(status_id) -> Dict[str, str]:
             mapping = _fetch_custom_statuses()
             cache.set(CUSTOM_STATUS_CACHE_KEY, mapping, CUSTOM_STATUS_CACHE_TTL)
         except Exception as e:
-            logger.error(f"Could not fetch Zendesk custom statuses: {e}")
+            logger.error("Could not fetch Zendesk custom statuses: %s", e)
             mapping = mapping or {}
     entry = mapping.get(sid)
     if not entry:
-        logger.warning(f"Unknown Zendesk custom status id {sid}; mirroring id verbatim")
+        logger.warning("Unknown Zendesk custom status id %s; mirroring id verbatim", sid)
         return {'name': sid, 'category': ''}
     return entry
 
 
-def create_claim_from_zendesk_ticket(zd_ticket_id, *, status_id=None,
-                                     webhook_requester_email='',
-                                     webhook_requester_id=''):
+def create_claim_from_zendesk_ticket(zd_ticket_id: Any, *,
+                                     status_id: Any = None,
+                                     webhook_requester_email: str = '',
+                                     webhook_requester_id: str = '') -> Dict[str, Any]:
     """Create a Claim from a Zendesk ticket — the single creation path shared by
     the creation webhook (ZendeskClaimWebhookView) and the on-demand backlog
     import. (Previously duplicated in both, with a "keep in sync" note.)
@@ -496,7 +514,7 @@ def create_claim_from_zendesk_ticket(zd_ticket_id, *, status_id=None,
 
     ticket_data = fetch_zendesk_ticket(zd_ticket_id)
     if not ticket_data:
-        logger.error(f"create_claim: could not fetch Zendesk ticket {zd_ticket_id}")
+        logger.error("create_claim: could not fetch Zendesk ticket %s", zd_ticket_id)
         return {'outcome': 'fetch_failed', 'claim': None, 'llm_failed': False}
 
     # Form-ticket gate — must carry an ALF claim number (subject or Claim # field).
@@ -508,8 +526,8 @@ def create_claim_from_zendesk_ticket(zd_ticket_id, *, status_id=None,
         alf_claim_id = parse_alf_claim_id_from_subject(claim_number_value or '')
     if not alf_claim_id:
         logger.info(
-            f"create_claim: ticket {zd_ticket_id} has no ALF claim number — "
-            f"not a claim-form ticket, skipping")
+            "create_claim: ticket %s has no ALF claim number — "
+            "not a claim-form ticket, skipping", zd_ticket_id)
         return {'outcome': 'ignored', 'claim': None, 'llm_failed': False}
 
     # LLM extraction (best-effort, same as the webhook).
@@ -518,8 +536,8 @@ def create_claim_from_zendesk_ticket(zd_ticket_id, *, status_id=None,
         extracted_data = analyze_zendesk_ticket_for_claim(ticket_data)
     except Exception as e:
         logger.error(
-            f"On-demand import: LLM extraction failed for ticket {zd_ticket_id}: {e}",
-            exc_info=True)
+            "On-demand import: LLM extraction failed for ticket %s: %s",
+            zd_ticket_id, e, exc_info=True)
         extracted_data = {'client_email': '', 'flight_details': '',
                           'object_description': '', 'phone': '', 'alternate_email': ''}
 
@@ -545,8 +563,8 @@ def create_claim_from_zendesk_ticket(zd_ticket_id, *, status_id=None,
     if not client_email:
         llm_failed = True
         logger.warning(
-            f"create_claim: could not resolve client_email for ticket {zd_ticket_id}; "
-            f"claim flagged for manual review")
+            "create_claim: could not resolve client_email for ticket %s; "
+            "claim flagged for manual review", zd_ticket_id)
 
     # Status source: the caller's fixed status_id (the webhook passes its
     # investigation-initiated id) or the ticket's CURRENT custom status (import
@@ -603,13 +621,14 @@ def create_claim_from_zendesk_ticket(zd_ticket_id, *, status_id=None,
         if not existing:
             raise
         logger.info(
-            f"create_claim: race for ticket {zd_ticket_id}; "
-            f"existing Claim #{existing.id} wins")
+            "create_claim: race for ticket %s; "
+            "existing Claim #%s wins", zd_ticket_id, existing.id)
         return {'outcome': 'already_exists', 'claim': existing, 'llm_failed': False}
 
     logger.info(
-        f"create_claim: created Claim #{claim.id} ({alf_claim_id}) from Zendesk "
-        f"ticket {zd_ticket_id} at status '{status_name}'. LLM failed: {llm_failed}")
+        "create_claim: created Claim #%s (%s) from Zendesk "
+        "ticket %s at status '%s'. LLM failed: %s",
+        claim.id, alf_claim_id, zd_ticket_id, status_name, llm_failed)
 
     # Best-effort real AI summary (creation must never fail on the AI call).
     # Lazy import: briefing imports from this module, so a top-level import loops.
@@ -618,12 +637,12 @@ def create_claim_from_zendesk_ticket(zd_ticket_id, *, status_id=None,
         refresh_claim_summary(claim, ticket_data)
     except Exception as e:
         logger.warning(
-            f"create_claim: AI summary backfill failed for Claim #{claim.id}: {e}")
+            "create_claim: AI summary backfill failed for Claim #%s: %s", claim.id, e)
 
     return {'outcome': 'created', 'claim': claim, 'llm_failed': llm_failed}
 
 
-def import_claim_from_zendesk_ticket(zd_ticket_id):
+def import_claim_from_zendesk_ticket(zd_ticket_id: Any) -> tuple:
     """On-demand import of an EXISTING Zendesk claim into LORA (backlog
     transition: an institution email matched a ticket LORA hasn't mirrored yet).
 
@@ -690,15 +709,15 @@ def create_zendesk_ticket(
             method='POST'
         )
         
-        logger.info(f"Creating Zendesk ticket for {requester_email}")
+        logger.info("Creating Zendesk ticket for %s", requester_email)
         
         # Use configurable timeout
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
         with urllib.request.urlopen(req, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
             ticket = result.get('ticket', {})
             
-            logger.info(f"Created Zendesk ticket #{ticket.get('id')} for {requester_email}")
+            logger.info("Created Zendesk ticket #%s for %s", ticket.get('id'), requester_email)
             return {
                 'id': ticket.get('id'),
                 'subject': ticket.get('subject'),
@@ -708,15 +727,15 @@ def create_zendesk_ticket(
             
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
-        logger.error(f"HTTP error creating Zendesk ticket: {e.code} - {error_body}")
+        logger.error("HTTP error creating Zendesk ticket: %s - %s", e.code, error_body)
         return None
         
     except urllib.error.URLError as e:
-        logger.error(f"URL error creating Zendesk ticket: {e.reason}")
+        logger.error("URL error creating Zendesk ticket: %s", e.reason)
         return None
         
     except Exception as e:
-        logger.error(f"Unexpected error creating Zendesk ticket: {e}")
+        logger.error("Unexpected error creating Zendesk ticket: %s", e)
         return None
 
 
@@ -756,9 +775,10 @@ def search_zendesk_tickets(query: str) -> List[Dict[str, Any]]:
         logger.warning("Empty search query provided to search_zendesk_tickets")
         return []
 
-    if len(query) > 1000:
-        logger.warning(f"Search query too long ({len(query)} chars), truncating to 1000")
-        query = query[:1000]
+    if len(query) > MAX_SEARCH_QUERY_LEN:
+        logger.warning("Search query too long (%s chars), truncating to %s",
+                       len(query), MAX_SEARCH_QUERY_LEN)
+        query = query[:MAX_SEARCH_QUERY_LEN]
 
     try:
         base_url = _get_zendesk_base_url()
@@ -777,28 +797,28 @@ def search_zendesk_tickets(query: str) -> List[Dict[str, Any]]:
             method='GET'
         )
 
-        logger.info(f"Searching Zendesk tickets: {query[:100]}...")
+        logger.info("Searching Zendesk tickets: %s...", query[:100])
 
         # Use configurable timeout
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
         with urllib.request.urlopen(req, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
             results = result.get('results', [])
 
-            logger.info(f"Found {len(results)} tickets matching: {query[:100]}...")
+            logger.info("Found %s tickets matching: %s...", len(results), query[:100])
             return results
 
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
-        logger.error(f"HTTP error searching Zendesk tickets: {e.code} - {error_body}")
+        logger.error("HTTP error searching Zendesk tickets: %s - %s", e.code, error_body)
         return []
 
     except urllib.error.URLError as e:
-        logger.error(f"URL error searching Zendesk tickets: {e.reason}")
+        logger.error("URL error searching Zendesk tickets: %s", e.reason)
         return []
 
     except Exception as e:
-        logger.error(f"Unexpected error searching Zendesk tickets: {e}")
+        logger.error("Unexpected error searching Zendesk tickets: %s", e)
         return []
 
 
@@ -825,16 +845,16 @@ def fetch_zendesk_ticket_full(ticket_id: str) -> Optional[Dict[str, Any]]:
             method='GET'
         )
         
-        logger.info(f"Fetching full Zendesk ticket {ticket_id}")
+        logger.info("Fetching full Zendesk ticket %s", ticket_id)
         
         # Use configurable timeout
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
         with urllib.request.urlopen(req, timeout=timeout) as response:
             result = json.loads(response.read().decode('utf-8'))
             ticket = result.get('ticket', {})
             
             if ticket:
-                logger.info(f"Fetched full Zendesk ticket {ticket_id}")
+                logger.info("Fetched full Zendesk ticket %s", ticket_id)
                 return {
                     'id': ticket.get('id'),
                     'subject': ticket.get('subject'),
@@ -853,15 +873,15 @@ def fetch_zendesk_ticket_full(ticket_id: str) -> Optional[Dict[str, Any]]:
             
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
-        logger.error(f"HTTP error fetching Zendesk ticket {ticket_id}: {e.code} - {error_body}")
+        logger.error("HTTP error fetching Zendesk ticket %s: %s - %s", ticket_id, e.code, error_body)
         return None
         
     except urllib.error.URLError as e:
-        logger.error(f"URL error fetching Zendesk ticket {ticket_id}: {e.reason}")
+        logger.error("URL error fetching Zendesk ticket %s: %s", ticket_id, e.reason)
         return None
         
     except Exception as e:
-        logger.error(f"Unexpected error fetching Zendesk ticket {ticket_id}: {e}")
+        logger.error("Unexpected error fetching Zendesk ticket %s: %s", ticket_id, e)
         return None
 
 
@@ -902,7 +922,7 @@ def search_zendesk_ticket_for_dispute(
         results = search_zendesk_tickets(query)
         best = _pick_best_result(results)
         if best:
-            logger.info(f"Found ticket by email search: {best.get('id')}")
+            logger.info("Found ticket by email search: %s", best.get('id'))
             return best
 
     # Strategy 2: Search by transaction ID in ticket description/comments
@@ -911,7 +931,7 @@ def search_zendesk_ticket_for_dispute(
         results = search_zendesk_tickets(query)
         best = _pick_best_result(results)
         if best:
-            logger.info(f"Found ticket by transaction ID search: {best.get('id')}")
+            logger.info("Found ticket by transaction ID search: %s", best.get('id'))
             return best
 
     # Strategy 3: Search by buyer name + date
@@ -920,7 +940,7 @@ def search_zendesk_ticket_for_dispute(
         results = search_zendesk_tickets(query)
         best = _pick_best_result(results)
         if best:
-            logger.info(f"Found ticket by name+date search: {best.get('id')}")
+            logger.info("Found ticket by name+date search: %s", best.get('id'))
             return best
 
     # Strategy 4: Search by buyer name only
@@ -929,10 +949,10 @@ def search_zendesk_ticket_for_dispute(
         results = search_zendesk_tickets(query)
         best = _pick_best_result(results)
         if best:
-            logger.info(f"Found ticket by name search: {best.get('id')}")
+            logger.info("Found ticket by name search: %s", best.get('id'))
             return best
     
-    logger.info(f"No matching Zendesk ticket found for dispute (email: {buyer_email})")
+    logger.info("No matching Zendesk ticket found for dispute (email: %s)", buyer_email)
     return None
 
 
@@ -967,12 +987,12 @@ def add_zendesk_ticket_tags(zd_ticket_id: str, tags: List[str]) -> bool:
             headers=headers,
             method='PUT',
         )
-        timeout = getattr(settings, 'ZENDESK_TIMEOUT', 30)
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
         with urllib.request.urlopen(req, timeout=timeout):
-            logger.info(f"Added tags {tags} to Zendesk ticket {zd_ticket_id}")
+            logger.info("Added tags %s to Zendesk ticket %s", tags, zd_ticket_id)
             return True
     except Exception as e:
-        logger.error(f"Error adding tags {tags} to Zendesk ticket {zd_ticket_id}: {e}")
+        logger.error("Error adding tags %s to Zendesk ticket %s: %s", tags, zd_ticket_id, e)
         return False
 
 
@@ -995,14 +1015,14 @@ def match_alias_to_zendesk_ticket(alias: str) -> Optional[Dict[str, Any]]:
         results = search_zendesk_tickets(query)
         
         if results:
-            logger.info(f"Matched alias {alias} to Zendesk ticket {results[0].get('id')}")
+            logger.info("Matched alias %s to Zendesk ticket %s", alias, results[0].get('id'))
             return results[0]
         
-        logger.debug(f"No Zendesk ticket found for alias {alias}")
+        logger.debug("No Zendesk ticket found for alias %s", alias)
         return None
         
     except Exception as e:
-        logger.error(f"Error matching alias to Zendesk ticket: {e}")
+        logger.error("Error matching alias to Zendesk ticket: %s", e)
         return None
 
 
@@ -1023,7 +1043,7 @@ def tag_zendesk_ticket_as_refunded(zd_ticket_id: str) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    return add_zendesk_ticket_tags(zd_ticket_id, ['refunded'])
+    return add_zendesk_ticket_tags(zd_ticket_id, [REFUND_TAG])
 
 
 def add_refund_comment_to_zendesk(
@@ -1058,7 +1078,7 @@ def add_refund_comment_to_zendesk(
         return post_zendesk_comment(zd_ticket_id, comment, is_internal=is_internal)
         
     except Exception as e:
-        logger.error(f"Error adding refund comment to Zendesk: {e}")
+        logger.error("Error adding refund comment to Zendesk: %s", e)
         return None
 
 
@@ -1121,7 +1141,7 @@ def _build_llm_context(subject: str, description: str, comments: list) -> str:
     context += f"Ticket Description:\n{description}\n\n"
     if comments:
         context += "Comments:\n"
-        for comment in comments[:5]:  # Limit to first 5 comments
+        for comment in comments[:LLM_CONTEXT_MAX_COMMENTS]:
             context += f"{_comment_author_name(comment)}: {comment.get('body', '')}\n\n"
     return context
 
@@ -1251,7 +1271,7 @@ def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, s
         return extracted
 
     except Exception as e:
-        logger.error(f"Error in extraction for Zendesk ticket: {e}", exc_info=True)
+        logger.error("Error in extraction for Zendesk ticket: %s", e, exc_info=True)
         return {
             'client_email': '',
             'client_name': '',
@@ -1276,7 +1296,7 @@ def analyze_zendesk_ticket_for_claim(ticket_data: Dict[str, Any]) -> Dict[str, s
         }
 
 
-def build_claim_facts(claim) -> dict:
+def build_claim_facts(claim: 'Claim') -> dict:
     """Compact, panel-ready facts for the Zendesk sidebar Briefing tab.
     Uses only LORA-side data the Zendesk ticket does not already have.
 
@@ -1353,7 +1373,7 @@ def parse_alf_claim_id_from_subject(subject: str) -> Optional[str]:
     return None
 
 
-def build_ticket_thread(data) -> dict:
+def build_ticket_thread(data: Dict[str, Any]) -> dict:
     """Build the untrusted AI payload from ticket content sent by the sidebar app.
 
     Comments may be plain strings (legacy) or dicts {author, created_at, public,

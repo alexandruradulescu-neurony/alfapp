@@ -7,7 +7,9 @@ import filetype
 import logging
 import os
 import tempfile
+from datetime import datetime
 from functools import wraps
+from typing import Callable
 
 # python-magic is optional - falls back to filetype library if libmagic is not installed
 try:
@@ -18,6 +20,7 @@ except (ImportError, OSError):
     magic = None
 
 from django.core.cache import cache
+from django.http import HttpRequest
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -27,8 +30,6 @@ from django.db.models import Count, F, Q
 from django.utils import timezone
 from datetime import timedelta
 from django.utils.text import get_valid_filename
-from django.views.generic import CreateView, UpdateView
-from django.urls import reverse_lazy
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_POST
 
@@ -39,12 +40,24 @@ from apps.communications.models import EmailLog
 from apps.config.models import SystemSettings
 from apps.users.models import User
 from apps.core.utils import get_client_ip
-from apps.users.constants import LOGIN_MAX_ATTEMPTS, LOGIN_ATTEMPT_WINDOW_SECONDS
+from apps.users.constants import (
+    LOGIN_MAX_ATTEMPTS,
+    LOGIN_ATTEMPT_WINDOW_SECONDS,
+    EVIDENCE_MAX_BYTES,
+    EVIDENCE_ALLOWED_EXTENSIONS,
+    EVIDENCE_ALLOWED_MIME_TYPES,
+    MAGIC_SNIFF_BYTES,
+    CLAIM_STUCK_DAYS,
+    LIST_PAGE_SIZE,
+    DEADLINE_OVERDUE_DAYS,
+    DEADLINE_DUE_TODAY_DAYS,
+    DEADLINE_SOON_DAYS,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _claim_status_choices():
+def _claim_status_choices() -> list[tuple[str, str]]:
     """Distinct, non-empty Claim.status values as (value, label) pairs for the
     claim-list filter dropdowns (shared by agent_claims and manager_claims)."""
     return [
@@ -53,12 +66,12 @@ def _claim_status_choices():
     ]
 
 
-def _zendesk_ticket_base(zd_subdomain):
+def _zendesk_ticket_base(zd_subdomain: str) -> str:
     """Base URL for linking to a Zendesk ticket ('' when no subdomain is set)."""
     return f'https://{zd_subdomain}.zendesk.com/agent/tickets/' if zd_subdomain else ''
 
 
-def rate_limit_logins(max_attempts=LOGIN_MAX_ATTEMPTS):
+def rate_limit_logins(max_attempts: int = LOGIN_MAX_ATTEMPTS) -> Callable:
     """
     Decorator to rate limit login attempts.
 
@@ -115,8 +128,10 @@ def login_view(request):
     return render(request, 'login.html', {'debug': django_settings.DEBUG})
 
 
+@require_POST
 def logout_view(request):
-    """Logout view."""
+    """Log the user out. POST-only (+ CSRF token in the form) so a third-party
+    page cannot force a logout via a GET request."""
     logout(request)
     return redirect('login')
 
@@ -194,18 +209,15 @@ def agent_dashboard(request):
 
 @agent_required
 def agent_claims(request):
-    """Agent claim list view.
-    
-    Agents see:
-    - Claims assigned to them
-    - Unassigned claims (available for assignment)
-    
-    Managers see all claims.
-    
-    Includes pagination to prevent loading large datasets.
+    """Claim list view.
+
+    With the AGENT/MANAGER role split removed there is a single authenticated
+    user type, so every signed-in user sees all claims (no per-agent or
+    assignment-based filtering). Includes pagination to prevent loading large
+    datasets.
     """
     user = request.user
-    
+
     # Base queryset with annotations (optimized to prevent N+1)
     claims = Claim.objects.annotate(
         evidence_count=Count('evidence'),
@@ -226,12 +238,12 @@ def agent_claims(request):
             Q(flight_details__icontains=search_query)
         )
     
-    # Pagination (20 claims per page)
+    # Pagination
     from django.core.paginator import Paginator
-    paginator = Paginator(claims, 20)
+    paginator = Paginator(claims, LIST_PAGE_SIZE)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
-    
+
     context = {
         'page_obj': page_obj,
         'claims': page_obj,  # For template compatibility
@@ -243,7 +255,7 @@ def agent_claims(request):
     return render(request, 'agent/claims.html', context)
 
 
-def _annotate_deadline(claim, now):
+def _annotate_deadline(claim: Claim, now: datetime) -> Claim:
     """Attach deadline_show/state/label display fields to a claim.
 
     Falls back to the raw deadline_date when the computed deadline_at is
@@ -258,13 +270,13 @@ def _annotate_deadline(claim, now):
         days = (claim.deadline_show - now).days
         if claim.status_category == 'solved':
             claim.deadline_state = 'done'
-        elif days < 0:
+        elif days < DEADLINE_OVERDUE_DAYS:
             claim.deadline_state = 'overdue'
             claim.deadline_label = f'{-days}d overdue'
-        elif days == 0:
+        elif days == DEADLINE_DUE_TODAY_DAYS:
             claim.deadline_state = 'soon'
             claim.deadline_label = 'due today'
-        elif days <= 7:
+        elif days <= DEADLINE_SOON_DAYS:
             claim.deadline_state = 'soon'
             claim.deadline_label = f'{days}d left'
         else:
@@ -319,7 +331,7 @@ def claim_client_report_send(request, claim_id):
     return redirect('agent_claim_detail', claim_id=claim_id)
 
 
-def _followup_and_claim(request, update_id):
+def _followup_and_claim(request: HttpRequest, update_id: int) -> tuple["ClientUpdate", Claim]:
     """Fetch a ClientUpdate + its claim (404 if the update doesn't exist).
 
     Post role-removal there is no per-agent assignment guard — all authenticated
@@ -471,12 +483,12 @@ def agent_upload_evidence(request, claim_id):
 
         if image:
             # Validate file size FIRST (max 10MB) - before reading content
-            max_size = 10 * 1024 * 1024  # 10MB
+            max_size = EVIDENCE_MAX_BYTES
             if image.size > max_size:
                 messages.error(request, f'File size must be less than {max_size // 1024 // 1024}MB.')
             else:
                 # Validate file extension (first line of defense)
-                allowed_extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp']
+                allowed_extensions = EVIDENCE_ALLOWED_EXTENSIONS
                 file_ext = image.name.split('.')[-1].lower() if '.' in image.name else ''
                 if file_ext not in allowed_extensions:
                     messages.error(
@@ -490,12 +502,12 @@ def agent_upload_evidence(request, claim_id):
                     # is always set even when libmagic is not installed (otherwise
                     # the filetype check raises UnboundLocalError and every upload
                     # fails on hosts without libmagic).
-                    allowed_mime_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+                    allowed_mime_types = EVIDENCE_ALLOWED_MIME_TYPES
 
                     # Validate using python-magic for accurate MIME type detection (if available)
                     if HAS_LIBMAGIC and magic:
                         # Read first 1024 bytes for magic number detection
-                        image_file = image.read(1024)
+                        image_file = image.read(MAGIC_SNIFF_BYTES)
                         image.seek(0)  # Reset file pointer
 
                         try:
@@ -599,8 +611,8 @@ def agent_emails(request):
             Q(from_email__icontains=search_query)
         )
 
-    # Pagination (20 emails per page)
-    paginator = Paginator(emails, 20)
+    # Pagination
+    paginator = Paginator(emails, LIST_PAGE_SIZE)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
@@ -695,11 +707,11 @@ def manager_dashboard(request):
     from apps.payments.models import Dispute
     dispute_stats = Dispute.objects.aggregate(
         total=Count('id'),
-        received=Count(Case(When(status='RECEIVED', then=1), output_field=IntegerField())),
-        gathering_data=Count(Case(When(status='GATHERING_DATA', then=1), output_field=IntegerField())),
-        documents_ready=Count(Case(When(status='DOCUMENTS_READY', then=1), output_field=IntegerField())),
-        under_review=Count(Case(When(status='UNDER_REVIEW', then=1), output_field=IntegerField())),
-        evidence_sent=Count(Case(When(status='EVIDENCE_SENT', then=1), output_field=IntegerField())),
+        received=Count(Case(When(status=Dispute.STATUS_RECEIVED, then=1), output_field=IntegerField())),
+        gathering_data=Count(Case(When(status=Dispute.STATUS_GATHERING_DATA, then=1), output_field=IntegerField())),
+        documents_ready=Count(Case(When(status=Dispute.STATUS_DOCUMENTS_READY, then=1), output_field=IntegerField())),
+        under_review=Count(Case(When(status=Dispute.STATUS_UNDER_REVIEW, then=1), output_field=IntegerField())),
+        evidence_sent=Count(Case(When(status=Dispute.STATUS_EVIDENCE_SENT, then=1), output_field=IntegerField())),
         resolved=Count(Case(When(status__in=Dispute.TERMINAL_STATUSES, then=1), output_field=IntegerField())),
     )
     # Disputes with a response deadline in the next 3 days (or already past),
@@ -813,7 +825,7 @@ def manager_claims(request):
     # Urgency order: nearest deadline first (overdue leads), undated last
     claims = claims.order_by(F('deadline_eff').asc(nulls_last=True), '-created_at')
 
-    paginator = Paginator(claims, 20)
+    paginator = Paginator(claims, LIST_PAGE_SIZE)
     page_obj = paginator.get_page(request.GET.get('page'))
 
     # Pre-compute display state — templates shouldn't do date math
@@ -821,7 +833,7 @@ def manager_claims(request):
         _annotate_deadline(claim, now)
         claim.days_in_status = (
             (now - claim.status_changed_at).days if claim.status_changed_at else None)
-        claim.stuck = (claim.days_in_status is not None and claim.days_in_status > 14
+        claim.stuck = (claim.days_in_status is not None and claim.days_in_status > CLAIM_STUCK_DAYS
                        and claim.status_category not in ('solved',))
 
     zd_subdomain = SystemSettings.get_instance().zd_subdomain
@@ -934,15 +946,15 @@ def manager_refunds(request):
     # Get statistics
     stats = {
         'total': refunds.count(),
-        'total_amount': refunds.filter(status='COMPLETED').aggregate(total=Sum('amount'))['total'] or 0,
-        'pending': refunds.filter(status='PENDING').count(),
-        'completed': refunds.filter(status='COMPLETED').count(),
-        'failed': refunds.filter(status='FAILED').count(),
+        'total_amount': refunds.filter(status=Refund.STATUS_COMPLETED).aggregate(total=Sum('amount'))['total'] or 0,
+        'pending': refunds.filter(status=Refund.STATUS_PENDING).count(),
+        'completed': refunds.filter(status=Refund.STATUS_COMPLETED).count(),
+        'failed': refunds.filter(status=Refund.STATUS_FAILED).count(),
     }
-    
+
     # Pagination
     from django.core.paginator import Paginator
-    paginator = Paginator(refunds, 20)
+    paginator = Paginator(refunds, LIST_PAGE_SIZE)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
     
@@ -982,17 +994,20 @@ def manager_settings(request):
     if request.method == 'POST':
         form = SystemSettingsForm(request.POST, instance=settings)
         if form.is_valid():
-            # Save non-sensitive fields
-            form.save()
+            # Non-sensitive fields and the sensitive-field overrides are two writes;
+            # wrap them so a failure on the second can't leave settings half-saved.
+            with transaction.atomic():
+                # Save non-sensitive fields
+                form.save()
 
-            # Handle sensitive fields separately - only update if new value provided
-            sensitive_fields = SystemSettingsForm.SENSITIVE_FIELDS
-            for field_name in sensitive_fields:
-                new_value = request.POST.get(field_name, '').strip()
-                if new_value:
-                    setattr(settings, field_name, new_value)
+                # Handle sensitive fields separately - only update if new value provided
+                sensitive_fields = SystemSettingsForm.SENSITIVE_FIELDS
+                for field_name in sensitive_fields:
+                    new_value = request.POST.get(field_name, '').strip()
+                    if new_value:
+                        setattr(settings, field_name, new_value)
 
-            settings.save()
+                settings.save()
             messages.success(request, 'Settings saved successfully.')
         else:
             # Show form errors
