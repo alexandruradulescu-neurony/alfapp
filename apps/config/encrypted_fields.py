@@ -143,6 +143,16 @@ def secret_matches(provided: str, expected: str) -> bool:
     return hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))
 
 
+def is_decryption_failure(value) -> bool:
+    """True when `value` is the sentinel returned by a failed decrypt.
+
+    Use to FAIL CLOSED before treating a stored secret as a usable credential:
+    the sentinel is a non-empty (truthy) string, so a bare ``if value`` or
+    ``all([...])`` check passes it through — callers must reject it explicitly.
+    """
+    return value == DECRYPTION_FAILED
+
+
 class EncryptedCharField(models.CharField):
     """
     A CharField that encrypts data before saving to the database.

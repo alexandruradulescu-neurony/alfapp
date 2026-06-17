@@ -6,16 +6,15 @@ DECRYPTION_FAILED sentinel instead of the real plaintext.
 
 INVARIANT (what SHOULD be true): a decrypt failure must NEVER authenticate
 anyone — not even a caller who supplies the exact sentinel string as their own
-secret. All three entry points must fail closed:
+secret. Both entry points must fail closed:
 
     1. apps.integrations.views.auth.verify_webhook_secret  -> 401 Response
     2. apps.integrations.views.auth.ZendeskSidebarAuth.authenticate -> False
-    3. PayPalWebhookView POST (/api/payments/paypal/webhook/) -> HTTP 401
 
 The current code compares the caller's secret against the stored value with
 hmac.compare_digest WITHOUT first rejecting the sentinel, so when both sides
 equal the sentinel the comparison succeeds and the caller is wrongly
-authenticated. The three "sentinel" tests below therefore FAIL against current
+authenticated. The "sentinel" tests below therefore FAIL against current
 code (that failure IS the bug, captured as a spec). The happy-path guard tests
 PASS now and must keep passing after the fix.
 """
@@ -24,7 +23,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.test import TestCase
-from django.urls import reverse
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
@@ -35,7 +33,6 @@ from apps.integrations.views.auth import (
     ZendeskSidebarAuth,
     verify_webhook_secret,
 )
-from apps.payments.refund_service import RefundService
 
 
 def _stub_settings(token):
@@ -103,37 +100,3 @@ class ZendeskSidebarAuthFailClosedTests(TestCase):
         request = self.factory.get('/x', HTTP_AUTHORIZATION='Bearer a-real-secret')
         with _stub_settings('a-real-secret'):
             self.assertTrue(ZendeskSidebarAuth.authenticate(request))
-
-
-# --------------------------------------------------------------------------
-# 3. PayPalWebhookView POST
-# --------------------------------------------------------------------------
-
-class PayPalWebhookFailClosedTests(TestCase):
-    def setUp(self):
-        self.url = reverse('paypal-webhook')
-
-    def _post(self, **extra):
-        return self.client.post(
-            self.url,
-            '{"event_type": "OTHER"}',
-            content_type='application/json',
-            **extra,
-        )
-
-    def test_sentinel_stored_and_supplied_returns_401(self):
-        """Stored token == sentinel, POST X-Webhook-Secret == sentinel:
-        the webhook must reject with HTTP 401 (fail closed)."""
-        with _stub_settings(DECRYPTION_FAILED):
-            response = self._post(HTTP_X_WEBHOOK_SECRET=DECRYPTION_FAILED)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_real_secret_does_not_401(self):
-        """Happy path: a normal stored secret matched by the caller passes the
-        auth gate — the view proceeds (not a 401). Must keep passing after the
-        fix."""
-        with _stub_settings('a-real-secret'), \
-                patch.object(RefundService, 'process_webhook_refund',
-                             return_value={'success': True}):
-            response = self._post(HTTP_X_WEBHOOK_SECRET='a-real-secret')
-        self.assertNotEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

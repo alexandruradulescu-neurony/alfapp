@@ -17,8 +17,6 @@ from django.db.models import Count, Q, Sum
 from django_filters.rest_framework import DjangoFilterBackend
 from django.conf import settings
 
-from apps.config.encrypted_fields import secret_matches
-from apps.config.models import SystemSettings
 from apps.payments.models import Refund
 from apps.payments.serializers import (
     RefundSerializer,
@@ -29,74 +27,6 @@ from apps.payments.serializers import (
 from apps.payments.refund_service import RefundService
 
 logger = logging.getLogger(__name__)
-
-
-class PayPalWebhookView(APIView):
-    """
-    PayPal webhook endpoint for refund notifications.
-
-    Handles PAYMENT.CAPTURE.REFUNDED and related events.
-
-    Auth (added 2026-06-12): a mandatory X-Webhook-Secret header, checked in
-    constant time against SystemSettings.sidebar_secret_token, before the
-    body is parsed. This endpoint previously accepted anonymous requests and
-    would record COMPLETED refunds from them — a forgery hole. In LORA's
-    actual flow refunds arrive via the WooCommerce webhook, not here; this
-    endpoint stays only as a secured fallback. (If you genuinely subscribe
-    PayPal to post here, replace this with real PayPal signature verification
-    using paypal_webhook_id.)
-    """
-    permission_classes = [AllowAny]  # secret-header verification below
-
-    def post(self, request):
-        """Process PayPal webhook notification."""
-        try:
-            webhook_secret = request.headers.get('X-Webhook-Secret', '')
-            expected_secret = SystemSettings.get_instance().sidebar_secret_token or ''
-            if not secret_matches(webhook_secret, expected_secret):
-                logger.warning("Rejected PayPal webhook: missing or invalid X-Webhook-Secret")
-                return Response({'error': 'Invalid webhook secret'},
-                                status=status.HTTP_401_UNAUTHORIZED)
-
-            # Get webhook event data
-            data = request.data
-            event_type = data.get('event_type', '')
-            
-            # Handle refund events
-            if event_type in ['PAYMENT.CAPTURE.REFUNDED', 'PAYMENT.CAPTURE.REVERSED']:
-                from apps.payments.models import ProcessedWebhookEvent
-                event_id = str(data.get('id', ''))
-
-                # Idempotency: atomically CLAIM the event before side effects so a
-                # PayPal retry of the same event can't double-process it (matches the
-                # dispute webhook). Release the claim on failure so a retry can
-                # reprocess. Distinct status changes arrive as new event ids.
-                if event_id:
-                    resource = data.get('resource') or {}
-                    _, created_gate = ProcessedWebhookEvent.objects.get_or_create(
-                        event_id=event_id,
-                        defaults={'event_type': event_type,
-                                  'resource_type': data.get('resource_type', '') or 'refund',
-                                  'resource_id': resource.get('id', '') or ''})
-                    if not created_gate:
-                        return Response({'message': 'Already processed'})
-
-                service = RefundService()
-                result = service.process_webhook_refund(data)
-
-                if result['success']:
-                    return Response({'message': 'Webhook processed'})
-                else:
-                    logger.error(f"Webhook processing failed: {result.get('error')}")
-                    if event_id:
-                        ProcessedWebhookEvent.objects.filter(event_id=event_id).delete()
-                    return Response({'error': result.get('error')}, status=400)
-
-            return Response({'message': 'Event type not handled'})
-            
-        except Exception as e:
-            logger.error(f"Error processing PayPal webhook: {e}", exc_info=True)
-            return Response({'error': str(e)}, status=500)
 
 
 class PayPalDisputeWebhookView(APIView):

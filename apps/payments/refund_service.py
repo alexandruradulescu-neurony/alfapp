@@ -29,19 +29,6 @@ from apps.payments.woocommerce_service import (
 logger = logging.getLogger(__name__)
 
 
-def _capture_id_from_refund_resource(resource: dict) -> str:
-    """Best-effort parent-capture id from a PayPal refund resource. Prefers the
-    'up' HATEOAS link (which points at the capture, e.g.
-    .../v2/payments/captures/{id}), then an older breakdown shape. '' if none."""
-    for link in (resource.get('links') or []):
-        if (link.get('rel') or '').lower() in ('up', 'capture'):
-            seg = (link.get('href') or '').rstrip('/').rsplit('/', 1)[-1]
-            if seg:
-                return seg
-    breakdown = resource.get('seller_payable_breakdown') or {}
-    return (breakdown.get('payable_version') or {}).get('id') or ''
-
-
 class RefundService:
     """
     Service for processing refunds via PayPal API.
@@ -226,117 +213,6 @@ class RefundService:
             }
         except Exception as e:
             logger.error(f"PayPal refund error: {e}", exc_info=True)
-            return {
-                'success': False,
-                'error': str(e),
-            }
-    
-    @transaction.atomic
-    def process_webhook_refund(
-        self,
-        event_data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """
-        Process a refund webhook from PayPal.
-        
-        Handles PAYMENT.CAPTURE.REFUNDED and similar events.
-        Implements idempotency to prevent duplicate processing.
-        
-        Args:
-            event_data: Webhook event data from PayPal
-        
-        Returns:
-            Dict with success status and refund object
-        """
-        try:
-            # Extract refund ID from webhook
-            refund_id = event_data.get('resource', {}).get('id')
-            if not refund_id:
-                return {
-                    'success': False,
-                    'error': 'No refund ID in webhook',
-                }
-            
-            # Check for existing refund (idempotency)
-            existing_refund = Refund.objects.filter(
-                paypal_refund_id=refund_id
-            ).first()
-            
-            if existing_refund:
-                # Update existing refund with webhook data
-                status = event_data.get('resource', {}).get('status', '').upper()
-                if status == Refund.STATUS_COMPLETED:
-                    existing_refund.mark_completed()
-                elif status == Refund.STATUS_FAILED:
-                    existing_refund.mark_failed('PayPal reported failure')
-                
-                logger.info(f"Updated existing refund {refund_id} from webhook")
-                return {
-                    'success': True,
-                    'refund': existing_refund,
-                    'message': 'Existing refund updated',
-                }
-            
-            # Create new refund from webhook
-            resource = event_data.get('resource', {})
-            amount = Decimal(resource.get('amount', {}).get('value', '0'))
-            currency = (resource.get('amount', {}).get('currency_code') or 'USD')
-
-            # Resolve the capture id from the documented PAYMENT.CAPTURE.REFUNDED
-            # payload: the refund resource's `links` carry an 'up' link to the
-            # parent capture. Fall back to the older breakdown guess, then flag the
-            # row for reconciliation rather than silently storing a blank capture.
-            capture_id = _capture_id_from_refund_resource(resource)
-            metadata = dict(event_data)
-            if not capture_id:
-                logger.warning(
-                    "PayPal refund webhook %s has no resolvable capture id — "
-                    "marking the refund for reconciliation", refund_id)
-                metadata['needs_reconciliation'] = True
-
-            # Atomic create guarded against the check-then-create race: two
-            # concurrent deliveries of the same refund_id can both pass the
-            # existence check above, so the second create() would hit the unique
-            # paypal_refund_id constraint. Catch that and adopt the winner's row
-            # (idempotent success, not a 500). The nested savepoint keeps the
-            # enclosing @transaction.atomic usable for the re-fetch.
-            try:
-                with transaction.atomic():
-                    refund = Refund.objects.create(
-                        paypal_refund_id=refund_id,
-                        paypal_capture_id=capture_id or '',
-                        amount=amount,
-                        currency=currency.upper()[:3],
-                        status=Refund.STATUS_COMPLETED,
-                        refund_type=Refund.TYPE_FULL,  # PayPal refund payload doesn't state full/partial
-                        external_source=Refund.SOURCE_LORA,
-                        reason='PayPal webhook notification',
-                        metadata=metadata,
-                    )
-            except IntegrityError:
-                existing = Refund.objects.filter(paypal_refund_id=refund_id).first()
-                if existing is None:
-                    raise  # unique violation on some other field — surface it
-                logger.info(
-                    f"PayPal refund {refund_id} created concurrently; "
-                    f"adopting existing row #{existing.id}"
-                )
-                return {
-                    'success': True,
-                    'refund': existing,
-                    'message': 'Existing refund updated',
-                }
-
-            logger.info(f"Created refund {refund_id} from webhook")
-
-            return {
-                'success': True,
-                'refund': refund,
-                'message': 'Refund created from webhook',
-            }
-            
-        except Exception as e:
-            logger.error(f"Error processing webhook refund: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),

@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional
 from urllib.parse import urlparse
 from django.utils import timezone
 import requests
+from apps.config.encrypted_fields import is_decryption_failure
 from apps.config.models import ServiceStatus, SystemSettings
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,10 @@ class ConnectionTester:
         try:
             settings = SystemSettings.get_instance()
             
-            if not settings.imap_host or not settings.imap_user or not settings.imap_pass:
+            creds = (settings.imap_host, settings.imap_user, settings.imap_pass)
+            # Fail closed on blanks AND the decrypt-failure sentinel: never send a
+            # mis-decrypted credential to the mail server as a live password.
+            if not all(creds) or any(is_decryption_failure(c) for c in creds):
                 return self._update_status(
                     'IMAP',
                     'disconnected',

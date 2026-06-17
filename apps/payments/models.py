@@ -754,9 +754,9 @@ class ProcessedWebhookEvent(models.Model):
     def __str__(self):
         return f"{self.event_type} - {self.event_id} ({self.status})"
 
-    # NB: idempotency lives in ONE place — the webhook views do an atomic
-    # get_or_create on event_id directly (PayPalDisputeWebhookView /
-    # PayPalWebhookView), which also gives them the `created` flag and the
-    # release-on-failure semantics a helper can't. The former is_already_processed /
-    # mark_as_processed / mark_as_failed classmethods were unused (a second,
-    # divergent idempotency implementation) and were removed.
+    # NB: idempotency lives in ONE place — the webhook view does an atomic
+    # get_or_create on event_id directly (PayPalDisputeWebhookView), which also
+    # gives it the `created` flag and the release-on-failure semantics a helper
+    # can't. The former is_already_processed / mark_as_processed / mark_as_failed
+    # classmethods were unused (a second, divergent idempotency implementation)
+    # and were removed.

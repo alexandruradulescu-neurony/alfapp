@@ -44,12 +44,11 @@ try:
 except ImportError as e:
     print(f"   ✗ Import error: {e}")
 
-# Test 3: Test PayPal webhook view
-print("\n3. Testing PayPal webhook view...")
+# Test 3: Test PayPal dispute webhook view
+print("\n3. Testing PayPal dispute webhook view...")
 try:
-    from apps.payments.views import PayPalWebhookView, verify_paypal_webhook_signature
-    print("   ✓ PayPalWebhookView - available")
-    print("   ✓ verify_paypal_webhook_signature - available")
+    from apps.payments.views import PayPalDisputeWebhookView
+    print("   ✓ PayPalDisputeWebhookView - available")
 except ImportError as e:
     print(f"   ✗ Import error: {e}")
 
@@ -100,7 +99,7 @@ print("=" * 60)
 
 # Show API endpoints
 print("\nPayPal & PDF API Endpoints:")
-print("  POST /api/payments/paypal/webhook/")
+print("  POST /api/payments/paypal/dispute-webhook/")
 print("       PayPal webhook for dispute notifications")
 print("       Handles: CUSTOMER.DISPUTE.CREATED")
 print("")

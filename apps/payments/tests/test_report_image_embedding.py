@@ -52,16 +52,20 @@ class FetchPolicyTests(TestCase):
     def test_no_auth_fetch_sends_browser_user_agent(self):
         captured = {}
 
-        def fake_urlopen(req, timeout=None):
+        def fake_open(self, req, timeout=None):
             captured['ua'] = req.get_header('User-agent')
 
             class _R:
+                url = 'https://airportlf.zendesk.com/attachments/token/a/?name=x.png'
                 def __enter__(s): return s
                 def __exit__(s, *a): return False
+                def geturl(s): return s.url
                 def read(s, n): return b'IMGBYTES'
             return _R()
 
-        with patch('urllib.request.urlopen', side_effect=fake_urlopen):
+        # _fetch_no_auth now uses a custom opener (allowlist redirect handler),
+        # so patch OpenerDirector.open rather than urlopen.
+        with patch('urllib.request.OpenerDirector.open', new=fake_open):
             ds._fetch_no_auth('https://airportlf.zendesk.com/attachments/token/a/?name=x.png', 1000)
         self.assertTrue(captured['ua'])
         self.assertNotIn('urllib', captured['ua'].lower())   # the blocked default UA

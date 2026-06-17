@@ -18,6 +18,7 @@ from django.conf import settings
 from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
+from apps.config.encrypted_fields import is_decryption_failure
 from apps.config.models import SystemSettings
 
 from .exceptions import AIClientError, AIResponseValidationError
@@ -87,12 +88,19 @@ def _build_tokenizer(known_pii: dict | None) -> RegexTokenizer:
 
 def _build_openai_client() -> OpenAI:
     ss = SystemSettings.get_instance()
+    api_key = ss.ai_api_key
+    # Fail closed: refuse a missing key or the decrypt-failure sentinel rather
+    # than send it to the provider as a Bearer token.
+    if not api_key or is_decryption_failure(api_key):
+        raise AIClientError(
+            "AI API key is not configured or could not be decrypted — "
+            "refusing to call the LLM without a usable key.")
     # Bound the call: complete() runs synchronously on the request path (Zendesk
     # briefing/chat), and the OpenAI SDK defaults to a ~600s timeout + 2 retries,
     # so without these a hung provider can tie up a gunicorn worker for minutes
     # and a burst can exhaust the pool. See settings.AI_TIMEOUT / AI_MAX_RETRIES.
     return OpenAI(
-        api_key=ss.ai_api_key,
+        api_key=api_key,
         base_url=ss.ai_api_base,
         timeout=settings.AI_TIMEOUT,
         max_retries=settings.AI_MAX_RETRIES,

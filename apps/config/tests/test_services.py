@@ -233,6 +233,24 @@ class TestConnectionTesterIMAP:
         assert result['success'] is False
         assert result['status'] == 'disconnected'
 
+    @patch('apps.config.services.connection_tester.SystemSettings')
+    @patch('apps.config.services.connection_tester.imaplib.IMAP4_SSL')
+    def test_imap_sentinel_credential_fails_closed(self, mock_imap, mock_settings_class):
+        """A credential that could not be decrypted (the DECRYPTION_FAILED
+        sentinel) must NOT be sent to the mail server as a live password — fail
+        closed, never connect/login (repeated bad logins can lock the shared
+        mailbox)."""
+        from apps.config.encrypted_fields import DECRYPTION_FAILED
+        mock_settings_class.get_instance.return_value = Mock(
+            imap_host='imap.gmail.com', imap_user='test@example.com',
+            imap_pass=DECRYPTION_FAILED)
+
+        result = ConnectionTester().test_imap()
+
+        assert result['success'] is False
+        assert result['status'] == 'disconnected'
+        mock_imap.assert_not_called()
+
     @patch('apps.config.services.connection_tester.imaplib.IMAP4_SSL')
     def test_imap_connection_authentication_failed(self, mock_imap):
         """Test IMAP connection with authentication failure."""
