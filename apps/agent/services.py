@@ -58,9 +58,8 @@ class AgentChatService:
     EMAIL_BODY_CHARS = 500
     # Character cap on a Zendesk comment body when assembling fetch_context.
     ZENDESK_COMMENT_BODY_CHARS = 200
-    # Per-claim cap on emails / timeline rows pulled in fetch_context.
+    # Per-claim cap on emails pulled in fetch_context.
     MAX_EMAILS_FETCHED = 10
-    MAX_TIMELINE_FETCHED = 10
     # Per-claim cap on Zendesk comments pulled in fetch_context.
     MAX_ZENDESK_COMMENTS_FETCHED = 5
     # Substring that marks an assistant turn as carrying a claim ID worth scanning.
@@ -123,7 +122,7 @@ class AgentChatService:
             all_claim_ids.extend([str(cid) for cid in claim_ids])
         
         # Step 2: Fetch context for detected claims
-        context = self.fetch_context(all_claim_ids) if all_claim_ids else {'claims': [], 'emails': {}, 'refunds': {}, 'timeline': {}, 'zendesk': {}, 'sources': []}
+        context = self.fetch_context(all_claim_ids) if all_claim_ids else {'claims': [], 'emails': {}, 'refunds': {}, 'zendesk': {}, 'sources': []}
 
         # Step 3: Build trusted and untrusted payloads for AIClient
         trusted: Dict[str, str] = {
@@ -334,7 +333,7 @@ class AgentChatService:
             claim_ids: List of ALF claim IDs
         
         Returns:
-            Dictionary with claims, emails, refunds, timeline, zendesk data
+            Dictionary with claims, emails, refunds, zendesk data
         """
         from apps.claims.models import Claim
         from apps.payments.models import Refund
@@ -345,7 +344,6 @@ class AgentChatService:
             'claims': [],
             'emails': {},
             'refunds': {},
-            'timeline': {},
             'zendesk': {},
             'sources': [],
         }
@@ -404,20 +402,7 @@ class AgentChatService:
                 ]
                 if refunds:
                     context['sources'].append('Refund')
-                
-                # Fetch timeline updates (most recent MAX_TIMELINE_FETCHED)
-                timeline = claim.updates.all().order_by('-created_at')[:self.MAX_TIMELINE_FETCHED]
-                context['timeline'][alf_id] = [
-                    {
-                        'update_type': t.get_update_type_display(),
-                        'llm_summary': t.llm_summary or 'No summary',
-                        'created_at': t.created_at.strftime('%B %d, %Y at %I:%M %p'),
-                    }
-                    for t in timeline
-                ]
-                if timeline:
-                    context['sources'].append('Timeline')
-                
+
                 # Fetch Zendesk ticket (if linked)
                 if claim.zd_ticket_id:
                     ticket = fetch_zendesk_ticket(claim.zd_ticket_id)

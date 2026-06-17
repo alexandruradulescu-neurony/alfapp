@@ -76,12 +76,12 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("\n" + "=" * 50))
         self.stdout.write(self.style.SUCCESS("Test data seeding complete!"))
         self.stdout.write(self.style.SUCCESS("=" * 50))
-        self.stdout.write(self.style.SUCCESS(f"\nDeleted:"))
+        self.stdout.write(self.style.SUCCESS("\nDeleted:"))
         self.stdout.write(self.style.SUCCESS(f"  - {deleted_counts['claims']} claims"))
         self.stdout.write(self.style.SUCCESS(f"  - {deleted_counts['emails']} emails"))
         self.stdout.write(self.style.SUCCESS(f"  - {deleted_counts['disputes']} disputes"))
         self.stdout.write(self.style.SUCCESS(f"  - {deleted_counts['refunds']} refunds"))
-        self.stdout.write(self.style.SUCCESS(f"\nCreated:"))
+        self.stdout.write(self.style.SUCCESS("\nCreated:"))
         self.stdout.write(self.style.SUCCESS(f"  - {created_counts['claims']} claims"))
         self.stdout.write(self.style.SUCCESS(f"  - {created_counts['emails']} emails"))
         self.stdout.write(self.style.SUCCESS(f"  - {created_counts['disputes']} disputes"))
@@ -212,7 +212,11 @@ class Command(BaseCommand):
         return claims
 
     def _create_email_logs(self, claims: list[Claim], now: datetime) -> list[EmailLog]:
-        """Create 10 email logs linked to claims (2-3 per claim)."""
+        """Create 10 email logs linked to claims (2-3 per claim).
+
+        Uses a locally seeded RNG so reseeding produces identical fixtures.
+        """
+        rng = random.Random(0)
         sender_email = "support@lostfound.airline.com"
         email_templates = [
             {
@@ -279,7 +283,7 @@ class Command(BaseCommand):
                     location="Terminal 3, Gate A12",
                 )
 
-                received_at = now - timedelta(days=random.randint(1, 15), hours=random.randint(0, 23))
+                received_at = now - timedelta(days=rng.randint(1, 15), hours=rng.randint(0, 23))
 
                 email = EmailLog.objects.create(
                     claim=claim,

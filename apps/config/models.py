@@ -71,27 +71,6 @@ class ServiceStatus(models.Model):
         service_name = dict(self.SERVICE_CHOICES).get(self.service, self.service)
         return f'{service_name} - {self.get_status_display()}'
     
-    def mark_connected(self) -> None:
-        """Mark service as connected, clearing any prior error, and persist."""
-        self.status = self.STATUS_CONNECTED
-        self.last_checked = timezone.now()
-        self.last_error = ''
-        self.save()
-
-    def mark_disconnected(self) -> None:
-        """Mark service as disconnected, clearing any prior error, and persist."""
-        self.status = self.STATUS_DISCONNECTED
-        self.last_checked = timezone.now()
-        self.last_error = ''
-        self.save()
-
-    def mark_error(self, error_message: str) -> None:
-        """Mark service as errored, recording ``error_message``, and persist."""
-        self.status = self.STATUS_ERROR
-        self.last_checked = timezone.now()
-        self.last_error = error_message
-        self.save()
-
     def get_status_color(self) -> str:
         """Return DaisyUI status color class."""
         color_map = {
@@ -390,15 +369,3 @@ Respond with JSON in this format:
         """Get or create the singleton instance."""
         instance, _ = cls.objects.get_or_create(pk=1)
         return instance
-    
-    def get_masked_value(self, field_name):
-        """
-        Get a masked version of a sensitive field for display.
-        Shows first 4 and last 4 characters, masks the rest.
-        """
-        value = getattr(self, field_name, '')
-        if not value:
-            return ''
-        if len(value) <= 8:
-            return '•' * len(value)
-        return value[:4] + '•' * (len(value) - 8) + value[-4:]

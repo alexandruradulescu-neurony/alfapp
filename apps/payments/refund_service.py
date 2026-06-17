@@ -182,10 +182,8 @@ class RefundService:
         Returns:
             Dict with refund_id, status, and metadata
         """
-        import urllib.request
         import urllib.error
-        import json
-        
+
         try:
             # Get access token
             access_token = get_paypal_access_token()
@@ -677,10 +675,6 @@ class RefundService:
         Returns:
             Dict with status and details, or None if not found
         """
-        import urllib.request
-        import urllib.error
-        import json
-        
         try:
             access_token = get_paypal_access_token()
             if not access_token:

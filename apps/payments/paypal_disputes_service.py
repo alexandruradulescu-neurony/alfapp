@@ -39,6 +39,10 @@ _PAYPAL_HOSTS = {
     'live': 'https://api-m.paypal.com',
 }
 
+# PayPal access-token cache TTL — slightly under the typical 30-min token life
+# so a cached token is never used past its real expiry.
+_PAYPAL_TOKEN_CACHE_TTL = 1500  # ~25 min
+
 # Allowed PayPal evidence types (subset most relevant to a service concierge).
 # NOTE: exact accepted values + the multipart wire format below must be
 # confirmed against the PayPal sandbox before going live (Phase 1 gate).
@@ -166,9 +170,9 @@ def get_paypal_access_token() -> Optional[str]:
             access_token = token_data.get('access_token')
 
             if access_token:
-                # Cache token for 25 minutes (1500 seconds)
-                # This is slightly less than the typical 30-minute TTL
-                cache.set(cache_key, access_token, timeout=1500)
+                # Cache token for ~25 minutes (slightly less than the typical
+                # 30-minute TTL); see _PAYPAL_TOKEN_CACHE_TTL.
+                cache.set(cache_key, access_token, timeout=_PAYPAL_TOKEN_CACHE_TTL)
                 logger.info("PayPal access token obtained and cached for 25 minutes")
                 return access_token
             else:

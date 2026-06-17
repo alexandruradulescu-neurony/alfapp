@@ -23,8 +23,6 @@ from apps.payments.models import Dispute, DisputeDocument, DisputeActivityLog
 from apps.config.models import SystemSettings
 from apps.communications.models import EmailLog
 from apps.claims.models import ClaimEvidence
-from apps.integrations.services import (
-    fetch_zendesk_ticket_full, fetch_zendesk_comments, get_ticket_email_alias)
 
 logger = logging.getLogger(__name__)
 
@@ -607,6 +605,13 @@ _IMG_EMBED_QUALITY = 85
 _IMG_MIN_DIM = 64
 _PIL_MIME = {'PNG': 'image/png', 'JPEG': 'image/jpeg', 'JPG': 'image/jpeg',
              'GIF': 'image/gif', 'WEBP': 'image/webp'}
+
+# Display/log truncation caps — how much free text we keep when rendering a
+# value into the report (or feeding it to the narrative AI). Cosmetic bounds
+# only; they never change which records are shown, just how much of each.
+_LOST_LOCATION_DISPLAY_CHARS = 200    # claim's lost-location line in the facts block
+_CASE_LOG_TEXT_DISPLAY_CHARS = 600    # notes/message text in a case-log entry
+_EVIDENCE_RECORD_TEXT_CHARS = 700     # comment body length sent to the narrative AI
 
 
 # Zendesk blocks the default "Python-urllib/x" user-agent (403); any non-bot UA
@@ -1232,7 +1237,7 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
         items.append({
             'index': i, 'kind': 'comment',
             'channel': 'public' if p['public'] else 'internal',
-            'has_image': bool(p['images']), 'text': (p['body'] or '')[:700], 'panel': p,
+            'has_image': bool(p['images']), 'text': (p['body'] or '')[:_EVIDENCE_RECORD_TEXT_CHARS], 'panel': p,
         })
 
     narrative = _narrate_evidence(dispute, items, dispute.claim) if use_ai else None
@@ -1376,7 +1381,7 @@ def _dispute_narrative_facts(dispute, bundle: dict, *, manager_note: str = '') -
         'our_reference': nf['alf_id'] or '(none)',
         'service_fee': f"{nf['currency']} {nf['fee']}" if nf['fee'] is not None else '(unknown)',
         'item_lost': nf['object'] or '(not recorded)',
-        'lost_location': ((getattr(claim, 'lost_location', '') or '').strip()[:200]) if claim else '',
+        'lost_location': ((getattr(claim, 'lost_location', '') or '').strip()[:_LOST_LOCATION_DISPLAY_CHARS]) if claim else '',
         'flight': (f"{flight['airline']} {flight['number']} {flight['from_iata']}→{flight['to_iata']}"
                    if flight else '(not recorded)'),
         'claim_submitted_on': consent.get('when') or '(unknown)',
@@ -1533,7 +1538,7 @@ def build_dispute_reply_timeline(dispute) -> list:
         entries.append({
             'when': when, 'when_str': _fmt_zd_time(when), 'actor': 'Airport Lost & Found',
             'kind': 'submission', 'title': title, 'status': s.status,
-            'source': s.get_source_display(), 'text': (s.notes or '')[:600],
+            'source': s.get_source_display(), 'text': (s.notes or '')[:_CASE_LOG_TEXT_DISPLAY_CHARS],
             'image_count': s.images.count(), 'attached_pdf': s.attach_evidence_pdf,
         })
 
@@ -1551,7 +1556,7 @@ def build_dispute_reply_timeline(dispute) -> list:
         entries.append({
             'when': when, 'when_str': _fmt_zd_time(when), 'actor': actor,
             'kind': 'paypal_evidence', 'title': title, 'status': '',
-            'source': ev.get('evidence_type', ''), 'text': (ev.get('notes') or '')[:600],
+            'source': ev.get('evidence_type', ''), 'text': (ev.get('notes') or '')[:_CASE_LOG_TEXT_DISPLAY_CHARS],
             'doc_count': len(docs) if isinstance(docs, list) else 0,
         })
 
@@ -1564,7 +1569,7 @@ def build_dispute_reply_timeline(dispute) -> list:
         entries.append({
             'when': when, 'when_str': _fmt_zd_time(when), 'actor': actor,
             'kind': 'paypal_message', 'title': 'Message', 'status': '',
-            'source': '', 'text': (m.get('content') or '')[:600],
+            'source': '', 'text': (m.get('content') or '')[:_CASE_LOG_TEXT_DISPLAY_CHARS],
         })
 
     entries.sort(key=lambda e: (e['when'] is None, e['when'] or _TIMELINE_MIN_DT))
@@ -1644,8 +1649,8 @@ def generate_evidence_report(dispute_id: int) -> Optional[DisputeDocument]:
         logger.info(f"Successfully generated evidence report for Dispute #{dispute_id} (Document #{document.id})")
         return document
         
-    except Exception as e:
-        logger.error(f"Error generating evidence report for Dispute #{dispute_id}: {e}")
+    except Exception:
+        logger.exception(f"Error generating evidence report for Dispute #{dispute_id}")
         return None
 
 
@@ -1681,6 +1686,6 @@ def regenerate_document(document_id: int) -> Optional[DisputeDocument]:
     except DisputeDocument.DoesNotExist:
         logger.error(f"Document #{document_id} not found")
         return None
-    except Exception as e:
-        logger.error(f"Error regenerating document #{document_id}: {e}")
+    except Exception:
+        logger.exception(f"Error regenerating document #{document_id}")
         return None
