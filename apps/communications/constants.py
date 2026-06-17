@@ -11,12 +11,23 @@ its DEFAULT here and its live value on SystemSettings."""
 # window; Message-ID dedup does the rest.
 EMAIL_LOOKBACK_DAYS = 2
 
+# Maximum number of emails to AI-process per run (global sweep and the
+# button-driven per-ticket check both honour this cap).
+MAX_EMAILS_PER_RUN = 20
+
+# Default IMAP socket timeout (seconds) when settings.IMAP_TIMEOUT is unset.
+DEFAULT_IMAP_TIMEOUT = 30
+
 # --- Client update cadence ---------------------------------------------------
 # Default length of the concierge service in days, measured from claim/ticket
 # creation. Configurable per-deployment via SystemSettings.service_length_days;
 # this is only the fallback when that is unset. Drives the final email timing
 # and how far the update cadence tail extends.
 DEFAULT_SERVICE_LENGTH_DAYS = 30
+
+# Fallback lookback for "what's new since the last client update" when a claim
+# has neither a sent report nor a creation timestamp to anchor against.
+SINCE_ANCHOR_FALLBACK_DAYS = 30
 
 # Fixed early progress updates, in days after the claim was SUBMITTED.
 EARLY_UPDATE_OFFSETS = [2, 5, 11, 21]

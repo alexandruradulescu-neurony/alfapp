@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils import timezone
 
-from apps.config.encrypted_fields import EncryptedCharField, EncryptedTextField
+from apps.config.encrypted_fields import EncryptedCharField
 
 __all__ = ['SystemSettings', 'ServiceStatus']
 
@@ -40,7 +40,7 @@ class ServiceStatus(models.Model):
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default='disconnected',
+        default=STATUS_DISCONNECTED,
         help_text='Current connection/operational status'
     )
     is_enabled = models.BooleanField(
@@ -71,28 +71,28 @@ class ServiceStatus(models.Model):
         service_name = dict(self.SERVICE_CHOICES).get(self.service, self.service)
         return f'{service_name} - {self.get_status_display()}'
     
-    def mark_connected(self):
-        """Mark service as connected."""
+    def mark_connected(self) -> None:
+        """Mark service as connected, clearing any prior error, and persist."""
         self.status = self.STATUS_CONNECTED
         self.last_checked = timezone.now()
         self.last_error = ''
         self.save()
 
-    def mark_disconnected(self):
-        """Mark service as disconnected."""
+    def mark_disconnected(self) -> None:
+        """Mark service as disconnected, clearing any prior error, and persist."""
         self.status = self.STATUS_DISCONNECTED
         self.last_checked = timezone.now()
         self.last_error = ''
         self.save()
 
-    def mark_error(self, error_message):
-        """Mark service as having an error."""
+    def mark_error(self, error_message: str) -> None:
+        """Mark service as errored, recording ``error_message``, and persist."""
         self.status = self.STATUS_ERROR
         self.last_checked = timezone.now()
         self.last_error = error_message
         self.save()
-    
-    def get_status_color(self):
+
+    def get_status_color(self) -> str:
         """Return DaisyUI status color class."""
         color_map = {
             self.STATUS_CONNECTED: 'success',
@@ -135,6 +135,10 @@ class SystemSettings(models.Model):
         help_text='AI model name (e.g., deepseek-chat, qwen-plus)'
     )
     pii_tokenization_salt = EncryptedCharField(
+        # 4580 is the user-facing (plaintext) limit; EncryptedCharField inflates
+        # the actual DB column to hold the larger Fernet ciphertext. It's sized
+        # to comfortably fit a long hex-encoded salt with room to spare — not a
+        # magic constant tied to any one credential's length.
         max_length=4580,
         blank=True,
         default='',

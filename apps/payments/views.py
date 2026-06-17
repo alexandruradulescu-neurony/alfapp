@@ -66,15 +66,34 @@ class PayPalWebhookView(APIView):
             
             # Handle refund events
             if event_type in ['PAYMENT.CAPTURE.REFUNDED', 'PAYMENT.CAPTURE.REVERSED']:
+                from apps.payments.models import ProcessedWebhookEvent
+                event_id = str(data.get('id', ''))
+
+                # Idempotency: atomically CLAIM the event before side effects so a
+                # PayPal retry of the same event can't double-process it (matches the
+                # dispute webhook). Release the claim on failure so a retry can
+                # reprocess. Distinct status changes arrive as new event ids.
+                if event_id:
+                    resource = data.get('resource') or {}
+                    _, created_gate = ProcessedWebhookEvent.objects.get_or_create(
+                        event_id=event_id,
+                        defaults={'event_type': event_type,
+                                  'resource_type': data.get('resource_type', '') or 'refund',
+                                  'resource_id': resource.get('id', '') or ''})
+                    if not created_gate:
+                        return Response({'message': 'Already processed'})
+
                 service = RefundService()
                 result = service.process_webhook_refund(data)
-                
+
                 if result['success']:
                     return Response({'message': 'Webhook processed'})
                 else:
                     logger.error(f"Webhook processing failed: {result.get('error')}")
+                    if event_id:
+                        ProcessedWebhookEvent.objects.filter(event_id=event_id).delete()
                     return Response({'error': result.get('error')}, status=400)
-            
+
             return Response({'message': 'Event type not handled'})
             
         except Exception as e:

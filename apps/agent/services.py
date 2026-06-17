@@ -7,11 +7,13 @@ Fetches data from LORA database and Zendesk API, generates responses via LLM.
 
 import re
 import logging
-from typing import List, Dict, Any, Optional
+from typing import TYPE_CHECKING, List, Dict, Any, Optional
 from dataclasses import dataclass
 
-from django.db.models import QuerySet
 from django.db.models import Q
+
+if TYPE_CHECKING:
+    from apps.claims.models import Claim
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +46,35 @@ class AgentChatService:
     CHAT_TEMPERATURE = 0.7
     CHAT_MAX_TOKENS = 2000
 
-    def __init__(self):
+    # Context-window bounds (how much history/data we feed the LLM per message).
+    # How many recent history turns to scan for a prior claim ID (process_message).
+    HISTORY_CLAIM_LOOKBACK = 6
+    # How many recent history turns to render into the trusted conversation text.
+    HISTORY_RENDER_TURNS = 10
+    # Per-claim cap on emails / Zendesk comments fed into the untrusted payload.
+    MAX_EMAILS_IN_CONTEXT = 5
+    MAX_ZENDESK_COMMENTS_IN_CONTEXT = 5
+    # Character cap on each email/comment body in the untrusted payload.
+    EMAIL_BODY_CHARS = 500
+    # Character cap on a Zendesk comment body when assembling fetch_context.
+    ZENDESK_COMMENT_BODY_CHARS = 200
+    # Per-claim cap on emails / timeline rows pulled in fetch_context.
+    MAX_EMAILS_FETCHED = 10
+    MAX_TIMELINE_FETCHED = 10
+    # Per-claim cap on Zendesk comments pulled in fetch_context.
+    MAX_ZENDESK_COMMENTS_FETCHED = 5
+    # Substring that marks an assistant turn as carrying a claim ID worth scanning.
+    CLAIM_ID_MARKER = 'ALF'
+
+    # detect_name_or_email heuristics.
+    # Keywords after which a customer name is likely to follow ("ticket for john doe").
+    NAME_LEADING_KEYWORDS = ['for', 'about', 'regarding', 'customer', 'client', 'claim']
+    # Question cues that suggest the message is asking about a person.
+    NAME_QUESTION_WORDS = ['who', 'what', 'where', 'find', 'search', 'look']
+    # Two-word phrases that look like names but aren't, filtered from the fallback match.
+    NAME_STOP_PHRASES = ['claim id', 'ticket for', 'show me']
+
+    def __init__(self) -> None:
         # Pattern to match ALF claim IDs (e.g., ALF1234567, ALF-1234567, ALF_1234567)
         self.claim_id_pattern = re.compile(r'ALF[-_]?\d{7}', re.IGNORECASE)
         # Pattern to detect email addresses
@@ -78,10 +108,10 @@ class AgentChatService:
         # Step 1c: If no claim detected in current message, check conversation history
         if not detected_ids and conversation_history:
             # Look for claim IDs in recent messages
-            for msg in reversed(conversation_history[-6:]):
+            for msg in reversed(conversation_history[-self.HISTORY_CLAIM_LOOKBACK:]):
                 if not isinstance(msg, dict):
                     continue
-                if msg.get('role') == 'assistant' and 'ALF' in (msg.get('content') or ''):
+                if msg.get('role') == 'assistant' and self.CLAIM_ID_MARKER in (msg.get('content') or ''):
                     found = self.detect_claim_ids(msg.get('content') or '')
                     if found:
                         detected_ids = found
@@ -101,7 +131,7 @@ class AgentChatService:
         }
         if conversation_history:
             history_parts = []
-            for msg in conversation_history[-10:]:
+            for msg in conversation_history[-self.HISTORY_RENDER_TURNS:]:
                 if not isinstance(msg, dict):
                     continue
                 role = "User" if msg.get('role') == 'user' else "Assistant"
@@ -132,8 +162,8 @@ class AgentChatService:
         untrusted: Dict[str, Any] = {}
         email_bodies = []
         for claim_id, emails in context.get('emails', {}).items():
-            for e in emails[:5]:
-                body = (e.get('body') or '')[:500]
+            for e in emails[:self.MAX_EMAILS_IN_CONTEXT]:
+                body = (e.get('body') or '')[:self.EMAIL_BODY_CHARS]
                 if body:
                     email_bodies.append(body)
         if email_bodies:
@@ -142,20 +172,27 @@ class AgentChatService:
         zd_comments = []
         for claim_id, ticket in context.get('zendesk', {}).items():
             if 'error' not in ticket:
-                for c in ticket.get('recent_comments', [])[:5]:
-                    body = (c.get('body') or '')[:500]
+                for c in ticket.get('recent_comments', [])[:self.MAX_ZENDESK_COMMENTS_IN_CONTEXT]:
+                    body = (c.get('body') or '')[:self.EMAIL_BODY_CHARS]
                     if body:
                         zd_comments.append(body)
         if zd_comments:
             untrusted['zendesk_comment'] = zd_comments
 
-        # Collect known PII aliases for the tokenizer
+        # Collect known PII (emails as aliases, client names) for the tokenizer so
+        # they are redacted before the prompt leaves the LLM trust boundary. Unknown
+        # names the tokenizer cannot detect, so registering the known client name here
+        # covers it wherever it appears (free-text question, history, email bodies).
         aliases = []
+        names = []
         for claim in context.get('claims', []):
             if 'error' not in claim:
                 email = claim.get('client_email', '')
                 if email:
                     aliases.append(email)
+                name = (claim.get('client_name') or '').strip()
+                if name:
+                    names.append(name)
 
         # Step 4: Call LLM via AIClient with proper role separation
         from apps.ai.client import AIClient
@@ -167,7 +204,7 @@ class AgentChatService:
                 system_prompt=self.SYSTEM_PROMPT,
                 trusted=trusted,
                 untrusted=untrusted,
-                known_pii={"aliases": aliases},
+                known_pii={"aliases": aliases, "names": names},
                 response_schema=ChatAnswer,
                 call_site="manager_chat",
                 temperature=self.CHAT_TEMPERATURE,
@@ -186,7 +223,7 @@ class AgentChatService:
                 claims=context.get('claims', []),
             )
         except Exception as e:
-            logger.error(f"manager_chat: unexpected error from AIClient: {e}", exc_info=True)
+            logger.error("manager_chat: unexpected error from AIClient: %s", e, exc_info=True)
             return ChatResponse(
                 answer="I apologize, but I encountered an error while processing your request. Please try again.",
                 sources=[],
@@ -229,9 +266,9 @@ class AgentChatService:
             return emails[0]
         
         # Look for patterns like "for emma williamson", "ticket for john doe", etc.
-        keywords = ['for', 'about', 'regarding', 'customer', 'client', 'claim']
+        keywords = self.NAME_LEADING_KEYWORDS
         message_lower = message.lower()
-        
+
         for keyword in keywords:
             if keyword in message_lower:
                 # Find the part after the keyword
@@ -243,7 +280,7 @@ class AgentChatService:
                     return names[0]
         
         # If message looks like it's asking about a person (contains "who", "what", "find")
-        question_words = ['who', 'what', 'where', 'find', 'search', 'look']
+        question_words = self.NAME_QUESTION_WORDS
         if any(word in message_lower for word in question_words):
             names = self.name_pattern.findall(message)
             if names:
@@ -253,13 +290,13 @@ class AgentChatService:
         names = self.name_pattern.findall(message)
         if names:
             # Filter out common non-name phrases
-            filtered = [n for n in names if n.lower() not in ['claim id', 'ticket for', 'show me']]
+            filtered = [n for n in names if n.lower() not in self.NAME_STOP_PHRASES]
             if filtered:
                 return filtered[0]
         
         return None
     
-    def search_claims_by_name_or_email(self, search_term: str) -> List:
+    def search_claims_by_name_or_email(self, search_term: str) -> List["Claim"]:
         """
         Search for claims by customer name or email.
         
@@ -270,8 +307,7 @@ class AgentChatService:
             List of matching Claim objects
         """
         from apps.claims.models import Claim
-        from django.db.models import Q
-        
+
         # If it's an email, search by email field
         if '@' in search_term:
             return list(Claim.objects.filter(
@@ -322,6 +358,9 @@ class AgentChatService:
                     'id': claim.id,
                     'alf_claim_id': claim.alf_claim_id,
                     'client_email': claim.client_email,
+                    # Carried only to register the name with the PII tokenizer
+                    # (see known_pii in process_message); never rendered into a prompt.
+                    'client_name': claim.client_name,
                     'status': claim.status,
                     'zd_ticket_id': claim.zd_ticket_id,
                     'flight_details': claim.flight_details or 'Not provided',
@@ -334,8 +373,8 @@ class AgentChatService:
                 context['claims'].append(claim_data)
                 context['sources'].append('LORA')
                 
-                # Fetch emails (last 10)
-                emails = EmailLog.objects.filter(claim=claim).order_by('-received_at')[:10]
+                # Fetch emails (most recent MAX_EMAILS_FETCHED)
+                emails = EmailLog.objects.filter(claim=claim).order_by('-received_at')[:self.MAX_EMAILS_FETCHED]
                 context['emails'][alf_id] = [
                     {
                         'subject': e.subject,
@@ -366,8 +405,8 @@ class AgentChatService:
                 if refunds:
                     context['sources'].append('Refund')
                 
-                # Fetch timeline updates (last 10)
-                timeline = claim.updates.all().order_by('-created_at')[:10]
+                # Fetch timeline updates (most recent MAX_TIMELINE_FETCHED)
+                timeline = claim.updates.all().order_by('-created_at')[:self.MAX_TIMELINE_FETCHED]
                 context['timeline'][alf_id] = [
                     {
                         'update_type': t.get_update_type_display(),
@@ -383,7 +422,7 @@ class AgentChatService:
                 if claim.zd_ticket_id:
                     ticket = fetch_zendesk_ticket(claim.zd_ticket_id)
                     if ticket:
-                        comments = fetch_zendesk_comments(claim.zd_ticket_id)[:5]
+                        comments = fetch_zendesk_comments(claim.zd_ticket_id)[:self.MAX_ZENDESK_COMMENTS_FETCHED]
                         context['zendesk'][alf_id] = {
                             'ticket_id': claim.zd_ticket_id,
                             'status': ticket.get('status', 'unknown'),
@@ -392,7 +431,7 @@ class AgentChatService:
                             'recent_comments': [
                                 {
                                     'author': c.get('author', {}).get('name', 'Unknown'),
-                                    'body': c.get('body', '')[:200] + '...' if len(c.get('body', '')) > 200 else c.get('body', ''),
+                                    'body': c.get('body', '')[:self.ZENDESK_COMMENT_BODY_CHARS] + '...' if len(c.get('body', '')) > self.ZENDESK_COMMENT_BODY_CHARS else c.get('body', ''),
                                     'created_at': c.get('created_at', 'unknown'),
                                 }
                                 for c in comments

@@ -55,8 +55,10 @@ def _fetch_zendesk_ticket_full(zd_ticket_id: str) -> dict:
     Returns:
         Dictionary with ticket data and comments, or empty dict on failure
     """
+    # Imported inside the function so tests can patch
+    # apps.integrations.services.* at call time (see test_document_screenshot_services).
     from apps.integrations.services import fetch_zendesk_ticket_full, fetch_zendesk_comments
-    
+
     ticket_data = {}
     comments = []
     
@@ -951,7 +953,7 @@ def _consent_clause(consent: dict) -> str:
     return ""
 
 
-def _bottom_line(dispute, identity: dict, consent: dict = None) -> list:
+def _bottom_line(dispute, identity: dict, consent: Optional[dict] = None) -> list:
     """Reason-specific 'bottom line up front' bullets — the single strongest
     argument for THIS dispute reason, stated plainly for a skimming reviewer."""
     claim = dispute.claim

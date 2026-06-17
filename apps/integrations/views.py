@@ -14,13 +14,13 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.db.models import Count, Q
 
 from apps.claims.models import Claim, ClaimUpdateTimeline
 from apps.communications.models import EmailLog
 from apps.config.models import SystemSettings
-from apps.payments.models import Dispute, Refund
+from apps.payments.models import Dispute
 from apps.payments.refund_service import RefundService
 from apps.core.utils import get_client_ip
 from django.utils import timezone
@@ -55,6 +55,25 @@ from apps.integrations.flight_lookup import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Timeline update_type values written by this module. ClaimUpdateTimeline only
+# exposes these as members of UPDATE_TYPE_CHOICES (no TYPE_* constants on the
+# model), so they are named here with the identical stored values.
+TIMELINE_TYPE_STATUS_CHANGE = 'STATUS_CHANGE'
+TIMELINE_TYPE_INFO_UPDATED = 'INFO_UPDATED'
+
+# Default currency used when a refund webhook payload omits one.
+DEFAULT_CURRENCY = 'USD'
+
+# Beyond this many days in the past, an empty AeroDataBox answer is treated as a
+# data-plan history-window gap rather than proof the flight never existed.
+FLIGHT_HISTORY_WINDOW_DAYS = 14
+
+# Number of trailing chat turns replayed into the ticket-only chat context.
+CHAT_HISTORY_TURNS = 10
+
+# Maximum email rows returned by the read-only ticket-emails list endpoint.
+EMAILS_PAGE_SIZE = 50
 
 
 class ZendeskSidebarAuth:
@@ -110,7 +129,7 @@ class ZendeskSidebarAuth:
             system_settings = SystemSettings.get_instance()
             expected_token = system_settings.sidebar_secret_token
         except Exception as e:
-            logger.error(f"Error loading SystemSettings for sidebar auth: {e}")
+            logger.error("Error loading SystemSettings for sidebar auth: %s", e)
             return False
         
         if not expected_token:
@@ -174,7 +193,7 @@ class ZendeskSidebarView(APIView):
         customer_email = request.query_params.get('email', '').strip().lower()
         ticket_id = request.query_params.get('ticket_id', '').strip()
 
-        logger.info(f"Sidebar data request - email: {customer_email or 'N/A'}, ticket_id: {ticket_id or 'N/A'}")
+        logger.info("Sidebar data request - email: %s, ticket_id: %s", customer_email or 'N/A', ticket_id or 'N/A')
 
         # Validate that at least one parameter is provided
         if not customer_email and not ticket_id:
@@ -198,23 +217,23 @@ class ZendeskSidebarView(APIView):
                 if claim:
                     # Extract requester email from the claim
                     customer_email = claim.client_email
-                    logger.info(f"Found claim #{claim.id} via ticket_id: {ticket_id}")
+                    logger.info("Found claim #%s via ticket_id: %s", claim.id, ticket_id)
             
             # If no claim found yet, try lookup by email
             if not claim and customer_email:
                 claim = Claim.objects.filter(client_email=customer_email).first()
                 if claim:
-                    logger.info(f"Found claim #{claim.id} via email: {customer_email}")
+                    logger.info("Found claim #%s via email: %s", claim.id, customer_email)
 
             if not claim:
-                logger.info(f"No claim found for email: {customer_email}, ticket_id: {ticket_id}")
+                logger.info("No claim found for email: %s, ticket_id: %s", customer_email, ticket_id)
                 return Response(
                     {'error': 'No claim found for this email or ticket_id'},
                     status=status.HTTP_404_NOT_FOUND
                 )
 
         except Exception as e:
-            logger.error(f"Error fetching claim for email: {customer_email}, ticket_id: {ticket_id}: {e}")
+            logger.error("Error fetching claim for email: %s, ticket_id: %s: %s", customer_email, ticket_id, e)
             return Response(
                 {'error': 'Internal server error'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -224,11 +243,11 @@ class ZendeskSidebarView(APIView):
             # Build enriched response data
             response_data = self._build_enriched_sidebar_data(claim, customer_email)
             
-            logger.info(f"Sidebar data returned for claim #{claim.id}, email: {customer_email}")
+            logger.info("Sidebar data returned for claim #%s, email: %s", claim.id, customer_email)
             return Response(response_data)
 
         except Exception as e:
-            logger.error(f"Error building sidebar data for claim #{claim.id}, email: {customer_email}: {e}")
+            logger.error("Error building sidebar data for claim #%s, email: %s: %s", claim.id, customer_email, e)
             return Response(
                 {'error': 'Internal server error'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -401,7 +420,7 @@ class ZendeskBriefingView(APIView):
         data = request.data
         ticket_id = str(data.get('ticket_id', '')).strip()
         mode = str(data.get('mode', 'summary')).strip() or 'summary'
-        logger.info(f"Briefing request for ticket_id: {ticket_id or 'N/A'} (mode={mode})")
+        logger.info("Briefing request for ticket_id: %s (mode=%s)", ticket_id or 'N/A', mode)
 
         claim = Claim.objects.filter(zd_ticket_id=ticket_id).first() if ticket_id else None
         facts = build_claim_facts(claim) if claim else {}
@@ -473,7 +492,7 @@ class ZendeskBriefingView(APIView):
                 max_tokens=500,
             )
         except AIResponseValidationError as e:
-            logger.warning(f"Briefing AI validation failed for ticket {ticket_id} (mode={mode}): {e}")
+            logger.warning("Briefing AI validation failed for ticket %s (mode=%s): %s", ticket_id, mode, e)
             if mode == 'next_steps':
                 return Response({'next_steps': []}, status=status.HTTP_200_OK)
             return Response(
@@ -546,7 +565,7 @@ class ZendeskDraftView(APIView):
                 {'error': "draft_type must be 'client_update' or 'institution_reply'"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        logger.info(f"Draft request for ticket_id: {ticket_id or 'N/A'} (type={draft_type})")
+        logger.info("Draft request for ticket_id: %s (type=%s)", ticket_id or 'N/A', draft_type)
 
         claim = Claim.objects.filter(zd_ticket_id=ticket_id).first() if ticket_id else None
         facts = build_claim_facts(claim) if claim else {}
@@ -571,7 +590,7 @@ class ZendeskDraftView(APIView):
                 max_tokens=1200,
             )
         except AIResponseValidationError as e:
-            logger.warning(f"Draft AI validation failed for ticket {ticket_id} ({draft_type}): {e}")
+            logger.warning("Draft AI validation failed for ticket %s (%s): %s", ticket_id, draft_type, e)
             return Response({'body': ''}, status=status.HTTP_200_OK)
 
         return Response({'body': result.body}, status=status.HTTP_200_OK)
@@ -618,7 +637,7 @@ class ZendeskChatView(APIView):
         if not claim:
             return self._ticket_only_chat(data, ticket_id, message, history)
 
-        logger.info(f"Sidebar chat for ticket_id: {ticket_id}, claim: {claim.alf_claim_id}")
+        logger.info("Sidebar chat for ticket_id: %s, claim: %s", ticket_id, claim.alf_claim_id)
         result = AgentChatService().process_message(
             message=message,
             claim_ids=[claim.alf_claim_id],
@@ -652,7 +671,7 @@ class ZendeskChatView(APIView):
         trusted = {'agent_question': message}
         if history:
             history_parts = []
-            for msg in history[-10:]:
+            for msg in history[-CHAT_HISTORY_TURNS:]:
                 if not isinstance(msg, dict):
                     continue
                 role = 'User' if msg.get('role') == 'user' else 'Assistant'
@@ -675,14 +694,14 @@ class ZendeskChatView(APIView):
                 max_tokens=1000,
             )
         except AIResponseValidationError as e:
-            logger.warning(f"Ticket-only chat AI validation failed for ticket {ticket_id}: {e}")
+            logger.warning("Ticket-only chat AI validation failed for ticket %s: %s", ticket_id, e)
             return Response(
                 {'answer': "I couldn't process that just now — please try again.",
                  'sources': []},
                 status=status.HTTP_200_OK,
             )
 
-        logger.info(f"Ticket-only sidebar chat for ticket_id: {ticket_id} (no linked claim)")
+        logger.info("Ticket-only sidebar chat for ticket_id: %s (no linked claim)", ticket_id)
         return Response({'answer': result.answer, 'sources': result.sources},
                         status=status.HTTP_200_OK)
 
@@ -752,7 +771,7 @@ class ZendeskTicketSyncView(APIView):
                 )
                 
         except Exception as e:
-            logger.error(f"Error syncing claim {claim_id} to Zendesk: {e}")
+            logger.error("Error syncing claim %s to Zendesk: %s", claim_id, e)
             return Response(
                 {'error': 'Internal server error'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -805,14 +824,14 @@ class RefundWebhookView(APIView):
             required_fields = ['claim_number', 'refund_id', 'refund_amount']
             for field in required_fields:
                 if field not in data:
-                    logger.warning(f"Missing required field: {field}")
+                    logger.warning("Missing required field: %s", field)
                     return Response(
                         {'error': f'Missing required field: {field}'},
                         status=status.HTTP_400_BAD_REQUEST
                     )
             
             # Process refund
-            currency = str(data.get('currency', 'USD'))
+            currency = str(data.get('currency', DEFAULT_CURRENCY))
             service = RefundService()
             result = service.process_woocommerce_refund(
                 claim_number=str(data['claim_number']),
@@ -844,14 +863,14 @@ class RefundWebhookView(APIView):
                     'refund_id': result['refund'].paypal_refund_id,
                 })
             else:
-                logger.error(f"Refund processing failed: {result.get('error')}")
+                logger.error("Refund processing failed: %s", result.get('error'))
                 return Response(
                     {'error': result.get('error', 'Processing failed')},
                     status=status.HTTP_400_BAD_REQUEST
                 )
                 
         except Exception as e:
-            logger.error(f"Error processing refund webhook: {e}", exc_info=True)
+            logger.error("Error processing refund webhook: %s", e, exc_info=True)
             return Response(
                 {'error': 'Internal server error'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -928,8 +947,9 @@ class ZendeskClaimWebhookView(APIView):
 
             if custom_status != self.INVESTIGATION_STATUS_ID:
                 logger.info(
-                    f"Ignoring webhook for ticket {ticket_id}: no claim and "
-                    f"custom_status '{custom_status}' is not investigation initiated")
+                    "Ignoring webhook for ticket %s: no claim and "
+                    "custom_status '%s' is not investigation initiated",
+                    ticket_id, custom_status)
                 return Response({
                     'message': 'Ignored: no claim and status is not investigation initiated',
                     'custom_status': custom_status,
@@ -948,23 +968,23 @@ class ZendeskClaimWebhookView(APIView):
             )
             outcome = result['outcome']
             if outcome == 'fetch_failed':
-                logger.error(f"Failed to fetch Zendesk ticket {ticket_id}")
+                logger.error("Failed to fetch Zendesk ticket %s", ticket_id)
                 return Response(
                     {'error': 'Failed to fetch Zendesk ticket'},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
             if outcome == 'ignored':
                 logger.info(
-                    f"Ignoring webhook for ticket {ticket_id}: no ALF claim number "
-                    f"in subject or Claim # field — not a claim-form ticket")
+                    "Ignoring webhook for ticket %s: no ALF claim number "
+                    "in subject or Claim # field — not a claim-form ticket", ticket_id)
                 return Response({
                     'message': 'Ignored: no ALF claim number — not a claim form ticket',
                 }, status=status.HTTP_200_OK)
             if outcome == 'already_exists':
                 existing = result['claim']
                 logger.info(
-                    f"Webhook for ticket {ticket_id}: Claim #{existing.id} "
-                    f"({existing.alf_claim_id}) already exists.")
+                    "Webhook for ticket %s: Claim #%s "
+                    "(%s) already exists.", ticket_id, existing.id, existing.alf_claim_id)
                 return Response({
                     'message': 'Claim already exists',
                     'claim_id': existing.id,
@@ -973,8 +993,9 @@ class ZendeskClaimWebhookView(APIView):
 
             claim = result['claim']
             logger.info(
-                f"Created Claim #{claim.id} ({claim.alf_claim_id}) from Zendesk "
-                f"ticket {ticket_id}. LLM failed: {claim.llm_extraction_failed}")
+                "Created Claim #%s (%s) from Zendesk "
+                "ticket %s. LLM failed: %s",
+                claim.id, claim.alf_claim_id, ticket_id, claim.llm_extraction_failed)
             return Response({
                 'message': 'Claim created successfully',
                 'claim_id': claim.id,
@@ -984,7 +1005,7 @@ class ZendeskClaimWebhookView(APIView):
             }, status=status.HTTP_201_CREATED)
             
         except Exception as e:
-            logger.error(f"Error processing Zendesk claim webhook: {e}", exc_info=True)
+            logger.error("Error processing Zendesk claim webhook: %s", e, exc_info=True)
             return Response(
                 {'error': 'Internal server error'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -1013,8 +1034,9 @@ class ZendeskClaimWebhookView(APIView):
         # Fix 4: never overwrite a real named status with a raw numeric id.
         if new_status == str(custom_status_id) and not (claim.status or '').isdigit():
             logger.warning(
-                f"Claim #{claim.id}: custom status {custom_status_id} could not be resolved; "
-                f"keeping '{claim.status}'"
+                "Claim #%s: custom status %s could not be resolved; "
+                "keeping '%s'",
+                claim.id, custom_status_id, claim.status
             )
             return Response({'error': 'Custom status could not be resolved',
                              'claim_id': claim.id}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -1036,11 +1058,11 @@ class ZendeskClaimWebhookView(APIView):
             entry = ClaimUpdateTimeline.objects.create(
                 claim=claim,
                 zendesk_ticket_id=claim.zd_ticket_id or '',
-                update_type='STATUS_CHANGE',
+                update_type=TIMELINE_TYPE_STATUS_CHANGE,
                 changes_summary=json.dumps({'old_status': old_status, 'new_status': new_status}),
                 llm_summary='',
             )
-        logger.info(f"Claim #{claim.id} status mirrored: '{old_status}' -> '{new_status}'")
+        logger.info("Claim #%s status mirrored: '%s' -> '%s'", claim.id, old_status, new_status)
 
         # Client updates: when the claim first enters the configured submitted-
         # status, draft the initial "what we did" message (template-only here to
@@ -1063,14 +1085,14 @@ class ZendeskClaimWebhookView(APIView):
                 claim.client_report_draft = build_client_update_message(claim, polish=False)
                 claim.save(update_fields=['client_report_draft', 'updated_at'])
                 schedule_next(claim, timezone.now())
-                logger.info(f"Client update drafted + first follow-up scheduled for claim #{claim.id}")
+                logger.info("Client update drafted + first follow-up scheduled for claim #%s", claim.id)
             # Stop the cadence when the claim is voided — solved, an open
             # dispute, or an actual refund (claim_is_closed covers all three).
             from apps.communications.client_updates import claim_is_closed, cancel_open_follow_ups
             if claim_is_closed(claim):
                 cancel_open_follow_ups(claim)
         except Exception as e:
-            logger.error(f"Client-update handling failed for claim #{claim.id}: {e}")
+            logger.error("Client-update handling failed for claim #%s: %s", claim.id, e)
 
         ticket_data = fetch_zendesk_ticket(claim.zd_ticket_id)
         if ticket_data:
@@ -1172,7 +1194,7 @@ class ZendeskFlightLookupView(APIView):
                 ClaimUpdateTimeline.objects.create(
                     claim=claim,
                     zendesk_ticket_id=claim.zd_ticket_id,
-                    update_type='INFO_UPDATED',
+                    update_type=TIMELINE_TYPE_INFO_UPDATED,
                     changes_summary=json.dumps({'flight_lookup': {**query, 'found': True,
                                                                   'verdict': verdict['level']}}),
                     llm_summary=analysis.summary if analysis else '',
@@ -1181,8 +1203,8 @@ class ZendeskFlightLookupView(APIView):
         note_posted = self._post_note(ticket_id, format_flight_note(flight, analysis, verdict))
 
         subject = f"claim #{claim.id}" if claim else f"claimless ticket {ticket_id}"
-        logger.info(f"Flight lookup for {subject}: {query['number']} {query['date']} "
-                    f"found, verdict={verdict['level']}")
+        logger.info("Flight lookup for %s: %s %s found, verdict=%s",
+                    subject, query['number'], query['date'], verdict['level'])
         return Response({'flight': flight, 'analysis': self._analysis_dict(analysis),
                          'verdict': verdict, 'cached': False, 'note_posted': note_posted,
                          'claimless': claim is None},
@@ -1233,7 +1255,7 @@ class ZendeskFlightLookupView(APIView):
             ClaimUpdateTimeline.objects.create(
                 claim=claim,
                 zendesk_ticket_id=claim.zd_ticket_id,
-                update_type='INFO_UPDATED',
+                update_type=TIMELINE_TYPE_INFO_UPDATED,
                 changes_summary=json.dumps({'flight_lookup': {
                     'number': None, 'date': date, 'airport': airport,
                     'found': False, 'candidates': len(candidates)}}),
@@ -1257,7 +1279,7 @@ class ZendeskFlightLookupView(APIView):
             # Empty answers for old dates are usually the data plan's history
             # window, not proof the flight never existed (verified live:
             # Basic serves ~3 weeks back; beyond that comes back empty).
-            if date_cls.fromisoformat(query['date']) < timezone.localdate() - timedelta(days=14):
+            if date_cls.fromisoformat(query['date']) < timezone.localdate() - timedelta(days=FLIGHT_HISTORY_WINDOW_DAYS):
                 error_message += (" Note: this date may be beyond the AeroDataBox plan's "
                                   "history window — older flights need a higher plan.")
         except ValueError:
@@ -1283,7 +1305,7 @@ class ZendeskFlightLookupView(APIView):
                 ClaimUpdateTimeline.objects.create(
                     claim=claim,
                     zendesk_ticket_id=claim.zd_ticket_id,
-                    update_type='INFO_UPDATED',
+                    update_type=TIMELINE_TYPE_INFO_UPDATED,
                     changes_summary=json.dumps({'flight_lookup': {
                         **query, 'found': False, 'candidates': len(candidates)}}),
                     llm_summary=analysis.summary if analysis else '',
@@ -1300,7 +1322,7 @@ class ZendeskFlightLookupView(APIView):
             ClaimUpdateTimeline.objects.create(
                 claim=claim,
                 zendesk_ticket_id=claim.zd_ticket_id,
-                update_type='INFO_UPDATED',
+                update_type=TIMELINE_TYPE_INFO_UPDATED,
                 changes_summary=json.dumps({'flight_lookup': {
                     **query, 'found': False, 'candidates': 0}}),
                 llm_summary='',
@@ -1315,7 +1337,7 @@ class ZendeskFlightLookupView(APIView):
         try:
             return bool(post_zendesk_comment(ticket_id, body, is_internal=True))
         except Exception as e:
-            logger.warning(f"Flight note post failed for ticket {ticket_id}: {e}")
+            logger.warning("Flight note post failed for ticket %s: %s", ticket_id, e)
             return False
 
     @staticmethod
@@ -1384,15 +1406,15 @@ class ZendeskEmailCheckView(APIView):
                                   "email address — fix the Email Alias field."},
                 status=status.HTTP_200_OK)
         except Exception as e:
-            logger.error(f"Email check failed for ticket {ticket_id}: {e}", exc_info=True)
+            logger.error("Email check failed for ticket %s: %s", ticket_id, e, exc_info=True)
             return Response({'error': 'Could not reach the mailbox. Try again.'},
                             status=status.HTTP_502_BAD_GATEWAY)
 
         new_count = len(results['processed'])
         subject = f"claim #{claim.id}" if claim else f"claimless ticket {ticket_id}"
-        logger.info(f"Email check for {subject} ({alias}): {new_count} new, "
-                    f"{results['already_processed']} already processed, "
-                    f"tags={results['tags_added']}")
+        logger.info("Email check for %s (%s): %s new, %s already processed, tags=%s",
+                    subject, alias, new_count, results['already_processed'],
+                    results['tags_added'])
         return Response({'message': f"{new_count} new email(s) processed",
                          'claimless': claim is None, **results},
                         status=status.HTTP_200_OK)
@@ -1430,7 +1452,7 @@ class ZendeskTicketEmailsView(APIView):
             'action_required': e.action_required,
             'auto_resolved': e.auto_resolved,
             'received_at': e.received_at.isoformat() if e.received_at else None,
-        } for e in qs.order_by('-received_at')[:50]]
+        } for e in qs.order_by('-received_at')[:EMAILS_PAGE_SIZE]]
         return Response({'emails': emails, 'claimless': claim is None},
                         status=status.HTTP_200_OK)
 

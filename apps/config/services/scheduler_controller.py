@@ -26,7 +26,9 @@ class SchedulerController:
             )
             was_enabled = status.is_enabled
             status.is_enabled = enable
-            status.save()
+            # Targeted write: only flip is_enabled, don't rewrite status/last_checked/
+            # metadata from this copy and race the cron dispatcher's heartbeat save.
+            status.save(update_fields=['is_enabled'])
             action = 'enabled' if enable else 'disabled'
             return {
                 'success': True,
@@ -35,5 +37,5 @@ class SchedulerController:
                 'previously': 'enabled' if was_enabled else 'disabled',
             }
         except Exception as e:
-            logger.error(f'Error toggling scheduler enabled state: {e}')
+            logger.error('Error toggling scheduler enabled state: %s', e)
             return {'success': False, 'status': 'error', 'message': str(e)}

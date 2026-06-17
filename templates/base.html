@@ -52,9 +52,12 @@
                         <div class="font-semibold text-sm truncate">{{ user.username }}</div>
                         <div class="text-xs text-base-content/50">{{ user.email }}</div>
                     </div>
-                    <a href="{% url 'logout' %}" class="btn btn-ghost btn-sm btn-square text-base-content/40 hover:text-error transition-colors" title="Logout">
-                        <i class="bi bi-box-arrow-right"></i>
-                    </a>
+                    <form method="post" action="{% url 'logout' %}" class="inline">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-ghost btn-sm btn-square text-base-content/40 hover:text-error transition-colors" title="Logout">
+                            <i class="bi bi-box-arrow-right"></i>
+                        </button>
+                    </form>
                 </div>
             </div>
         </aside>

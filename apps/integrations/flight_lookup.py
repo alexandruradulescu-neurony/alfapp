@@ -42,6 +42,11 @@ CANDIDATE_LIMIT = 5
 # lookup→departures rescue can fire it more than once per click — keep it short.
 RATE_LIMIT_RETRY_PAUSE = 1.3
 
+# AI-tuning defaults for the single flight cross-check call (named so the
+# behaviour is tweaked in one place rather than as inline literals).
+FLIGHT_CHECK_TEMPERATURE = 0.3
+FLIGHT_CHECK_MAX_TOKENS = 400
+
 # Sentinel returned by _provider_call when the provider/transport actually failed
 # (as opposed to a legitimate empty/no-data answer). Lets callers map an error to
 # None while still passing a real empty payload ([] / {}) straight through.
@@ -267,10 +272,10 @@ def _provider_call(fetch, empty, *, label: str):
     except urllib.error.HTTPError as e:
         if e.code == 404:
             return empty
-        logger.error(f"AeroDataBox {label} HTTP {e.code}")
+        logger.error("AeroDataBox %s HTTP %s", label, e.code)
         return _PROVIDER_ERROR
     except Exception as e:
-        logger.error(f"AeroDataBox {label} failed: {e}")
+        logger.error("AeroDataBox %s failed: %s", label, e)
         return _PROVIDER_ERROR
 
 
@@ -452,11 +457,11 @@ def analyze_flight_match(claim: 'Optional[Claim]',
             known_pii=known_pii,
             response_schema=FlightCheck,
             call_site='flight_check',
-            temperature=0.3,
-            max_tokens=400,
+            temperature=FLIGHT_CHECK_TEMPERATURE,
+            max_tokens=FLIGHT_CHECK_MAX_TOKENS,
         )
     except Exception as e:
-        logger.warning(f"Flight cross-check failed for {subject}: {e}")
+        logger.warning("Flight cross-check failed for %s: %s", subject, e)
         return None
 
 
@@ -468,7 +473,7 @@ VERDICT_EMOJI = {
 }
 
 
-def derive_flight_verdict(found: bool, analysis,
+def derive_flight_verdict(found: bool, analysis: Optional[FlightCheck],
                           has_candidates: bool = False) -> Dict[str, str]:
     """Rule-derived, agent-readable verdict — never an invented number.
     The level is computed from facts (flight found? cross-check ran? did it
@@ -489,7 +494,7 @@ def derive_flight_verdict(found: bool, analysis,
             'label': "Flight verified — consistent with the client's report"}
 
 
-def _verdict_line(verdict) -> str:
+def _verdict_line(verdict: Optional[Dict[str, str]]) -> str:
     if not verdict:
         return ''
     return f"{VERDICT_EMOJI.get(verdict['level'], '')} {verdict['label']}".strip()
@@ -531,7 +536,7 @@ def _leg_facilities(leg: Dict[str, Any]) -> str:
     return ' · '.join(parts)
 
 
-def _analysis_block(analysis) -> str:
+def _analysis_block(analysis: Optional[FlightCheck]) -> str:
     if not analysis:
         return ''
     lines = ['', f"AI check: {analysis.summary}"]
@@ -541,7 +546,8 @@ def _analysis_block(analysis) -> str:
     return '\n'.join(lines)
 
 
-def format_flight_note(flight: Dict[str, Any], analysis, verdict=None) -> str:
+def format_flight_note(flight: Dict[str, Any], analysis: Optional[FlightCheck],
+                       verdict: Optional[Dict[str, str]] = None) -> str:
     """Internal-note body for a found flight: verdict first, one compact line
     per leg, then the AI check. Plain text — renders everywhere in Zendesk."""
     legs = flight.get('legs', [])
@@ -593,8 +599,8 @@ def _candidate_lines(candidates: List[Dict[str, str]]) -> List[str]:
 
 
 def format_candidates_note(number: str, date: str, airport_iata: str,
-                           candidates: List[Dict[str, str]], analysis,
-                           verdict=None) -> str:
+                           candidates: List[Dict[str, str]], analysis: Optional[FlightCheck],
+                           verdict: Optional[Dict[str, str]] = None) -> str:
     """Internal-note body for the not-found-with-candidates rescue."""
     lines = []
     if verdict:
@@ -609,8 +615,9 @@ def format_candidates_note(number: str, date: str, airport_iata: str,
 
 
 def format_no_number_note(date: str, airport_iata: str,
-                          candidates: List[Dict[str, str]], analysis,
-                          verdict=None, airline_code: str = '') -> str:
+                          candidates: List[Dict[str, str]], analysis: Optional[FlightCheck],
+                          verdict: Optional[Dict[str, str]] = None,
+                          airline_code: str = '') -> str:
     """Internal-note body for the no-flight-number search (airport + date,
     optionally narrowed to one carrier)."""
     lines = []
@@ -628,7 +635,8 @@ def format_no_number_note(date: str, airport_iata: str,
     return '\n'.join(lines) + _analysis_block(analysis)
 
 
-def format_not_found_note(number: str, date: str, verdict=None) -> str:
+def format_not_found_note(number: str, date: str,
+                          verdict: Optional[Dict[str, str]] = None) -> str:
     prefix = _verdict_line(verdict)
     body = f"Flight information was not found for {number} on {date}."
     return f'{prefix}\n\n{body}' if prefix else body
