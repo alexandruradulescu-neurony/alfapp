@@ -6,6 +6,7 @@ view. The sidebar briefing endpoint shares the business context but stays
 read-only (no stored-summary writes from agent clicks). All AI calls go
 through apps/ai/AIClient (PII tokenization — never a passthrough)."""
 import logging
+import re
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from django.utils import timezone
@@ -18,6 +19,53 @@ if TYPE_CHECKING:
     from apps.claims.models import Claim
 
 logger = logging.getLogger(__name__)
+
+_RISK_KEYWORDS = [
+    (re.compile(r'\bscam\b', re.I), 'hostile_language'),
+    (re.compile(r'\bfrauds?\b', re.I), 'hostile_language'),
+    (re.compile(r'charge\s?backs?', re.I), 'dispute_risk'),
+    (re.compile(r'\b(lawyer|attorney)s?\b', re.I), 'dispute_risk'),
+    (re.compile(r'\bBBB\b'), 'dispute_risk'),
+]
+# Deliberately excludes 'refund'/'dispute'/'complaint' — this business names a
+# NON-REFUNDABLE fee on every claim and 'dispute' is routine PayPal vocabulary,
+# so those would flag nearly every case. Refund-demand detection is left to the AI.
+_HARD_REASONS = {'refund_demanded', 'dispute_risk', 'hostile_language', 'status_regression'}
+
+
+def keyword_risk_reasons(text: str) -> set:
+    found = set()
+    for rx, reason in _RISK_KEYWORDS:
+        if rx.search(text or ''):
+            found.add(reason)
+    return found
+
+
+def merge_risk(*, ai_level: str, ai_reasons, ai_note: str, thread_text: str):
+    """Combine the AI risk read with the keyword booster. at_risk requires an
+    AI-corroborated hard reason (or AI level at_risk); a keyword-only hard reason
+    caps at 'watch' (it may be a quote, e.g. \"not a scam\")."""
+    ai_reasons = set(ai_reasons or [])
+    kw_reasons = keyword_risk_reasons(thread_text)
+    reasons = sorted(ai_reasons | kw_reasons)
+    if ai_level == 'at_risk' or (ai_reasons & _HARD_REASONS):
+        level = 'at_risk'
+    elif reasons:
+        level = 'watch'
+    else:
+        level = 'none'
+    return level, reasons, (ai_note or '').strip()
+
+
+def _thread_text(ticket_data) -> str:
+    parts = [ticket_data.get('subject', ''), ticket_data.get('description', '')]
+    for c in (ticket_data.get('comments') or []):
+        if isinstance(c, dict):
+            parts.append(c.get('body', '') or c.get('text', ''))
+        elif isinstance(c, str):
+            parts.append(c)
+    return '\n'.join(p for p in parts if p)
+
 
 # Most recent ticket comments fed into the claim-summary AI context.
 MAX_THREAD_COMMENTS = 30
@@ -59,13 +107,16 @@ ALF_BUSINESS_CONTEXT = (
 ) + STATUS_VOCABULARY
 
 SUMMARY_PROMPT = ALF_BUSINESS_CONTEXT + (
-    "Write a management summary of at most 4 sentences for this lost-item case. "
-    "Keep it under 600 characters. "
-    "Lead with the current workflow status and what it means for the case, then "
-    "the key facts (what was lost, where, search position), then what is "
-    "currently awaited and from whom. Use ONLY facts present in the provided "
-    "content; never invent dates, people or procedures. "
-    'Respond as JSON: {"summary": "..."}.'
+    "\n\nWrite a concise management summary of this claim's current state in `summary`.\n"
+    "Also assess CLIENT risk (the paying customer, not the lost-and-found institutions):\n"
+    "- risk_reasons: any of ['hostile_language','refund_demanded','dispute_risk',"
+    "'negative_sentiment'] that the CLIENT exhibits. Use 'refund_demanded' only when the "
+    "client asks for their money BACK — NOT when they merely agreed to the non-refundable fee. "
+    "Use 'dispute_risk' for threats of a chargeback/PayPal dispute/legal action/BBB.\n"
+    "- risk_level: 'at_risk' if any of those reasons is clearly present, else 'watch' for mild "
+    "dissatisfaction, else 'none'.\n"
+    "- risk_note: one short sentence naming the signal, or '' if none.\n"
+    'Respond as JSON: {"summary": "...", "risk_level": "...", "risk_reasons": [...], "risk_note": "..."}.'
 )
 
 
@@ -88,7 +139,7 @@ def normalize_fetched_comments(comments: Optional[List[Dict[str, Any]]]) -> List
     return normalized
 
 
-def generate_claim_summary(claim: 'Claim', ticket_data: dict) -> Optional[str]:
+def generate_claim_summary(claim: 'Claim', ticket_data: dict) -> Optional['BriefingSummary']:
     """One AI summary of the case, or None on any AI failure (callers must
     treat the summary as optional — a stage change never depends on it)."""
     facts = build_claim_facts(claim)
@@ -117,15 +168,19 @@ def generate_claim_summary(claim: 'Claim', ticket_data: dict) -> Optional[str]:
     if not summary:
         logger.warning("Claim summary came back empty for claim #%s", claim.id)
         return None
-    return summary
+    return result
 
 
 def refresh_claim_summary(claim: 'Claim', ticket_data: Dict[str, Any]) -> bool:
     """Regenerate and store the claim's summary. True on success."""
-    summary = generate_claim_summary(claim, ticket_data)
-    if summary is None:
+    result = generate_claim_summary(claim, ticket_data)
+    if result is None:
         return False
-    claim.ai_summary = summary
+    claim.ai_summary = result.summary.strip()
     claim.ai_summary_updated_at = timezone.now()
     claim.save(update_fields=['ai_summary', 'ai_summary_updated_at', 'updated_at'])
+    level, reasons, note = merge_risk(
+        ai_level=result.risk_level, ai_reasons=result.risk_reasons,
+        ai_note=result.risk_note, thread_text=_thread_text(ticket_data))
+    claim.register_risk(reasons=reasons, level=level, detail=note)
     return True

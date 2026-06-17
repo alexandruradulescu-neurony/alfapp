@@ -40,7 +40,7 @@ class GenerateClaimSummaryTests(TestCase):
         from apps.integrations.briefing import generate_claim_summary
         mock_complete.return_value = _fake_briefing('Case is searching.')
         result = generate_claim_summary(self.claim, self.ticket_data)
-        self.assertEqual(result, 'Case is searching.')
+        self.assertEqual(result.summary, 'Case is searching.')
         kwargs = mock_complete.call_args.kwargs
         self.assertIn('Ana Pop', kwargs['known_pii']['names'])
         self.assertEqual(kwargs['call_site'], 'claim_summary')
