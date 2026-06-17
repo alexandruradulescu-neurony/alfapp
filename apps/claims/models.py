@@ -253,27 +253,28 @@ class Claim(models.Model):
     def __str__(self) -> str:
         return f"Claim #{self.id} ({self.alf_claim_id}) - {self.client_email} ({self.status})"
 
-    # NB: these refund_* properties each hit the DB. They are detail-only — any
-    # list view that renders them per-row must prefetch_related('refunds') to
-    # avoid an N+1 (the ClaimViewSet does not prefetch refunds).
+    # These refund_* properties read the claim's refund set in Python, so a
+    # prefetch_related('refunds') makes ALL of them free — zero extra queries.
+    # That makes them safe to render per-row in a list (prefetch refunds on the
+    # queryset). Without a prefetch each falls back to a query (no worse than the
+    # previous .exists()/.aggregate()/.order_by() form).
     @property
     def has_refund(self) -> bool:
         """Check if claim has any refunds."""
-        return self.refunds.exists()
+        return bool(self.refunds.all())
 
     @property
     def refund_total(self) -> Decimal:
         """Total of COMPLETED refunds — always a Decimal."""
-        from django.db.models import Sum
         # 'COMPLETED' mirrors apps.payments.models.Refund's status choice value;
         # kept as a literal here to avoid a claims->payments import cycle.
-        result = self.refunds.filter(status='COMPLETED').aggregate(total=Sum('amount'))
-        return result['total'] or Decimal('0.00')
+        return sum((r.amount for r in self.refunds.all() if r.status == 'COMPLETED'),
+                   Decimal('0.00'))
 
     @property
     def latest_refund(self):
-        """Get the most recent refund."""
-        return self.refunds.order_by('-created_at').first()
+        """Get the most recent refund (by created_at)."""
+        return max(self.refunds.all(), key=lambda r: r.created_at, default=None)
 
     @property
     def refund_status(self):
