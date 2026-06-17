@@ -16,6 +16,7 @@ refuses to persist the sentinel and raises instead — fail loud, lose nothing.
 
 import base64
 import hashlib
+import hmac
 import logging
 from functools import lru_cache
 
@@ -125,6 +126,21 @@ def _encrypt(value):
     except Exception as e:
         logger.error("Failed to encrypt field value: %s", e)
         raise
+
+
+def secret_matches(provided: str, expected: str) -> bool:
+    """Constant-time secret comparison that FAILS CLOSED.
+
+    Returns False — without comparing — when `expected` is empty or is the
+    DECRYPTION_FAILED sentinel. A secret that could not be decrypted comes back
+    as the sentinel, which is a known constant, not a real secret: it must never
+    authenticate a caller, not even one who supplies the sentinel verbatim. A
+    real `expected` still gets a constant-time check against `provided` (so the
+    timing-attack resistance of the original compare_digest is preserved).
+    """
+    if not provided or not expected or expected == DECRYPTION_FAILED:
+        return False
+    return hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))
 
 
 class EncryptedCharField(models.CharField):

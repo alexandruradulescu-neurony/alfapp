@@ -2,7 +2,6 @@
 DRF ViewSets for Refund API.
 """
 
-import hmac
 import logging
 import json
 import uuid
@@ -18,6 +17,7 @@ from django.db.models import Count, Q, Sum
 from django_filters.rest_framework import DjangoFilterBackend
 from django.conf import settings
 
+from apps.config.encrypted_fields import secret_matches
 from apps.config.models import SystemSettings
 from apps.payments.models import Refund
 from apps.payments.serializers import (
@@ -53,9 +53,7 @@ class PayPalWebhookView(APIView):
         try:
             webhook_secret = request.headers.get('X-Webhook-Secret', '')
             expected_secret = SystemSettings.get_instance().sidebar_secret_token or ''
-            if not (webhook_secret and expected_secret
-                    and hmac.compare_digest(webhook_secret.encode('utf-8'),
-                                            expected_secret.encode('utf-8'))):
+            if not secret_matches(webhook_secret, expected_secret):
                 logger.warning("Rejected PayPal webhook: missing or invalid X-Webhook-Secret")
                 return Response({'error': 'Invalid webhook secret'},
                                 status=status.HTTP_401_UNAUTHORIZED)
@@ -235,7 +233,7 @@ class RefundViewSet(viewsets.ModelViewSet):
             # validate_claim_id resolves 'claim_id' to a Claim instance.
             claim=serializer.validated_data.get('claim_id'),
             amount=serializer.validated_data['amount'],
-            currency=serializer.validated_data.get('currency', 'USD'),
+            currency='USD',  # the business issues refunds in USD only
             refund_type=serializer.validated_data['refund_type'],
             reason=serializer.validated_data['reason'],
             user=request.user,
@@ -253,7 +251,6 @@ class RefundViewSet(viewsets.ModelViewSet):
         {
             "claim_id": 123,
             "amount": "50.00",
-            "currency": "USD",
             "refund_type": "FULL",
             "reason": "Customer request"
         }
