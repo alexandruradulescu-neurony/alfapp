@@ -178,6 +178,63 @@ def start_client_updates(claim) -> bool:
     return True
 
 
+def sync_cadence_for_status(claim, custom_status_id) -> None:
+    """Drive the client-update cadence off a Zendesk status change. Called by the
+    status-mirror webhook AFTER claim.status has been set to the new status, so it
+    compares claim.status (reproducing the old in-view compare against new_status).
+
+    When the claim first enters the configured submitted-status, draft the initial
+    "what we did" message (template-only — fast) and schedule the first follow-up.
+    Always, if the claim is now closed, stop the cadence. Side effects only; the
+    caller owns the broad try/except that makes this best-effort."""
+    from apps.config.models import SystemSettings
+    ss = SystemSettings.get_instance()
+    trigger_id = (ss.client_report_trigger_status_id or '').strip()
+    trigger_name = (ss.client_report_trigger_status or '').strip()
+    entered_trigger = (
+        (trigger_id and str(custom_status_id) == trigger_id)
+        or (not trigger_id and trigger_name and claim.status == trigger_name)
+    )
+    if (entered_trigger
+            and claim.client_report_sent_at is None and not claim.client_report_draft):
+        from apps.communications.client_report import build_client_update_message
+        claim.client_report_draft = build_client_update_message(claim, polish=False)
+        claim.save(update_fields=['client_report_draft', 'updated_at'])
+        schedule_next(claim, timezone.now())
+        logger.info("Client update drafted + first follow-up scheduled for claim #%s", claim.id)
+    # Stop the cadence when the claim is voided — solved, an open dispute, or an
+    # actual refund (claim_is_closed covers all three).
+    if claim_is_closed(claim):
+        cancel_open_follow_ups(claim)
+
+
+def regenerate_initial_update(claim) -> bool:
+    """Redraw the initial client update with POLISHED wording (the sidebar
+    Regenerate button). Always returns True. NB: polish=True here is deliberately
+    different from the template-only (polish=False) draft used by the auto-cadence
+    and start_client_updates — do not unify them."""
+    from apps.communications.client_report import build_client_update_message
+    claim.client_report_draft = build_client_update_message(claim, polish=True)
+    claim.save(update_fields=['client_report_draft', 'updated_at'])
+    return True
+
+
+def send_initial_update(claim, body) -> bool:
+    """Post the initial client update as a PUBLIC Zendesk reply and record it as
+    sent. Mirrors send_follow_up: returns False (writing no state) if the post
+    fails, True after recording sent. The post happens BEFORE the state save (same
+    accepted-risk ordering as send_follow_up). The caller owns the already-sent and
+    empty-body/no-ticket guards and all user-facing strings; `body` is the edited
+    body to send, saved verbatim (not regenerated)."""
+    from apps.integrations.services import post_zendesk_comment
+    if post_zendesk_comment(claim.zd_ticket_id, body, is_internal=False) is None:
+        return False
+    claim.client_report_draft = body
+    claim.client_report_sent_at = timezone.now()
+    claim.save(update_fields=['client_report_draft', 'client_report_sent_at', 'updated_at'])
+    return True
+
+
 def cancel_open_follow_ups(claim):
     """When a claim is solved/closed (or the item is found), stop chasing it —
     skip any not-yet-sent updates. Does NOT advance the cascade."""

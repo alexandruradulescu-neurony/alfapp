@@ -140,6 +140,89 @@ class RefundWebhookView(APIView):
             )
 
 
+def mirror_status_change(claim, custom_status_id) -> dict:
+    """Mirror a Zendesk custom-status change onto an existing claim and refresh
+    the stored AI summary. Returns a discriminated result dict (no DRF types, so
+    this is unit-testable without HTTP); the webhook view maps each outcome to a
+    Response:
+
+        {'outcome': 'no_status'}
+        {'outcome': 'unresolved', 'claim_id': ...}
+        {'outcome': 'no_change',  'claim_id': ..., 'status': ...}
+        {'outcome': 'updated',    'claim_id': ..., 'status': ...}
+
+    Load-bearing behaviour (must not change):
+    - same-status → no-op (idempotent under Zendesk retries)
+    - the timeline entry (llm_summary='') is written in the SAME atomic block as
+      the status save so a crash during the later AI call never leaves the claim
+      updated without a history entry
+    - the AI-summary back-fill runs AFTER the transaction and is deliberately NOT
+      wrapped in try/except, so a failure propagates to the caller (the webhook
+      returns 500 and Zendesk can retry)
+    - an unresolved custom-status id (resolver echoes the raw id) is dropped to
+      avoid overwriting a real status name with a number
+
+    Lives in this module (not services.py) on purpose: it references the
+    module-level resolve_custom_status / fetch_zendesk_ticket /
+    fetch_zendesk_comments / refresh_claim_summary names, which the webhook tests
+    patch at apps.integrations.views.webhooks.*.
+    """
+    if not custom_status_id:
+        return {'outcome': 'no_status'}
+
+    resolved = resolve_custom_status(custom_status_id)
+    new_status = resolved['name']
+
+    # Fix 4: never overwrite a real named status with a raw numeric id.
+    if new_status == str(custom_status_id) and not (claim.status or '').isdigit():
+        logger.warning(
+            "Claim #%s: custom status %s could not be resolved; keeping '%s'",
+            claim.id, custom_status_id, claim.status
+        )
+        return {'outcome': 'unresolved', 'claim_id': claim.id}
+
+    if new_status == claim.status:
+        return {'outcome': 'no_change', 'claim_id': claim.id, 'status': claim.status}
+
+    old_status = claim.status
+
+    # Fix 3: write the timeline entry in the same atomic block as the claim save
+    # so a crash during the subsequent AI call never leaves the status updated
+    # without a history entry.
+    with transaction.atomic():
+        claim.status = new_status
+        claim.status_category = resolved['category']
+        claim.status_changed_at = timezone.now()
+        claim.save(update_fields=['status', 'status_category', 'status_changed_at', 'updated_at'])
+        entry = ClaimUpdateTimeline.objects.create(
+            claim=claim,
+            zendesk_ticket_id=claim.zd_ticket_id or '',
+            update_type=TIMELINE_TYPE_STATUS_CHANGE,
+            changes_summary=json.dumps({'old_status': old_status, 'new_status': new_status}),
+            llm_summary='',
+        )
+    logger.info("Claim #%s status mirrored: '%s' -> '%s'", claim.id, old_status, new_status)
+
+    # Client-update cascade (draft initial message + schedule follow-ups on entry
+    # into the submitted status; stop the cadence on close). Best-effort: the
+    # broad except keeps a failure here from failing the status mirror, exactly as
+    # before. The cadence logic itself now lives in the communications service.
+    try:
+        from apps.communications.client_updates import sync_cadence_for_status
+        sync_cadence_for_status(claim, custom_status_id)
+    except Exception as e:
+        logger.error("Client-update handling failed for claim #%s: %s", claim.id, e)
+
+    ticket_data = fetch_zendesk_ticket(claim.zd_ticket_id)
+    if ticket_data:
+        ticket_data['comments'] = fetch_zendesk_comments(claim.zd_ticket_id)
+        if refresh_claim_summary(claim, ticket_data):
+            entry.llm_summary = claim.ai_summary
+            entry.save(update_fields=['llm_summary'])
+
+    return {'outcome': 'updated', 'claim_id': claim.id, 'status': new_status}
+
+
 class ZendeskClaimWebhookView(APIView):
     """
     Webhook endpoint for Zendesk custom-status changes (zen:event-type:ticket.custom_status_changed).
@@ -275,94 +358,21 @@ class ZendeskClaimWebhookView(APIView):
             )
 
     def _handle_status_change(self, claim, custom_status_id):
-        """Mirror a Zendesk custom-status change onto an existing claim and
-        refresh the stored AI summary.
-
-        - same-status → no-op (idempotent under Zendesk retries)
-        - timeline entry (llm_summary='') is written in the same atomic block as
-          the status save so a crash during the AI call never leaves the claim
-          updated without a history entry
-        - AI summary is best-effort: attempted after the transaction commits;
-          on success the entry is back-filled
-        - unresolved custom-status id (resolver returns the raw id as name) is
-          silently dropped to prevent overwriting a real status name with a number
-        """
-        if not custom_status_id:
+        """Thin HTTP wrapper: run the status mirror and map its result to a
+        Response. All the logic (and its transaction/ordering/back-fill
+        behaviour) lives in mirror_status_change(); this is wrapped by post()'s
+        outer try/except, so an exception in the AI back-fill still yields 500."""
+        result = mirror_status_change(claim, custom_status_id)
+        outcome = result['outcome']
+        if outcome == 'no_status':
             return Response({'message': 'Ignored: no custom status in payload'},
                             status=status.HTTP_200_OK)
-
-        resolved = resolve_custom_status(custom_status_id)
-        new_status = resolved['name']
-
-        # Fix 4: never overwrite a real named status with a raw numeric id.
-        if new_status == str(custom_status_id) and not (claim.status or '').isdigit():
-            logger.warning(
-                "Claim #%s: custom status %s could not be resolved; "
-                "keeping '%s'",
-                claim.id, custom_status_id, claim.status
-            )
+        if outcome == 'unresolved':
             return Response({'error': 'Custom status could not be resolved',
-                             'claim_id': claim.id}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-        if new_status == claim.status:
-            return Response({'message': 'No change', 'claim_id': claim.id,
-                             'status': claim.status}, status=status.HTTP_200_OK)
-
-        old_status = claim.status
-
-        # Fix 3: write the timeline entry in the same atomic block as the claim
-        # save so a crash during the subsequent AI call never leaves the status
-        # updated without a history entry.
-        with transaction.atomic():
-            claim.status = new_status
-            claim.status_category = resolved['category']
-            claim.status_changed_at = timezone.now()
-            claim.save(update_fields=['status', 'status_category', 'status_changed_at', 'updated_at'])
-            entry = ClaimUpdateTimeline.objects.create(
-                claim=claim,
-                zendesk_ticket_id=claim.zd_ticket_id or '',
-                update_type=TIMELINE_TYPE_STATUS_CHANGE,
-                changes_summary=json.dumps({'old_status': old_status, 'new_status': new_status}),
-                llm_summary='',
-            )
-        logger.info("Claim #%s status mirrored: '%s' -> '%s'", claim.id, old_status, new_status)
-
-        # Client updates: when the claim first enters the configured submitted-
-        # status, draft the initial "what we did" message (template-only here to
-        # keep the webhook fast) AND schedule the first follow-up (cascade — the
-        # rest are created as each one is sent). The trigger is matched by the
-        # Zendesk custom-status ID (names can be renamed/duplicated); the legacy
-        # name field is a fallback. When the claim closes/solves, stop the cadence.
-        try:
-            ss = SystemSettings.get_instance()
-            trigger_id = (ss.client_report_trigger_status_id or '').strip()
-            trigger_name = (ss.client_report_trigger_status or '').strip()
-            entered_trigger = (
-                (trigger_id and str(custom_status_id) == trigger_id)
-                or (not trigger_id and trigger_name and new_status == trigger_name)
-            )
-            if (entered_trigger
-                    and claim.client_report_sent_at is None and not claim.client_report_draft):
-                from apps.communications.client_report import build_client_update_message
-                from apps.communications.client_updates import schedule_next
-                claim.client_report_draft = build_client_update_message(claim, polish=False)
-                claim.save(update_fields=['client_report_draft', 'updated_at'])
-                schedule_next(claim, timezone.now())
-                logger.info("Client update drafted + first follow-up scheduled for claim #%s", claim.id)
-            # Stop the cadence when the claim is voided — solved, an open
-            # dispute, or an actual refund (claim_is_closed covers all three).
-            from apps.communications.client_updates import claim_is_closed, cancel_open_follow_ups
-            if claim_is_closed(claim):
-                cancel_open_follow_ups(claim)
-        except Exception as e:
-            logger.error("Client-update handling failed for claim #%s: %s", claim.id, e)
-
-        ticket_data = fetch_zendesk_ticket(claim.zd_ticket_id)
-        if ticket_data:
-            ticket_data['comments'] = fetch_zendesk_comments(claim.zd_ticket_id)
-            if refresh_claim_summary(claim, ticket_data):
-                entry.llm_summary = claim.ai_summary
-                entry.save(update_fields=['llm_summary'])
-
-        return Response({'message': 'Status updated', 'claim_id': claim.id,
-                         'status': new_status}, status=status.HTTP_200_OK)
+                             'claim_id': result['claim_id']},
+                            status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if outcome == 'no_change':
+            return Response({'message': 'No change', 'claim_id': result['claim_id'],
+                             'status': result['status']}, status=status.HTTP_200_OK)
+        return Response({'message': 'Status updated', 'claim_id': result['claim_id'],
+                         'status': result['status']}, status=status.HTTP_200_OK)
