@@ -69,4 +69,7 @@ class StageGatingActionTests(TestCase):
         # blocked before reaching PayPal; status unchanged
         d.refresh_from_db()
         self.assertEqual(d.status, 'DOCUMENTS_READY')
-        self.assertContains(resp, "isn't accepting")
+        # Verify the VIEW's own no-endpoint flash (not the template's standing banner).
+        msgs = [str(m) for m in resp.context['messages']]
+        self.assertTrue(any('accepting a submission' in m for m in msgs),
+                        f"expected the no-endpoint flash message; got {msgs}")

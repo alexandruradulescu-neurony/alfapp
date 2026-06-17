@@ -147,7 +147,44 @@ class SubmitToPayPalTests(_UITestBase):
         with patch.object(fv, 'submit_dispute_response') as submit:
             resp = self.web.post(reverse('disputes:dispute_submit_to_paypal', args=[d.id]), follow=True)
             submit.assert_not_called()
-        self.assertContains(resp, "isn't accepting a reply")  # composer note for a closed window
+        # Assert the VIEW's own flash message, not the template's standing banner:
+        # the view says "accepting a submission", the banner says "accepting a reply".
+        msgs = [str(m) for m in resp.context['messages']]
+        self.assertTrue(any('accepting a submission' in m for m in msgs),
+                        f"expected the no-endpoint flash message; got {msgs}")
+
+
+class RefreshFromPayPalTests(_UITestBase):
+    """The per-dispute "Refresh from PayPal" view: pulls the latest state (and the
+    buyer/PayPal messages the thread reads) on demand."""
+
+    def test_refresh_calls_sync_and_flashes_success(self):
+        d = _dispute(paypal_dispute_id='PP-D-REF1')
+        with patch('apps.payments.paypal_disputes_service.sync_dispute_from_paypal') as sync:
+            resp = self.web.post(reverse('disputes:dispute_refresh_from_paypal', args=[d.id]), follow=True)
+            sync.assert_called_once_with('PP-D-REF1')
+        self.assertEqual(resp.status_code, 200)
+        msgs = [str(m) for m in resp.context['messages']]
+        self.assertTrue(any('Refreshed from PayPal' in m for m in msgs), msgs)
+
+    def test_refresh_skips_manual_disputes(self):
+        # Manually-created (MANUAL-*) disputes have no real PayPal case — the guard
+        # must skip the API call (else it would 404 against a synthetic id).
+        d = _dispute(paypal_dispute_id='MANUAL-5-1700000000')
+        with patch('apps.payments.paypal_disputes_service.sync_dispute_from_paypal') as sync:
+            resp = self.web.post(reverse('disputes:dispute_refresh_from_paypal', args=[d.id]), follow=True)
+            sync.assert_not_called()
+        msgs = [str(m) for m in resp.context['messages']]
+        self.assertTrue(any('nothing to refresh' in m.lower() for m in msgs), msgs)
+
+    def test_refresh_handles_service_error_without_500(self):
+        d = _dispute(paypal_dispute_id='PP-D-REF2')
+        with patch('apps.payments.paypal_disputes_service.sync_dispute_from_paypal',
+                   side_effect=RuntimeError('PayPal unreachable')):
+            resp = self.web.post(reverse('disputes:dispute_refresh_from_paypal', args=[d.id]), follow=True)
+        self.assertEqual(resp.status_code, 200)  # error is caught, not a 500
+        msgs = [str(m) for m in resp.context['messages']]
+        self.assertTrue(any("couldn't refresh" in m.lower() for m in msgs), msgs)
 
 
 class DeleteImageTests(_UITestBase):

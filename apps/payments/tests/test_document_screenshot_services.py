@@ -478,6 +478,17 @@ class TestRegenerateDocument:
             assert new_doc.version == 2
 
     @pytest.mark.django_db
+    def test_regenerate_refuses_legacy_response_letter(self, complete_dispute_setup):
+        """A legacy RESPONSE_LETTER row is no longer regenerated (the response
+        letter was dropped) — regenerate_document refuses it and returns None
+        rather than producing a wrong-typed evidence report."""
+        dispute = complete_dispute_setup['dispute']
+        doc = DisputeDocument.objects.create(
+            dispute=dispute, doc_type='RESPONSE_LETTER', status='DRAFT',
+            generated_by='AI', content_html='legacy letter', version=1)
+        assert regenerate_document(doc.id) is None
+
+    @pytest.mark.django_db
     def test_regenerate_document_not_found(self):
         """Test when document does not exist."""
         result = regenerate_document(99999)
