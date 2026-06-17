@@ -16,6 +16,13 @@ RISK_REASON_CHOICES = [
     'hostile_language', 'refund_demanded', 'dispute_risk',
     'status_regression', 'negative_sentiment',
 ]
+RISK_REASON_LABELS = {
+    'hostile_language': 'Hostile language',
+    'refund_demanded': 'Refund demanded',
+    'dispute_risk': 'Dispute/chargeback risk',
+    'status_regression': 'Status reopened',
+    'negative_sentiment': 'Negative sentiment',
+}
 
 
 class Claim(models.Model):
@@ -278,6 +285,11 @@ class Claim(models.Model):
     def risk_active(self) -> bool:
         """A raised risk that no one has acknowledged yet — what the badge/filter show."""
         return self.risk_level != 'none' and self.risk_acknowledged_at is None
+
+    @property
+    def risk_reason_labels(self) -> list:
+        """Human-readable labels for risk_reasons (raw tags -> display strings)."""
+        return [RISK_REASON_LABELS.get(r, r) for r in (self.risk_reasons or [])]
 
     def register_risk(self, *, reasons, level, detail=''):
         """Sticky-merge a risk signal. Only ADDS reasons (union) and RAISES level —

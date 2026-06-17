@@ -54,7 +54,7 @@
       <h3 class="font-semibold text-error flex items-center gap-2">⚠ Client risk flag</h3>
       <p class="mt-1 text-sm">{{ claim.risk_detail }}</p>
       <p class="mt-1 text-xs opacity-70">
-        Reasons: {{ claim.risk_reasons|join:", " }}
+        Reasons: {{ claim.risk_reason_labels|join:", " }}
         · first flagged {{ claim.risk_first_flagged_at|date:"M j, Y H:i" }}
       </p>
     </div>

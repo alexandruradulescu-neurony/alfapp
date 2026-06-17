@@ -88,3 +88,30 @@ class RiskBannerTests(TestCase):
         self.claim.acknowledge_risk(self.user)
         resp = self.client.get(reverse('agent_claim_detail', args=[self.claim.id]))
         self.assertNotContains(resp, 'Acknowledge')
+
+    def test_banner_shows_human_reason_labels(self):
+        self.claim.register_risk(reasons=['status_regression'], level='at_risk', detail='Reopened')
+        resp = self.client.get(reverse('agent_claim_detail', args=[self.claim.id]))
+        self.assertContains(resp, 'Status reopened')
+        self.assertNotContains(resp, 'status_regression')
+
+
+class RiskBadgeSeverityTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='sev', password='x')
+        self.client.force_login(self.user)
+
+    def test_watch_level_shows_watch_pill_not_at_risk(self):
+        c = Claim.objects.create(client_email='w@example.com', zd_ticket_id='90500',
+                                 alf_claim_id='ALF9050000', client_name='Watchful')
+        c.register_risk(reasons=['negative_sentiment'], level='watch', detail='mild')
+        resp = self.client.get(reverse('agent_claims'))
+        self.assertContains(resp, '⚠ Watch')
+        self.assertNotContains(resp, '⚠ At risk')
+
+    def test_at_risk_shows_at_risk_pill(self):
+        c = Claim.objects.create(client_email='r2@example.com', zd_ticket_id='90501',
+                                 alf_claim_id='ALF9050100', client_name='Risky')
+        c.register_risk(reasons=['refund_demanded'], level='at_risk', detail='refund')
+        resp = self.client.get(reverse('agent_claims'))
+        self.assertContains(resp, '⚠ At risk')

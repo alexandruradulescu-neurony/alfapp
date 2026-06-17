@@ -205,7 +205,11 @@
                             {{ claim.status }}
                         </span>
                         {% if claim.risk_active %}
-                        <span class="badge badge-error gap-1" title="{{ claim.risk_reasons|join:', ' }} — {{ claim.risk_detail }}">⚠ At risk</span>
+                        {% if claim.risk_level == 'at_risk' %}
+                        <span class="badge badge-error gap-1" title="{{ claim.risk_reason_labels|join:', ' }} — {{ claim.risk_detail }}">⚠ At risk</span>
+                        {% else %}
+                        <span class="badge badge-warning gap-1" title="{{ claim.risk_reason_labels|join:', ' }} — {{ claim.risk_detail }}">⚠ Watch</span>
+                        {% endif %}
                         {% endif %}
                         {% if claim.days_in_status is not None and claim.status_category != 'solved' %}
                         <div class="text-xs mt-1 {% if claim.stuck %}text-error font-semibold{% else %}text-base-content/40{% endif %}"

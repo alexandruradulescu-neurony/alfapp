@@ -106,7 +106,11 @@
                             {{ claim.status }}
                         </span>
                         {% if claim.risk_active %}
-                        <span class="badge badge-error gap-1" title="{{ claim.risk_reasons|join:', ' }} — {{ claim.risk_detail }}">⚠ At risk</span>
+                        {% if claim.risk_level == 'at_risk' %}
+                        <span class="badge badge-error gap-1" title="{{ claim.risk_reason_labels|join:', ' }} — {{ claim.risk_detail }}">⚠ At risk</span>
+                        {% else %}
+                        <span class="badge badge-warning gap-1" title="{{ claim.risk_reason_labels|join:', ' }} — {{ claim.risk_detail }}">⚠ Watch</span>
+                        {% endif %}
                         {% endif %}
                     </td>
                     <td class="text-base-content/60">{{ claim.zd_ticket_id|default:"-" }}</td>

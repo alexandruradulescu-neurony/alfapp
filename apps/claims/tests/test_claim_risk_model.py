@@ -75,3 +75,15 @@ class AcknowledgeRiskTests(TestCase):
         c.refresh_from_db()
         self.assertTrue(c.risk_active)
         self.assertIsNone(c.risk_acknowledged_at)
+
+
+class RiskReasonLabelsTests(TestCase):
+    def test_labels_are_human_readable(self):
+        c = _claim()
+        c.register_risk(reasons=['refund_demanded', 'status_regression'], level='at_risk', detail='d')
+        self.assertEqual(c.risk_reason_labels, ['Refund demanded', 'Status reopened'])
+
+    def test_unknown_tag_passes_through(self):
+        c = _claim()
+        c.risk_reasons = ['mystery']
+        self.assertEqual(c.risk_reason_labels, ['mystery'])
