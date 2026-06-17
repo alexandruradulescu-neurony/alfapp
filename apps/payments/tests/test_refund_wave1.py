@@ -134,23 +134,23 @@ class RefundWebhookViewTests(TestCase):
     def test_missing_currency_does_not_500(self):
         body = self._payload()
         del body['currency']
-        with patch('apps.integrations.views.tag_zendesk_ticket_as_refunded') as tag, \
-             patch('apps.integrations.views.add_refund_comment_to_zendesk'):
+        with patch('apps.integrations.views.webhooks.tag_zendesk_ticket_as_refunded') as tag, \
+             patch('apps.integrations.views.webhooks.add_refund_comment_to_zendesk'):
             resp = self.api.post(self.URL, body, format='json', **self.auth)
         self.assertEqual(resp.status_code, 200)
         tag.assert_called_once()
 
     def test_side_effects_skip_on_replay(self):
-        with patch('apps.integrations.views.tag_zendesk_ticket_as_refunded') as tag, \
-             patch('apps.integrations.views.add_refund_comment_to_zendesk') as note:
+        with patch('apps.integrations.views.webhooks.tag_zendesk_ticket_as_refunded') as tag, \
+             patch('apps.integrations.views.webhooks.add_refund_comment_to_zendesk') as note:
             self.api.post(self.URL, self._payload(), format='json', **self.auth)
             self.api.post(self.URL, self._payload(), format='json', **self.auth)
         self.assertEqual(tag.call_count, 1)   # not re-fired on the retry
         self.assertEqual(note.call_count, 1)
 
     def test_tags_claims_own_ticket_not_payload(self):
-        with patch('apps.integrations.views.tag_zendesk_ticket_as_refunded') as tag, \
-             patch('apps.integrations.views.add_refund_comment_to_zendesk'):
+        with patch('apps.integrations.views.webhooks.tag_zendesk_ticket_as_refunded') as tag, \
+             patch('apps.integrations.views.webhooks.add_refund_comment_to_zendesk'):
             self.api.post(self.URL, self._payload(zd_ticket_id='99999'),
                           format='json', **self.auth)
         tag.assert_called_once_with('70999')  # claim.zd_ticket_id wins
