@@ -159,10 +159,9 @@
                 {% endif %}
             </div>
             {% if reply_timeline %}
+            {# Single-column case log: one card per turn, colour-accented by speaker (team=indigo, buyer=amber, PayPal=blue). #}
             <div class="space-y-3">
                 {% for e in reply_timeline %}
-                {# Single-column case log: one card per turn, colour-accented by who
-                   spoke (your team = indigo, the buyer = amber, PayPal = blue). #}
                 <div class="rounded-xl border border-base-200 bg-base-100 p-4 border-l-4
                             {% if e.actor == 'PayPal' %}border-l-info{% elif e.actor == 'Buyer' %}border-l-warning{% else %}border-l-primary{% endif %}">
                     <div class="flex items-start gap-3">

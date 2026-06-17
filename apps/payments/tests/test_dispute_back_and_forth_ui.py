@@ -72,6 +72,9 @@ class DetailRenderTests(_UITestBase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Your reply to PayPal')        # the unified composer
         self.assertContains(resp, 'Conversation with PayPal')    # the thread
+        # A multi-line {# #} once leaked into the page; templating comments must
+        # never render as visible text.
+        self.assertNotContains(resp, 'Single-column case log')
 
 
 class PrepareSubmissionTests(_UITestBase):
