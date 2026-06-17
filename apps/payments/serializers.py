@@ -70,7 +70,9 @@ class RefundCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Refund
         fields = [
-            'claim_id', 'amount', 'currency', 'refund_type', 'reason',
+            # No 'currency': the business issues refunds in USD only, so the
+            # client cannot choose one (the view records 'USD' unconditionally).
+            'claim_id', 'amount', 'refund_type', 'reason',
         ]
     
     def validate_claim_id(self, value):

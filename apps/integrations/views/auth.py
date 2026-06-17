@@ -5,7 +5,6 @@ import it without importing the views package itself and creating a circular
 import. Behaviour is unchanged.
 """
 
-import hmac
 import logging
 from typing import Optional
 
@@ -13,6 +12,7 @@ from django.core.cache import cache
 from rest_framework.response import Response
 from rest_framework import status
 
+from apps.config.encrypted_fields import secret_matches
 from apps.config.models import SystemSettings
 from apps.core.utils import get_client_ip
 
@@ -24,9 +24,7 @@ def verify_webhook_secret(request, *, context: str = 'webhook') -> Optional[Resp
     `context` only labels the rejection log line (e.g. 'refund webhook')."""
     webhook_secret = request.headers.get('X-Webhook-Secret', '')
     expected_secret = SystemSettings.get_instance().sidebar_secret_token or ''
-    if not (webhook_secret and expected_secret
-            and hmac.compare_digest(webhook_secret.encode('utf-8'),
-                                    expected_secret.encode('utf-8'))):
+    if not secret_matches(webhook_secret, expected_secret):
         logger.warning("Rejected %s: missing or invalid X-Webhook-Secret", context)
         return Response({'error': 'Invalid webhook secret'},
                         status=status.HTTP_401_UNAUTHORIZED)
@@ -77,7 +75,8 @@ class ZendeskSidebarAuth:
         """
         Check if the Authorization header matches the sidebar secret token.
         Returns True if authenticated, False otherwise.
-        Uses hmac.compare_digest for constant-time comparison.
+        Delegates to secret_matches: a constant-time comparison that also fails
+        closed when the stored token could not be decrypted (the sentinel).
         """
         auth_header = request.headers.get('Authorization', '')
 
@@ -99,8 +98,6 @@ class ZendeskSidebarAuth:
         else:
             provided_token = auth_header
 
-        # Use constant-time comparison to prevent timing attacks
-        return hmac.compare_digest(
-            provided_token.encode('utf-8'),
-            expected_token.encode('utf-8')
-        )
+        # Constant-time comparison (timing-attack safe) that also fails closed
+        # when the stored token could not be decrypted (the sentinel).
+        return secret_matches(provided_token, expected_token)
