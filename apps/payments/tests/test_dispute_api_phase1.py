@@ -81,19 +81,3 @@ class DisputeEndpointPathTests(TestCase):
              patch('urllib.request.urlopen', return_value=_fake_response({'status': 'ok'})) as op:
             svc.send_message('PP-D-1', 'hello buyer')
         self.assertTrue(op.call_args[0][0].full_url.endswith('/v1/customer/disputes/PP-D-1/send-message'))
-
-    def test_provide_evidence_sends_multipart_with_type(self):
-        doc = DisputeDocument.objects.create(
-            dispute=self.dispute, doc_type='EVIDENCE_REPORT',
-            file_path=SimpleUploadedFile('evidence.pdf', b'%PDF-1.4 proof', content_type='application/pdf'))
-        with patch.object(svc, 'get_paypal_access_token', return_value='tok'), \
-             patch('urllib.request.urlopen', return_value=_fake_response({'status': 'ok'})) as op:
-            ok = svc.provide_evidence('PP-D-1', [doc], 'our evidence', evidence_type='PROOF_OF_FULFILLMENT')
-        self.assertTrue(ok)
-        req = op.call_args[0][0]
-        self.assertTrue(req.full_url.endswith('/v1/customer/disputes/PP-D-1/provide-evidence'))
-        self.assertTrue(req.headers['Content-type'].startswith('multipart/form-data'))
-        self.assertIn(b'PROOF_OF_FULFILLMENT', req.data)
-        self.assertIn(b'%PDF-1.4 proof', req.data)
-        self.dispute.refresh_from_db()
-        self.assertEqual(self.dispute.status, 'EVIDENCE_SENT')

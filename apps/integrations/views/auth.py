@@ -7,6 +7,7 @@ import. Behaviour is unchanged.
 
 import hmac
 import logging
+from typing import Optional
 
 from django.core.cache import cache
 from rest_framework.response import Response
@@ -16,6 +17,20 @@ from apps.config.models import SystemSettings
 from apps.core.utils import get_client_ip
 
 logger = logging.getLogger(__name__)
+
+
+def verify_webhook_secret(request, *, context: str = 'webhook') -> Optional[Response]:
+    """Return a 401 Response if the X-Webhook-Secret header is missing/invalid, else None.
+    `context` only labels the rejection log line (e.g. 'refund webhook')."""
+    webhook_secret = request.headers.get('X-Webhook-Secret', '')
+    expected_secret = SystemSettings.get_instance().sidebar_secret_token or ''
+    if not (webhook_secret and expected_secret
+            and hmac.compare_digest(webhook_secret.encode('utf-8'),
+                                    expected_secret.encode('utf-8'))):
+        logger.warning("Rejected %s: missing or invalid X-Webhook-Secret", context)
+        return Response({'error': 'Invalid webhook secret'},
+                        status=status.HTTP_401_UNAUTHORIZED)
+    return None
 
 
 class ZendeskSidebarAuth:
