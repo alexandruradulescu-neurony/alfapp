@@ -1073,6 +1073,18 @@ def manager_users(request):
     return render(request, 'manager/users.html', {'users': users})
 
 
+@agent_required
+def claim_acknowledge_risk(request, claim_id):
+    """Acknowledge a claim's risk flag (clears the active badge). POST-only."""
+    claim = get_object_or_404(Claim, id=claim_id)
+    if request.method != 'POST':
+        return redirect('agent_claim_detail', claim_id=claim_id)
+    if claim.risk_active:
+        claim.acknowledge_risk(request.user)
+        messages.success(request, 'Risk flag acknowledged.')
+    return redirect('agent_claim_detail', claim_id=claim_id)
+
+
 @manager_required
 def test_ai(request):
     """Test AI connection and configuration.
