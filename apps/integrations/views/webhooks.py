@@ -7,7 +7,6 @@ intentionally NOT yet extracted into a service — that is a separate, higher-ri
 change deferred for later.
 """
 
-import hmac
 import json
 import logging
 
@@ -20,7 +19,6 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny
 
 from apps.claims.models import Claim, ClaimUpdateTimeline
-from apps.config.models import SystemSettings
 from apps.payments.refund_service import RefundService
 from apps.integrations.services import (
     tag_zendesk_ticket_as_refunded,
@@ -30,6 +28,7 @@ from apps.integrations.services import (
     resolve_custom_status,
 )
 from apps.integrations.briefing import refresh_claim_summary
+from apps.integrations.views.auth import verify_webhook_secret
 
 logger = logging.getLogger(__name__)
 
@@ -72,14 +71,9 @@ class RefundWebhookView(APIView):
         try:
             # Auth is mandatory: a webhook without the correct shared secret
             # is rejected before the body is parsed.
-            webhook_secret = request.headers.get('X-Webhook-Secret', '')
-            expected_secret = SystemSettings.get_instance().sidebar_secret_token or ''
-            if not (webhook_secret and expected_secret
-                    and hmac.compare_digest(webhook_secret.encode('utf-8'),
-                                            expected_secret.encode('utf-8'))):
-                logger.warning("Rejected refund webhook: missing or invalid X-Webhook-Secret")
-                return Response({'error': 'Invalid webhook secret'},
-                                status=status.HTTP_401_UNAUTHORIZED)
+            secret_error = verify_webhook_secret(request, context='refund webhook')
+            if secret_error:
+                return secret_error
 
             data = request.data
 
@@ -261,14 +255,9 @@ class ZendeskClaimWebhookView(APIView):
         try:
             # Auth is mandatory: a webhook without the correct shared secret
             # is rejected before the body is parsed or anything is logged.
-            webhook_secret = request.headers.get('X-Webhook-Secret', '')
-            expected_secret = SystemSettings.get_instance().sidebar_secret_token or ''
-            if not (webhook_secret and expected_secret
-                    and hmac.compare_digest(webhook_secret.encode('utf-8'),
-                                            expected_secret.encode('utf-8'))):
-                logger.warning("Rejected Zendesk webhook: missing or invalid X-Webhook-Secret")
-                return Response({'error': 'Invalid webhook secret'},
-                                status=status.HTTP_401_UNAUTHORIZED)
+            secret_error = verify_webhook_secret(request, context='Zendesk webhook')
+            if secret_error:
+                return secret_error
 
             data = request.data
             event_data = data.get('event', {})

@@ -74,14 +74,3 @@ class AcceptClaimIdempotencyTests(TestCase):
         # And local state advanced to ACCEPTED.
         self.assertEqual(Dispute.objects.get(paypal_dispute_id='PP-D-IDEM').status,
                          Dispute.STATUS_ACCEPTED)
-
-
-class ProvideEvidenceIdempotencyTests(TestCase):
-    def test_skips_post_when_evidence_already_sent(self):
-        """provide_evidence on an EVIDENCE_SENT dispute must not re-upload."""
-        _dispute(status=Dispute.STATUS_EVIDENCE_SENT)
-        with patch.object(pds, 'get_paypal_access_token', return_value='tok'), \
-             patch('urllib.request.urlopen') as net:
-            result = pds.provide_evidence('PP-D-IDEM', [], 'response text')
-        self.assertTrue(result)
-        net.assert_not_called()

@@ -1229,11 +1229,17 @@ def build_claim_facts(claim: 'Claim') -> dict:
       only — the authoritative schedule lives in apps.communications.client_updates;
       the offsets come from the shared constants so the two never diverge."""
     from datetime import timedelta
+    from django.db.models import Count, Q
     from django.utils import timezone
     from apps.payments.models import Dispute
     from apps.communications.constants import EARLY_UPDATE_OFFSETS
 
-    emails = claim.emails.all()
+    # Total + unresolved (action_required=True AND auto_resolved=False) in a
+    # single aggregation pass instead of two separate COUNT round-trips.
+    email_counts = claim.emails.aggregate(
+        total=Count('id'),
+        unresolved=Count('id', filter=Q(action_required=True, auto_resolved=False)),
+    )
 
     next_update_due = None
     if claim.status_category != 'solved':
@@ -1255,8 +1261,8 @@ def build_claim_facts(claim: 'Claim') -> dict:
         'status': claim.status,
         'status_family': claim.status_category,
         'deadline': deadline,
-        'emails_total': emails.count(),
-        'emails_unresolved': emails.filter(action_required=True, auto_resolved=False).count(),
+        'emails_total': email_counts['total'],
+        'emails_unresolved': email_counts['unresolved'],
         'disputes_total': Dispute.objects.filter(claim=claim).count(),
         'next_update_due': next_update_due,
     }

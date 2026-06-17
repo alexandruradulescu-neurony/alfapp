@@ -75,6 +75,80 @@ CLIENT_SAFE_REPLY_CATEGORIES = {
 }
 
 
+# --- View-facing API (action routing + timeline payload) ---------------------
+
+def apply_update_action(claim, *, action, kind, body, update_id) -> str:
+    """Route a client-update action (start / prepare / send / skip) across the
+    initial message and the follow-up cadence, applying the guards and returning
+    the human-readable result string. Takes already-parsed params (no DRF
+    dependency); delegates the work to the cadence primitives in this module."""
+    from apps.communications import client_updates as cu
+
+    if action == 'start':
+        return ('Client updates started — the initial draft is ready and follow-ups scheduled.'
+                if cu.start_client_updates(claim) else 'Updates already started for this claim.')
+
+    if kind == 'initial':
+        if action == 'prepare':
+            cu.regenerate_initial_update(claim)
+            return 'Initial update regenerated.'
+        if action == 'send':
+            if claim.client_report_sent_at:
+                return 'The initial update was already sent.'
+            if not body or not claim.zd_ticket_id:
+                return 'Nothing to send.'
+            return ('Initial update sent as a public reply.'
+                    if cu.send_initial_update(claim, body)
+                    else 'Could not post the reply to Zendesk.')
+        return ''
+
+    # follow-up
+    update = claim.follow_up_updates.filter(id=update_id).first()
+    if not update:
+        return 'Update not found.'
+    if action == 'prepare':
+        cu.prepare_follow_up(update)
+        return f'{update.label} update drafted.'
+    if action == 'skip':
+        cu.skip_follow_up(update)
+        return f'{update.label} update skipped.'
+    if action == 'send':
+        if update.state == 'SENT':
+            return 'That update was already sent.'
+        if cu.send_follow_up(update, body):
+            return f'{update.label} update sent as a public reply.'
+        return 'Could not post the reply to Zendesk.'
+    return ''
+
+
+def build_client_update_timeline(claim) -> dict:
+    """Build the sidebar timeline payload: the initial update (if drafted/sent)
+    followed by the scheduled/drafted/sent follow-ups, in due order."""
+    from django.utils import timezone
+    now = timezone.now()
+    items = []
+    if claim.client_report_draft or claim.client_report_sent_at:
+        items.append({
+            'kind': 'initial', 'label': 'Initial update', 'due_label': 'On submission',
+            'state': 'sent' if claim.client_report_sent_at else 'drafted',
+            'body': claim.client_report_draft,
+            'has_news': True,
+            'sent_at': claim.client_report_sent_at.isoformat() if claim.client_report_sent_at else None,
+            'can_send': bool(claim.zd_ticket_id),
+        })
+    for fu in claim.follow_up_updates.all().order_by('due_at'):
+        items.append({
+            'kind': 'followup', 'id': fu.id, 'label': fu.label,
+            'milestone': fu.milestone, 'state': fu.state.lower(),
+            'due_at': fu.due_at.isoformat(),
+            'is_due': fu.state == 'SCHEDULED' and fu.due_at <= now,
+            'has_news': fu.has_news, 'body': fu.draft_body,
+            'sent_at': fu.sent_at.isoformat() if fu.sent_at else None,
+            'can_send': bool(claim.zd_ticket_id),
+        })
+    return {'claim': True, 'alf_id': claim.alf_claim_id or '', 'items': items}
+
+
 # --- Service length ----------------------------------------------------------
 
 def _service_length_days() -> int:
