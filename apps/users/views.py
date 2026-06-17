@@ -27,8 +27,9 @@ from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.decorators import login_required
 from apps.users.forms import StaffUserCreationForm
 from django.contrib import messages
+from django.core.paginator import Paginator
 from django.db import models
-from django.db.models import Count, F, Q
+from django.db.models import Case, Count, F, IntegerField, Q, When
 from django.utils import timezone
 from datetime import timedelta
 from django.utils.text import get_valid_filename
@@ -169,7 +170,6 @@ def agent_dashboard(request):
     ).distinct().count()
 
     # Consolidate email stats into single aggregate query
-    from django.db.models import Case, When, IntegerField
     email_stats = EmailLog.objects.aggregate(
         total=Count('id'),
         requiring_attention=Count(Case(
@@ -188,7 +188,7 @@ def agent_dashboard(request):
     ).order_by('-count')
 
     # Recent claims
-    recent_claims = Claim.objects.select_related('assigned_to').prefetch_related('evidence')[:10]
+    recent_claims = Claim.objects.select_related('assigned_to')[:10]
 
     # Recent emails
     recent_emails = EmailLog.objects.select_related('claim').order_by('-received_at')[:10]
@@ -241,7 +241,6 @@ def agent_claims(request):
         )
     
     # Pagination
-    from django.core.paginator import Paginator
     paginator = Paginator(claims, LIST_PAGE_SIZE)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
@@ -581,8 +580,6 @@ def agent_emails(request):
     Search by: subject, from_email
     Pagination: 20 emails per page
     """
-    from django.core.paginator import Paginator
-
     # Base queryset — defer heavy text fields not needed in list view
     emails = EmailLog.objects.select_related('claim').defer(
         'body', 'raw_headers', 'ai_summary'
@@ -669,11 +666,7 @@ def manager_dashboard(request):
 
     Optimized: Uses single query with annotations instead of 5 separate queries.
     """
-    from django.db.models import Case, When, IntegerField, Q
-
     # Get all stats in a single query using annotations
-    from django.db.models import Count
-
     stats = Claim.objects.aggregate(
         total=Count('id'),
         active=Count(Case(When(~Q(status_category='solved'), then=1),
@@ -767,8 +760,6 @@ def manager_claims(request):
     institution emails waiting on a human. Solved/closed cases are hidden
     by default ('Active'); headline counters always reflect the whole book.
     """
-    from django.core.paginator import Paginator
-
     from django.db.models.functions import Cast, Coalesce
 
     now = timezone.now()
@@ -955,11 +946,10 @@ def manager_refunds(request):
     }
 
     # Pagination
-    from django.core.paginator import Paginator
     paginator = Paginator(refunds, LIST_PAGE_SIZE)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
-    
+
     zd_subdomain = SystemSettings.get_instance().zd_subdomain
     context = {
         'page_obj': page_obj,

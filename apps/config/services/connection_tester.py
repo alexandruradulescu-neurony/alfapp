@@ -1,7 +1,7 @@
 import imaplib
 import logging
 from datetime import timedelta
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from urllib.parse import urlparse
 from django.utils import timezone
 import requests
@@ -266,7 +266,7 @@ class ConnectionTester:
         status: str,
         success: bool = True,
         message: str = '',
-        metadata: Dict[str, Any] = None
+        metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Update service status in database and return result."""
         # Single-statement upsert avoids an unguarded read-modify-write of the

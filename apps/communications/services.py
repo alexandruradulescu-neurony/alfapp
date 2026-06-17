@@ -366,7 +366,6 @@ def call_qwen_ai_for_ticket_extraction(
     """
     from apps.ai.client import AIClient
     from apps.ai.schemas import TicketExtraction
-    from apps.ai.exceptions import AIResponseValidationError
 
     try:
         result = AIClient.complete(
@@ -592,7 +591,6 @@ def process_single_email(
     uid: str,
     msg_data: bytes,
     ai_prompt: str,
-    email_domain: str,
 ) -> Optional[EmailLog]:
     """
     Process a single email message with alias-based matching and AI categorization.
@@ -602,7 +600,6 @@ def process_single_email(
         uid: Email UID
         msg_data: Raw email data
         ai_prompt: AI analysis prompt template
-        email_domain: Configured email domain for alias matching
 
     Returns:
         The created EmailLog or None if skipped
@@ -778,24 +775,6 @@ def process_single_email(
 
         return email_log
 
-    except AIResponseValidationError as e:
-        # LLM output failed schema validation — flag for manual review
-        # using EmailLog's existing `action_required` field (the project
-        # does not have a separate llm_extraction_failed field on EmailLog;
-        # that flag lives on Claim only).
-        logger.warning(
-            f"AI extraction failed for email UID {uid}: {e}. Flagged for manual review."
-        )
-        email_log = EmailLog.objects.create(
-            subject=(subject if 'subject' in locals() else f'[Extraction failed UID {uid}]')[:500],
-            body=body if 'body' in locals() else '',
-            category=EmailLog.CATEGORY_UNKNOWN,
-            action_required=True,  # signals manual review
-            auto_resolved=False,
-            message_id=message_id if 'message_id' in locals() else '',
-            # All other EmailLog fields have model-level defaults
-        )
-        return email_log
     except IntegrityError:
         # A concurrent sweep inserted the same Message-ID first (unique constraint).
         # That's a clean dedup, not an error — skip rather than report a failure.
@@ -917,7 +896,6 @@ def process_incoming_emails() -> Dict[str, Any]:
                     uid_str,
                     msg_data[0][1],
                     ai_prompt,
-                    email_domain,
                 )
 
                 if result:

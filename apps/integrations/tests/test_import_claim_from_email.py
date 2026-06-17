@@ -145,7 +145,7 @@ class TestEmailPathImportWiring:
             mock_ss.get_instance.return_value.import_claims_from_email = flag_on
             result = process_single_email(
                 imap_conn=Mock(), uid='1', msg_data=b'raw',
-                ai_prompt='P', email_domain='mydomain.com')
+                ai_prompt='P')
         return result, mock_import
 
     def test_imports_when_flag_on(self):

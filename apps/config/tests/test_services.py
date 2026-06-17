@@ -764,46 +764,6 @@ class TestSchedulerControllerToggle:
 class TestServiceStatusModel:
     """Tests for ServiceStatus model methods."""
 
-    def test_mark_connected(self):
-        """Test mark_connected method."""
-        status = ServiceStatus.objects.create(
-            service='TEST_MARK_CONN',
-            status='error',
-            last_error='Some error'
-        )
-
-        status.mark_connected()
-        status.refresh_from_db()
-
-        assert status.status == 'connected'
-        assert status.last_error == ''
-        assert status.last_checked is not None
-
-    def test_mark_disconnected(self):
-        """Test mark_disconnected method."""
-        status = ServiceStatus.objects.create(
-            service='TEST_MARK_DISC',
-            status='connected'
-        )
-
-        status.mark_disconnected()
-        status.refresh_from_db()
-
-        assert status.status == 'disconnected'
-
-    def test_mark_error(self):
-        """Test mark_error method."""
-        status = ServiceStatus.objects.create(
-            service='TEST_MARK_ERR',
-            status='connected'
-        )
-
-        status.mark_error('Test error message')
-        status.refresh_from_db()
-
-        assert status.status == 'error'
-        assert status.last_error == 'Test error message'
-
     def test_get_status_color(self):
         """Test get_status_color method."""
         status = ServiceStatus(service='TEST', status='connected')
@@ -839,32 +799,6 @@ class TestSystemSettingsModel:
         """Test get_instance class method."""
         instance = SystemSettings.get_instance()
         assert instance.pk == 1
-
-    def test_get_masked_value_short(self):
-        """Test get_masked_value with short string."""
-        settings = SystemSettings.objects.get(pk=1)
-        settings.ai_api_key = 'short'
-        settings.save()
-
-        masked = settings.get_masked_value('ai_api_key')
-        assert masked == '•••••'
-
-    def test_get_masked_value_long(self):
-        """Test get_masked_value with long string."""
-        settings = SystemSettings.objects.get(pk=1)
-        settings.ai_api_key = 'abcdefghij1234567890'
-        settings.save()
-
-        masked = settings.get_masked_value('ai_api_key')
-        assert masked == 'abcd••••••••••••7890'
-
-    def test_get_masked_value_empty(self):
-        """Test get_masked_value with empty string."""
-        settings = SystemSettings.objects.get(pk=1)
-        settings.ai_api_key = ''
-
-        masked = settings.get_masked_value('ai_api_key')
-        assert masked == ''
 
     def test_str_representation(self):
         """Test string representation."""

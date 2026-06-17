@@ -511,7 +511,6 @@ class TestProcessSingleEmail:
             uid="123",
             msg_data=b"fake email data",
             ai_prompt="Test prompt",
-            email_domain="mydomain.com",
         )
 
         assert result is not None
@@ -555,7 +554,6 @@ class TestProcessSingleEmail:
             uid="123",
             msg_data=b"fake data",
             ai_prompt="Test",
-            email_domain="mydomain.com",
         )
 
         assert result is not None
@@ -574,7 +572,6 @@ class TestProcessSingleEmail:
             uid="123",
             msg_data=b"fake data",
             ai_prompt="Test",
-            email_domain="mydomain.com",
         )
 
         assert result is None
@@ -620,7 +617,6 @@ class TestProcessSingleEmail:
             uid="123",
             msg_data=b"fake data",
             ai_prompt="Test",
-            email_domain="mydomain.com",
         )
 
         mock_match_alias.stop()
