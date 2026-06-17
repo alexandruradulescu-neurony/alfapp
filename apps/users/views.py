@@ -22,8 +22,10 @@ except (ImportError, OSError):
 from django.core.cache import cache
 from django.http import HttpRequest
 from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import login, logout
+from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.decorators import login_required
+from apps.users.forms import StaffUserCreationForm
 from django.contrib import messages
 from django.db import models
 from django.db.models import Count, F, Q
@@ -109,15 +111,15 @@ def login_view(request):
     """Login view. With the role split removed there is a single dashboard, so a
     successful login always redirects there."""
     if request.method == 'POST':
-        username = request.POST.get('username')
-        password = request.POST.get('password')
-
-        user = authenticate(request, username=username, password=password)
-
+        # AuthenticationForm authenticates the credentials AND fail-closes on
+        # inactive accounts / missing fields. We keep a single generic error and
+        # the per-IP throttle in the view so we never reveal which field or
+        # credential failed (no "account inactive" leak).
+        form = AuthenticationForm(request, data=request.POST)
         cache_key = f"login_attempts_{get_client_ip(request)}"
-        if user is not None:
+        if form.is_valid():
             cache.delete(cache_key)  # reset the failure counter on success
-            login(request, user)
+            login(request, form.get_user())
             return redirect('manager_dashboard')
         else:
             # Count only FAILED attempts (the throttle decorator enforces the cap).
@@ -1052,52 +1054,23 @@ def manager_settings(request):
 
 @manager_required
 def manager_users(request):
-    """Manager user management view.
-
-    Uses transaction.atomic() to ensure user creation is atomic.
-    Includes password validation to enforce strong passwords.
-    """
-    from django.db import transaction
-    from django.contrib.auth.password_validation import validate_password
-    from django.core.exceptions import ValidationError
-
+    """Staff user management. Creation goes through StaffUserCreationForm, which
+    brings password confirmation (password1/password2) and Django's full password
+    validation against the prospective user — including the similarity-to-username
+    check the previous validate_password(user=None) call could not perform."""
     users = User.objects.order_by('-date_joined')
 
     if request.method == 'POST':
-        # Create new user (single user type — no role)
-        username = request.POST.get('username')
-        email = request.POST.get('email')
-        password = request.POST.get('password')
-        first_name = request.POST.get('first_name', '')
-        last_name = request.POST.get('last_name', '')
-
-        if username and password:
-            if User.objects.filter(username=username).exists():
-                messages.error(request, 'Username already exists.')
-            else:
-                # Validate password strength
-                try:
-                    validate_password(password, user=None)
-                except ValidationError as e:
-                    error_messages = ' '.join(e.messages)
-                    messages.error(request, f'Weak password: {error_messages}')
-                    return render(request, 'manager/users.html', {'users': users})
-
-                try:
-                    with transaction.atomic():
-                        User.objects.create_user(
-                            username=username,
-                            email=email,
-                            password=password,
-                            first_name=first_name,
-                            last_name=last_name,
-                        )
-                    messages.success(request, f'User {username} created successfully.')
-                except Exception as e:
-                    logger.error(f"Error creating user {username}: {e}")
-                    messages.error(request, f'Failed to create user: {str(e)}')
+        form = StaffUserCreationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            messages.success(request, f'User {user.username} created successfully.')
         else:
-            messages.error(request, 'Please fill in all required fields.')
+            # Surface the form's field errors (username taken, password too weak,
+            # passwords don't match, too similar to username, missing fields).
+            for errors in form.errors.values():
+                for error in errors:
+                    messages.error(request, error)
 
     return render(request, 'manager/users.html', {'users': users})
 
