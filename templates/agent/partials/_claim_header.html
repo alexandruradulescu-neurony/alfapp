@@ -46,65 +46,74 @@ and form field is preserved from the original screen.
       {# Everyday action: check the mailbox (cross-app JSON endpoint) #}
       <button type="button" class="btn btn-sm rounded-xl"
               hx-post="/api/claims/{{ claim.id }}/check-email/" hx-swap="none"
+              data-claim-action
+              data-refresh-body="{% url 'agent_claim_detail_body' claim.id %}"
+              data-toast-ok="Mailbox checked" data-toast-err="Could not check mail"
               {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"
-              {% else %}title="Check the mailbox for new mail addressed to this claim's email alias"{% endif %}
-              hx-on::after-request="if(event.detail.successful){refreshClaimBody('{% url 'agent_claim_detail_body' claim.id %}');toast('Mailbox checked','success')}else{toast('Could not check mail','error')}">
+              {% else %}title="Check the mailbox for new mail addressed to this claim's email alias"{% endif %}>
         <i class="bi bi-envelope-arrow-down"></i> Check email
       </button>
 
-      {# Rare / dangerous actions tucked behind a dropdown #}
-      <div class="relative" x-data="{ open:false }">
-        <button type="button" class="btn btn-sm btn-ghost rounded-xl" @click="open=!open" title="More actions">
+      {# Rare / dangerous actions behind a native <details> dropdown (CSP-safe) #}
+      <details class="dropdown dropdown-end">
+        <summary class="btn btn-sm btn-ghost rounded-xl" title="More actions">
           <i class="bi bi-three-dots"></i>
-        </button>
-        <div x-show="open" x-cloak @click.outside="open=false"
-             class="absolute right-0 mt-1 w-60 card-modern p-1 z-50 flex flex-col">
+        </summary>
+        <ul class="dropdown-content menu w-60 p-1 mt-1 card-modern z-50">
 
           {# Refresh from Zendesk (cross-app JSON endpoint) #}
-          <button type="button" class="btn btn-sm btn-ghost rounded-xl justify-start"
-                  hx-post="/api/claims/{{ claim.id }}/update-from-zendesk/" hx-swap="none"
-                  {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}
-                  hx-on::after-request="if(event.detail.successful){refreshClaimBody('{% url 'agent_claim_detail_body' claim.id %}');toast('Refreshed from Zendesk','success')}else{toast('Could not refresh from Zendesk','error')}"
-                  @click="open=false">
-            <i class="bi bi-arrow-clockwise"></i> Refresh from Zendesk
-          </button>
+          <li>
+            <button type="button" class="rounded-xl"
+                    hx-post="/api/claims/{{ claim.id }}/update-from-zendesk/" hx-swap="none"
+                    data-claim-action
+                    data-refresh-body="{% url 'agent_claim_detail_body' claim.id %}"
+                    data-toast-ok="Refreshed from Zendesk" data-toast-err="Could not refresh from Zendesk"
+                    {% if not claim.zd_ticket_id %}disabled{% endif %}>
+              <i class="bi bi-arrow-clockwise"></i> Refresh from Zendesk
+            </button>
+          </li>
 
           {% if claim.zd_ticket_id and zd_subdomain %}
-          <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ claim.zd_ticket_id }}"
-             target="_blank" rel="noopener"
-             class="btn btn-sm btn-ghost rounded-xl justify-start" @click="open=false">
-            <i class="bi bi-box-arrow-up-right"></i> Open ticket in Zendesk
-          </a>
+          <li>
+            <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ claim.zd_ticket_id }}"
+               target="_blank" rel="noopener" class="rounded-xl">
+              <i class="bi bi-box-arrow-up-right"></i> Open ticket in Zendesk
+            </a>
+          </li>
           {% endif %}
 
           {% with dispute=claim.disputes.first %}
           {% if dispute %}
-          <a href="{% url 'disputes:dispute_detail' dispute.id %}"
-             class="btn btn-sm btn-ghost rounded-xl justify-start text-warning"
-             title="This claim already has a dispute case" @click="open=false">
-            <i class="bi bi-shield-exclamation"></i> View dispute
-          </a>
+          <li>
+            <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="rounded-xl text-warning"
+               title="This claim already has a dispute case">
+              <i class="bi bi-shield-exclamation"></i> View dispute
+            </a>
+          </li>
           {% else %}
-          <a href="{% url 'disputes:dispute_create' %}?claim={{ claim.id }}"
-             class="btn btn-sm btn-ghost rounded-xl justify-start text-warning"
-             title="Manually create a PayPal dispute case for this claim" @click="open=false">
-            <i class="bi bi-shield-exclamation"></i> Mark as disputed
-          </a>
+          <li>
+            <a href="{% url 'disputes:dispute_create' %}?claim={{ claim.id }}" class="rounded-xl text-warning"
+               title="Manually create a PayPal dispute case for this claim">
+              <i class="bi bi-shield-exclamation"></i> Mark as disputed
+            </a>
+          </li>
           {% endif %}
           {% endwith %}
 
-          <div class="border-t border-base-200/70 my-1"></div>
+          <li><hr class="border-base-200/70 my-1"></li>
           {# Delete claim (cross-app JSON endpoint, DELETE) #}
-          <button type="button" class="btn btn-sm btn-ghost rounded-xl justify-start text-error"
-                  hx-delete="/api/claims/claims/{{ claim.id }}/" hx-swap="none"
-                  hx-confirm="Delete this claim? This cannot be undone."
-                  title="Delete this claim from LORA (the Zendesk ticket is not touched)"
-                  hx-on::after-request="if(event.detail.successful){window.location.href='{% url 'manager_claims' %}'}else{toast('Could not delete the claim','error')}"
-                  @click="open=false">
-            <i class="bi bi-trash"></i> Delete claim
-          </button>
-        </div>
-      </div>
+          <li>
+            <button type="button" class="rounded-xl text-error"
+                    hx-delete="/api/claims/claims/{{ claim.id }}/" hx-swap="none"
+                    hx-confirm="Delete this claim? This cannot be undone."
+                    data-claim-action
+                    data-redirect="{% url 'manager_claims' %}" data-toast-err="Could not delete the claim"
+                    title="Delete this claim from LORA (the Zendesk ticket is not touched)">
+              <i class="bi bi-trash"></i> Delete claim
+            </button>
+          </li>
+        </ul>
+      </details>
     </div>
   </div>
 </div>

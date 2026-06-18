@@ -324,5 +324,9 @@ input.toggle[type="checkbox"]:focus-visible {
 .lora-toast-warning { border-left: 3px solid #f59e0b; }
 .lora-toast-info { border-left: 3px solid #3b82f6; }
 
-/* ── Alpine: hide pre-init cloaked elements ── */
-[x-cloak] { display: none !important; }
+/* ── Native <details> used as buttons/cards: hide the default disclosure
+      marker and spin the chevron when open (CSP-safe, no JS) ── */
+summary.lora-disclosure { list-style: none; }
+summary.lora-disclosure::-webkit-details-marker { display: none; }
+summary .bi-chevron-down { transition: transform 0.2s ease; }
+details[open] > summary .bi-chevron-down { transform: rotate(180deg); }
