@@ -110,6 +110,7 @@ class BriefingSummary(BaseModel):
 
     summary: str
     next_steps: list[str] = Field(default_factory=list, max_length=6)
+    delta: str = Field(default='', max_length=400)
     risk_level: Literal['none', 'watch', 'at_risk'] = 'none'
     risk_reasons: list[str] = Field(default_factory=list)
     risk_note: str = Field(default='', max_length=300)

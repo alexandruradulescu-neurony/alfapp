@@ -243,25 +243,28 @@ class ClaimUpdateFromZendeskView(APIView):
         ticket_data['comments'] = fetch_zendesk_comments(claim.zd_ticket_id)
 
         extracted = analyze_zendesk_ticket_for_claim(ticket_data)
-        # AI summary is best-effort (its own save); do it BEFORE the atomic block
-        # so the LLM call never holds a DB transaction open AND so the timeline row
-        # below can record the fresh summary. Trade-off: the summary's PII-alias
-        # hint uses the pre-merge client_name; that's accepted — it only seeds the
-        # tokenizer's known-names optimisation (the tokenizer's own regex still
-        # tags the name), so a renamed client is not a PII leak.
+        # AI summary + risk detection are best-effort (their own save); run BEFORE
+        # the atomic block so the LLM call never holds a DB transaction open.
+        # Trade-off: the summary's PII-alias hint uses the pre-merge client_name;
+        # that's accepted — it only seeds the tokenizer's known-names optimisation
+        # (the tokenizer's own regex still tags the name), so a renamed client is
+        # not a PII leak.  Risk detection must always run — a new hostile comment
+        # can carry risk even when no structured fields changed.
         summary_refreshed = refresh_claim_summary(claim, ticket_data)
 
         # The field-merge save and the timeline row are one unit: a crash between
         # them must not leave an updated claim with no history entry.
         with transaction.atomic():
             updated_fields = refresh_claim_from_zendesk(claim, extracted)
-            ClaimUpdateTimeline.objects.create(
-                claim=claim,
-                zendesk_ticket_id=claim.zd_ticket_id,
-                update_type='INFO_UPDATED',
-                changes_summary=json.dumps({'updated_fields': updated_fields}),
-                llm_summary=claim.ai_summary if summary_refreshed else '',
-            )
+            if updated_fields:
+                pretty = ", ".join(f.replace('_', ' ') for f in updated_fields)
+                ClaimUpdateTimeline.objects.create(
+                    claim=claim,
+                    zendesk_ticket_id=claim.zd_ticket_id,
+                    update_type='INFO_UPDATED',
+                    changes_summary=json.dumps({'updated_fields': updated_fields}),
+                    llm_summary=f"Updated: {pretty}.",
+                )
         logger.info("Refreshed claim #%s from Zendesk: %s", claim.id, updated_fields)
         return Response({
             'message': 'Claim refreshed from Zendesk',

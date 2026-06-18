@@ -1069,10 +1069,12 @@ class WebhookStatusMirrorTests(WebhookTestBase):
         self.claim.refresh_from_db()
         self.assertEqual(self.claim.status, 'Object Found')
         # Timeline entry is written atomically with the status save (Fix 3);
-        # llm_summary stays '' when the AI call does not succeed.
+        # when the AI call does not succeed the fallback is the deterministic
+        # transition headline (never empty).
         entry = self.claim.updates.first()
         self.assertIsNotNone(entry)
-        self.assertEqual(entry.llm_summary, '')
+        self.assertIn('Object Found', entry.llm_summary)
+        self.assertNotEqual(entry.llm_summary, '')
         # ai_summary on the claim itself is unchanged from creation ('')
         self.assertEqual(self.claim.ai_summary, '')
 

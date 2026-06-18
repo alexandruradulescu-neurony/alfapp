@@ -79,7 +79,9 @@ class RefreshFromZendeskTests(TestCase):
         from apps.claims.models import ClaimUpdateTimeline
         entry = ClaimUpdateTimeline.objects.filter(claim=self.claim).first()
         self.assertIsNotNone(entry)
-        self.assertEqual(entry.llm_summary, '')
+        # llm_summary is now always the deterministic "Updated: <fields>" line,
+        # independent of whether the AI summary refresh succeeded.
+        self.assertTrue(entry.llm_summary.startswith('Updated:'))
 
     def test_second_run_reports_no_changes(self):
         self._run()
