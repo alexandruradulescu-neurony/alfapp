@@ -116,7 +116,15 @@ SUMMARY_PROMPT = ALF_BUSINESS_CONTEXT + (
     "- risk_level: 'at_risk' if any of those reasons is clearly present, else 'watch' for mild "
     "dissatisfaction, else 'none'.\n"
     "- risk_note: one short sentence naming the signal, or '' if none.\n"
-    'Respond as JSON: {"summary": "...", "risk_level": "...", "risk_reasons": [...], "risk_note": "..."}.'
+    "\n\nThe status vocabulary above explains what each status NAME means — use it only to "
+    "interpret the current label. ALWAYS defer to the actual claim facts and ticket thread for "
+    "what has happened; do NOT assert process steps (e.g. whether loss reports were filed) from "
+    "the status name if the thread shows otherwise.\n"
+    "Also produce `delta`: 1-2 sentences on what is NEW since the previous update note provided "
+    "in the context. If nothing material has changed beyond any status transition, respond with "
+    "exactly 'No new information.'.\n"
+    'Respond as JSON: {"summary": "...", "delta": "...", "risk_level": "...", '
+    '"risk_reasons": [...], "risk_note": "..."}.'
 )
 
 
@@ -139,7 +147,7 @@ def normalize_fetched_comments(comments: Optional[List[Dict[str, Any]]]) -> List
     return normalized
 
 
-def generate_claim_summary(claim: 'Claim', ticket_data: dict) -> Optional['BriefingSummary']:
+def generate_claim_summary(claim: 'Claim', ticket_data: dict, previous_note: str = '') -> Optional['BriefingSummary']:
     """One AI summary of the case, or None on any AI failure (callers must
     treat the summary as optional — a stage change never depends on it)."""
     facts = build_claim_facts(claim)
@@ -153,7 +161,7 @@ def generate_claim_summary(claim: 'Claim', ticket_data: dict) -> Optional['Brief
     try:
         result = AIClient.complete(
             system_prompt=SUMMARY_PROMPT,
-            trusted={'claim_facts': str(facts)},
+            trusted={'claim_facts': str(facts), 'previous_update_note': previous_note or '(none)'},
             untrusted=untrusted,
             known_pii=known_pii,
             response_schema=BriefingSummary,
@@ -171,11 +179,12 @@ def generate_claim_summary(claim: 'Claim', ticket_data: dict) -> Optional['Brief
     return result
 
 
-def refresh_claim_summary(claim: 'Claim', ticket_data: Dict[str, Any]) -> bool:
-    """Regenerate and store the claim's summary. True on success."""
-    result = generate_claim_summary(claim, ticket_data)
+def refresh_claim_summary(claim: 'Claim', ticket_data: Dict[str, Any], previous_note: str = '') -> Optional[str]:
+    """Regenerate and store the claim's summary. Returns the delta string on
+    success (never empty — falls back to 'No new information.'), or None on failure."""
+    result = generate_claim_summary(claim, ticket_data, previous_note=previous_note)
     if result is None:
-        return False
+        return None
     claim.ai_summary = result.summary.strip()
     claim.ai_summary_updated_at = timezone.now()
     claim.save(update_fields=['ai_summary', 'ai_summary_updated_at', 'updated_at'])
@@ -183,4 +192,4 @@ def refresh_claim_summary(claim: 'Claim', ticket_data: Dict[str, Any]) -> bool:
         ai_level=result.risk_level, ai_reasons=result.risk_reasons,
         ai_note=result.risk_note, thread_text=_thread_text(ticket_data))
     claim.register_risk(reasons=reasons, level=level, detail=note)
-    return True
+    return (result.delta or '').strip() or 'No new information.'
