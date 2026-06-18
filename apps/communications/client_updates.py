@@ -419,70 +419,29 @@ def _recent_office_replies(claim):
     return list(EmailLog.objects.filter(claim=claim, received_at__gte=since).order_by('received_at'))
 
 
-def _no_news_template(claim) -> str:
-    name = (getattr(claim, 'client_name', '') or '').strip() or 'there'
-    obj = _first_line(getattr(claim, 'object_description', '') or '') or 'your lost item'
-    return "\n".join([
-        f"Dear {name},",
-        "",
-        f"A quick update on the search for your {obj}: we are still actively following up with the "
-        "lost-and-found offices we contacted on your behalf. We do not have new information to share "
-        "just yet, but please be assured the search is ongoing and we will let you know as soon as we "
-        "hear anything.",
-        "",
-        "If you remember any further details about your item, simply reply to this message.",
-        "",
-        "Kind regards,",
-        "The Airport Lost & Found team",
-    ])
-
-
-def _final_template(claim) -> str:
-    """End-of-service message — sent only when the item was never found. Honest
-    about the period ending; never promises recovery, leaves the door open."""
-    name = (getattr(claim, 'client_name', '') or '').strip() or 'there'
-    obj = _first_line(getattr(claim, 'object_description', '') or '') or 'your lost item'
-    return "\n".join([
-        f"Dear {name},",
-        "",
-        f"We're writing with an update on the search for your {obj}. Over the past few weeks we have "
-        "repeatedly followed up with every lost-and-found office and airline we contacted on your "
-        "behalf. Unfortunately, none of them has been able to locate your item within the service "
-        "period.",
-        "",
-        "We're genuinely sorry we couldn't reunite you with it. Items do occasionally surface later, "
-        "and if any of the offices comes back to us with a match we will of course reach out to you "
-        "straight away — there is nothing further you need to do.",
-        "",
-        "Thank you for trusting us with your search. If there's anything else we can help with, just "
-        "reply to this message.",
-        "",
-        "Kind regards,",
-        "The Airport Lost & Found team",
-    ])
-
-
-def _draft_follow_up(claim, replies, ss=None) -> tuple:
+def _draft_follow_up(claim, replies, ss=None, *, fallback_body: str = '') -> tuple:
     """Return (body, has_news). Only CLIENT-SAFE office replies are ever shown to
     the model (CLIENT_SAFE_REPLY_CATEGORIES) — administrative/harmful housekeeping
     is dropped here, deterministically, BEFORE drafting, so it can never reach the
     client even on the unattended autonomous path. With no client-safe news →
-    reassuring 'still searching' template (has_news False); otherwise → AI
-    progress update (per-office rule), falling back to the template on any AI
+    the on-brand per-milestone fallback body (has_news False); otherwise → AI
+    progress update (per-office rule), falling back to `fallback_body` on any AI
     failure.
 
-    Pass `ss` (a SystemSettings instance) to reuse one already-loaded singleton —
-    the autonomous runner threads it down so the cadence loop reads it once
-    instead of re-querying get_instance() for every due update."""
+    `fallback_body` is the milestone_message(...) string pre-computed by the
+    caller (prepare_follow_up) so this function never needs to re-fetch ticket
+    data.  Pass `ss` (a SystemSettings instance) to reuse one already-loaded
+    singleton — the autonomous runner threads it down so the cadence loop reads
+    it once instead of re-querying get_instance() for every due update."""
     safe = [r for r in replies if r.category in CLIENT_SAFE_REPLY_CATEGORIES]
     if not safe:
-        return _no_news_template(claim), False
+        return fallback_body, False
     try:
         from apps.config.models import SystemSettings
         if ss is None:
             ss = SystemSettings.get_instance()
         if not getattr(ss, 'ai_api_key', ''):
-            return _no_news_template(claim), True
+            return fallback_body, True
         from apps.ai.client import AIClient
         from apps.ai.schemas import EmailDraft
         name = (getattr(claim, 'client_name', '') or '').strip() or 'the client'
@@ -503,11 +462,11 @@ def _draft_follow_up(claim, replies, ss=None) -> tuple:
             max_tokens=900,
         )
         body = (result.body or '').strip()
-        return (body or _no_news_template(claim)), True
+        return (body or fallback_body), True
     except Exception as e:
         logger.warning("Follow-up AI draft failed for claim #%s; using fallback: %s",
                        getattr(claim, 'id', '?'), e)
-        return _no_news_template(claim), bool(safe)
+        return fallback_body, bool(safe)
 
 
 def prepare_follow_up(update, fetch_email=True, ss=None):
@@ -544,14 +503,19 @@ def prepare_follow_up(update, fetch_email=True, ss=None):
         body = milestone_message(claim, 'FINAL', ticket_data, period_days)
         has_news = False
     else:
+        # Pre-compute the on-brand fallback once so _draft_follow_up can use it
+        # as the fallback for: no safe replies, no API key, or AI failure.
+        # ticket_data and period_days were fetched above — no double-fetch needed.
+        fallback = milestone_message(claim, update.milestone, ticket_data, period_days)
         replies = _recent_office_replies(claim)
         safe = [r for r in replies if r.category in CLIENT_SAFE_REPLY_CATEGORIES]
         if safe:
-            # AI-drafted path (office replies present) — keep existing behaviour.
-            body, has_news = _draft_follow_up(claim, replies, ss=ss)
+            # AI-drafted path (office replies present); falls back to on-brand
+            # milestone voice on AI failure or missing key.
+            body, has_news = _draft_follow_up(claim, replies, ss=ss, fallback_body=fallback)
         else:
-            # No-news path: use the on-brand per-milestone template.
-            body = milestone_message(claim, update.milestone, ticket_data, period_days)
+            # No-news path: use the on-brand per-milestone template directly.
+            body = fallback
             has_news = False
 
     update.draft_body = body

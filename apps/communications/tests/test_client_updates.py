@@ -55,12 +55,16 @@ class ScheduleTests(TestCase):
 
 
 class DraftTests(TestCase):
-    def test_no_replies_uses_no_news_template(self):
+    def test_no_replies_returns_fallback_body(self):
+        # _draft_follow_up with no safe replies must return exactly the fallback_body
+        # passed in (has_news False).  The old _no_news_template is gone; the caller
+        # (prepare_follow_up) pre-computes the milestone_message fallback and passes
+        # it here.
         claim = Claim.objects.create(client_email='a@example.com', client_name='Lee', object_description='iPad')
-        body, has_news = cu._draft_follow_up(claim, [])
+        fallback = 'Dear Lee, milestone fallback body.'
+        body, has_news = cu._draft_follow_up(claim, [], fallback_body=fallback)
         self.assertFalse(has_news)
-        self.assertIn('still actively following up', body)
-        self.assertIn('Lee', body)
+        self.assertEqual(body, fallback)
 
     def test_multi_office_rule_is_in_prompt(self):
         prompt = cu.FOLLOWUP_SYSTEM_PROMPT.lower()
@@ -97,13 +101,15 @@ class DraftTests(TestCase):
         expired = EmailLog.objects.create(claim=claim, from_email='c@d.gov', subject='expired',
                                           body='x', category='RESUBMISSION_REQUIRED',
                                           ai_summary='Your submission expired.')
+        fallback = 'Dear Lee, milestone fallback body for bag.'
         with patch('apps.ai.client.AIClient.complete') as ai:
-            body, has_news = cu._draft_follow_up(claim, [not_found, expired])
+            body, has_news = cu._draft_follow_up(claim, [not_found, expired], fallback_body=fallback)
         ai.assert_not_called()                      # harmful text never reaches the model
         self.assertFalse(has_news)
         self.assertNotIn('expired', body.lower())
         self.assertNotIn('case closed', body.lower())
-        self.assertIn('still actively following up', body)
+        # The old _no_news_template is gone; the fallback_body is returned verbatim.
+        self.assertEqual(body, fallback)
 
 
 class StopConditionTests(TestCase):
