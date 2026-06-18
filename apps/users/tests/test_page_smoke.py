@@ -102,6 +102,15 @@ class ClaimDetailControlsPreservedTests(TestCase):
         for attr in ['x-data', 'x-show', 'x-cloak', 'x-init', 'hx-on', '@click', 'x-on:']:
             self.assertNotIn(attr, html, f'{attr} needs unsafe-eval — blocked by the production CSP')
 
+    def test_no_leaked_template_syntax(self):
+        # A multi-line {# #} comment once leaked onto the page (Django's short
+        # comment only works on one line). Nothing template-y should survive
+        # into the rendered HTML.
+        resp = self.web.get(reverse('agent_claim_detail', args=[self.claim.id]))
+        html = resp.content.decode()
+        self.assertNotIn('{#', html, 'a template comment leaked into the page')
+        self.assertNotIn('{%', html, 'a template tag leaked into the page')
+
     def test_destructive_actions_visible_to_signed_in_user(self):
         # The manager/agent role split was removed — there is one trusted user,
         # so delete / mark-as-disputed / grant-refund must be reachable (no dead

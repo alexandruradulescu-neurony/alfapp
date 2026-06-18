@@ -298,9 +298,11 @@ id) are demoted in here.
   </div>
 </details>
 
-{# ── Grant refund modal — native <dialog> (CSP-safe). Opened by the button
-     above via showModal(); the data-* attributes drive refresh/toast/close via
-     lora-htmx.js (the system-action contract). ── #}
+{% comment %}
+Grant refund modal — native <dialog> (CSP-safe). Opened by the button above via
+showModal(); the data-* attributes drive refresh/toast/close via lora-htmx.js
+(the system-action contract).
+{% endcomment %}
 {% if claim_refund_status != 'COMPLETED' %}
 <dialog id="refundModal" class="modal">
   <div class="modal-box max-w-2xl rounded-2xl">
