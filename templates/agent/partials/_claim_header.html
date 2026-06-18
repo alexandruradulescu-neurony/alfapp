@@ -1,0 +1,112 @@
+{% comment %}
+Compact claim header: identity + one primary status pill + urgent chips on the
+left, everyday + (rare) actions on the right. Presentation only — every endpoint
+and form field is preserved from the original screen.
+{% endcomment %}
+<div class="card-modern p-4 animate-fade-in">
+  <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+
+    {# Identity + status #}
+    <div class="min-w-0">
+      <div class="flex items-center gap-2 mb-1">
+        <a href="{% url 'agent_claims' %}" class="btn btn-sm btn-ghost rounded-xl" title="Back to claims">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <span class="text-xs text-base-content/50 font-mono">#{{ claim.alf_claim_id|default:claim.id }}</span>
+      </div>
+      <h2 class="text-xl font-semibold tracking-tight truncate m-0">
+        {{ claim.client_name|default:claim.client_email }}
+      </h2>
+      <div class="flex flex-wrap items-center gap-2 mt-1.5">
+        {# One primary status pill — soft badge mapped from the Zendesk status family #}
+        <span class="badge rounded-full {% if claim.status_category == 'solved' %}badge-soft-success{% elif claim.status_category == 'pending' %}badge-soft-warning{% elif claim.status_category == 'new' %}badge-soft-info{% elif claim.status_category == 'hold' %}badge-soft-neutral{% else %}badge-soft-info{% endif %}">
+          {% if claim.status_category == 'solved' %}<i class="bi bi-check-circle"></i>
+          {% elif claim.status_category == 'pending' %}<i class="bi bi-hourglass-split"></i>
+          {% elif claim.status_category == 'hold' %}<i class="bi bi-pause-circle"></i>
+          {% elif claim.status_category == 'new' %}<i class="bi bi-inbox"></i>
+          {% else %}<i class="bi bi-search"></i>{% endif %}
+          {{ claim.status }}
+        </span>
+        {% if claim.object_description %}
+        <span class="text-sm text-base-content/60 truncate">{{ claim.object_description|truncatechars:60 }}</span>
+        {% endif %}
+
+        {# Urgent chips only #}
+        {% if claim.risk_active %}
+        <span class="badge badge-soft-error rounded-full"><i class="bi bi-exclamation-triangle"></i> Client risk flag</span>
+        {% endif %}
+        {% if emails_open %}
+        <span class="badge badge-soft-error rounded-full"><i class="bi bi-envelope-exclamation"></i> {{ emails_open|length }} need action</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Actions #}
+    <div class="flex items-center gap-2 shrink-0">
+      {# Everyday action: check the mailbox (cross-app JSON endpoint) #}
+      <button type="button" class="btn btn-sm rounded-xl"
+              hx-post="/api/claims/{{ claim.id }}/check-email/" hx-swap="none"
+              {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"
+              {% else %}title="Check the mailbox for new mail addressed to this claim's email alias"{% endif %}
+              hx-on::after-request="if(event.detail.successful){refreshClaimBody('{% url 'agent_claim_detail_body' claim.id %}');toast('Mailbox checked','success')}else{toast('Could not check mail','error')}">
+        <i class="bi bi-envelope-arrow-down"></i> Check email
+      </button>
+
+      {# Rare / dangerous actions tucked behind a dropdown #}
+      <div class="relative" x-data="{ open:false }">
+        <button type="button" class="btn btn-sm btn-ghost rounded-xl" @click="open=!open" title="More actions">
+          <i class="bi bi-three-dots"></i>
+        </button>
+        <div x-show="open" x-cloak @click.outside="open=false"
+             class="absolute right-0 mt-1 w-60 card-modern p-1 z-50 flex flex-col">
+
+          {# Refresh from Zendesk (cross-app JSON endpoint) #}
+          <button type="button" class="btn btn-sm btn-ghost rounded-xl justify-start"
+                  hx-post="/api/claims/{{ claim.id }}/update-from-zendesk/" hx-swap="none"
+                  {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}
+                  hx-on::after-request="if(event.detail.successful){refreshClaimBody('{% url 'agent_claim_detail_body' claim.id %}');toast('Refreshed from Zendesk','success')}else{toast('Could not refresh from Zendesk','error')}"
+                  @click="open=false">
+            <i class="bi bi-arrow-clockwise"></i> Refresh from Zendesk
+          </button>
+
+          {% if claim.zd_ticket_id and zd_subdomain %}
+          <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ claim.zd_ticket_id }}"
+             target="_blank" rel="noopener"
+             class="btn btn-sm btn-ghost rounded-xl justify-start" @click="open=false">
+            <i class="bi bi-box-arrow-up-right"></i> Open ticket in Zendesk
+          </a>
+          {% endif %}
+
+          {% if user.role == 'MANAGER' %}
+          {% with dispute=claim.disputes.first %}
+          {% if dispute %}
+          <a href="{% url 'disputes:dispute_detail' dispute.id %}"
+             class="btn btn-sm btn-ghost rounded-xl justify-start text-warning"
+             title="This claim already has a dispute case" @click="open=false">
+            <i class="bi bi-shield-exclamation"></i> View dispute
+          </a>
+          {% else %}
+          <a href="{% url 'disputes:dispute_create' %}?claim={{ claim.id }}"
+             class="btn btn-sm btn-ghost rounded-xl justify-start text-warning"
+             title="Manually create a PayPal dispute case for this claim" @click="open=false">
+            <i class="bi bi-shield-exclamation"></i> Mark as disputed
+          </a>
+          {% endif %}
+          {% endwith %}
+
+          <div class="border-t border-base-200/70 my-1"></div>
+          {# Delete claim (cross-app JSON endpoint, DELETE) #}
+          <button type="button" class="btn btn-sm btn-ghost rounded-xl justify-start text-error"
+                  hx-delete="/api/claims/claims/{{ claim.id }}/" hx-swap="none"
+                  hx-confirm="Delete this claim? This cannot be undone."
+                  title="Delete this claim from LORA (the Zendesk ticket is not touched)"
+                  hx-on::after-request="if(event.detail.successful){window.location.href='{% url 'agent_claims' %}'}else{toast('Could not delete the claim','error')}"
+                  @click="open=false">
+            <i class="bi bi-trash"></i> Delete claim
+          </button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

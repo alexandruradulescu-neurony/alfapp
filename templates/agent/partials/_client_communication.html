@@ -1,0 +1,163 @@
+{% comment %}
+Client communication column: risk-flag action (if any), the main "what we did"
+update, and the follow-up cadence. Due/sent items surface first; older sent
+items stay quiet. All forms keep method/action + csrf for no-JS, and add hx-post
+so the #claim-body root swaps the returned fragment.
+{% endcomment %}
+
+{% if claim.risk_active %}
+<div class="card-modern p-4 border border-error/40 bg-error/5 animate-fade-in">
+  <div class="flex items-start justify-between gap-3">
+    <div>
+      <h3 class="font-semibold text-error flex items-center gap-2 m-0"><i class="bi bi-exclamation-triangle"></i> Client risk flag</h3>
+      <p class="mt-1 text-sm m-0">{{ claim.risk_detail }}</p>
+      <p class="mt-1 text-xs opacity-70 m-0">
+        Reasons: {{ claim.risk_reason_labels|join:", " }}
+        · first flagged {{ claim.risk_first_flagged_at|date:"M j, Y H:i" }}
+      </p>
+    </div>
+    <form method="post" action="{% url 'claim_acknowledge_risk' claim.id %}"
+          hx-post="{% url 'claim_acknowledge_risk' claim.id %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-sm btn-error rounded-xl">Acknowledge</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% if not claim.client_report_draft and not claim.client_report_sent_at and not client_followups %}
+{# No cadence yet — offer to start it (older claims) #}
+<div class="card-modern p-4 animate-fade-in">
+  <h3 class="text-base font-semibold tracking-tight flex items-center gap-2 mb-1 m-0">
+    <i class="bi bi-chat-heart text-primary"></i> Client updates
+  </h3>
+  <p class="text-sm text-base-content/60 mb-3">No client updates have been started for this claim. Start the cadence to draft a "what we did" message now and schedule the day-2/5/11/21 follow-ups.</p>
+  <form method="post" action="{% url 'client_updates_start' claim.id %}"
+        hx-post="{% url 'client_updates_start' claim.id %}">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary btn-sm rounded-xl" {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
+      <i class="bi bi-play-circle"></i> Start client updates
+    </button>
+  </form>
+</div>
+{% endif %}
+
+{% if claim.client_report_draft or claim.client_report_sent_at %}
+{# The main "what we did" client update #}
+<div class="card-modern p-4 animate-fade-in">
+  <div class="flex flex-wrap justify-between items-center gap-3 mb-3">
+    <h3 class="text-base font-semibold tracking-tight flex items-center gap-2 m-0">
+      <i class="bi bi-chat-heart text-primary"></i> Client update
+    </h3>
+    {% if claim.client_report_sent_at %}
+    <span class="badge badge-soft-success rounded-full"><i class="bi bi-check-circle"></i> Sent {{ claim.client_report_sent_at|date:"M d, Y H:i" }}</span>
+    {% else %}
+    <span class="badge badge-soft-warning rounded-full">Draft — not sent</span>
+    {% endif %}
+  </div>
+
+  {% if claim.client_report_sent_at %}
+  <p class="text-sm text-base-content/60 mb-2">This update was sent to the client as a public reply on the Zendesk ticket.</p>
+  <div class="rounded-xl bg-base-200/50 p-4 text-sm whitespace-pre-wrap">{{ claim.client_report_draft }}</div>
+  {% else %}
+  <p class="text-sm text-base-content/60 mb-3">Review and edit this message, then send it to the client as a public Zendesk reply. It will <strong>not</strong> be sent until you click Send.</p>
+  <form method="post" action="{% url 'claim_client_report_send' claim.id %}"
+        hx-post="{% url 'claim_client_report_send' claim.id %}">
+    {% csrf_token %}
+    <textarea name="body" rows="14" class="rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full text-sm p-4">{{ claim.client_report_draft }}</textarea>
+    <div class="flex flex-wrap gap-2 mt-3">
+      <button type="submit" class="btn btn-primary btn-sm rounded-xl"
+              {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
+        <i class="bi bi-send"></i> Send to client
+      </button>
+    </div>
+  </form>
+  <form method="post" action="{% url 'claim_client_report_generate' claim.id %}"
+        hx-post="{% url 'claim_client_report_generate' claim.id %}" class="mt-2">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-ghost btn-sm rounded-xl" title="Rewrite the draft (AI-polished)">
+      <i class="bi bi-arrow-repeat"></i> Regenerate draft
+    </button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if client_followups %}
+{# Follow-up updates (day 2/5/11/21). Surface due/drafted first, keep sent/skipped quiet. #}
+<div class="card-modern p-4 animate-fade-in">
+  <h3 class="text-base font-semibold tracking-tight flex items-center gap-2 mb-1 m-0">
+    <i class="bi bi-clock-history text-primary"></i> Follow-up updates
+  </h3>
+  <p class="text-sm text-base-content/60 mb-3">Scheduled progress updates after submission. Prepare a due one to draft it from the latest office replies, then review and send.</p>
+  <div class="space-y-3">
+  {% for fu in client_followups %}
+    {% if fu.state == 'DRAFTED' or fu.is_due %}
+    {# Needs attention — full editor / prepare button up top #}
+    <div class="rounded-xl border border-primary/30 bg-primary/5 p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <span class="font-semibold text-sm"><i class="bi bi-calendar-event text-base-content/50"></i> {{ fu.label }} update</span>
+        {% if fu.state == 'DRAFTED' %}<span class="badge badge-soft-warning rounded-full">Draft ready{% if not fu.has_news %} · no new developments{% endif %}</span>
+        {% else %}<span class="badge badge-soft-primary rounded-full">Due now</span>{% endif %}
+      </div>
+
+      {% if fu.state == 'DRAFTED' %}
+      <form method="post" action="{% url 'client_followup_send' fu.id %}"
+            hx-post="{% url 'client_followup_send' fu.id %}">
+        {% csrf_token %}
+        <textarea name="body" rows="9" class="rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full text-sm p-3">{{ fu.draft_body }}</textarea>
+        <div class="flex flex-wrap gap-2 mt-2">
+          <button type="submit" class="btn btn-primary btn-sm rounded-xl" {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
+            <i class="bi bi-send"></i> Send to client
+          </button>
+        </div>
+      </form>
+      <div class="flex flex-wrap gap-2 mt-2">
+        <form method="post" action="{% url 'client_followup_prepare' fu.id %}"
+              hx-post="{% url 'client_followup_prepare' fu.id %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-ghost btn-sm rounded-xl"><i class="bi bi-arrow-repeat"></i> Regenerate</button>
+        </form>
+        <form method="post" action="{% url 'client_followup_skip' fu.id %}"
+              hx-post="{% url 'client_followup_skip' fu.id %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-ghost btn-sm rounded-xl"><i class="bi bi-x-circle"></i> Skip</button>
+        </form>
+      </div>
+      {% else %}
+      <form method="post" action="{% url 'client_followup_prepare' fu.id %}"
+            hx-post="{% url 'client_followup_prepare' fu.id %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-primary btn-sm rounded-xl">
+          <i class="bi bi-magic"></i> Prepare update
+        </button>
+      </form>
+      {% endif %}
+    </div>
+    {% endif %}
+  {% endfor %}
+
+  {# Quiet items: sent, skipped, and not-yet-due, kept out of the way #}
+  {% for fu in client_followups %}
+    {% if fu.state != 'DRAFTED' and not fu.is_due %}
+    <div class="rounded-xl border border-base-200/70 p-3">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <span class="text-sm text-base-content/70"><i class="bi bi-calendar-event text-base-content/40"></i> {{ fu.label }} update</span>
+        {% if fu.state == 'SENT' %}<span class="badge badge-soft-success rounded-full"><i class="bi bi-check-circle"></i> Sent {{ fu.sent_at|date:"M d, Y H:i" }}</span>
+        {% elif fu.state == 'SKIPPED' %}<span class="badge badge-soft-neutral rounded-full">Skipped</span>
+        {% else %}<span class="text-xs text-base-content/50">Scheduled for {{ fu.due_at|date:"M d, Y" }}</span>{% endif %}
+      </div>
+      {% if fu.state == 'SENT' %}
+      <details class="mt-2">
+        <summary class="cursor-pointer text-xs text-primary">View sent message</summary>
+        <div class="mt-2 rounded-lg bg-base-200/40 p-3 text-sm whitespace-pre-wrap">{{ fu.draft_body }}</div>
+      </details>
+      {% elif fu.state != 'SKIPPED' %}
+      <p class="text-xs text-base-content/50 mt-1 mb-0">Will be ready to prepare on {{ fu.due_at|date:"M d, Y" }}.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+  {% endfor %}
+  </div>
+</div>
+{% endif %}

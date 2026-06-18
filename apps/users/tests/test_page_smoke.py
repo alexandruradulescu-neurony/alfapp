@@ -57,3 +57,37 @@ class ManagerPageSmokeTests(TestCase):
         with patch('apps.integrations.services.fetch_zendesk_ticket_full', return_value=None), \
              patch('apps.integrations.services.fetch_zendesk_comments', return_value=[]):
             self._get_ok('disputes:dispute_detail', dispute.id)
+
+
+class ClaimDetailControlsPreservedTests(TestCase):
+    """The redesign is presentation-only — every action the screen drove must
+    still be reachable from the rendered HTML."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='ctrl_user', password='x')
+        self.web = Client()
+        self.web.force_login(self.user)
+        self.claim = Claim.objects.create(
+            client_email='c@example.com', client_name='Cy Ng',
+            zd_ticket_id='96001', alf_claim_id='ALF96001',
+            price_paid=Decimal('60.00'))
+
+    def test_action_endpoints_present_in_rendered_screen(self):
+        # Fresh ticketed claim, no cadence started → these controls are all
+        # applicable and must be wired into the markup (not built in JS).
+        resp = self.web.get(reverse('agent_claim_detail', args=[self.claim.id]))
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode()
+        # Same-app form action: "start client updates" shows when no cadence yet.
+        self.assertIn(reverse('client_updates_start', args=[self.claim.id]), html,
+                      'client_updates_start URL missing from rebuilt screen')
+        # Cross-app JSON endpoints (literal paths now in markup as hx-post).
+        self.assertIn(f'/api/claims/{self.claim.id}/update-from-zendesk/', html)
+        self.assertIn(f'/api/claims/{self.claim.id}/check-email/', html)
+
+    def test_no_inline_script_functions_remain(self):
+        resp = self.web.get(reverse('agent_claim_detail', args=[self.claim.id]))
+        html = resp.content.decode()
+        # The 240-line inline <script> is replaced by lora-htmx.js + Alpine attrs.
+        self.assertNotIn('function updateFromZendesk', html)
+        self.assertNotIn('function checkEmail', html)
