@@ -911,6 +911,56 @@ def add_zendesk_ticket_tags(zd_ticket_id: str, tags: List[str]) -> bool:
         return False
 
 
+def get_zendesk_ticket_tags(zd_ticket_id: str) -> list:
+    """Return the ticket's current tags (GET /tickets/{id}/tags.json), or [] on any failure.
+
+    Never raises. Returns [] when the API is unreachable, the response has no
+    'tags' key, or 'tags' is None.
+    """
+    try:
+        base_url = _get_zendesk_base_url()
+        headers = _get_zendesk_auth_headers()
+        url = f"{base_url}/tickets/{zd_ticket_id}/tags.json"
+        req = urllib.request.Request(url, headers=headers, method='GET')
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            return data.get('tags') or []
+    except Exception as e:
+        logger.error("Error fetching tags for Zendesk ticket %s: %s", zd_ticket_id, e)
+        return []
+
+
+def remove_zendesk_ticket_tags(zd_ticket_id: str, tags: list) -> bool:
+    """Remove the given tags from the ticket (DELETE /tickets/{id}/tags.json).
+
+    Zendesk's DELETE /tags.json removes only the listed tags, leaving all others
+    intact — do NOT compute-and-replace the full set.
+
+    Returns True on success or empty input (no-op). Never raises; returns False
+    on any exception.
+    """
+    if not tags:
+        return True
+    try:
+        base_url = _get_zendesk_base_url()
+        headers = _get_zendesk_auth_headers()
+        url = f"{base_url}/tickets/{zd_ticket_id}/tags.json"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps({'tags': tags}).encode('utf-8'),
+            headers=headers,
+            method='DELETE',
+        )
+        timeout = getattr(settings, 'ZENDESK_TIMEOUT', ZENDESK_DEFAULT_TIMEOUT)
+        with urllib.request.urlopen(req, timeout=timeout):
+            logger.info("Removed tags %s from Zendesk ticket %s", tags, zd_ticket_id)
+            return True
+    except Exception as e:
+        logger.error("Error removing tags %s from Zendesk ticket %s: %s", tags, zd_ticket_id, e)
+        return False
+
+
 def match_alias_to_zendesk_ticket(alias: str) -> Optional[Dict[str, Any]]:
     """
     Search for a Zendesk ticket where custom field 13606076120860 contains the email alias.
