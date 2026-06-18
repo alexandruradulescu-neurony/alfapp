@@ -32,6 +32,14 @@ from apps.communications.constants import (
     FINAL_MILESTONE,
     SINCE_ANCHOR_FALLBACK_DAYS,
     cadence_offsets,
+    CLIENT_UPDATE_TAG_PREFIX,
+    ATTENTION_TAGS,
+    FINAL_TERMINAL_TAGS,
+)
+from apps.integrations.services import (
+    add_zendesk_ticket_tags,
+    get_zendesk_ticket_tags,
+    remove_zendesk_ticket_tags,
 )
 
 logger = logging.getLogger(__name__)
@@ -159,6 +167,28 @@ def _service_length_days() -> int:
         return int(v) if v and int(v) > 0 else DEFAULT_SERVICE_LENGTH_DAYS
     except Exception:
         return DEFAULT_SERVICE_LENGTH_DAYS
+
+
+# --- Tag ledger --------------------------------------------------------------
+
+def tag_for_milestone(claim, milestone) -> str:
+    """Return the Zendesk ledger tag for a given milestone on this claim.
+
+    The tag is `client_update_{ordinal}` where ordinal is the milestone's
+    1-based position in the cadence plan (DAY_2 → 1, DAY_5 → 2, …, FINAL →
+    last). Returns '' if the milestone is not in the plan (unknown key).
+
+    The ordinal is computed from the current service length so it shifts
+    correctly when the plan is extended: e.g. if service_length_days is 32
+    a DAY_31 tail step is inserted before FINAL, making FINAL ordinal 6 instead
+    of 5. This ensures the manual-macro tag sequence always matches LORA's."""
+    svc = _service_length_days()
+    ordered = [f'DAY_{d}' for d in cadence_offsets(svc)] + [FINAL_MILESTONE]
+    try:
+        idx = ordered.index(milestone)
+        return f'{CLIENT_UPDATE_TAG_PREFIX}{idx + 1}'
+    except ValueError:
+        return ''
 
 
 # --- Cadence plan ------------------------------------------------------------
@@ -556,7 +586,17 @@ def send_follow_up(update, body) -> bool:
     update.sent_at = timezone.now()
     update.state = ClientUpdate.STATE_SENT
     update.save(update_fields=['draft_body', 'sent_at', 'state', 'updated_at'])
-    schedule_next(update.claim)
+    # WRITE-after: stamp the ledger tag so the manual and automated paths stay in
+    # sync. Tag failures are intentionally swallowed (helpers never raise) — a
+    # tagging hiccup must not roll back a successfully-delivered client message.
+    claim = update.claim
+    tag = tag_for_milestone(claim, update.milestone)
+    if tag:
+        add_zendesk_ticket_tags(claim.zd_ticket_id, [tag])
+    remove_zendesk_ticket_tags(claim.zd_ticket_id, list(ATTENTION_TAGS))
+    if update.milestone == FINAL_MILESTONE:
+        add_zendesk_ticket_tags(claim.zd_ticket_id, list(FINAL_TERMINAL_TAGS))
+    schedule_next(claim)
     return True
 
 
@@ -606,9 +646,9 @@ def run_due_updates(now=None) -> dict:
     ss = SystemSettings.get_instance()
     if not getattr(ss, 'client_updates_autosend', False):
         return {'enabled': False, 'sent': 0, 'held': 0, 'skipped': 0, 'failed': 0,
-                'considered': 0}
+                'considered': 0, 'already_tagged': 0}
 
-    sent = held = skipped = failed = considered = 0
+    sent = held = skipped = failed = considered = already_tagged = 0
     for due in list(due_updates(now)):
         considered += 1
         update = _claim_due_update(due.pk, now)
@@ -629,6 +669,19 @@ def run_due_updates(now=None) -> dict:
             update.save(update_fields=['state', 'updated_at'])
             held += 1
             continue
+        # READ-before: if an agent already sent this update manually (the macro
+        # stamps the same client_update_N tag), treat it as done — advance the
+        # cascade without posting a duplicate.
+        existing_tags = get_zendesk_ticket_tags(claim.zd_ticket_id)
+        due_tag = tag_for_milestone(claim, update.milestone)
+        if due_tag and due_tag in existing_tags:
+            logger.info("Claim #%s: milestone %s already tagged (%s) — skipping duplicate send.",
+                        claim.id, update.milestone, due_tag)
+            update.state = ClientUpdate.STATE_SKIPPED
+            update.save(update_fields=['state', 'updated_at'])
+            schedule_next(claim)
+            already_tagged += 1
+            continue
         prepare_follow_up(update, ss=ss)  # fetches fresh mail + drafts (FINAL uses its template)
         found = object_found(claim)
         if found:
@@ -648,4 +701,4 @@ def run_due_updates(now=None) -> dict:
             update.save(update_fields=['state', 'updated_at'])
             failed += 1
     return {'enabled': True, 'sent': sent, 'held': held, 'skipped': skipped,
-            'failed': failed, 'considered': considered}
+            'failed': failed, 'considered': considered, 'already_tagged': already_tagged}

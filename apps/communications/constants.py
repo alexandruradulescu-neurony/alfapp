@@ -42,6 +42,23 @@ TAIL_STEP_DAYS = 10
 FINAL_MILESTONE = 'FINAL'
 
 
+# --- Zendesk tag ledger ------------------------------------------------------
+# Prefix for per-update sequence tags written after each client update is sent
+# (e.g. client_update_1, client_update_2 …). The manual macro system uses the
+# same scheme; LORA checks these BEFORE sending to avoid duplicates, and writes
+# them AFTER a successful send to stay in sync with the manual path.
+CLIENT_UPDATE_TAG_PREFIX = 'client_update_'
+
+# Tags removed from the ticket after each update is sent (attention signals set
+# by the macro; cleared so the ticket doesn't stay flagged after LORA handles it).
+ATTENTION_TAGS = ('with_client_update', 'third_party_update')
+
+# Extra tags written only after the FINAL (end-of-service) update is sent.
+# Marks the investigation as closed for reporting / downstream automation.
+# Note: LORA never closes the ticket itself — an agent does that manually.
+FINAL_TERMINAL_TAGS = ('item_not_found', '30_days_reached', 'investigation_over')
+
+
 def cadence_offsets(service_length_days):
     """Day offsets (from the submission moment) for every progress update that
     falls strictly inside the service window. Returns an ascending list, e.g.
