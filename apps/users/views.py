@@ -317,6 +317,9 @@ def claim_client_report_send(request, claim_id):
     if claim.client_report_sent_at:
         messages.warning(request, 'The client update was already sent for this claim.')
         return redirect('agent_claim_detail', claim_id=claim_id)
+    if claim.risk_active:
+        messages.error(request, 'This claim is flagged at-risk — review/acknowledge before sending.')
+        return redirect('agent_claim_detail', claim_id=claim_id)
     body = (request.POST.get('body') or '').strip()
     if not body:
         messages.error(request, 'The message is empty — nothing to send.')
