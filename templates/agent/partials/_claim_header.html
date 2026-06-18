@@ -9,7 +9,7 @@ and form field is preserved from the original screen.
     {# Identity + status #}
     <div class="min-w-0">
       <div class="flex items-center gap-2 mb-1">
-        <a href="{% url 'agent_claims' %}" class="btn btn-sm btn-ghost rounded-xl" title="Back to claims">
+        <a href="{% url 'manager_claims' %}" class="btn btn-sm btn-ghost rounded-xl" title="Back to claims">
           <i class="bi bi-arrow-left"></i>
         </a>
         <span class="text-xs text-base-content/50 font-mono">#{{ claim.alf_claim_id|default:claim.id }}</span>
@@ -99,7 +99,7 @@ and form field is preserved from the original screen.
                   hx-delete="/api/claims/claims/{{ claim.id }}/" hx-swap="none"
                   hx-confirm="Delete this claim? This cannot be undone."
                   title="Delete this claim from LORA (the Zendesk ticket is not touched)"
-                  hx-on::after-request="if(event.detail.successful){window.location.href='{% url 'agent_claims' %}'}else{toast('Could not delete the claim','error')}"
+                  hx-on::after-request="if(event.detail.successful){window.location.href='{% url 'manager_claims' %}'}else{toast('Could not delete the claim','error')}"
                   @click="open=false">
             <i class="bi bi-trash"></i> Delete claim
           </button>
