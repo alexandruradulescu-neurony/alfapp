@@ -1,4 +1,5 @@
 {% load static %}
+{% if htmx_fragment %}{% include 'partials/_toast_oob.html' %}{% endif %}
 <div id="claim-body" hx-target="this" hx-swap="outerHTML">
 <div class="animate-fade-in">
 <!-- Page Header -->
