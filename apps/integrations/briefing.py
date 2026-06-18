@@ -112,6 +112,15 @@ ALF_BUSINESS_CONTEXT = (
 
 SUMMARY_PROMPT = ALF_BUSINESS_CONTEXT + (
     "\n\nWrite a concise management summary of this claim's current state in `summary`.\n"
+    "LEAD with what is BLOCKING progress and needs a human, if anything. Above all, CLIENT "
+    "RESPONSIVENESS: if updates were sent but the client has not replied, or the client is "
+    "unreachable, say that FIRST — the search is stalled pending the client. Then the settled "
+    "facts: the search focus, and which lost-and-found offices were contacted with their "
+    "per-office status (no response from one office is NOT an outcome). When a check was re-run "
+    "(e.g. flight verification), TRUST THE MOST RECENT verdict — do NOT present a superseded "
+    "earlier check as an unresolved conflict or narrate the back-and-forth. Note the item's "
+    "value/sensitivity and the abandoned-cart origin + fee paid when relevant. Keep it to what "
+    "helps decide the NEXT ACTION; omit intermediate AI reasoning.\n"
     "Also assess CLIENT risk (the paying customer, not the lost-and-found institutions):\n"
     "- risk_reasons: any of ['hostile_language','refund_demanded','dispute_risk',"
     "'negative_sentiment'] that the CLIENT exhibits. Use 'refund_demanded' only when the "
