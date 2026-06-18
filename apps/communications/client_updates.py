@@ -483,10 +483,14 @@ def _draft_follow_up(claim, replies, ss=None) -> tuple:
 def prepare_follow_up(update, fetch_email=True, ss=None):
     """Prepare a due update: optionally pull fresh mail, then draft it and mark
     it DRAFTED for review. The FINAL milestone uses the end-of-service template;
-    every other milestone drafts a progress update from recent office replies.
+    every other milestone drafts a progress update from recent office replies,
+    falling back to the per-milestone macro-voice template when there is no news.
 
     `ss` (an optional SystemSettings instance) is threaded down to the drafter so
     the autonomous runner can load the singleton once for the whole queue."""
+    from apps.integrations.services import fetch_zendesk_ticket
+    from apps.communications.client_update_templates import milestone_message
+
     claim = update.claim
     if fetch_email and getattr(claim, 'email_alias', '') and getattr(claim, 'zd_ticket_id', ''):
         try:
@@ -494,10 +498,32 @@ def prepare_follow_up(update, fetch_email=True, ss=None):
             check_email_for_ticket(claim.zd_ticket_id, claim, claim.email_alias)
         except Exception as e:
             logger.warning("Follow-up email fetch failed for claim #%s: %s", claim.id, e)
+
+    # Fetch live ticket data once so milestone_message can resolve placeholders.
+    ticket_data = None
+    if getattr(claim, 'zd_ticket_id', ''):
+        try:
+            ticket_data = fetch_zendesk_ticket(claim.zd_ticket_id)
+        except Exception as e:
+            logger.warning("Ticket fetch for milestone template failed (claim #%s): %s",
+                           getattr(claim, 'id', '?'), e)
+
+    period_days = _service_length_days()
+
     if update.milestone == FINAL_MILESTONE:
-        body, has_news = _final_template(claim), False
+        body = milestone_message(claim, 'FINAL', ticket_data, period_days)
+        has_news = False
     else:
-        body, has_news = _draft_follow_up(claim, _recent_office_replies(claim), ss=ss)
+        replies = _recent_office_replies(claim)
+        safe = [r for r in replies if r.category in CLIENT_SAFE_REPLY_CATEGORIES]
+        if safe:
+            # AI-drafted path (office replies present) — keep existing behaviour.
+            body, has_news = _draft_follow_up(claim, replies, ss=ss)
+        else:
+            # No-news path: use the on-brand per-milestone template.
+            body = milestone_message(claim, update.milestone, ticket_data, period_days)
+            has_news = False
+
     update.draft_body = body
     update.has_news = has_news
     update.state = ClientUpdate.STATE_DRAFTED
