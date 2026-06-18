@@ -101,6 +101,12 @@ def build_client_update_message(claim, polish: bool = True) -> str:
     """Build the client update: the template, optionally polished by the LLM.
     Always returns a usable message — AI failure/absence falls back to the
     template. PII is masked before the LLM and restored on the way out."""
+    if getattr(claim, 'risk_active', False):
+        reasons = ", ".join(claim.risk_reason_labels) or "flagged"
+        return (
+            f"⚠ This claim is flagged at-risk ({reasons}). Client updates are PAUSED — "
+            "review the situation and acknowledge the risk before sending anything to the client."
+        )
     template = build_client_update_template(claim)
     if not polish:
         return template

@@ -299,7 +299,12 @@ def send_initial_update(claim, body) -> bool:
     fails, True after recording sent. The post happens BEFORE the state save (same
     accepted-risk ordering as send_follow_up). The caller owns the already-sent and
     empty-body/no-ticket guards and all user-facing strings; `body` is the edited
-    body to send, saved verbatim (not regenerated)."""
+    body to send, saved verbatim (not regenerated).
+
+    PAUSED while claim.risk_active: returns False without posting or writing state."""
+    if getattr(claim, 'risk_active', False):
+        logger.info("send_initial_update blocked for at-risk claim #%s", getattr(claim, 'id', '?'))
+        return False
     from apps.integrations.services import post_zendesk_comment
     if post_zendesk_comment(claim.zd_ticket_id, body, is_internal=False) is None:
         return False
@@ -502,8 +507,13 @@ def prepare_follow_up(update, fetch_email=True, ss=None):
 
 def send_follow_up(update, body) -> bool:
     """Post the (edited) update as a PUBLIC Zendesk reply, mark it SENT, and
-    cascade-schedule the next milestone."""
+    cascade-schedule the next milestone.
+
+    PAUSED while update.claim.risk_active: returns False without posting or writing state."""
     body = (body or '').strip()
+    if getattr(update.claim, 'risk_active', False):
+        logger.info("send_follow_up blocked for at-risk claim #%s", getattr(update.claim, 'id', '?'))
+        return False
     if not body or update.state == ClientUpdate.STATE_SENT or not update.claim.zd_ticket_id:
         return False
     from apps.integrations.services import post_zendesk_comment
@@ -582,6 +592,16 @@ def run_due_updates(now=None) -> dict:
         if claim_is_closed(claim):
             cancel_open_follow_ups(claim)
             skipped += 1
+            continue
+        if claim.risk_active:
+            # Claim flagged at-risk (hostile client / refund demanded / scam /
+            # status regression, not yet acknowledged). Leave the update SCHEDULED
+            # so it is retried automatically once the risk is acknowledged.
+            logger.info("Claim #%s: at-risk — holding %s update for a human.",
+                        claim.id, update.milestone)
+            update.state = ClientUpdate.STATE_SCHEDULED
+            update.save(update_fields=['state', 'updated_at'])
+            held += 1
             continue
         prepare_follow_up(update, ss=ss)  # fetches fresh mail + drafts (FINAL uses its template)
         found = object_found(claim)
