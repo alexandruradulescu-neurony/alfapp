@@ -157,6 +157,69 @@ def build_client_update_timeline(claim) -> dict:
     return {'claim': True, 'alf_id': claim.alf_claim_id or '', 'items': items}
 
 
+def milestone_label(milestone) -> str:
+    """Human label for a milestone key (matches ClientUpdate.label)."""
+    if milestone == FINAL_MILESTONE:
+        return 'Final update'
+    if milestone and milestone.startswith('DAY_'):
+        return f'Day {milestone[4:]}'
+    return milestone or ''
+
+
+def build_cadence_status(claim) -> list:
+    """The full client-update cadence with a status per milestone, for the
+    timeline UI. Combines: the plan (anchored to the claim's submission), the
+    ClientUpdate rows, the Zendesk macro tags (client_update_N → done manually),
+    and the initial-report fields.
+
+    Statuses: done / skipped / drafted / due / upcoming / missed.
+    Each item: {key, label, status, fu_id, due_at}."""
+    now = timezone.now()
+    anchor = getattr(claim, 'created_at', None) or now
+    plan = cadence_plan(anchor, anchor, _service_length_days())
+    rows = {r.milestone: r for r in claim.follow_up_updates.all()}
+    tags = set(claim.zd_tags or [])
+
+    # Initial "what we did" report (its own card, but shown on the timeline too).
+    if claim.client_report_sent_at:
+        initial = 'done'
+    elif claim.client_report_skipped_at:
+        initial = 'skipped'
+    elif claim.client_report_draft:
+        initial = 'drafted'
+    else:
+        initial = 'upcoming'
+    items = [{'key': 'initial', 'label': 'Initial update', 'status': initial,
+              'fu_id': None, 'due_at': None}]
+
+    for milestone, due in plan:
+        row = rows.get(milestone)
+        tag_done = tag_for_milestone(claim, milestone) in tags
+        if (row and row.state == ClientUpdate.STATE_SENT) or tag_done:
+            st = 'done'
+        elif row and row.state == ClientUpdate.STATE_SKIPPED:
+            st = 'skipped'
+        elif row and row.state == ClientUpdate.STATE_DRAFTED:
+            st = 'drafted'
+        elif row and row.state == ClientUpdate.STATE_SCHEDULED:
+            st = 'due' if row.due_at <= now else 'upcoming'
+        elif row is None and due <= now:
+            st = 'missed'
+        else:
+            st = 'upcoming'
+        items.append({
+            'key': milestone,
+            'label': milestone_label(milestone),
+            'status': st,
+            'fu_id': row.id if row else None,
+            'due_at': row.due_at if row else due,
+            'draft_body': row.draft_body if row else '',
+            'has_news': row.has_news if row else None,
+            'sent_at': row.sent_at if row else None,
+        })
+    return items
+
+
 # --- Service length ----------------------------------------------------------
 
 def _service_length_days() -> int:

@@ -267,6 +267,13 @@ class Claim(models.Model):
         help_text='When an agent skipped the initial update (e.g. the claim reached '
                   'LORA late and the client was already updated). None = not skipped.'
     )
+    zd_tags = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="The Zendesk ticket's tags as of the last 'Refresh from Zendesk'. "
+                  "Used to show client-update milestones done via the manual macros "
+                  "(client_update_N tags) without a live API call per page render."
+    )
 
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)

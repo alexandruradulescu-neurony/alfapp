@@ -242,6 +242,12 @@ class ClaimUpdateFromZendeskView(APIView):
                             status=status.HTTP_502_BAD_GATEWAY)
         ticket_data['comments'] = fetch_zendesk_comments(claim.zd_ticket_id)
 
+        # Capture the ticket's tags so the cadence timeline can show milestones
+        # done via the manual Zendesk macros (client_update_N) without a live API
+        # call on every page render.
+        claim.zd_tags = ticket_data.get('tags') or []
+        claim.save(update_fields=['zd_tags', 'updated_at'])
+
         extracted = analyze_zendesk_ticket_for_claim(ticket_data)
         # AI summary + risk detection are best-effort (their own save); run BEFORE
         # the atomic block so the LLM call never holds a DB transaction open.
