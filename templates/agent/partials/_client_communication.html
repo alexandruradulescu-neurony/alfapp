@@ -51,6 +51,8 @@ so the #claim-body root swaps the returned fragment.
     </h3>
     {% if claim.client_report_sent_at %}
     <span class="badge badge-soft-success rounded-full"><i class="bi bi-check-circle"></i> Sent {{ claim.client_report_sent_at|date:"M d, Y H:i" }}</span>
+    {% elif claim.client_report_skipped_at %}
+    <span class="badge badge-soft-neutral rounded-full"><i class="bi bi-slash-circle"></i> Skipped</span>
     {% else %}
     <span class="badge badge-soft-warning rounded-full">Draft — not sent</span>
     {% endif %}
@@ -59,6 +61,16 @@ so the #claim-body root swaps the returned fragment.
   {% if claim.client_report_sent_at %}
   <p class="text-sm text-base-content/60 mb-2">This update was sent to the client as a public reply on the Zendesk ticket.</p>
   <div class="rounded-xl bg-base-200/50 p-4 text-sm whitespace-pre-wrap">{{ claim.client_report_draft }}</div>
+  {% elif claim.client_report_skipped_at %}
+  <p class="text-sm text-base-content/60 mb-3">This initial update was <strong>skipped</strong> — it won't be sent (e.g. the claim reached LORA after the client had already been updated).</p>
+  <div class="rounded-xl bg-base-200/50 p-4 text-sm whitespace-pre-wrap opacity-60">{{ claim.client_report_draft }}</div>
+  <form method="post" action="{% url 'claim_client_report_skip' claim.id %}"
+        hx-post="{% url 'claim_client_report_skip' claim.id %}" class="mt-2">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-ghost btn-sm rounded-xl">
+      <i class="bi bi-arrow-counterclockwise"></i> Un-skip
+    </button>
+  </form>
   {% else %}
   <p class="text-sm text-base-content/60 mb-3">Review and edit this message, then send it to the client as a public Zendesk reply. It will <strong>not</strong> be sent until you click Send.</p>
   <form method="post" action="{% url 'claim_client_report_send' claim.id %}"
@@ -72,13 +84,22 @@ so the #claim-body root swaps the returned fragment.
       </button>
     </div>
   </form>
-  <form method="post" action="{% url 'claim_client_report_generate' claim.id %}"
-        hx-post="{% url 'claim_client_report_generate' claim.id %}" class="mt-2">
-    {% csrf_token %}
-    <button type="submit" class="btn btn-ghost btn-sm rounded-xl" title="Rewrite the draft (AI-polished)">
-      <i class="bi bi-arrow-repeat"></i> Regenerate draft
-    </button>
-  </form>
+  <div class="flex flex-wrap gap-2 mt-2">
+    <form method="post" action="{% url 'claim_client_report_generate' claim.id %}"
+          hx-post="{% url 'claim_client_report_generate' claim.id %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-ghost btn-sm rounded-xl" title="Rewrite the draft (AI-polished)">
+        <i class="bi bi-arrow-repeat"></i> Regenerate draft
+      </button>
+    </form>
+    <form method="post" action="{% url 'claim_client_report_skip' claim.id %}"
+          hx-post="{% url 'claim_client_report_skip' claim.id %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-ghost btn-sm rounded-xl" title="Don't send the initial update (e.g. the client was already updated)">
+        <i class="bi bi-slash-circle"></i> Skip
+      </button>
+    </form>
+  </div>
   {% endif %}
 </div>
 {% endif %}

@@ -320,6 +320,9 @@ def claim_client_report_send(request, claim_id):
     if claim.risk_active:
         messages.error(request, 'This claim is flagged at-risk — review/acknowledge before sending.')
         return redirect('agent_claim_detail', claim_id=claim_id)
+    if claim.client_report_skipped_at:
+        messages.warning(request, 'The initial update was skipped — un-skip it before sending.')
+        return redirect('agent_claim_detail', claim_id=claim_id)
     body = (request.POST.get('body') or '').strip()
     if not body:
         messages.error(request, 'The message is empty — nothing to send.')
@@ -338,6 +341,26 @@ def claim_client_report_send(request, claim_id):
     claim.client_report_sent_at = timezone.now()
     claim.save(update_fields=['client_report_draft', 'client_report_sent_at', 'updated_at'])
     messages.success(request, 'Client update sent as a public reply on the Zendesk ticket.')
+    return _claim_detail_response(request, claim_id)
+
+
+@agent_required
+def claim_client_report_skip(request, claim_id):
+    """Toggle 'skipped' on the initial client update. For claims that reached
+    LORA late and were already updated, so the initial shouldn't be sent.
+    Reversible: posting again un-skips it. No-op once the update was sent."""
+    claim = get_object_or_404(Claim, id=claim_id)
+    if request.method == 'POST':
+        if claim.client_report_sent_at:
+            messages.warning(request, 'The initial update was already sent — nothing to skip.')
+        elif claim.client_report_skipped_at:
+            claim.client_report_skipped_at = None
+            claim.save(update_fields=['client_report_skipped_at', 'updated_at'])
+            messages.success(request, 'Initial update un-skipped — you can send it again.')
+        else:
+            claim.client_report_skipped_at = timezone.now()
+            claim.save(update_fields=['client_report_skipped_at', 'updated_at'])
+            messages.success(request, 'Initial update skipped — it will not be sent.')
     return _claim_detail_response(request, claim_id)
 
 
