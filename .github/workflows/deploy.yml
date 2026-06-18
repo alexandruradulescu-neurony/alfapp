@@ -1,4 +1,13 @@
-name: Test & Deploy
+# Deploy-readiness checks (migration drift + `manage.py check --deploy`).
+#
+# The pytest suite runs in `tests.yml`. Production deploys via Railway's
+# GitHub integration (auto-deploy from `main`) — there is no deploy step here.
+# A previous `deploy` job SSHed to a server using SSH_HOST/SSH_USER/SSH_KEY
+# secrets that were never configured, so it failed on every push and made main
+# CI permanently red; it was removed. If a non-Railway deploy is ever set up,
+# re-add a job guarded on those secrets being present.
+
+name: Checks
 
 on:
   push:
@@ -40,23 +49,3 @@ jobs:
 
       - name: Run Django system checks
         run: python manage.py check --deploy
-
-      # TODO: Add `python manage.py test` once test suite is created
-
-  deploy:
-    name: Deploy to production
-    needs: test
-    runs-on: ubuntu-22.04
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    concurrency:
-      group: production-deploy
-      cancel-in-progress: false
-
-    steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          script: /opt/lora/deploy/deploy.sh
