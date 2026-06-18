@@ -261,6 +261,12 @@ class Claim(models.Model):
         blank=True,
         help_text='When the client update was sent as a public Zendesk reply (None = not sent)'
     )
+    client_report_skipped_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When an agent skipped the initial update (e.g. the claim reached '
+                  'LORA late and the client was already updated). None = not skipped.'
+    )
 
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
