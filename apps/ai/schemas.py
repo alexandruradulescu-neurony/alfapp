@@ -135,6 +135,28 @@ class EmailDraft(BaseModel):
     body: str = Field(max_length=4000)
 
 
+class Submission(BaseModel):
+    """One lost-and-found office/institution we submitted a loss report TO."""
+
+    office: str = Field(max_length=120)
+    date: str = Field(default='', max_length=40)   # as written by the agent; '' if not stated
+
+    @field_validator('office', 'date')
+    @classmethod
+    def _cap(cls, value: str) -> str:
+        return _trim(value, 120)
+
+
+class SubmissionList(BaseModel):
+    """Schema for `extract_submissions` (client_report.py).
+
+    The LLM returns every lost-and-found office/institution we submitted to,
+    with the date if stated. Default to empty list so a 'none found' reply
+    still validates."""
+
+    submissions: list[Submission] = Field(default_factory=list)
+
+
 class FlightCheck(BaseModel):
     """Schema for the flight-lookup AI cross-check (POST /zd/flight-lookup/).
     Validates fetched flight data (or candidate flights) against the client's
