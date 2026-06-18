@@ -7,7 +7,16 @@ name is restored on the way out via the AIClient's reverse-tokenization."""
 
 import logging
 
+from apps.integrations.services import fetch_zendesk_comments
+
 logger = logging.getLogger(__name__)
+
+SUBMISSIONS_EXTRACT_SYSTEM_PROMPT = (
+    "From these internal agent notes on a lost-item claim, list each lost-and-found "
+    "office/institution that WE submitted a loss report TO, with the submission date if "
+    "stated. Include ONLY outbound submissions we made — never inbound replies, phone logs, "
+    "or offices merely mentioned. If unsure, omit it. Return an empty list if none."
+)
 
 CLIENT_REPORT_SYSTEM_PROMPT = (
     "You are a support agent at Airport Lost & Found, a paid lost-item recovery "
@@ -52,13 +61,40 @@ def _parties_phrase(claim) -> str:
     return ''
 
 
-def build_client_update_template(claim) -> str:
-    """The deterministic, on-brand client update — no AI, no over-promising."""
+def _render_submissions_line(submissions: list) -> str:
+    """Render the concrete 'we submitted to...' bullet from a list of
+    {'office', 'date'} dicts. Each office appears with its date in parens
+    when a date is provided, separated by '; '."""
+    parts = []
+    for s in submissions:
+        office = (s.get('office') or '').strip()
+        if not office:
+            continue
+        date = (s.get('date') or '').strip()
+        parts.append(f"{office} ({date})" if date else office)
+    if not parts:
+        return ''
+    offices_str = '; '.join(parts)
+    return f"• We have formally reported your lost item, on your behalf, to: {offices_str}."
+
+
+def build_client_update_template(claim, submissions=None) -> str:
+    """The deterministic, on-brand client update — no AI, no over-promising.
+
+    submissions: optional list of {'office', 'date'} dicts; when non-empty,
+    the generic 'relevant lost-and-found offices' line is replaced with the
+    actual offices listed. When None or empty, the generic line is used.
+    """
     name = (getattr(claim, 'client_name', '') or '').strip() or 'there'
     obj = _first_line(getattr(claim, 'object_description', '') or '') or 'your lost item'
     ref = (getattr(claim, 'alf_claim_id', '') or '').strip()
     flight = _flight_phrase(claim)
     parties = _parties_phrase(claim)
+
+    if submissions:
+        submitted_line = _render_submissions_line(submissions)
+    else:
+        submitted_line = ''
 
     lines = [
         f"Dear {name},",
@@ -67,9 +103,14 @@ def build_client_update_template(claim) -> str:
         "We wanted to update you on the work we have completed so far.",
         "",
         f"• We reviewed the details you provided and confirmed the specifics of your case{flight}.",
-        f"• We have formally reported your lost item to the relevant lost-and-found offices{parties}, "
-        "on your behalf.",
     ]
+    if submitted_line:
+        lines.append(submitted_line)
+    else:
+        lines.append(
+            f"• We have formally reported your lost item to the relevant lost-and-found offices{parties}, "
+            "on your behalf."
+        )
     if ref:
         lines.append(f"• Your case is being tracked under reference {ref}.")
     lines += [
@@ -84,6 +125,49 @@ def build_client_update_template(claim) -> str:
         "The Airport Lost & Found team",
     ]
     return "\n".join(lines)
+
+
+def extract_submissions(claim) -> list:
+    """Best-effort list of {'office','date'} dicts the loss was SUBMITTED to,
+    read from the agent-posted ticket comments. Conservative (only outbound
+    submissions WE made, not inbound replies); returns [] on any failure or if
+    none found."""
+    try:
+        comments = fetch_zendesk_comments(claim.zd_ticket_id)
+        if not comments:
+            return []
+        combined = '\n\n---\n\n'.join(
+            c.get('body', '') for c in comments if c.get('body', '').strip()
+        )
+        if not combined.strip():
+            return []
+        from apps.config.models import SystemSettings
+        ss = SystemSettings.get_instance()
+        if not getattr(ss, 'ai_api_key', ''):
+            return []
+        from apps.ai.client import AIClient
+        from apps.ai.schemas import SubmissionList
+        result = AIClient.complete(
+            system_prompt=SUBMISSIONS_EXTRACT_SYSTEM_PROMPT,
+            trusted={},
+            untrusted={'agent_notes': combined},
+            known_pii=_known_pii_for(claim),
+            response_schema=SubmissionList,
+            call_site='submissions_extract',
+            temperature=0.2,
+            max_tokens=400,
+        )
+        return [
+            {'office': s.office, 'date': s.date}
+            for s in result.submissions
+            if s.office.strip()
+        ]
+    except Exception as e:
+        logger.warning(
+            "extract_submissions: could not extract for claim #%s: %s",
+            getattr(claim, 'id', '?'), e,
+        )
+        return []
 
 
 def _known_pii_for(claim) -> dict:
@@ -107,7 +191,8 @@ def build_client_update_message(claim, polish: bool = True) -> str:
             f"⚠ This claim is flagged at-risk ({reasons}). Client updates are PAUSED — "
             "review the situation and acknowledge the risk before sending anything to the client."
         )
-    template = build_client_update_template(claim)
+    submissions = extract_submissions(claim)
+    template = build_client_update_template(claim, submissions=submissions)
     if not polish:
         return template
     try:
