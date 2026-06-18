@@ -364,6 +364,27 @@ def claim_client_report_skip(request, claim_id):
     return _claim_detail_response(request, claim_id)
 
 
+@agent_required
+def client_followup_dismiss(request, claim_id, milestone):
+    """Dismiss a 'missed' cadence milestone (its date passed and nothing was
+    sent) — record it as skipped so it stops flagging for attention."""
+    claim = get_object_or_404(Claim, id=claim_id)
+    if request.method == 'POST':
+        from apps.communications.models import ClientUpdate
+        from apps.communications import client_updates as cu
+        anchor = claim.created_at or timezone.now()
+        due = next((d for m, d in cu.cadence_plan(anchor, anchor, cu._service_length_days())
+                    if m == milestone), timezone.now())
+        obj, created = ClientUpdate.objects.get_or_create(
+            claim=claim, milestone=milestone,
+            defaults={'due_at': due, 'state': ClientUpdate.STATE_SKIPPED})
+        if not created and obj.state != ClientUpdate.STATE_SENT:
+            obj.state = ClientUpdate.STATE_SKIPPED
+            obj.save()
+        messages.success(request, f'{cu.milestone_label(milestone)} dismissed.')
+    return _claim_detail_response(request, claim_id)
+
+
 def _followup_and_claim(request: HttpRequest, update_id: int) -> tuple["ClientUpdate", Claim]:
     """Fetch a ClientUpdate + its claim (404 if the update doesn't exist).
 
@@ -465,6 +486,9 @@ def _claim_detail_context(claim_id):
     if remaining_refund < 0:
         remaining_refund = 0
 
+    from apps.communications.client_updates import build_cadence_status
+    cadence = build_cadence_status(claim)
+
     return claim, {
         'claim': claim,
         'zd_subdomain': zd_subdomain,
@@ -473,6 +497,7 @@ def _claim_detail_context(claim_id):
         'emails_handled': emails_handled,
         'client_followups': client_followups,
         'remaining_refund': remaining_refund,
+        'cadence': cadence,
     }
 
 

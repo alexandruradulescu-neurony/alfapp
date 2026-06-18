@@ -23,6 +23,7 @@ urlpatterns = [
     path('agent/client-updates/<int:update_id>/prepare/', views.client_followup_prepare, name='client_followup_prepare'),
     path('agent/client-updates/<int:update_id>/send/', views.client_followup_send, name='client_followup_send'),
     path('agent/client-updates/<int:update_id>/skip/', views.client_followup_skip, name='client_followup_skip'),
+    path('agent/claims/<int:claim_id>/followups/<str:milestone>/dismiss/', views.client_followup_dismiss, name='client_followup_dismiss'),
     path('agent/claims/<int:claim_id>/client-updates/start/', views.client_updates_start, name='client_updates_start'),
     path('agent/claims/<int:claim_id>/acknowledge-risk/', views.claim_acknowledge_risk, name='claim_acknowledge_risk'),
     path('agent/emails/', views.agent_emails, name='agent_emails'),
