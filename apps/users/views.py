@@ -305,7 +305,7 @@ def claim_client_report_generate(request, claim_id):
     claim.client_report_draft = build_client_update_message(claim, polish=True)
     claim.save(update_fields=['client_report_draft', 'updated_at'])
     messages.success(request, 'Client update draft regenerated — review it, then send.')
-    return redirect('agent_claim_detail', claim_id=claim_id)
+    return _claim_detail_response(request, claim_id)
 
 
 @agent_required
@@ -338,7 +338,7 @@ def claim_client_report_send(request, claim_id):
     claim.client_report_sent_at = timezone.now()
     claim.save(update_fields=['client_report_draft', 'client_report_sent_at', 'updated_at'])
     messages.success(request, 'Client update sent as a public reply on the Zendesk ticket.')
-    return redirect('agent_claim_detail', claim_id=claim_id)
+    return _claim_detail_response(request, claim_id)
 
 
 def _followup_and_claim(request: HttpRequest, update_id: int) -> tuple["ClientUpdate", Claim]:
@@ -359,7 +359,7 @@ def client_followup_prepare(request, update_id):
         from apps.communications import client_updates as cu
         cu.prepare_follow_up(update)
         messages.success(request, f'{update.label} update drafted — review it, then send.')
-    return redirect('agent_claim_detail', claim_id=claim.id)
+    return _claim_detail_response(request, claim.id)
 
 
 @agent_required
@@ -378,7 +378,7 @@ def client_followup_send(request, update_id):
             messages.success(request, f'{update.label} update sent as a public Zendesk reply.')
         else:
             messages.error(request, 'Could not post the reply to Zendesk — please try again.')
-    return redirect('agent_claim_detail', claim_id=claim.id)
+    return _claim_detail_response(request, claim.id)
 
 
 @agent_required
@@ -389,7 +389,7 @@ def client_followup_skip(request, update_id):
         from apps.communications import client_updates as cu
         cu.skip_follow_up(update)
         messages.success(request, f'{update.label} update skipped.')
-    return redirect('agent_claim_detail', claim_id=claim.id)
+    return _claim_detail_response(request, claim.id)
 
 
 @agent_required
@@ -403,12 +403,11 @@ def client_updates_start(request, claim_id):
             messages.success(request, 'Client updates started — review the initial draft, then send.')
         else:
             messages.info(request, 'Client updates were already started for this claim.')
-    return redirect('agent_claim_detail', claim_id=claim.id)
+    return _claim_detail_response(request, claim.id)
 
 
-@agent_required
-def agent_claim_detail(request, claim_id):
-    """Agent claim detail view."""
+def _claim_detail_context(claim_id):
+    """Build the context for the single-claim screen (full page and HTMX body)."""
     claim = get_object_or_404(
         Claim.objects.prefetch_related(
             'evidence', 'emails', 'refunds', 'disputes', 'follow_up_updates'
@@ -437,7 +436,7 @@ def agent_claim_detail(request, claim_id):
     for fu in client_followups:
         fu.is_due = (fu.state == 'SCHEDULED' and fu.due_at <= now)
 
-    context = {
+    return claim, {
         'claim': claim,
         'zd_subdomain': zd_subdomain,
         'claim_refund_status': claim.refund_status,
@@ -446,7 +445,30 @@ def agent_claim_detail(request, claim_id):
         'client_followups': client_followups,
     }
 
+
+@agent_required
+def agent_claim_detail(request, claim_id):
+    """Agent claim detail view (full page)."""
+    _claim, context = _claim_detail_context(claim_id)
     return render(request, 'agent/claim_detail.html', context)
+
+
+@agent_required
+def agent_claim_detail_body(request, claim_id):
+    """The claim-detail screen body as an HTMX fragment (no base shell)."""
+    _claim, context = _claim_detail_context(claim_id)
+    return render(request, 'agent/_claim_body.html', context)
+
+
+def _claim_detail_response(request, claim_id):
+    """After a form action: HTMX gets the refreshed body fragment (with any
+    flash messages swapped out-of-band into the toast region); plain requests
+    keep the existing full-page redirect (no-JS fallback)."""
+    if request.headers.get('HX-Request'):
+        _claim, context = _claim_detail_context(claim_id)
+        context['htmx_fragment'] = True
+        return render(request, 'agent/_claim_body.html', context)
+    return redirect('agent_claim_detail', claim_id=claim_id)
 
 
 @manager_required
@@ -1097,7 +1119,7 @@ def claim_acknowledge_risk(request, claim_id):
     if claim.risk_active:
         claim.acknowledge_risk(request.user)
         messages.success(request, 'Risk flag acknowledged.')
-    return redirect('agent_claim_detail', claim_id=claim_id)
+    return _claim_detail_response(request, claim_id)
 
 
 @manager_required

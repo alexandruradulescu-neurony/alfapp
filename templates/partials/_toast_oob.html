@@ -1,0 +1,3 @@
+<div id="toast-region" hx-swap-oob="innerHTML">
+  {% for message in messages %}<div role="alert" class="lora-toast lora-toast-{{ message.tags }}">{{ message }}</div>{% endfor %}
+</div>

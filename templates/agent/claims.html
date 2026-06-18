@@ -13,12 +13,10 @@
         <p class="text-sm text-base-content/60 mt-1">Search, filter and review lost-item claims.</p>
     </div>
     <div class="flex flex-wrap gap-2">
-        {% if user.role == 'MANAGER' %}
         <button type="button" id="bulk-delete-btn" class="btn btn-error rounded-xl"
                 onclick="bulkDeleteClaims()" hidden>
             <i class="bi bi-trash"></i> Delete selected (<span id="bulk-count">0</span>)
         </button>
-        {% endif %}
         <a href="{% url 'agent_dashboard' %}" class="btn btn-outline rounded-xl">
             <i class="bi bi-arrow-left"></i> Back to Dashboard
         </a>
@@ -70,13 +68,11 @@
         <table class="table-modern">
             <thead>
                 <tr>
-                    {% if user.role == 'MANAGER' %}
                     <th class="w-8">
                         <input type="checkbox" id="select-all" class="checkbox checkbox-sm"
                                title="Select all claims on this page"
                                onchange="toggleSelectAll(this)">
                     </th>
-                    {% endif %}
                     <th>ID</th>
                     <th>Customer Email</th>
                     <th>Status</th>
@@ -91,12 +87,10 @@
             <tbody>
                 {% for claim in claims %}
                 <tr class="hover:bg-base-200/40 transition-colors">
-                    {% if user.role == 'MANAGER' %}
                     <td>
                         <input type="checkbox" class="checkbox checkbox-sm row-check"
                                value="{{ claim.id }}" onchange="updateBulkButton()">
                     </td>
-                    {% endif %}
                     <td class="font-mono text-sm font-medium">
                         {% if claim.alf_claim_id %}{{ claim.alf_claim_id }}{% else %}#{{ claim.id }}{% endif %}
                     </td>
@@ -135,7 +129,7 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="{% if user.role == 'MANAGER' %}10{% else %}9{% endif %}" class="text-center py-16">
+                    <td colspan="10" class="text-center py-16">
                         <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
                             <i class="bi bi-inbox text-3xl text-base-content/40"></i>
                         </div>
@@ -183,7 +177,6 @@
 </div>
 </div>
 
-{% if user.role == 'MANAGER' %}
 <script>
 function toggleSelectAll(master) {
     document.querySelectorAll('.row-check').forEach(cb => { cb.checked = master.checked; });
@@ -236,5 +229,4 @@ function bulkDeleteClaims() {
     .catch(() => { alert('Bulk delete failed'); btn.disabled = false; });
 }
 </script>
-{% endif %}
 {% endblock %}

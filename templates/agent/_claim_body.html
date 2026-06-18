@@ -1,0 +1,14 @@
+{% load static %}
+{% if htmx_fragment %}{% include 'partials/_toast_oob.html' %}{% endif %}
+<div id="claim-body" hx-target="this" hx-swap="outerHTML">
+  {% include 'agent/partials/_claim_header.html' %}
+  <div class="grid grid-cols-1 lg:grid-cols-[1.55fr_1fr] gap-4 mt-4">
+    <div class="flex flex-col gap-4">
+      {% include 'agent/partials/_client_communication.html' %}
+      {% include 'agent/partials/_institution_replies.html' %}
+    </div>
+    <div class="flex flex-col gap-2">
+      {% include 'agent/partials/_reference_cards.html' %}
+    </div>
+  </div>
+</div>

@@ -15,6 +15,7 @@ urlpatterns = [
     path('agent/', views.agent_dashboard, name='agent_dashboard'),
     path('agent/claims/', views.agent_claims, name='agent_claims'),
     path('agent/claims/<int:claim_id>/', views.agent_claim_detail, name='agent_claim_detail'),
+    path('agent/claims/<int:claim_id>/body/', views.agent_claim_detail_body, name='agent_claim_detail_body'),
     path('agent/claims/<int:claim_id>/upload/', views.agent_upload_evidence, name='agent_upload_evidence'),
     path('agent/claims/<int:claim_id>/client-report/generate/', views.claim_client_report_generate, name='claim_client_report_generate'),
     path('agent/claims/<int:claim_id>/client-report/send/', views.claim_client_report_send, name='claim_client_report_send'),
