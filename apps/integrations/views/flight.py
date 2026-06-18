@@ -52,16 +52,31 @@ TIMELINE_TYPE_INFO_UPDATED = 'INFO_UPDATED'
 FLIGHT_HISTORY_WINDOW_DAYS = 14
 
 
-def _record_flight_timeline(claim, changes, llm_summary):
-    """Write the INFO_UPDATED timeline row for a flight-lookup result. Folded out
-    of the four near-identical ClaimUpdateTimeline.objects.create() calls in the
-    view; the stored row is identical to before."""
+def _flight_timeline_summary(changes: dict) -> str:
+    """A concise, deterministic one-liner for the flight-lookup timeline entry —
+    the delta convention used across the timeline. The full AI flight-match
+    narration still goes to the Zendesk note, not here."""
+    num = changes.get('number') or '(no number)'
+    date = changes.get('date') or ''
+    head = f"Flight lookup: {num} {date}".rstrip()
+    if changes.get('found'):
+        verdict = changes.get('verdict')
+        return f"{head} — found" + (f" (verdict: {verdict})" if verdict else "") + "."
+    candidates = changes.get('candidates')
+    if candidates:
+        return f"{head} — not found; {candidates} candidate(s) listed."
+    return f"{head} — not found."
+
+
+def _record_flight_timeline(claim, changes):
+    """Write the INFO_UPDATED timeline row for a flight-lookup result, with a
+    concise delta-style summary built from the structured result."""
     ClaimUpdateTimeline.objects.create(
         claim=claim,
         zendesk_ticket_id=claim.zd_ticket_id,
         update_type=TIMELINE_TYPE_INFO_UPDATED,
         changes_summary=json.dumps({'flight_lookup': changes}),
-        llm_summary=llm_summary,
+        llm_summary=_flight_timeline_summary(changes),
     )
 
 
@@ -154,7 +169,6 @@ class ZendeskFlightLookupView(APIView):
                 _record_flight_timeline(
                     claim,
                     {**query, 'found': True, 'verdict': verdict['level']},
-                    analysis.summary if analysis else '',
                 )
 
         note_posted = self._post_note(ticket_id, format_flight_note(flight, analysis, verdict))
@@ -213,7 +227,6 @@ class ZendeskFlightLookupView(APIView):
                 claim,
                 {'number': None, 'date': date, 'airport': airport,
                  'found': False, 'candidates': len(candidates)},
-                analysis.summary if analysis else '',
             )
         return Response({'error_message': 'No flight number on this ticket.',
                          'candidates': candidates,
@@ -259,7 +272,6 @@ class ZendeskFlightLookupView(APIView):
                 _record_flight_timeline(
                     claim,
                     {**query, 'found': False, 'candidates': len(candidates)},
-                    analysis.summary if analysis else '',
                 )
             return Response({'error_message': error_message, 'candidates': candidates,
                              'analysis': self._analysis_dict(analysis),
@@ -273,7 +285,6 @@ class ZendeskFlightLookupView(APIView):
             _record_flight_timeline(
                 claim,
                 {**query, 'found': False, 'candidates': 0},
-                '',
             )
         return Response({'error_message': error_message, 'verdict': verdict,
                          'claimless': claim is None, 'note_posted': note_posted},
