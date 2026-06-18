@@ -237,10 +237,16 @@ def _submission_anchor(claim, fallback):
     return fallback
 
 
-def schedule_next(claim, submission_anchor=None):
+def schedule_next(claim, submission_anchor=None, skip_past=False):
     """Cascade step: ensure the NEXT update exists. No-op if one is already open
     (scheduled or drafted) — we only advance once the current one is resolved.
-    Returns the newly-created ClientUpdate, or None if nothing was created."""
+    Returns the newly-created ClientUpdate, or None if nothing was created.
+
+    skip_past=True (used when starting the cadence late on an already-aged claim)
+    advances past any milestone whose due moment has already passed, so we jump to
+    the next FUTURE milestone instead of queuing a long-overdue early one. The
+    ongoing cadence leaves it False, so a merely-overdue milestone is still
+    scheduled (and shown as due) rather than skipped."""
     if claim.follow_up_updates.filter(state__in=ClientUpdate.OPEN_STATES).exists():
         return None
     sub_anchor = _submission_anchor(claim, submission_anchor or timezone.now())
@@ -253,6 +259,10 @@ def schedule_next(claim, submission_anchor=None):
     for i, (milestone, _due) in enumerate(plan):
         if milestone in existing:
             next_index = i + 1
+    if skip_past:
+        now = timezone.now()
+        while next_index < len(plan) and plan[next_index][1] <= now:
+            next_index += 1
     if next_index >= len(plan):
         return None
     milestone, due_at = plan[next_index]
@@ -266,8 +276,11 @@ def schedule_next(claim, submission_anchor=None):
 def start_client_updates(claim) -> bool:
     """Manually begin the cadence for an existing claim that never auto-triggered
     (e.g. it was already in the submitted status before this feature existed):
-    draft the initial message and schedule the first follow-up, anchored now.
-    No-op if updates already exist. Returns True if it started fresh."""
+    draft the initial message and schedule the first follow-up still in the
+    future. The cadence is anchored to the claim's submission (created_at), so
+    starting late skips milestones whose date already passed instead of queuing
+    a stale "Day 2". No-op if updates already exist. Returns True if it started
+    fresh."""
     if (claim.follow_up_updates.exists() or getattr(claim, 'client_report_draft', '')
             or getattr(claim, 'client_report_sent_at', None)):
         return False
@@ -276,9 +289,10 @@ def start_client_updates(claim) -> bool:
     claim.client_report_draft = build_client_update_message(claim, polish=False)
     # Draft + first schedule are one unit: a crash between them would leave a
     # drafted report with no scheduled follow-up cadence.
+    anchor = getattr(claim, 'created_at', None) or timezone.now()
     with transaction.atomic():
         claim.save(update_fields=['client_report_draft', 'updated_at'])
-        schedule_next(claim, timezone.now())
+        schedule_next(claim, anchor, skip_past=True)
     return True
 
 
