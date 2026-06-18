@@ -85,8 +85,8 @@ body.mesh-bg {
 .card-modern {
   background: white;
   border-radius: 1rem;
-  border: 1px solid oklch(0.92 0.01 260);
-  box-shadow: 0 1px 3px oklch(0.5 0 0 / 0.04), 0 1px 2px oklch(0.5 0 0 / 0.02);
+  border: 1px solid oklch(0.93 0.006 260);
+  box-shadow: 0 1px 2px oklch(0.5 0 0 / 0.04);
   transition: box-shadow 0.2s ease;
 }
 .card-modern:hover {
