@@ -52,10 +52,12 @@ def test_status_change_mirrors_and_writes_timeline(mock_resolve, mock_fetch, moc
     claim.refresh_from_db()
     assert claim.status == 'Item found'
     assert claim.status_category == 'open'
-    # The history entry is written in the same atomic block, with an empty summary.
+    # The history entry is written in the same atomic block; when the AI call
+    # does not succeed the fallback is the deterministic transition headline.
     entry = claim.updates.first()
     assert entry is not None
     assert entry.update_type == 'STATUS_CHANGE'
-    assert entry.llm_summary == ''
+    assert 'Item found' in entry.llm_summary
+    assert entry.llm_summary != ''
     # The cadence side-effect was invoked (its own behaviour is unit-tested separately).
     mock_cadence.assert_called_once_with(claim, '123')

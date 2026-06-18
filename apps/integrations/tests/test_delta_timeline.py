@@ -56,3 +56,38 @@ class PromptDeferToFactsTests(TestCase):
     def test_briefing_summary_schema_has_delta_default(self):
         bs = BriefingSummary(summary='x')
         self.assertEqual(bs.delta, '')
+
+
+from unittest.mock import patch
+from apps.integrations.views import webhooks
+from apps.claims.models import ClaimUpdateTimeline
+
+
+class StatusEntryDeltaTests(TestCase):
+    def _run(self, old_status, old_cat, new_name, new_cat, delta_return):
+        c = _claim(zd_ticket_id='95100', alf_claim_id='ALF9510000',
+                   status=old_status, status_category=old_cat, ai_summary='FULL SNAPSHOT TEXT')
+        with patch('apps.integrations.views.webhooks.resolve_custom_status',
+                   return_value={'name': new_name, 'category': new_cat}), \
+             patch('apps.integrations.views.webhooks.fetch_zendesk_ticket', return_value={'subject': 's'}), \
+             patch('apps.integrations.views.webhooks.fetch_zendesk_comments', return_value=[]), \
+             patch('apps.integrations.views.webhooks.refresh_claim_summary', return_value=delta_return):
+            webhooks.mirror_status_change(c, custom_status_id='123')
+        return c, c.updates.first()
+
+    def test_entry_shows_transition_and_delta_not_full_summary(self):
+        c, entry = self._run('Claim submitted', 'open', 'Solved', 'solved', 'Item located at BOS.')
+        self.assertIn('Claim submitted', entry.llm_summary)
+        self.assertIn('Solved', entry.llm_summary)
+        self.assertIn('Item located at BOS.', entry.llm_summary)
+        self.assertNotIn('FULL SNAPSHOT TEXT', entry.llm_summary)
+
+    def test_regression_marked_in_entry(self):
+        c, entry = self._run('Solved', 'solved', 'Investigation initiated', 'open', 'No new information.')
+        self.assertIn('Investigation initiated', entry.llm_summary)
+        self.assertIn('reopened', entry.llm_summary.lower())
+
+    def test_ai_failure_falls_back_to_transition_only(self):
+        c, entry = self._run('Claim submitted', 'open', 'Solved', 'solved', None)
+        self.assertIn('Solved', entry.llm_summary)
+        self.assertNotEqual(entry.llm_summary.strip(), '')

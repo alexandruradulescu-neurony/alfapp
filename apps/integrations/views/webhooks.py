@@ -181,6 +181,10 @@ def mirror_status_change(claim, custom_status_id) -> dict:
     old_status = claim.status
     old_category = claim.status_category
 
+    # Capture the most-recent timeline note BEFORE we add a new entry, so the
+    # AI call can diff against what was written last time.
+    previous_note = (claim.updates.first().llm_summary if claim.updates.exists() else '')
+
     # Fix 3: write the timeline entry in the same atomic block as the claim save
     # so a crash during the subsequent AI call never leaves the status updated
     # without a history entry.
@@ -201,7 +205,9 @@ def mirror_status_change(claim, custom_status_id) -> dict:
     # Deterministic status regression: a terminal (Solved) claim reopened to a
     # non-terminal stage is a red flag (e.g. an agent bouncing a refund dispute
     # back to 'Investigation initiated'). Only this unambiguous case is hard-flagged.
-    if old_category == 'solved' and resolved['category'] != 'solved':
+    # Compute ONCE and reuse for both the risk call and the transition headline.
+    regressed = old_category == 'solved' and resolved['category'] != 'solved'
+    if regressed:
         claim.register_risk(
             reasons=['status_regression'], level='at_risk',
             detail=f"Reopened from Solved to '{new_status}'")
@@ -216,12 +222,16 @@ def mirror_status_change(claim, custom_status_id) -> dict:
     except Exception as e:
         logger.error("Client-update handling failed for claim #%s: %s", claim.id, e)
 
+    # Build transition headline (deterministic, always written).
+    transition = (f"Status: {old_status or '—'} → {new_status}"
+                  + (" (reopened)" if regressed else ""))
+    delta = None
     ticket_data = fetch_zendesk_ticket(claim.zd_ticket_id)
     if ticket_data:
         ticket_data['comments'] = fetch_zendesk_comments(claim.zd_ticket_id)
-        if refresh_claim_summary(claim, ticket_data):
-            entry.llm_summary = claim.ai_summary
-            entry.save(update_fields=['llm_summary'])
+        delta = refresh_claim_summary(claim, ticket_data, previous_note=previous_note)
+    entry.llm_summary = f"{transition}. {delta}" if delta else transition
+    entry.save(update_fields=['llm_summary'])
 
     return {'outcome': 'updated', 'claim_id': claim.id, 'status': new_status}
 
