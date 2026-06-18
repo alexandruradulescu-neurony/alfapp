@@ -30,7 +30,7 @@ class ManagerPageSmokeTests(TestCase):
         self.assertEqual(resp.status_code, 200, f"{url_name} returned {resp.status_code}")
 
     def test_nav_pages_render(self):
-        for name in ['manager_dashboard', 'manager_claims', 'agent_emails',
+        for name in ['manager_dashboard', 'manager_claims', 'agent_claims', 'agent_emails',
                      'disputes:dispute_list', 'manager_refunds', 'manager_settings',
                      'manager_users']:
             self._get_ok(name)
@@ -91,3 +91,13 @@ class ClaimDetailControlsPreservedTests(TestCase):
         # The 240-line inline <script> is replaced by lora-htmx.js + Alpine attrs.
         self.assertNotIn('function updateFromZendesk', html)
         self.assertNotIn('function checkEmail', html)
+
+    def test_destructive_actions_visible_to_signed_in_user(self):
+        # The manager/agent role split was removed — there is one trusted user,
+        # so delete / mark-as-disputed / grant-refund must be reachable (no dead
+        # `user.role == 'MANAGER'` gate hiding them from everyone).
+        resp = self.web.get(reverse('agent_claim_detail', args=[self.claim.id]))
+        html = resp.content.decode()
+        self.assertIn(f'/api/claims/claims/{self.claim.id}/', html, 'delete action hidden')
+        self.assertIn('/api/payments/refunds/issue/', html, 'grant refund hidden')
+        self.assertIn(reverse('disputes:dispute_create'), html, 'mark-as-disputed hidden')

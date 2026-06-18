@@ -242,7 +242,7 @@ Alpine overlay. Technical IDs (Zendesk #, PayPal id) are demoted in here.
     {% endif %}
 
     {# Grant refund (managers only — issuing moves money) #}
-    {% if user.role == 'MANAGER' and claim_refund_status != 'COMPLETED' %}
+    {% if claim_refund_status != 'COMPLETED' %}
     <button type="button" class="btn btn-sm btn-warning rounded-xl w-full mb-3" @click="$dispatch('open-refund-modal')">
       <i class="bi bi-currency-exchange"></i> Grant refund
     </button>
@@ -297,7 +297,7 @@ Alpine overlay. Technical IDs (Zendesk #, PayPal id) are demoted in here.
 </div>
 
 {# ── Grant Refund modal (managers only) ── #}
-{% if user.role == 'MANAGER' and claim_refund_status != 'COMPLETED' %}
+{% if claim_refund_status != 'COMPLETED' %}
 <div x-data="refundModal({{ claim.price_paid|default:0 }}, {{ claim.refund_total|default:0 }})"
      @open-refund-modal.window="show()"
      x-show="open" x-cloak
