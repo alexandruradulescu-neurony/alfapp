@@ -32,6 +32,14 @@ from apps.communications.constants import (
     FINAL_MILESTONE,
     SINCE_ANCHOR_FALLBACK_DAYS,
     cadence_offsets,
+    CLIENT_UPDATE_TAG_PREFIX,
+    ATTENTION_TAGS,
+    FINAL_TERMINAL_TAGS,
+)
+from apps.integrations.services import (
+    add_zendesk_ticket_tags,
+    get_zendesk_ticket_tags,
+    remove_zendesk_ticket_tags,
 )
 
 logger = logging.getLogger(__name__)
@@ -159,6 +167,28 @@ def _service_length_days() -> int:
         return int(v) if v and int(v) > 0 else DEFAULT_SERVICE_LENGTH_DAYS
     except Exception:
         return DEFAULT_SERVICE_LENGTH_DAYS
+
+
+# --- Tag ledger --------------------------------------------------------------
+
+def tag_for_milestone(claim, milestone) -> str:
+    """Return the Zendesk ledger tag for a given milestone on this claim.
+
+    The tag is `client_update_{ordinal}` where ordinal is the milestone's
+    1-based position in the cadence plan (DAY_2 → 1, DAY_5 → 2, …, FINAL →
+    last). Returns '' if the milestone is not in the plan (unknown key).
+
+    The ordinal is computed from the current service length so it shifts
+    correctly when the plan is extended: e.g. if service_length_days is 32
+    a DAY_31 tail step is inserted before FINAL, making FINAL ordinal 6 instead
+    of 5. This ensures the manual-macro tag sequence always matches LORA's."""
+    svc = _service_length_days()
+    ordered = [f'DAY_{d}' for d in cadence_offsets(svc)] + [FINAL_MILESTONE]
+    try:
+        idx = ordered.index(milestone)
+        return f'{CLIENT_UPDATE_TAG_PREFIX}{idx + 1}'
+    except ValueError:
+        return ''
 
 
 # --- Cadence plan ------------------------------------------------------------
@@ -389,70 +419,29 @@ def _recent_office_replies(claim):
     return list(EmailLog.objects.filter(claim=claim, received_at__gte=since).order_by('received_at'))
 
 
-def _no_news_template(claim) -> str:
-    name = (getattr(claim, 'client_name', '') or '').strip() or 'there'
-    obj = _first_line(getattr(claim, 'object_description', '') or '') or 'your lost item'
-    return "\n".join([
-        f"Dear {name},",
-        "",
-        f"A quick update on the search for your {obj}: we are still actively following up with the "
-        "lost-and-found offices we contacted on your behalf. We do not have new information to share "
-        "just yet, but please be assured the search is ongoing and we will let you know as soon as we "
-        "hear anything.",
-        "",
-        "If you remember any further details about your item, simply reply to this message.",
-        "",
-        "Kind regards,",
-        "The Airport Lost & Found team",
-    ])
-
-
-def _final_template(claim) -> str:
-    """End-of-service message — sent only when the item was never found. Honest
-    about the period ending; never promises recovery, leaves the door open."""
-    name = (getattr(claim, 'client_name', '') or '').strip() or 'there'
-    obj = _first_line(getattr(claim, 'object_description', '') or '') or 'your lost item'
-    return "\n".join([
-        f"Dear {name},",
-        "",
-        f"We're writing with an update on the search for your {obj}. Over the past few weeks we have "
-        "repeatedly followed up with every lost-and-found office and airline we contacted on your "
-        "behalf. Unfortunately, none of them has been able to locate your item within the service "
-        "period.",
-        "",
-        "We're genuinely sorry we couldn't reunite you with it. Items do occasionally surface later, "
-        "and if any of the offices comes back to us with a match we will of course reach out to you "
-        "straight away — there is nothing further you need to do.",
-        "",
-        "Thank you for trusting us with your search. If there's anything else we can help with, just "
-        "reply to this message.",
-        "",
-        "Kind regards,",
-        "The Airport Lost & Found team",
-    ])
-
-
-def _draft_follow_up(claim, replies, ss=None) -> tuple:
+def _draft_follow_up(claim, replies, ss=None, *, fallback_body: str = '') -> tuple:
     """Return (body, has_news). Only CLIENT-SAFE office replies are ever shown to
     the model (CLIENT_SAFE_REPLY_CATEGORIES) — administrative/harmful housekeeping
     is dropped here, deterministically, BEFORE drafting, so it can never reach the
     client even on the unattended autonomous path. With no client-safe news →
-    reassuring 'still searching' template (has_news False); otherwise → AI
-    progress update (per-office rule), falling back to the template on any AI
+    the on-brand per-milestone fallback body (has_news False); otherwise → AI
+    progress update (per-office rule), falling back to `fallback_body` on any AI
     failure.
 
-    Pass `ss` (a SystemSettings instance) to reuse one already-loaded singleton —
-    the autonomous runner threads it down so the cadence loop reads it once
-    instead of re-querying get_instance() for every due update."""
+    `fallback_body` is the milestone_message(...) string pre-computed by the
+    caller (prepare_follow_up) so this function never needs to re-fetch ticket
+    data.  Pass `ss` (a SystemSettings instance) to reuse one already-loaded
+    singleton — the autonomous runner threads it down so the cadence loop reads
+    it once instead of re-querying get_instance() for every due update."""
     safe = [r for r in replies if r.category in CLIENT_SAFE_REPLY_CATEGORIES]
     if not safe:
-        return _no_news_template(claim), False
+        return fallback_body, False
     try:
         from apps.config.models import SystemSettings
         if ss is None:
             ss = SystemSettings.get_instance()
         if not getattr(ss, 'ai_api_key', ''):
-            return _no_news_template(claim), True
+            return fallback_body, True
         from apps.ai.client import AIClient
         from apps.ai.schemas import EmailDraft
         name = (getattr(claim, 'client_name', '') or '').strip() or 'the client'
@@ -473,20 +462,24 @@ def _draft_follow_up(claim, replies, ss=None) -> tuple:
             max_tokens=900,
         )
         body = (result.body or '').strip()
-        return (body or _no_news_template(claim)), True
+        return (body or fallback_body), True
     except Exception as e:
         logger.warning("Follow-up AI draft failed for claim #%s; using fallback: %s",
                        getattr(claim, 'id', '?'), e)
-        return _no_news_template(claim), bool(safe)
+        return fallback_body, bool(safe)
 
 
 def prepare_follow_up(update, fetch_email=True, ss=None):
     """Prepare a due update: optionally pull fresh mail, then draft it and mark
     it DRAFTED for review. The FINAL milestone uses the end-of-service template;
-    every other milestone drafts a progress update from recent office replies.
+    every other milestone drafts a progress update from recent office replies,
+    falling back to the per-milestone macro-voice template when there is no news.
 
     `ss` (an optional SystemSettings instance) is threaded down to the drafter so
     the autonomous runner can load the singleton once for the whole queue."""
+    from apps.integrations.services import fetch_zendesk_ticket
+    from apps.communications.client_update_templates import milestone_message
+
     claim = update.claim
     if fetch_email and getattr(claim, 'email_alias', '') and getattr(claim, 'zd_ticket_id', ''):
         try:
@@ -494,10 +487,37 @@ def prepare_follow_up(update, fetch_email=True, ss=None):
             check_email_for_ticket(claim.zd_ticket_id, claim, claim.email_alias)
         except Exception as e:
             logger.warning("Follow-up email fetch failed for claim #%s: %s", claim.id, e)
+
+    # Fetch live ticket data once so milestone_message can resolve placeholders.
+    ticket_data = None
+    if getattr(claim, 'zd_ticket_id', ''):
+        try:
+            ticket_data = fetch_zendesk_ticket(claim.zd_ticket_id)
+        except Exception as e:
+            logger.warning("Ticket fetch for milestone template failed (claim #%s): %s",
+                           getattr(claim, 'id', '?'), e)
+
+    period_days = _service_length_days()
+
     if update.milestone == FINAL_MILESTONE:
-        body, has_news = _final_template(claim), False
+        body = milestone_message(claim, 'FINAL', ticket_data, period_days)
+        has_news = False
     else:
-        body, has_news = _draft_follow_up(claim, _recent_office_replies(claim), ss=ss)
+        # Pre-compute the on-brand fallback once so _draft_follow_up can use it
+        # as the fallback for: no safe replies, no API key, or AI failure.
+        # ticket_data and period_days were fetched above — no double-fetch needed.
+        fallback = milestone_message(claim, update.milestone, ticket_data, period_days)
+        replies = _recent_office_replies(claim)
+        safe = [r for r in replies if r.category in CLIENT_SAFE_REPLY_CATEGORIES]
+        if safe:
+            # AI-drafted path (office replies present); falls back to on-brand
+            # milestone voice on AI failure or missing key.
+            body, has_news = _draft_follow_up(claim, replies, ss=ss, fallback_body=fallback)
+        else:
+            # No-news path: use the on-brand per-milestone template directly.
+            body = fallback
+            has_news = False
+
     update.draft_body = body
     update.has_news = has_news
     update.state = ClientUpdate.STATE_DRAFTED
@@ -530,7 +550,17 @@ def send_follow_up(update, body) -> bool:
     update.sent_at = timezone.now()
     update.state = ClientUpdate.STATE_SENT
     update.save(update_fields=['draft_body', 'sent_at', 'state', 'updated_at'])
-    schedule_next(update.claim)
+    # WRITE-after: stamp the ledger tag so the manual and automated paths stay in
+    # sync. Tag failures are intentionally swallowed (helpers never raise) — a
+    # tagging hiccup must not roll back a successfully-delivered client message.
+    claim = update.claim
+    tag = tag_for_milestone(claim, update.milestone)
+    if tag:
+        add_zendesk_ticket_tags(claim.zd_ticket_id, [tag])
+    remove_zendesk_ticket_tags(claim.zd_ticket_id, list(ATTENTION_TAGS))
+    if update.milestone == FINAL_MILESTONE:
+        add_zendesk_ticket_tags(claim.zd_ticket_id, list(FINAL_TERMINAL_TAGS))
+    schedule_next(claim)
     return True
 
 
@@ -580,9 +610,9 @@ def run_due_updates(now=None) -> dict:
     ss = SystemSettings.get_instance()
     if not getattr(ss, 'client_updates_autosend', False):
         return {'enabled': False, 'sent': 0, 'held': 0, 'skipped': 0, 'failed': 0,
-                'considered': 0}
+                'considered': 0, 'already_tagged': 0}
 
-    sent = held = skipped = failed = considered = 0
+    sent = held = skipped = failed = considered = already_tagged = 0
     for due in list(due_updates(now)):
         considered += 1
         update = _claim_due_update(due.pk, now)
@@ -603,6 +633,19 @@ def run_due_updates(now=None) -> dict:
             update.save(update_fields=['state', 'updated_at'])
             held += 1
             continue
+        # READ-before: if an agent already sent this update manually (the macro
+        # stamps the same client_update_N tag), treat it as done — advance the
+        # cascade without posting a duplicate.
+        existing_tags = get_zendesk_ticket_tags(claim.zd_ticket_id)
+        due_tag = tag_for_milestone(claim, update.milestone)
+        if due_tag and due_tag in existing_tags:
+            logger.info("Claim #%s: milestone %s already tagged (%s) — skipping duplicate send.",
+                        claim.id, update.milestone, due_tag)
+            update.state = ClientUpdate.STATE_SKIPPED
+            update.save(update_fields=['state', 'updated_at'])
+            schedule_next(claim)
+            already_tagged += 1
+            continue
         prepare_follow_up(update, ss=ss)  # fetches fresh mail + drafts (FINAL uses its template)
         found = object_found(claim)
         if found:
@@ -622,4 +665,4 @@ def run_due_updates(now=None) -> dict:
             update.save(update_fields=['state', 'updated_at'])
             failed += 1
     return {'enabled': True, 'sent': sent, 'held': held, 'skipped': skipped,
-            'failed': failed, 'considered': considered}
+            'failed': failed, 'considered': considered, 'already_tagged': already_tagged}

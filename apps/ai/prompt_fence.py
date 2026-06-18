@@ -32,6 +32,17 @@ DEFENSE_PREAMBLE = (
 )
 
 
+STYLE_RULE = (
+    "\n\nSTYLE (applies to any human-facing message text you write; it does not change "
+    "required data, enum, or JSON values): write as a real human support agent would, "
+    "never in an AI-generated voice. Do not use em-dashes or en-dashes as punctuation; "
+    "use commas, periods, or parentheses instead. Avoid AI tells such as 'delve', "
+    "'tapestry', 'moreover', 'furthermore', 'it is worth noting', 'in conclusion', and "
+    "'rest assured'. Avoid robotic, uniform sentence structure and filler hedging. Keep "
+    "it plain, warm, specific, and concise."
+)
+
+
 # Pattern matching PII placeholders produced by RegexTokenizer, e.g. <EMAIL_a3f9b2c1>.
 # These must pass through escaping unchanged so the LLM sees the token and the
 # reverse-tokenization step can restore the real value from the mapping.
@@ -100,7 +111,7 @@ def build_messages(
         untrusted: Map of tag name -> untrusted text (or list of texts for
             multiple instances of the same kind, which get numbered suffixes).
     """
-    system_content = system_prompt + DEFENSE_PREAMBLE
+    system_content = system_prompt + STYLE_RULE + DEFENSE_PREAMBLE
 
     user_parts: list[str] = []
     if trusted_text:
