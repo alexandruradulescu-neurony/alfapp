@@ -65,18 +65,7 @@
         <!-- Main Content -->
         <div class="flex-1 overflow-auto">
             <div class="p-6 lg:p-8 max-w-7xl mx-auto animate-fade-in">
-                <!-- Messages -->
-                {% if messages %}
-                    {% for message in messages %}
-                    <div role="alert" class="alert alert-{{ message.tags }} mb-6 rounded-xl border-0 animate-fade-in-scale">
-                        <i class="bi bi-info-circle-fill"></i>
-                        <span>{{ message }}</span>
-                        <button class="btn btn-sm btn-ghost btn-circle" onclick="this.closest('.alert').remove()">
-                            <i class="bi bi-x"></i>
-                        </button>
-                    </div>
-                    {% endfor %}
-                {% endif %}
+                {% include 'partials/_toast.html' %}
 
                 <!-- Page Content Block -->
                 <main>
@@ -86,6 +75,9 @@
         </div>
     </div>
 
+    <script src="{% static 'js/vendor/htmx.min.js' %}" defer></script>
+    <script src="{% static 'js/vendor/alpine.min.js' %}" defer></script>
+    <script src="{% static 'js/lora-htmx.js' %}" defer></script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

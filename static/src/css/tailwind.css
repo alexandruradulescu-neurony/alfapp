@@ -315,3 +315,14 @@ input.toggle[type="checkbox"]:focus-visible {
 .sentiment-Neutral { background: oklch(0.94 0.01 260) !important; color: oklch(0.45 0.02 260) !important; }
 .sentiment-Frustrated { background: oklch(0.95 0.05 85) !important; color: oklch(0.4 0.12 70) !important; }
 .sentiment-Urgent { background: oklch(0.95 0.04 25) !important; color: oklch(0.45 0.15 25) !important; }
+
+/* ── Toasts (HTMX-friendly, replaces old inline showToast) ── */
+.lora-toast-region { position: fixed; top: 1rem; right: 1rem; z-index: 60; display: flex; flex-direction: column; gap: .5rem; }
+.lora-toast { background: #fff; border: 1px solid oklch(0.92 0.01 260); border-radius: .75rem; padding: .625rem .875rem; font-size: .875rem; box-shadow: 0 4px 12px oklch(0.5 0 0 / 0.08); }
+.lora-toast-success { border-left: 3px solid #10b981; }
+.lora-toast-error { border-left: 3px solid #ef4444; }
+.lora-toast-warning { border-left: 3px solid #f59e0b; }
+.lora-toast-info { border-left: 3px solid #3b82f6; }
+
+/* ── Alpine: hide pre-init cloaked elements ── */
+[x-cloak] { display: none !important; }

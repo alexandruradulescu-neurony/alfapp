@@ -1,0 +1,7 @@
+<div id="toast-region" class="lora-toast-region" aria-live="polite" aria-atomic="false">
+  {% if messages %}
+    {% for message in messages %}
+      <div role="alert" class="lora-toast lora-toast-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+</div>
