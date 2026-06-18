@@ -406,9 +406,8 @@ def client_updates_start(request, claim_id):
     return redirect('agent_claim_detail', claim_id=claim.id)
 
 
-@agent_required
-def agent_claim_detail(request, claim_id):
-    """Agent claim detail view."""
+def _claim_detail_context(claim_id):
+    """Build the context for the single-claim screen (full page and HTMX body)."""
     claim = get_object_or_404(
         Claim.objects.prefetch_related(
             'evidence', 'emails', 'refunds', 'disputes', 'follow_up_updates'
@@ -437,7 +436,7 @@ def agent_claim_detail(request, claim_id):
     for fu in client_followups:
         fu.is_due = (fu.state == 'SCHEDULED' and fu.due_at <= now)
 
-    context = {
+    return claim, {
         'claim': claim,
         'zd_subdomain': zd_subdomain,
         'claim_refund_status': claim.refund_status,
@@ -446,7 +445,19 @@ def agent_claim_detail(request, claim_id):
         'client_followups': client_followups,
     }
 
+
+@agent_required
+def agent_claim_detail(request, claim_id):
+    """Agent claim detail view (full page)."""
+    _claim, context = _claim_detail_context(claim_id)
     return render(request, 'agent/claim_detail.html', context)
+
+
+@agent_required
+def agent_claim_detail_body(request, claim_id):
+    """The claim-detail screen body as an HTMX fragment (no base shell)."""
+    _claim, context = _claim_detail_context(claim_id)
+    return render(request, 'agent/_claim_body.html', context)
 
 
 @manager_required
