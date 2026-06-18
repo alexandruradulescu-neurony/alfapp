@@ -1,18 +1,19 @@
 {% comment %}
-Reference cards — collapsed by default (Alpine x-data="{ open:false }"). These
-hold facts the manager only occasionally needs: status sub-states + technical
-IDs, client contact, case facts, flight verification, and refunds/evidence.
-The Grant-refund modal (managers only) lives at the bottom as a normal-flow
-Alpine overlay. Technical IDs (Zendesk #, PayPal id) are demoted in here.
+Reference cards — collapsed by default using the browser's native <details>
+(CSP-safe, no JS). These hold facts the manager only occasionally needs: status
+sub-states + technical IDs, client contact, case facts, flight verification, and
+refunds/evidence. The Grant-refund modal is a native <dialog> at the bottom
+(same pattern as the evidence-image pop-ups). Technical IDs (Zendesk #, PayPal
+id) are demoted in here.
 {% endcomment %}
 
 {# ── Status ── #}
-<div class="card-modern p-3" x-data="{ open: false }">
-  <button type="button" class="flex items-center justify-between w-full text-left" @click="open=!open">
+<details class="card-modern p-3">
+  <summary class="lora-disclosure flex items-center justify-between w-full cursor-pointer">
     <span class="text-sm font-semibold flex items-center gap-2"><i class="bi bi-shield-check text-base-content/60"></i> Status</span>
-    <i class="bi bi-chevron-down text-base-content/40" :class="open && 'rotate-180'"></i>
-  </button>
-  <div x-show="open" x-cloak class="mt-3 space-y-2">
+    <i class="bi bi-chevron-down text-base-content/40"></i>
+  </summary>
+  <div class="mt-3 space-y-2">
     <div class="flex items-center justify-between p-2 rounded-lg bg-base-200/50">
       <span class="text-sm flex items-center gap-2"><i class="bi bi-box-seam text-base-content/60"></i> Case</span>
       <span class="badge badge-sm rounded-full {% if claim.status_category == 'solved' %}badge-neutral{% else %}badge-success{% endif %}">
@@ -43,15 +44,15 @@ Alpine overlay. Technical IDs (Zendesk #, PayPal id) are demoted in here.
       <div>Opened {{ claim.created_at|date:"M d, Y H:i" }} · last update {{ claim.updated_at|date:"M d, Y H:i" }}</div>
     </div>
   </div>
-</div>
+</details>
 
 {# ── Client ── #}
-<div class="card-modern p-3" x-data="{ open: false }">
-  <button type="button" class="flex items-center justify-between w-full text-left" @click="open=!open">
+<details class="card-modern p-3">
+  <summary class="lora-disclosure flex items-center justify-between w-full cursor-pointer">
     <span class="text-sm font-semibold flex items-center gap-2"><i class="bi bi-person-circle text-base-content/60"></i> Client</span>
-    <i class="bi bi-chevron-down text-base-content/40" :class="open && 'rotate-180'"></i>
-  </button>
-  <div x-show="open" x-cloak class="mt-3 space-y-3">
+    <i class="bi bi-chevron-down text-base-content/40"></i>
+  </summary>
+  <div class="mt-3 space-y-3">
     <p class="font-semibold mb-0">{{ claim.client_name|default:"(name not on file)" }}</p>
     <div>
       <span class="text-sm text-base-content/60">Email</span>
@@ -86,15 +87,15 @@ Alpine overlay. Technical IDs (Zendesk #, PayPal id) are demoted in here.
     </div>
     {% endif %}
   </div>
-</div>
+</details>
 
 {# ── Case facts ── #}
-<div class="card-modern p-3" x-data="{ open: false }">
-  <button type="button" class="flex items-center justify-between w-full text-left" @click="open=!open">
+<details class="card-modern p-3">
+  <summary class="lora-disclosure flex items-center justify-between w-full cursor-pointer">
     <span class="text-sm font-semibold flex items-center gap-2"><i class="bi bi-box-seam text-base-content/60"></i> Case facts</span>
-    <i class="bi bi-chevron-down text-base-content/40" :class="open && 'rotate-180'"></i>
-  </button>
-  <div x-show="open" x-cloak class="mt-3 space-y-3">
+    <i class="bi bi-chevron-down text-base-content/40"></i>
+  </summary>
+  <div class="mt-3 space-y-3">
     <div>
       <span class="text-sm text-base-content/60">Lost object</span>
       <p class="font-medium mt-0.5 mb-0">{{ claim.object_description|default:"(no description)" }}</p>
@@ -139,15 +140,15 @@ Alpine overlay. Technical IDs (Zendesk #, PayPal id) are demoted in here.
     </div>
     {% endif %}
   </div>
-</div>
+</details>
 
 {# ── Flight ── #}
-<div class="card-modern p-3" x-data="{ open: false }">
-  <button type="button" class="flex items-center justify-between w-full text-left" @click="open=!open">
+<details class="card-modern p-3">
+  <summary class="lora-disclosure flex items-center justify-between w-full cursor-pointer">
     <span class="text-sm font-semibold flex items-center gap-2"><i class="bi bi-airplane text-base-content/60"></i> Flight</span>
-    <i class="bi bi-chevron-down text-base-content/40" :class="open && 'rotate-180'"></i>
-  </button>
-  <div x-show="open" x-cloak class="mt-3">
+    <i class="bi bi-chevron-down text-base-content/40"></i>
+  </summary>
+  <div class="mt-3">
     {% if claim.flight_data %}
       {% with verdict=claim.flight_data.verdict %}
       {% if verdict %}
@@ -199,15 +200,15 @@ Alpine overlay. Technical IDs (Zendesk #, PayPal id) are demoted in here.
       <p class="text-base-content/40 text-sm mb-0">No flight details provided.</p>
     {% endif %}
   </div>
-</div>
+</details>
 
 {# ── Refunds & evidence ── #}
-<div class="card-modern p-3" x-data="{ open: false }">
-  <button type="button" class="flex items-center justify-between w-full text-left" @click="open=!open">
+<details class="card-modern p-3">
+  <summary class="lora-disclosure flex items-center justify-between w-full cursor-pointer">
     <span class="text-sm font-semibold flex items-center gap-2"><i class="bi bi-currency-exchange text-base-content/60"></i> Refunds &amp; evidence</span>
-    <i class="bi bi-chevron-down text-base-content/40" :class="open && 'rotate-180'"></i>
-  </button>
-  <div x-show="open" x-cloak class="mt-3">
+    <i class="bi bi-chevron-down text-base-content/40"></i>
+  </summary>
+  <div class="mt-3">
 
     {# Refund history #}
     {% if claim.refunds.exists %}
@@ -241,9 +242,10 @@ Alpine overlay. Technical IDs (Zendesk #, PayPal id) are demoted in here.
       <p class="text-base-content/60 text-sm mb-3">No refunds issued for this claim.</p>
     {% endif %}
 
-    {# Grant refund (managers only — issuing moves money) #}
+    {# Grant refund — issuing moves money; opens the native <dialog> below #}
     {% if claim_refund_status != 'COMPLETED' %}
-    <button type="button" class="btn btn-sm btn-warning rounded-xl w-full mb-3" @click="$dispatch('open-refund-modal')">
+    <button type="button" class="btn btn-sm btn-warning rounded-xl w-full mb-3"
+            onclick="document.getElementById('refundModal').showModal()">
       <i class="bi bi-currency-exchange"></i> Grant refund
     </button>
     {% endif %}
@@ -294,36 +296,40 @@ Alpine overlay. Technical IDs (Zendesk #, PayPal id) are demoted in here.
       </div>
     </div>
   </div>
-</div>
+</details>
 
-{# ── Grant Refund modal (managers only) ── #}
+{# ── Grant refund modal — native <dialog> (CSP-safe). Opened by the button
+     above via showModal(); the data-* attributes drive refresh/toast/close via
+     lora-htmx.js (the system-action contract). ── #}
 {% if claim_refund_status != 'COMPLETED' %}
-<div x-data="refundModal({{ claim.price_paid|default:0 }}, {{ claim.refund_total|default:0 }})"
-     @open-refund-modal.window="show()"
-     x-show="open" x-cloak
-     class="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40">
-  <div class="card-modern p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto" @click.outside="open=false">
+<dialog id="refundModal" class="modal">
+  <div class="modal-box max-w-2xl rounded-2xl">
     <div class="flex items-start justify-between mb-4">
       <h3 class="font-bold text-lg flex items-center gap-2 m-0">
         <i class="bi bi-currency-exchange text-warning"></i>
         Grant refund for claim #{{ claim.alf_claim_id|default:claim.id }}
       </h3>
-      <button type="button" class="btn btn-sm btn-circle btn-ghost" @click="open=false">✕</button>
+      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost" aria-label="Close">✕</button></form>
     </div>
 
     <form hx-post="/api/payments/refunds/issue/" hx-swap="none"
-          hx-on::after-request="onResult(event)">
+          data-claim-action data-close-dialog="refundModal"
+          data-refresh-body="{% url 'agent_claim_detail_body' claim.id %}"
+          data-toast-ok="Refund issued via WooCommerce"
+          data-toast-indeterminate="Could not confirm the refund — verify it in WooCommerce before retrying"
+          data-toast-err="Failed to issue refund">
+      {% csrf_token %}
       <input type="hidden" name="claim_id" value="{{ claim.id }}" />
 
       <div class="form-control mb-4">
         <label class="label"><span class="label-text font-semibold">Refund type</span></label>
         <div class="grid grid-cols-2 gap-2">
           <label class="flex items-center gap-2 cursor-pointer rounded-xl border border-base-200/60 px-3 py-2.5 hover:bg-base-200/30 transition-colors">
-            <input type="radio" name="refund_type" value="FULL" class="radio radio-warning radio-sm" x-model="refundType" />
+            <input type="radio" name="refund_type" value="FULL" class="radio radio-warning radio-sm" checked onchange="loraRefundType(this.form)" />
             <span class="label-text">Full refund</span>
           </label>
           <label class="flex items-center gap-2 cursor-pointer rounded-xl border border-base-200/60 px-3 py-2.5 hover:bg-base-200/30 transition-colors">
-            <input type="radio" name="refund_type" value="PARTIAL" class="radio radio-warning radio-sm" x-model="refundType" />
+            <input type="radio" name="refund_type" value="PARTIAL" class="radio radio-warning radio-sm" onchange="loraRefundType(this.form)" />
             <span class="label-text">Partial refund</span>
           </label>
         </div>
@@ -333,9 +339,10 @@ Alpine overlay. Technical IDs (Zendesk #, PayPal id) are demoted in here.
         <label class="label"><span class="label-text font-semibold">Refund amount (USD)</span></label>
         <div class="relative">
           <span class="absolute left-3 top-1/2 -translate-y-1/2 text-base-content/60">$</span>
-          <input type="number" step="0.01" name="amount" required
-                 class="input input-bordered rounded-xl w-full pl-8"
-                 placeholder="0.00" x-model="amount" :readonly="refundType==='FULL'" />
+          <input type="number" step="0.01" name="amount" required readonly
+                 data-remaining="{{ remaining_refund|floatformat:2 }}"
+                 value="{{ remaining_refund|floatformat:2 }}"
+                 class="input input-bordered rounded-xl w-full pl-8" placeholder="0.00" />
         </div>
         <label class="label"><span class="label-text-alt text-base-content/60">
           <i class="bi bi-info-circle"></i> Pre-filled with the remaining refundable amount. Choose partial to enter less.
@@ -355,54 +362,12 @@ Alpine overlay. Technical IDs (Zendesk #, PayPal id) are demoted in here.
       </div>
 
       <div class="modal-action">
-        <button type="button" class="btn btn-ghost rounded-xl" @click="open=false">Cancel</button>
-        <button type="submit" class="btn btn-warning rounded-xl" :disabled="locked"
-                x-text="locked ? 'Verify in WooCommerce' : 'Confirm & process refund'"></button>
+        <button type="button" class="btn btn-ghost rounded-xl"
+                onclick="document.getElementById('refundModal').close()">Cancel</button>
+        <button type="submit" class="btn btn-warning rounded-xl">Confirm &amp; process refund</button>
       </div>
     </form>
   </div>
-</div>
+  <form method="dialog" class="modal-backdrop backdrop-blur"><button>close</button></form>
+</dialog>
 {% endif %}
-
-<script>
-  // Alpine component for the grant-refund modal. Remaining refundable =
-  // what the client paid minus what's already refunded. Mirrors the old
-  // three-outcome handling (success / 502 indeterminate / other error).
-  function refundModal(paid, done) {
-    return {
-      open: false,
-      locked: false,
-      refundType: 'FULL',
-      remaining: Math.max(0, (paid - done)).toFixed(2),
-      amount: '0.00',
-      init() {
-        this.$watch('refundType', (v) => {
-          if (v === 'FULL') { this.amount = this.remaining; }
-          else { this.amount = ''; }
-        });
-      },
-      show() {
-        this.locked = false;
-        this.refundType = 'FULL';
-        this.amount = this.remaining;
-        this.open = true;
-      },
-      onResult(event) {
-        const xhr = event.detail.xhr;
-        let data = {};
-        try { data = JSON.parse(xhr.responseText || '{}'); } catch (e) {}
-        if (event.detail.successful) {
-          window.toast(data.message || 'Refund issued via WooCommerce.', 'success');
-          this.open = false;
-          window.refreshClaimBody('{% url 'agent_claim_detail_body' claim.id %}');
-        } else if (xhr.status === 502 || data.indeterminate) {
-          // Timeout: the money may have moved — do NOT let them blindly retry.
-          window.toast(data.error || 'Could not confirm the refund — verify it in WooCommerce before retrying.', 'warning');
-          this.locked = true;
-        } else {
-          window.toast(data.error || 'Failed to issue refund', 'error');
-        }
-      },
-    };
-  }
-</script>

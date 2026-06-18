@@ -92,6 +92,16 @@ class ClaimDetailControlsPreservedTests(TestCase):
         self.assertNotIn('function updateFromZendesk', html)
         self.assertNotIn('function checkEmail', html)
 
+    def test_no_eval_dependent_attributes_csp_safe(self):
+        # Production CSP forbids unsafe-eval. Alpine directives (x-data/x-show/
+        # @click ...) and htmx hx-on both turn strings into code at runtime, so
+        # they silently die under the CSP. Only CSP-safe patterns (native
+        # <details>/<dialog>, inline onclick, external JS) are allowed here.
+        resp = self.web.get(reverse('agent_claim_detail', args=[self.claim.id]))
+        html = resp.content.decode()
+        for attr in ['x-data', 'x-show', 'x-cloak', 'x-init', 'hx-on', '@click', 'x-on:']:
+            self.assertNotIn(attr, html, f'{attr} needs unsafe-eval — blocked by the production CSP')
+
     def test_destructive_actions_visible_to_signed_in_user(self):
         # The manager/agent role split was removed — there is one trusted user,
         # so delete / mark-as-disputed / grant-refund must be reachable (no dead

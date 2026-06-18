@@ -40,7 +40,9 @@ refresh the body. "Check email" lives in the header.
       <button type="button" class="btn btn-xs btn-success rounded-lg shrink-0"
               hx-post="/api/communications/email-logs/{{ email.id }}/resolve/" hx-swap="none"
               hx-vals='{"resolved": true}'
-              hx-on::after-request="if(event.detail.successful){refreshClaimBody('{% url 'agent_claim_detail_body' claim.id %}');toast('Email marked resolved','success')}else{toast('Could not update the email','error')}">
+              data-claim-action
+              data-refresh-body="{% url 'agent_claim_detail_body' claim.id %}"
+              data-toast-ok="Email marked resolved" data-toast-err="Could not update the email">
         <i class="bi bi-check2"></i> Mark resolved
       </button>
     </div>
@@ -58,12 +60,12 @@ refresh the body. "Check email" lives in the header.
 
   {# Handled / auto-resolved — collapsed behind an Alpine toggle #}
   {% if emails_handled %}
-  <div x-data="{ open:false }" class="mt-1">
-    <button type="button" class="btn btn-sm btn-ghost rounded-xl w-full justify-start" @click="open=!open">
+  <details class="mt-1">
+    <summary class="lora-disclosure btn btn-sm btn-ghost rounded-xl w-full justify-start">
       <i class="bi bi-archive"></i> Handled ({{ emails_handled|length }})
-      <i class="bi bi-chevron-down ml-auto" :class="open && 'rotate-180'"></i>
-    </button>
-    <div x-show="open" x-cloak class="mt-3">
+      <i class="bi bi-chevron-down ml-auto"></i>
+    </summary>
+    <div class="mt-3">
       {% for email in emails_handled %}
       <div class="rounded-xl p-4 mb-3 border border-base-200/60">
         <div class="flex flex-col sm:flex-row justify-between items-start gap-2 mb-2">
@@ -99,7 +101,9 @@ refresh the body. "Check email" lives in the header.
                   title="Move back to needs-attention"
                   hx-post="/api/communications/email-logs/{{ email.id }}/resolve/" hx-swap="none"
                   hx-vals='{"resolved": false}'
-                  hx-on::after-request="if(event.detail.successful){refreshClaimBody('{% url 'agent_claim_detail_body' claim.id %}');toast('Email reopened','success')}else{toast('Could not update the email','error')}">
+                  data-claim-action
+                  data-refresh-body="{% url 'agent_claim_detail_body' claim.id %}"
+                  data-toast-ok="Email reopened" data-toast-err="Could not update the email">
             <i class="bi bi-arrow-counterclockwise"></i> Reopen
           </button>
           {% endif %}
@@ -107,6 +111,6 @@ refresh the body. "Check email" lives in the header.
       </div>
       {% endfor %}
     </div>
-  </div>
+  </details>
   {% endif %}
 </div>

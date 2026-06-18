@@ -436,6 +436,12 @@ def _claim_detail_context(claim_id):
     for fu in client_followups:
         fu.is_due = (fu.state == 'SCHEDULED' and fu.due_at <= now)
 
+    # Remaining refundable amount (what the client paid minus what's already
+    # refunded) — pre-fills the Grant-refund dialog; never negative.
+    remaining_refund = (claim.price_paid or 0) - (claim.refund_total or 0)
+    if remaining_refund < 0:
+        remaining_refund = 0
+
     return claim, {
         'claim': claim,
         'zd_subdomain': zd_subdomain,
@@ -443,6 +449,7 @@ def _claim_detail_context(claim_id):
         'emails_open': emails_open,
         'emails_handled': emails_handled,
         'client_followups': client_followups,
+        'remaining_refund': remaining_refund,
     }
 
 
