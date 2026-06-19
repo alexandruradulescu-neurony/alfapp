@@ -61,3 +61,57 @@ def test_status_change_mirrors_and_writes_timeline(mock_resolve, mock_fetch, moc
     assert entry.llm_summary != ''
     # The cadence side-effect was invoked (its own behaviour is unit-tested separately).
     mock_cadence.assert_called_once_with(claim, '123')
+
+
+# --- resync_ticket_status: the on-demand pull behind the sidebar Regenerate ---
+
+@pytest.mark.django_db
+def test_resync_no_ticket_id():
+    claim = Claim.objects.create(alf_claim_id='ALFR000001', client_email='a@b.com', status='Open')
+    assert webhooks.resync_ticket_status(claim) == {'outcome': 'no_ticket'}
+
+
+@pytest.mark.django_db
+@patch('apps.integrations.views.webhooks.fetch_zendesk_ticket', return_value=None)
+def test_resync_fetch_failure(mock_fetch):
+    claim = Claim.objects.create(alf_claim_id='ALFR000002', client_email='a@b.com',
+                                 zd_ticket_id='555', status='Claim submitted')
+    assert webhooks.resync_ticket_status(claim) == {'outcome': 'fetch_failed'}
+    claim.refresh_from_db()
+    assert claim.status == 'Claim submitted'  # untouched on failure
+
+
+@pytest.mark.django_db
+@patch('apps.communications.client_updates.sync_cadence_for_status')
+@patch('apps.integrations.views.webhooks.refresh_claim_summary', return_value=False)
+@patch('apps.integrations.views.webhooks.fetch_zendesk_comments', return_value=[])
+@patch('apps.integrations.views.webhooks.fetch_zendesk_ticket',
+       return_value={'custom_status_id': '123'})
+@patch('apps.integrations.views.webhooks.resolve_custom_status')
+def test_resync_pulls_live_status_and_mirrors(mock_resolve, mock_fetch, mock_comments,
+                                              mock_refresh, mock_cadence):
+    # The reported bug: LORA stuck on 'Claim submitted' while Zendesk moved on.
+    claim = Claim.objects.create(alf_claim_id='ALFR000003', client_email='a@b.com',
+                                 zd_ticket_id='555', status='Claim submitted',
+                                 status_category='new')
+    mock_resolve.return_value = {'name': 'Investigation initiated', 'category': 'open'}
+
+    res = webhooks.resync_ticket_status(claim)
+
+    assert res['outcome'] == 'updated'
+    assert res['status'] == 'Investigation initiated'
+    claim.refresh_from_db()
+    assert claim.status == 'Investigation initiated'   # self-healed from the live pull
+    assert claim.status_category == 'open'
+
+
+@pytest.mark.django_db
+@patch('apps.integrations.views.webhooks.fetch_zendesk_ticket',
+       return_value={'custom_status_id': '123'})
+@patch('apps.integrations.views.webhooks.resolve_custom_status')
+def test_resync_already_current_is_a_cheap_noop(mock_resolve, mock_fetch):
+    claim = Claim.objects.create(alf_claim_id='ALFR000004', client_email='a@b.com',
+                                 zd_ticket_id='555', status='Item found', status_category='open')
+    mock_resolve.return_value = {'name': 'Item found', 'category': 'open'}
+    res = webhooks.resync_ticket_status(claim)
+    assert res == {'outcome': 'no_change', 'claim_id': claim.id, 'status': 'Item found'}

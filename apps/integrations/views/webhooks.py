@@ -236,6 +236,30 @@ def mirror_status_change(claim, custom_status_id) -> dict:
     return {'outcome': 'updated', 'claim_id': claim.id, 'status': new_status}
 
 
+def resync_ticket_status(claim) -> dict:
+    """On-demand pull: fetch the ticket's CURRENT custom status live from Zendesk
+    and mirror it onto the claim via the same path the webhook uses.
+
+    This is the manual self-heal for a status webhook that was never delivered:
+    the agent hits Regenerate in the sidebar, LORA pulls the live status, and
+    mirror_status_change applies it (status, category, timeline, risk, cadence
+    and — on an actual change — a fresh summary). Returns mirror_status_change's
+    result dict, plus two pull-specific outcomes:
+
+        {'outcome': 'no_ticket'}     — claim has no Zendesk ticket id
+        {'outcome': 'fetch_failed'}  — the live ticket fetch failed (network/auth)
+
+    Reuses mirror_status_change's no-op-on-same-status guard, so re-syncing an
+    already-current claim is a cheap confirmation, not a rewrite.
+    """
+    if not claim.zd_ticket_id:
+        return {'outcome': 'no_ticket'}
+    ticket = fetch_zendesk_ticket(claim.zd_ticket_id)
+    if not ticket:
+        return {'outcome': 'fetch_failed'}
+    return mirror_status_change(claim, ticket.get('custom_status_id'))
+
+
 class ZendeskClaimWebhookView(APIView):
     """
     Webhook endpoint for Zendesk custom-status changes (zen:event-type:ticket.custom_status_changed).
