@@ -44,13 +44,14 @@ function showToast(message, type = 'info') {
     if (!toast || !toastMessage) return;
 
     toastMessage.textContent = message;
-    toast.classList.remove('alert-info', 'alert-success', 'alert-error', 'alert-warning');
+    // Left-border colour by type (Tailwind utilities; compiled via @source on the js dir).
+    toast.classList.remove('border-l-blue-500', 'border-l-green-500', 'border-l-red-500', 'border-l-amber-500');
     toast.classList.add(
-        type === 'success' ? 'alert-success'
-        : type === 'error' ? 'alert-error'
-        : type === 'warning' ? 'alert-warning'
-        : 'alert-info');
-    toast.classList.remove('alert-hidden', 'opacity-0');
+        type === 'success' ? 'border-l-green-500'
+        : type === 'error' ? 'border-l-red-500'
+        : type === 'warning' ? 'border-l-amber-500'
+        : 'border-l-blue-500');
+    toast.classList.remove('opacity-0', 'pointer-events-none');
     toast.classList.add('opacity-100');
     setTimeout(hideToast, 3000);
 }
@@ -58,7 +59,7 @@ function showToast(message, type = 'info') {
 function hideToast() {
     const toast = document.getElementById('serviceToast');
     if (!toast) return;
-    toast.classList.add('alert-hidden', 'opacity-0');
+    toast.classList.add('opacity-0', 'pointer-events-none');
     toast.classList.remove('opacity-100');
 }
 

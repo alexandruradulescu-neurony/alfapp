@@ -308,11 +308,11 @@
 {% block extra_js %}
 <!-- Toast — rendered at body level (outside the transformed content wrapper) so
      position:fixed anchors to the viewport, not the page. -->
-<div class="toast toast-end z-50">
-    <div id="serviceToast" class="alert alert-hidden opacity-0 transition-all duration-300">
-        <i class="bi bi-bell"></i>
+<div class="fixed bottom-4 right-4 z-50">
+    <div id="serviceToast" class="flex items-center gap-3 rounded-lg border-l-4 border-l-blue-500 bg-white px-4 py-3 text-sm text-gray-900 shadow-lg ring-1 ring-black/5 opacity-0 pointer-events-none transition-opacity duration-300">
+        <i class="bi bi-bell text-gray-400"></i>
         <span id="toastMessage"></span>
-        <button type="button" class="btn btn-sm btn-circle btn-ghost" data-toast-close><i class="bi bi-x"></i></button>
+        <button type="button" class="text-gray-400 hover:text-gray-600" data-toast-close><i class="bi bi-x-lg"></i></button>
     </div>
 </div>
 <script src="{% static 'js/service-controls.js' %}"></script>

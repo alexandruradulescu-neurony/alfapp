@@ -447,7 +447,7 @@
     function update() {
         var n = ta.value.length;
         out.textContent = n + ' / ' + max;
-        out.classList.toggle('text-warning', n > max);
+        out.classList.toggle('text-amber-600', n > max);
     }
     ta.addEventListener('input', update);
     update();
