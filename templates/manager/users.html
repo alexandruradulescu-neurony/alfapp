@@ -6,60 +6,60 @@
 <!-- Page Header -->
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
     <div>
-        <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+        <h1 class="text-xl font-semibold text-gray-900 flex items-center gap-2">
             <i class="bi bi-people"></i> User Management
-        </h2>
-        <p class="text-base-content/60 mt-1">Manage team accounts, roles, and access.</p>
+        </h1>
+        <p class="mt-1 text-sm text-gray-600">Manage team accounts, roles, and access.</p>
     </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- User List -->
     <div class="lg:col-span-2">
-        <div class="card-modern p-0 overflow-hidden rounded-2xl">
-            <div class="px-6 py-5 border-b border-base-200">
-                <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 m-0">
+        <div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
+            <div class="px-6 py-5 border-b border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2 m-0">
                     <i class="bi bi-list-ul"></i> All Users
-                </h3>
+                </h2>
             </div>
             <div class="overflow-x-auto">
-                <table class="table-modern">
-                    <thead>
+                <table class="min-w-full divide-y divide-gray-300">
+                    <thead class="bg-gray-50">
                         <tr>
-                            <th>Username</th>
-                            <th>Email</th>
-                            <th>Name</th>
-                            <th>Joined</th>
-                            <th>Last Login</th>
+                            <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">Username</th>
+                            <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Email</th>
+                            <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Name</th>
+                            <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Joined</th>
+                            <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Last Login</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody class="divide-y divide-gray-200 bg-white">
                         {% for user in users %}
                         <tr>
-                            <td>
+                            <td class="px-3 py-4 text-sm text-gray-700 sm:pl-6">
                                 <div class="flex items-center gap-2">
-                                    <span class="font-semibold">{{ user.username }}</span>
+                                    <span class="font-semibold text-gray-900">{{ user.username }}</span>
                                     {% if user.is_superuser %}
-                                        <span class="badge badge-soft-error">Admin</span>
+                                        <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10">Admin</span>
                                     {% endif %}
                                 </div>
                             </td>
-                            <td class="text-base-content/80">{{ user.email }}</td>
-                            <td class="text-base-content/80">{{ user.get_full_name|default:"-" }}</td>
-                            <td class="text-base-content/60 whitespace-nowrap">{{ user.date_joined|date:"M d, Y" }}</td>
-                            <td class="whitespace-nowrap">
+                            <td class="px-3 py-4 text-sm text-gray-700">{{ user.email }}</td>
+                            <td class="px-3 py-4 text-sm text-gray-700">{{ user.get_full_name|default:"-" }}</td>
+                            <td class="px-3 py-4 text-sm text-gray-500 whitespace-nowrap">{{ user.date_joined|date:"M d, Y" }}</td>
+                            <td class="px-3 py-4 text-sm whitespace-nowrap">
                                 {% if user.last_login %}
-                                    <span class="text-base-content/60">{{ user.last_login|date:"M d, Y H:i" }}</span>
+                                    <span class="text-gray-500">{{ user.last_login|date:"M d, Y H:i" }}</span>
                                 {% else %}
-                                    <span class="text-base-content/40">Never</span>
+                                    <span class="text-gray-400">Never</span>
                                 {% endif %}
                             </td>
                         </tr>
                         {% empty %}
                         <tr>
-                            <td colspan="6" class="text-center py-12">
-                                <i class="bi bi-inbox text-4xl text-base-content/30"></i>
-                                <p class="text-base-content/60 mt-2 mb-0">No users found</p>
+                            <td colspan="6" class="px-3 py-12 text-center">
+                                <i class="bi bi-inbox text-4xl text-gray-300"></i>
+                                <p class="mt-2 mb-0 text-sm text-gray-500">No users found</p>
                             </td>
                         </tr>
                         {% endfor %}
@@ -71,75 +71,75 @@
 
     <!-- Create User Form -->
     <div class="lg:col-span-1 flex flex-col gap-6">
-        <div class="card-modern p-6">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-5">
+        <div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+            <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-5">
                 <i class="bi bi-person-plus"></i> Create New User
-            </h3>
+            </h2>
             <form method="post" class="flex flex-col gap-4">
                 {% csrf_token %}
 
-                <div class="form-control">
-                    <label class="label pb-1.5" for="username">
-                        <span class="label-text font-medium">Username <span class="text-error">*</span></span>
+                <div>
+                    <label class="block text-sm font-medium text-gray-900 mb-1" for="username">
+                        Username <span class="text-red-600">*</span>
                     </label>
-                    <input type="text" class="input-modern w-full" id="username" name="username" required>
+                    <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" id="username" name="username" required>
                 </div>
 
-                <div class="form-control">
-                    <label class="label pb-1.5" for="email">
-                        <span class="label-text font-medium">Email</span>
+                <div>
+                    <label class="block text-sm font-medium text-gray-900 mb-1" for="email">
+                        Email
                     </label>
-                    <input type="email" class="input-modern w-full" id="email" name="email">
+                    <input type="email" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" id="email" name="email">
                 </div>
 
                 <div class="grid grid-cols-2 gap-3">
-                    <div class="form-control">
-                        <label class="label pb-1.5" for="first_name">
-                            <span class="label-text font-medium">First Name</span>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-900 mb-1" for="first_name">
+                            First Name
                         </label>
-                        <input type="text" class="input-modern w-full" id="first_name" name="first_name">
+                        <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" id="first_name" name="first_name">
                     </div>
-                    <div class="form-control">
-                        <label class="label pb-1.5" for="last_name">
-                            <span class="label-text font-medium">Last Name</span>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-900 mb-1" for="last_name">
+                            Last Name
                         </label>
-                        <input type="text" class="input-modern w-full" id="last_name" name="last_name">
+                        <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" id="last_name" name="last_name">
                     </div>
                 </div>
 
-                <div class="form-control">
-                    <label class="label pb-1.5" for="password1">
-                        <span class="label-text font-medium">Password <span class="text-error">*</span></span>
+                <div>
+                    <label class="block text-sm font-medium text-gray-900 mb-1" for="password1">
+                        Password <span class="text-red-600">*</span>
                     </label>
-                    <input type="password" class="input-modern w-full" id="password1" name="password1" required>
+                    <input type="password" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" id="password1" name="password1" required>
                 </div>
 
-                <div class="form-control">
-                    <label class="label pb-1.5" for="password2">
-                        <span class="label-text font-medium">Confirm password <span class="text-error">*</span></span>
+                <div>
+                    <label class="block text-sm font-medium text-gray-900 mb-1" for="password2">
+                        Confirm password <span class="text-red-600">*</span>
                     </label>
-                    <input type="password" class="input-modern w-full" id="password2" name="password2" required>
+                    <input type="password" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" id="password2" name="password2" required>
                 </div>
 
-                <button type="submit" class="btn btn-primary w-full rounded-xl mt-1">
+                <button type="submit" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 mt-1">
                     <i class="bi bi-person-plus-fill"></i> Create User
                 </button>
             </form>
         </div>
 
         <!-- Role Info -->
-        <div class="card-modern p-6">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-4">
+        <div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+            <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
                 <i class="bi bi-info-circle"></i> Role Descriptions
-            </h3>
+            </h2>
             <dl class="flex flex-col gap-4">
                 <div>
-                    <dt class="font-semibold text-primary mb-0.5">Manager</dt>
-                    <dd class="text-sm text-base-content/60">Full access: settings, users, claims, PDF downloads</dd>
+                    <dt class="font-semibold text-indigo-600 mb-0.5">Manager</dt>
+                    <dd class="text-sm text-gray-500">Full access: settings, users, claims, PDF downloads</dd>
                 </div>
                 <div>
-                    <dt class="font-semibold text-secondary mb-0.5">Agent</dt>
-                    <dd class="text-sm text-base-content/60">Claims management, evidence upload, status updates</dd>
+                    <dt class="font-semibold text-gray-900 mb-0.5">Agent</dt>
+                    <dd class="text-sm text-gray-500">Claims management, evidence upload, status updates</dd>
                 </div>
             </dl>
         </div>

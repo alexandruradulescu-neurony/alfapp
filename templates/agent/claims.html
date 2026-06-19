@@ -3,37 +3,36 @@
 {% block title %}Claims{% endblock %}
 
 {% block content %}
-<div class="animate-fade-in">
-<!-- Page Header -->
-<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-    <div>
-        <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <i class="bi bi-clipboard-data text-primary"></i> Claims
-        </h2>
-        <p class="text-sm text-base-content/60 mt-1">Search, filter and review lost-item claims.</p>
-    </div>
-    <div class="flex flex-wrap gap-2">
-        <button type="button" id="bulk-delete-btn" class="btn btn-error rounded-xl"
-                onclick="bulkDeleteClaims()" hidden>
-            <i class="bi bi-trash"></i> Delete selected (<span id="bulk-count">0</span>)
-        </button>
-        <a href="{% url 'agent_dashboard' %}" class="btn btn-outline rounded-xl">
-            <i class="bi bi-arrow-left"></i> Back to Dashboard
-        </a>
-    </div>
+<!-- Page heading -->
+<div class="sm:flex sm:items-center sm:justify-between gap-4 mb-6">
+  <div>
+    <h1 class="text-xl font-semibold text-gray-900">Claims</h1>
+    <p class="mt-1 text-sm text-gray-600">Search, filter and review lost-item claims.</p>
+  </div>
+  <div class="mt-4 sm:mt-0 flex flex-wrap items-center gap-2">
+    <button type="button" id="bulk-delete-btn" onclick="bulkDeleteClaims()" hidden
+            class="inline-flex items-center gap-x-1.5 rounded-md bg-red-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-red-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">
+      <i class="bi bi-trash"></i> Delete selected (<span id="bulk-count">0</span>)
+    </button>
+    <a href="{% url 'agent_dashboard' %}"
+       class="inline-flex items-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
+      <i class="bi bi-arrow-left"></i> Back to Dashboard
+    </a>
+  </div>
 </div>
 
 <!-- Filters -->
-<div class="card-modern p-6 mb-6">
+<div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5 mb-6">
     <form method="get" class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
         <div class="md:col-span-5">
-            <label class="block text-sm font-medium text-base-content/60 mb-1.5">Search</label>
-            <input type="text" class="input input-bordered rounded-xl w-full" name="search"
-                   value="{{ search_query }}" placeholder="Email, ticket ID, flight...">
+            <label class="block text-sm font-medium text-gray-900 mb-1">Search</label>
+            <input type="text" name="search" value="{{ search_query }}" placeholder="Email, ticket ID, flight..."
+                   class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">
         </div>
         <div class="md:col-span-3">
-            <label class="block text-sm font-medium text-base-content/60 mb-1.5">Status</label>
-            <select class="select select-bordered rounded-xl w-full" name="status">
+            <label class="block text-sm font-medium text-gray-900 mb-1">Status</label>
+            <select name="status"
+                    class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">
                 <option value="">All Statuses</option>
                 {% for value, label in status_choices %}
                 <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>
@@ -43,19 +42,21 @@
             </select>
         </div>
         <div class="md:col-span-2 flex items-end">
-            <label class="label cursor-pointer gap-2">
-              <span class="label-text">At risk only</span>
-              <input type="checkbox" name="risk" value="1" class="checkbox checkbox-error"
+            <label class="inline-flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-900">
+              <input type="checkbox" name="risk" value="1" class="size-4 rounded border-gray-300 accent-indigo-600"
                      {% if risk_filter %}checked{% endif %} onchange="this.form.submit()">
+              <span>At risk only</span>
             </label>
         </div>
         <div class="md:col-span-1">
-            <button type="submit" class="btn btn-primary rounded-xl w-full">
+            <button type="submit"
+                    class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">
                 <i class="bi bi-search"></i> Filter
             </button>
         </div>
         <div class="md:col-span-1">
-            <a href="{% url 'agent_claims' %}" class="btn btn-outline rounded-xl w-full">
+            <a href="{% url 'agent_claims' %}"
+               class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
                 <i class="bi bi-x-circle"></i> Clear
             </a>
         </div>
@@ -63,78 +64,77 @@
 </div>
 
 <!-- Claims Table -->
-<div class="card-modern p-0 overflow-hidden rounded-2xl">
+<div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
     <div class="overflow-x-auto">
-        <table class="table-modern">
-            <thead>
+        <table class="min-w-full divide-y divide-gray-300">
+            <thead class="bg-gray-50">
                 <tr>
-                    <th class="w-8">
-                        <input type="checkbox" id="select-all" class="checkbox checkbox-sm"
+                    <th scope="col" class="relative w-12 px-4 py-3 sm:pl-6">
+                        <input type="checkbox" id="select-all" class="size-4 rounded border-gray-300 accent-indigo-600"
                                title="Select all claims on this page"
                                onchange="toggleSelectAll(this)">
                     </th>
-                    <th>ID</th>
-                    <th>Customer Email</th>
-                    <th>Status</th>
-                    <th>ZD Ticket</th>
-                    <th>Flight Details</th>
-                    <th class="text-center">Evidence</th>
-                    <th class="text-center">Emails</th>
-                    <th>Created</th>
-                    <th class="text-right">Actions</th>
+                    <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">ID</th>
+                    <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Customer Email</th>
+                    <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+                    <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">ZD Ticket</th>
+                    <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Flight Details</th>
+                    <th scope="col" class="px-3 py-3 text-center text-sm font-semibold text-gray-900">Evidence</th>
+                    <th scope="col" class="px-3 py-3 text-center text-sm font-semibold text-gray-900">Emails</th>
+                    <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Created</th>
+                    <th scope="col" class="px-3 py-3 text-right text-sm font-semibold text-gray-900">Actions</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody class="divide-y divide-gray-200 bg-white">
                 {% for claim in claims %}
-                <tr class="hover:bg-base-200/40 transition-colors">
-                    <td>
-                        <input type="checkbox" class="checkbox checkbox-sm row-check"
+                <tr class="cursor-pointer transition-colors hover:bg-gray-50"
+                    onclick="if(!event.target.closest('a,input,button,details,label,summary')) window.location='{% url 'agent_claim_detail' claim.id %}'">
+                    <td class="px-4 py-4 sm:pl-6">
+                        <input type="checkbox" class="row-check size-4 rounded border-gray-300 accent-indigo-600"
                                value="{{ claim.id }}" onchange="updateBulkButton()">
                     </td>
-                    <td class="font-mono text-sm font-medium">
+                    <td class="px-3 py-4 whitespace-nowrap font-mono text-sm font-medium text-gray-900">
                         {% if claim.alf_claim_id %}{{ claim.alf_claim_id }}{% else %}#{{ claim.id }}{% endif %}
                     </td>
-                    <td class="font-medium">{{ claim.client_email }}</td>
-                    <td>
-                        <span class="badge {% if claim.status_category == 'solved' %}badge-soft-neutral{% elif claim.status_category == 'pending' %}badge-soft-warning{% elif claim.status_category == 'new' %}badge-soft-info{% elif claim.status_category == 'hold' %}badge-soft-neutral{% else %}badge-soft-primary{% endif %}">
+                    <td class="px-3 py-4 text-sm font-medium text-gray-900">{{ claim.client_email }}</td>
+                    <td class="px-3 py-4">
+                        <span class="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset {% if claim.status_category == 'solved' %}bg-gray-50 text-gray-600 ring-gray-500/10{% elif claim.status_category == 'pending' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif claim.status_category == 'new' %}bg-blue-50 text-blue-700 ring-blue-700/10{% elif claim.status_category == 'hold' %}bg-gray-50 text-gray-600 ring-gray-500/10{% else %}bg-indigo-50 text-indigo-700 ring-indigo-700/10{% endif %}">
                             {{ claim.status }}
                         </span>
                         {% if claim.risk_active %}
                         {% if claim.risk_level == 'at_risk' %}
-                        <span class="badge badge-error gap-1" title="{{ claim.risk_reason_labels|join:', ' }} — {{ claim.risk_detail }}">⚠ At risk</span>
+                        <span class="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-600/10" title="{{ claim.risk_reason_labels|join:', ' }} — {{ claim.risk_detail }}">⚠ At risk</span>
                         {% else %}
-                        <span class="badge badge-warning gap-1" title="{{ claim.risk_reason_labels|join:', ' }} — {{ claim.risk_detail }}">⚠ Watch</span>
+                        <span class="inline-flex items-center gap-1 rounded-full bg-yellow-50 px-2 py-1 text-xs font-medium text-yellow-800 ring-1 ring-inset ring-yellow-600/20" title="{{ claim.risk_reason_labels|join:', ' }} — {{ claim.risk_detail }}">⚠ Watch</span>
                         {% endif %}
                         {% endif %}
                     </td>
-                    <td class="text-base-content/60">{{ claim.zd_ticket_id|default:"-" }}</td>
-                    <td>
-                        <span class="text-sm text-base-content/60 truncate block max-w-[200px]" title="{{ claim.flight_details|default:'' }}">
+                    <td class="px-3 py-4 text-sm text-gray-500">{{ claim.zd_ticket_id|default:"-" }}</td>
+                    <td class="px-3 py-4">
+                        <span class="block max-w-[200px] truncate text-sm text-gray-500" title="{{ claim.flight_details|default:'' }}">
                             {{ claim.flight_details|default:"-" }}
                         </span>
                     </td>
-                    <td class="text-center">
-                        <span class="badge badge-soft-neutral">{{ claim.evidence_count }}</span>
+                    <td class="px-3 py-4 text-center">
+                        <span class="inline-flex items-center rounded-full bg-gray-50 px-2 py-1 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-500/10">{{ claim.evidence_count }}</span>
                     </td>
-                    <td class="text-center">
-                        <span class="badge badge-soft-info">{{ claim.email_count }}</span>
+                    <td class="px-3 py-4 text-center">
+                        <span class="inline-flex items-center rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">{{ claim.email_count }}</span>
                     </td>
-                    <td class="text-sm text-base-content/60 whitespace-nowrap">{{ claim.created_at|date:"M d, Y" }}</td>
-                    <td class="text-right">
+                    <td class="px-3 py-4 whitespace-nowrap text-sm text-gray-500">{{ claim.created_at|date:"M d, Y" }}</td>
+                    <td class="px-3 py-4 text-right">
                         <a href="{% url 'agent_claim_detail' claim.id %}"
-                           class="btn btn-sm btn-outline btn-primary rounded-xl">
+                           class="inline-flex items-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-indigo-600 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
                             <i class="bi bi-eye"></i> View
                         </a>
                     </td>
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="10" class="text-center py-16">
-                        <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
-                            <i class="bi bi-inbox text-3xl text-base-content/40"></i>
-                        </div>
-                        <p class="text-base-content/60 font-medium mt-2 mb-0">No claims found</p>
-                        <p class="text-sm text-base-content/40 mt-1">Try adjusting your search or status filter.</p>
+                    <td colspan="10" class="px-3 py-16 text-center">
+                        <i class="bi bi-inbox text-4xl text-gray-300"></i>
+                        <p class="mt-2 text-sm font-medium text-gray-500">No claims found</p>
+                        <p class="mt-1 text-sm text-gray-400">Try adjusting your search or status filter.</p>
                     </td>
                 </tr>
                 {% endfor %}
@@ -144,37 +144,33 @@
 
     <!-- Pagination -->
     {% if page_obj.has_other_pages %}
-    <div class="flex justify-center p-6 border-t border-base-200">
-        <div class="join">
+    <nav class="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6">
+        <p class="hidden text-sm text-gray-700 sm:block">Page <span class="font-medium">{{ page_obj.number }}</span> of <span class="font-medium">{{ page_obj.paginator.num_pages }}</span></p>
+        <div class="flex flex-1 justify-between gap-2 sm:justify-end">
             {% if page_obj.has_previous %}
             <a href="?page=1{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
-               class="btn btn-sm join-item">
+               class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
                 <i class="bi bi-chevron-double-left"></i> First
             </a>
             <a href="?page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
-               class="btn btn-sm join-item">
+               class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
                 <i class="bi bi-chevron-left"></i> Previous
             </a>
             {% endif %}
 
-            <span class="btn btn-sm join-item btn-active pointer-events-none">
-                Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
-            </span>
-
             {% if page_obj.has_next %}
             <a href="?page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
-               class="btn btn-sm join-item">
+               class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
                 Next <i class="bi bi-chevron-right"></i>
             </a>
             <a href="?page={{ page_obj.paginator.num_pages }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
-               class="btn btn-sm join-item">
+               class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
                 Last <i class="bi bi-chevron-double-right"></i>
             </a>
             {% endif %}
         </div>
-    </div>
+    </nav>
     {% endif %}
-</div>
 </div>
 
 <script>
