@@ -1,561 +1,436 @@
 {% extends 'base.html' %}
 
-{% block title %}Dispute #{{ dispute.id }} Details{% endblock %}
+{% block title %}Dispute — {{ dispute.buyer_name|default:dispute.buyer_email }}{% endblock %}
 
 {% block content %}
-<!-- Page Header -->
-<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-    <div>
-        <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <i class="bi bi-exclamation-triangle text-base-content/70"></i> Dispute #{{ dispute.id }}
-        </h2>
-        <p class="text-sm text-base-content/60 mt-1">PayPal dispute review and evidence workflow.</p>
+<div class="animate-fade-in">
+
+<!-- Back -->
+<a href="{% url 'disputes:dispute_list' %}" class="inline-flex items-center gap-1.5 text-sm text-base-content/60 hover:text-base-content transition-colors mb-4">
+  <i class="bi bi-arrow-left"></i> Disputes
+</a>
+
+<!-- Snapshot header: who + how much + where it stands + the deadline -->
+<div class="flex flex-col lg:flex-row justify-between items-start gap-4 mb-5">
+  <div class="min-w-0">
+    <h2 class="text-2xl font-semibold tracking-tight break-words">{{ dispute.buyer_name|default:dispute.buyer_email }}</h2>
+    <div class="flex flex-wrap items-center gap-2 mt-2">
+      <span class="badge rounded-full whitespace-nowrap {% if dispute.status == 'RESOLVED_WON' %}badge-soft-success{% elif dispute.status == 'RESOLVED_LOST' %}badge-soft-error{% elif dispute.status == 'ACCEPTED' %}badge-soft-neutral{% elif dispute.status == 'UNDER_REVIEW' or dispute.status == 'EVIDENCE_SENT' %}badge-soft-warning{% else %}badge-soft-info{% endif %}">
+        {{ dispute.get_status_display }}
+      </span>
+      {% if dispute.dispute_amount %}<span class="font-semibold tabular-nums">{{ dispute.dispute_currency }} {{ dispute.dispute_amount }}</span>{% endif %}
+      <span class="text-sm text-base-content/60">{{ dispute.get_dispute_reason_display|default:"Reason N/A" }}</span>
+      {% if dispute.seller_response_due and dispute.deadline_state %}
+      <span class="badge rounded-full whitespace-nowrap {% if dispute.deadline_state == 'overdue' %}badge-soft-error{% elif dispute.deadline_state == 'soon' %}badge-soft-warning{% else %}badge-soft-neutral{% endif %}">
+        <i class="bi bi-alarm"></i>
+        {% if dispute.deadline_state == 'overdue' %}Overdue {{ dispute.seller_response_due|date:"M d" }}{% else %}Due {{ dispute.seller_response_due|date:"M d" }}{% endif %}
+      </span>
+      {% endif %}
+      <span class="inline-flex items-center gap-1 text-xs text-base-content/45"><i class="bi bi-paypal"></i> {{ dispute.paypal_dispute_id }}</span>
     </div>
-    <a href="{% url 'disputes:dispute_list' %}" class="btn btn-outline rounded-xl">
-        <i class="bi bi-arrow-left"></i> Back to List
+  </div>
+  <div class="flex items-center gap-2 shrink-0">
+    {% if dispute.zd_ticket_id %}
+    <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ dispute.zd_ticket_id }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline rounded-xl">
+      <i class="bi bi-ticket-perforated"></i> #{{ dispute.zd_ticket_id }}
     </a>
+    {% endif %}
+    <details class="dropdown dropdown-end">
+      <summary class="btn btn-sm btn-ghost btn-square rounded-xl" title="More"><i class="bi bi-three-dots-vertical"></i></summary>
+      <ul class="dropdown-content menu bg-base-100 rounded-2xl z-10 w-64 p-2 shadow-lg border border-base-200 mt-1">
+        {% if dispute.claim %}
+        <li><a href="{% url 'agent_claim_detail' dispute.claim.id %}"><i class="bi bi-clipboard-data"></i> View linked claim</a></li>
+        {% endif %}
+        <li>
+          <form method="post" action="{% url 'disputes:dispute_accept_claim' dispute.id %}"
+                onsubmit="return confirm('Accept this claim and issue a refund? This concedes the dispute and cannot be undone.');">
+            {% csrf_token %}
+            <input type="hidden" name="note" value="Claim accepted via LORA system">
+            <button type="submit" class="text-warning w-full text-left"
+                    {% if dispute.status == 'ACCEPTED' or dispute.status == 'RESOLVED_WON' or dispute.status == 'RESOLVED_LOST' %}disabled{% endif %}>
+              <i class="bi bi-hand-thumbs-up"></i> Accept claim (refund)
+            </button>
+          </form>
+        </li>
+      </ul>
+    </details>
+  </div>
 </div>
 
-<!-- Deadline banner — missing PayPal's response deadline auto-loses the dispute -->
-{% if dispute.seller_response_due and dispute.deadline_state %}
-<div class="rounded-2xl p-4 flex items-center gap-3 mb-4 {% if dispute.deadline_state == 'overdue' %}bg-error/10 text-error{% elif dispute.deadline_state == 'soon' %}bg-warning/10 text-warning{% else %}bg-base-200/60 text-base-content{% endif %}">
-    <i class="bi bi-alarm text-lg shrink-0"></i>
-    <div class="text-sm">
-        <span class="font-semibold">
-            {% if dispute.deadline_state == 'overdue' %}Response deadline PASSED{% elif dispute.deadline_state == 'soon' %}Response due soon{% else %}Respond to PayPal by{% endif %}:
-        </span>
-        {{ dispute.seller_response_due|date:"M d, Y H:i" }}
-        {% if dispute.deadline_state == 'overdue' %}<span class="ml-1">— PayPal may have auto-closed this in the buyer's favour.</span>{% endif %}
-    </div>
+<!-- Urgent: deadline — a missed PayPal deadline auto-loses the dispute -->
+{% if dispute.deadline_state == 'overdue' or dispute.deadline_state == 'soon' %}
+<div class="rounded-2xl p-4 flex items-center gap-3 mb-5 {% if dispute.deadline_state == 'overdue' %}bg-error/10 text-error{% else %}bg-warning/10 text-warning{% endif %}">
+  <i class="bi bi-alarm text-lg shrink-0"></i>
+  <div class="text-sm">
+    <span class="font-semibold">{% if dispute.deadline_state == 'overdue' %}Response deadline PASSED{% else %}Respond to PayPal by{% endif %}:</span>
+    {{ dispute.seller_response_due|date:"M d, Y H:i" }}
+    {% if dispute.deadline_state == 'overdue' %}<span class="ml-1">— PayPal may have auto-closed this in the buyer's favour.</span>{% endif %}
+  </div>
 </div>
 {% endif %}
 
-<!-- Status Banner -->
-<div class="rounded-2xl p-4 flex items-start gap-3 mb-6 {% if dispute.status == 'RESOLVED_WON' %}bg-success/10 text-success{% elif dispute.status == 'RESOLVED_LOST' %}bg-error/10 text-error{% elif dispute.status == 'ACCEPTED' %}bg-warning/10 text-warning{% elif dispute.status == 'EVIDENCE_SENT' %}bg-info/10 text-info{% else %}bg-base-200/60 text-base-content{% endif %}">
-    <i class="bi bi-info-circle text-lg mt-0.5 shrink-0"></i>
-    <div class="flex flex-col sm:flex-row gap-4 sm:items-center justify-between w-full">
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-            <span class="font-semibold">Status</span>
-            <span class="badge status-{{ dispute.status }} rounded-full">
-                {{ dispute.get_status_display }}
-            </span>
-            <span class="inline-flex items-center gap-1 text-base-content/70">
-                <i class="bi bi-paypal"></i> {{ dispute.paypal_dispute_id }}
-            </span>
-        </div>
-        {% if dispute.zd_ticket_id %}
-        <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ dispute.zd_ticket_id }}"
-           target="_blank" class="btn btn-sm btn-outline rounded-xl shrink-0">
-            <i class="bi bi-ticket-perforated"></i> Zendesk #{{ dispute.zd_ticket_id }}
-        </a>
-        {% endif %}
-    </div>
+{% if not dispute.claim %}
+<div class="rounded-2xl bg-warning/10 text-warning p-3 text-sm flex items-center gap-2 mb-5">
+  <i class="bi bi-exclamation-triangle shrink-0"></i> Not linked to a claim yet — link it below so the evidence report can be built.
 </div>
+{% endif %}
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-    <!-- Left Column: Info, Screenshots, Documents -->
-    <div class="lg:col-span-2 space-y-6">
-        <!-- Dispute Information Card -->
-        <div class="card-modern p-6">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-5">
-                <i class="bi bi-info-circle text-base-content/70"></i> Dispute Information
-            </h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                <div>
-                    <h4 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-3">Buyer Information</h4>
-                    <dl class="space-y-2.5">
-                        <div class="flex justify-between gap-4">
-                            <dt class="text-sm text-base-content/60">Name</dt>
-                            <dd class="text-sm font-medium text-right">{{ dispute.buyer_name|default:"N/A" }}</dd>
-                        </div>
-                        <div class="flex justify-between gap-4">
-                            <dt class="text-sm text-base-content/60">Email</dt>
-                            <dd class="text-sm font-medium text-right break-all">{{ dispute.buyer_email }}</dd>
-                        </div>
-                    </dl>
-                </div>
-                <div>
-                    <h4 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-3">Dispute Details</h4>
-                    <dl class="space-y-2.5">
-                        <div class="flex justify-between gap-4">
-                            <dt class="text-sm text-base-content/60">Reason</dt>
-                            <dd class="text-sm font-medium text-right">{{ dispute.get_dispute_reason_display|default:"N/A" }}</dd>
-                        </div>
-                        <div class="flex justify-between gap-4">
-                            <dt class="text-sm text-base-content/60">Amount</dt>
-                            <dd class="text-sm font-medium text-right">
-                                {% if dispute.dispute_amount %}
-                                {{ dispute.dispute_currency }} {{ dispute.dispute_amount }}
-                                {% else %}
-                                N/A
-                                {% endif %}
-                            </dd>
-                        </div>
-                        <div class="flex justify-between gap-4">
-                            <dt class="text-sm text-base-content/60">Seller Response Due</dt>
-                            <dd class="text-sm font-medium text-right">
-                                {% if dispute.seller_response_due %}
-                                {{ dispute.seller_response_due|date:"M d, Y H:i" }}
-                                {% else %}
-                                N/A
-                                {% endif %}
-                            </dd>
-                        </div>
-                    </dl>
-                </div>
+  <!-- Left column: the work — converse, reply, evidence -->
+  <div class="lg:col-span-2 space-y-6">
+
+    <!-- Conversation with PayPal -->
+    <div class="card-modern p-6">
+      <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-5">
+        <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 m-0">
+          <i class="bi bi-chat-left-dots text-base-content/70"></i> Conversation with PayPal
+        </h3>
+        {% if dispute.paypal_dispute_id|slice:":7" != "MANUAL-" %}
+        <form method="post" action="{% url 'disputes:dispute_refresh_from_paypal' dispute.id %}" class="inline">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm btn-outline rounded-xl" title="Pull the latest messages and status from PayPal into this thread">
+            <i class="bi bi-arrow-clockwise"></i> Refresh from PayPal
+          </button>
+        </form>
+        {% endif %}
+      </div>
+      {% if reply_timeline %}
+      {# Single-column case log: one card per turn, colour-accented by speaker (team=indigo, buyer=amber, PayPal=blue). #}
+      <div class="space-y-3">
+        {% for e in reply_timeline %}
+        <div class="rounded-xl border border-base-200 bg-base-100 p-4 border-l-4
+                    {% if e.actor == 'PayPal' %}border-l-info{% elif e.actor == 'Buyer' %}border-l-warning{% else %}border-l-primary{% endif %}">
+          <div class="flex items-start gap-3">
+            <div class="shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-base
+                        {% if e.actor == 'PayPal' %}bg-info/10 text-info{% elif e.actor == 'Buyer' %}bg-warning/10 text-warning{% else %}bg-primary/10 text-primary{% endif %}">
+              <i class="bi {% if e.actor == 'PayPal' %}bi-paypal{% elif e.actor == 'Buyer' %}bi-person-fill{% else %}bi-headset{% endif %}"></i>
             </div>
-            <div class="divider my-5"></div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                <div>
-                    <h4 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-3">Transaction Information</h4>
-                    <dl class="space-y-2.5">
-                        <div class="flex justify-between gap-4">
-                            <dt class="text-sm text-base-content/60">Transaction ID</dt>
-                            <dd class="text-right"><code class="text-xs bg-base-200/60 rounded px-1.5 py-0.5 break-all">{{ dispute.transaction_id }}</code></dd>
-                        </div>
-                        <div class="flex justify-between gap-4">
-                            <dt class="text-sm text-base-content/60">Transaction Date</dt>
-                            <dd class="text-sm font-medium text-right">{{ dispute.transaction_date|date:"M d, Y H:i" }}</dd>
-                        </div>
-                    </dl>
-                </div>
-                <div>
-                    <h4 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-3">Timeline</h4>
-                    <dl class="space-y-2.5">
-                        <div class="flex justify-between gap-4">
-                            <dt class="text-sm text-base-content/60">Created</dt>
-                            <dd class="text-sm font-medium text-right">{{ dispute.created_at|date:"M d, Y H:i" }}</dd>
-                        </div>
-                        <div class="flex justify-between gap-4">
-                            <dt class="text-sm text-base-content/60">Last Updated</dt>
-                            <dd class="text-sm font-medium text-right">{{ dispute.updated_at|date:"M d, Y H:i" }}</dd>
-                        </div>
-                    </dl>
-                </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span class="text-sm font-semibold">{{ e.actor }}</span>
+                <span class="text-xs text-base-content/50">{{ e.title }}</span>
+                <span class="text-xs text-base-content/40 ml-auto shrink-0">{{ e.when_str|default:"—" }}</span>
+              </div>
+              {% if e.status or e.source or e.attached_pdf or e.image_count or e.doc_count %}
+              <div class="flex flex-wrap items-center gap-1.5 mt-2">
+                {% if e.status %}<span class="badge badge-xs {% if e.status == 'SUBMITTED' %}badge-soft-success{% elif e.status == 'FAILED' %}badge-soft-error{% else %}badge-soft-neutral{% endif %} rounded-full">{{ e.status }}</span>{% endif %}
+                {% if e.source %}<span class="text-xs text-base-content/50">{{ e.source }}</span>{% endif %}
+                {% if e.attached_pdf %}<span class="badge badge-xs badge-soft-info rounded-full"><i class="bi bi-paperclip mr-0.5"></i> report PDF</span>{% endif %}
+                {% if e.image_count %}<span class="badge badge-xs badge-soft-neutral rounded-full"><i class="bi bi-image mr-0.5"></i> {{ e.image_count }}</span>{% endif %}
+                {% if e.doc_count %}<span class="badge badge-xs badge-soft-neutral rounded-full"><i class="bi bi-paperclip mr-0.5"></i> {{ e.doc_count }} file{{ e.doc_count|pluralize }}</span>{% endif %}
+              </div>
+              {% endif %}
+              {% if e.text %}
+              <div class="thread-body text-sm text-base-content/80 mt-2 leading-relaxed whitespace-pre-line {% if e.text|length > 280 %}line-clamp-5{% endif %}">{{ e.text }}</div>
+              {% if e.text|length > 280 %}
+              <button type="button" class="thread-toggle text-xs text-primary mt-1.5 hover:underline">Show full message</button>
+              {% endif %}
+              {% endif %}
             </div>
-            {% if dispute.notes %}
-            <div class="divider my-5"></div>
-            <div>
-                <h4 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2">Notes</h4>
-                <div class="text-sm text-base-content/80 leading-relaxed">{{ dispute.notes|linebreaks }}</div>
-            </div>
-            {% endif %}
+          </div>
         </div>
-
-        <!-- Conversation with PayPal — our side + PayPal/buyer side, in order -->
-        <div class="card-modern p-6">
-            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-5">
-                <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 m-0">
-                    <i class="bi bi-chat-left-dots text-base-content/70"></i> Conversation with PayPal
-                </h3>
-                {% if dispute.paypal_dispute_id|slice:":7" != "MANUAL-" %}
-                <form method="post" action="{% url 'disputes:dispute_refresh_from_paypal' dispute.id %}" class="inline">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-sm btn-outline rounded-xl"
-                            title="Pull the latest messages and status from PayPal into this thread">
-                        <i class="bi bi-arrow-clockwise"></i> Refresh from PayPal
-                    </button>
-                </form>
-                {% endif %}
-            </div>
-            {% if reply_timeline %}
-            {# Single-column case log: one card per turn, colour-accented by speaker (team=indigo, buyer=amber, PayPal=blue). #}
-            <div class="space-y-3">
-                {% for e in reply_timeline %}
-                <div class="rounded-xl border border-base-200 bg-base-100 p-4 border-l-4
-                            {% if e.actor == 'PayPal' %}border-l-info{% elif e.actor == 'Buyer' %}border-l-warning{% else %}border-l-primary{% endif %}">
-                    <div class="flex items-start gap-3">
-                        <div class="shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-base
-                                    {% if e.actor == 'PayPal' %}bg-info/10 text-info{% elif e.actor == 'Buyer' %}bg-warning/10 text-warning{% else %}bg-primary/10 text-primary{% endif %}">
-                            <i class="bi {% if e.actor == 'PayPal' %}bi-paypal{% elif e.actor == 'Buyer' %}bi-person-fill{% else %}bi-headset{% endif %}"></i>
-                        </div>
-                        <div class="flex-1 min-w-0">
-                            <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                                <span class="text-sm font-semibold">{{ e.actor }}</span>
-                                <span class="text-xs text-base-content/50">{{ e.title }}</span>
-                                <span class="text-xs text-base-content/40 ml-auto shrink-0">{{ e.when_str|default:"—" }}</span>
-                            </div>
-                            {% if e.status or e.source or e.attached_pdf or e.image_count or e.doc_count %}
-                            <div class="flex flex-wrap items-center gap-1.5 mt-2">
-                                {% if e.status %}<span class="badge badge-xs {% if e.status == 'SUBMITTED' %}badge-soft-success{% elif e.status == 'FAILED' %}badge-soft-error{% else %}badge-soft-neutral{% endif %} rounded-full">{{ e.status }}</span>{% endif %}
-                                {% if e.source %}<span class="text-xs text-base-content/50">{{ e.source }}</span>{% endif %}
-                                {% if e.attached_pdf %}<span class="badge badge-xs badge-soft-info rounded-full"><i class="bi bi-paperclip mr-0.5"></i> report PDF</span>{% endif %}
-                                {% if e.image_count %}<span class="badge badge-xs badge-soft-neutral rounded-full"><i class="bi bi-image mr-0.5"></i> {{ e.image_count }}</span>{% endif %}
-                                {% if e.doc_count %}<span class="badge badge-xs badge-soft-neutral rounded-full"><i class="bi bi-paperclip mr-0.5"></i> {{ e.doc_count }} file{{ e.doc_count|pluralize }}</span>{% endif %}
-                            </div>
-                            {% endif %}
-                            {% if e.text %}
-                            <div class="thread-body text-sm text-base-content/80 mt-2 leading-relaxed whitespace-pre-line {% if e.text|length > 280 %}line-clamp-5{% endif %}">{{ e.text }}</div>
-                            {% if e.text|length > 280 %}
-                            <button type="button" class="thread-toggle text-xs text-primary mt-1.5 hover:underline">Show full message</button>
-                            {% endif %}
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
-            <div class="text-center py-8">
-                <i class="bi bi-chat-left-dots text-2xl text-base-content/30"></i>
-                <p class="text-base-content/70 mt-2 mb-0 font-medium">No messages yet</p>
-                <span class="text-xs text-base-content/50">Your replies and PayPal's responses appear here in order.</span>
-            </div>
-            {% endif %}
-        </div>
-
-        <!-- Composer: your reply to PayPal (one box; channel auto-picked by stage) -->
-        <div class="card-modern p-6">
-            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
-                <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 m-0">
-                    <i class="bi bi-reply text-base-content/70"></i> Your reply to PayPal
-                </h3>
-                {% if submit_endpoint == 'provide-evidence' %}
-                <span class="badge badge-soft-info rounded-full">First response · evidence</span>
-                {% elif submit_endpoint == 'provide-supporting-info' %}
-                <span class="badge badge-soft-warning rounded-full">Under review · follow-up</span>
-                {% else %}
-                <span class="badge badge-soft-neutral rounded-full">No reply window open</span>
-                {% endif %}
-            </div>
-
-            {% if not submit_endpoint %}
-            <div class="rounded-xl bg-base-200/60 text-base-content/70 p-3 text-sm flex items-start gap-2 mb-4">
-                <i class="bi bi-info-circle shrink-0 mt-0.5"></i>
-                <span>PayPal isn't accepting a reply right now (the case may be at the inquiry
-                stage, which is message-only, or already resolved). You can still draft ahead.</span>
-            </div>
-            {% endif %}
-
-            <!-- Compose: generate / save (multipart for images) -->
-            <form method="post" action="{% url 'disputes:dispute_prepare_submission' dispute.id %}"
-                  enctype="multipart/form-data" class="space-y-4">
-                {% csrf_token %}
-
-                <div>
-                    <label class="label pb-1"><span class="label-text font-semibold">What to emphasise (feeds the AI)</span></label>
-                    <textarea name="manager_note" rows="2"
-                              class="textarea textarea-bordered w-full rounded-xl text-sm"
-                              placeholder="e.g. Stress that they emailed us from the same IP they used to file the claim.">{{ draft_submission.manager_note }}</textarea>
-                    <button type="submit" name="action" value="generate" class="btn btn-outline btn-sm rounded-xl mt-2">
-                        <i class="bi bi-magic"></i> Draft with AI
-                    </button>
-                    {% if draft_submission %}
-                    <span class="text-xs text-base-content/50 ml-2">Current draft: {{ draft_submission.get_source_display }}</span>
-                    {% endif %}
-                </div>
-
-                <div>
-                    <div class="flex justify-between items-center pb-1">
-                        <label class="label p-0"><span class="label-text font-semibold">Message to PayPal (plain text)</span></label>
-                        <span id="composer-count" class="text-xs text-base-content/50"></span>
-                    </div>
-                    <textarea name="notes" id="composer-notes" rows="10"
-                              class="textarea textarea-bordered w-full rounded-xl text-sm leading-relaxed"
-                              placeholder="Draft with AI above, or write your argument here.">{{ draft_submission.notes }}</textarea>
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label class="label pb-1"><span class="label-text font-semibold">PayPal evidence type</span></label>
-                        <input type="text" name="evidence_type"
-                               value="{{ draft_submission.evidence_type|default:evidence_type_default }}"
-                               class="input input-bordered w-full rounded-xl text-sm">
-                        <span class="text-xs text-base-content/50 mt-1 block">Defaulted from the dispute reason; used on the first-evidence reply.</span>
-                    </div>
-                    <div>
-                        <label class="label pb-1"><span class="label-text font-semibold">Attachments (evidence)</span></label>
-                        <label class="flex items-center gap-2 text-sm {% if not has_evidence_pdf %}opacity-50{% endif %}">
-                            <input type="checkbox" name="attach_evidence_pdf" class="checkbox checkbox-sm"
-                                   {% if draft_submission.attach_evidence_pdf %}checked{% endif %}
-                                   {% if not has_evidence_pdf %}disabled{% endif %}>
-                            Attach the evidence-report PDF
-                        </label>
-                        {% if not has_evidence_pdf %}
-                        <span class="text-xs text-base-content/50 mt-1 block">Generate the evidence report below to enable this.</span>
-                        {% endif %}
-                        <div class="mt-2">
-                            <input type="file" name="images" multiple accept="image/*"
-                                   class="file-input file-input-bordered file-input-sm w-full rounded-xl">
-                            <span class="text-xs text-base-content/50 mt-1 block">Images are always attached.</span>
-                        </div>
-                    </div>
-                </div>
-
-                <button type="submit" name="action" value="save" class="btn btn-outline rounded-xl">
-                    <i class="bi bi-save"></i> Save draft
-                </button>
-            </form>
-
-            <!-- Attached images on the draft (delete forms must sit OUTSIDE the form above) -->
-            {% if draft_submission and draft_submission.images.all %}
-            <div class="mt-4">
-                <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">Attached images</span>
-                <div class="flex flex-wrap gap-3 mt-2">
-                    {% for img in draft_submission.images.all %}
-                    <div class="relative">
-                        <img src="{{ img.file.url }}" alt="attachment" class="h-20 w-20 object-cover rounded-xl border border-base-200">
-                        <form method="post" action="{% url 'disputes:dispute_delete_submission_image' img.id %}" class="absolute -top-2 -right-2">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-xs btn-circle btn-error" title="Remove">
-                                <i class="bi bi-x"></i>
-                            </button>
-                        </form>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-            {% endif %}
-
-            <!-- Send to PayPal (outward, money-relevant — confirm). Channel
-                 (provide-evidence vs provide-supporting-info) is auto-picked by stage. -->
-            <div class="divider my-5"></div>
-            <form method="post" action="{% url 'disputes:dispute_submit_to_paypal' dispute.id %}"
-                  onsubmit="return confirm('Send this reply to PayPal now? This sends your message and any attachments.');">
-                {% csrf_token %}
-                <button type="submit" class="btn btn-info w-full rounded-xl text-white"
-                        {% if not draft_submission or not draft_submission.notes or not submit_endpoint %}disabled{% endif %}>
-                    <i class="bi bi-send"></i>
-                    {% if submit_endpoint == 'provide-supporting-info' %}Send follow-up to PayPal{% else %}Send reply to PayPal{% endif %}
-                </button>
-                {% if not draft_submission or not draft_submission.notes %}
-                <span class="text-xs text-base-content/60 mt-2 block">Write or generate a message and Save draft first.</span>
-                {% endif %}
-            </form>
-        </div>
-
-        <!-- Evidence report — the attachable PDF artifact (the written argument
-             is plain text in the composer above, not a document). -->
-        <details class="card-modern p-0 overflow-hidden" {% if documents %}open{% endif %}>
-            <summary class="cursor-pointer select-none flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 p-6">
-                <span class="text-lg font-semibold tracking-tight flex items-center gap-2">
-                    <i class="bi bi-file-earmark-text text-base-content/70"></i> Evidence report
-                    <span class="text-xs font-normal text-base-content/50">— generate, then tick "Attach the evidence-report PDF" in your reply</span>
-                </span>
-            </summary>
-            <div class="px-6 pb-6">
-                <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" class="mb-4">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-sm btn-primary rounded-xl"
-                            {% if not dispute.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
-                        <i class="bi bi-magic"></i> Generate evidence report
-                    </button>
-                </form>
-                {% if documents %}
-                <div class="overflow-x-auto">
-                    <table class="table-modern">
-                        <thead>
-                            <tr>
-                                <th>Type</th>
-                                <th>Status</th>
-                                <th>Version</th>
-                                <th>Generated By</th>
-                                <th>Created</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for doc in documents %}
-                            <tr>
-                                <td><strong>{{ doc.get_doc_type_display }}</strong></td>
-                                <td>
-                                    <span class="badge {% if doc.status == 'SENT' %}badge-soft-info{% elif doc.status == 'REVIEW' %}badge-soft-warning{% else %}badge-soft-neutral{% endif %} rounded-full">
-                                        {{ doc.get_status_display }}
-                                    </span>
-                                </td>
-                                <td class="text-base-content/70">v{{ doc.version }}</td>
-                                <td class="text-base-content/60">{{ doc.get_generated_by_display }}</td>
-                                <td class="text-base-content/60">{{ doc.created_at|date:"M d, Y H:i" }}</td>
-                                <td>
-                                    <div class="flex gap-1">
-                                        {% if doc.file_path %}
-                                        <a href="{{ doc.file_path.url }}" class="btn btn-xs btn-outline rounded-xl" target="_blank" title="Download PDF">
-                                            <i class="bi bi-download"></i>
-                                        </a>
-                                        {% endif %}
-                                        <a href="{% url 'disputes:dispute_edit_document' doc.id %}"
-                                           class="btn btn-xs btn-outline rounded-xl" title="Edit">
-                                            <i class="bi bi-pencil"></i>
-                                        </a>
-                                        <form method="post" action="{% url 'disputes:dispute_delete_document' doc.id %}" class="inline"
-                                              onsubmit="return confirm('Are you sure you want to delete this document?');">
-                                            {% csrf_token %}
-                                            <button type="submit" class="btn btn-xs btn-outline btn-error rounded-xl"
-                                                    title="Delete Document"
-                                                    {% if doc.status == 'SENT' %}disabled{% endif %}>
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                        </form>
-                                    </div>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% else %}
-                <div class="text-sm text-base-content/60">
-                    No evidence report yet — generate one to attach it to a reply.
-                </div>
-                {% endif %}
-            </div>
-        </details>
-
-        <!-- Activity Log -->
-        <div class="card-modern p-6">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-5">
-                <i class="bi bi-clock-history text-base-content/70"></i> Activity Log
-            </h3>
-            {% if activity_log %}
-            <div class="space-y-5">
-                {% for activity in activity_log %}
-                <div class="border-l-2 border-primary/20 pl-4 relative">
-                    <div class="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-primary"></div>
-                    <div class="flex justify-between items-start gap-3">
-                        <strong class="text-sm">{{ activity.get_action_display }}</strong>
-                        <span class="text-xs text-base-content/50 shrink-0">{{ activity.performed_at|date:"M d, Y H:i" }}</span>
-                    </div>
-                    {% if activity.details %}
-                    <p class="text-sm text-base-content/60 mt-1">{{ activity.details|linebreaks }}</p>
-                    {% endif %}
-                    {% if activity.performed_by %}
-                    <span class="text-xs text-base-content/50">by {{ activity.performed_by.username }}</span>
-                    {% endif %}
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
-            <div class="text-center py-8">
-                <i class="bi bi-clock-history text-2xl text-base-content/30"></i>
-                <p class="text-base-content/70 mt-2 mb-0 font-medium">No activity logged yet</p>
-            </div>
-            {% endif %}
-        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="text-center py-8">
+        <i class="bi bi-chat-left-dots text-2xl text-base-content/30"></i>
+        <p class="text-base-content/70 mt-2 mb-0 font-medium">No messages yet</p>
+        <span class="text-xs text-base-content/50">Your replies and PayPal's responses appear here in order.</span>
+      </div>
+      {% endif %}
     </div>
 
-    <!-- Right Column: Actions -->
-    <div class="lg:col-span-1 space-y-6">
-        <!-- Quick Actions Card -->
-        <div class="card-modern p-6">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-5">
-                <i class="bi bi-lightning text-base-content/70"></i> Quick Actions
-            </h3>
+    <!-- Composer: your reply to PayPal (one box; channel auto-picked by stage) -->
+    <div class="card-modern p-6">
+      <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
+        <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 m-0">
+          <i class="bi bi-reply text-base-content/70"></i> Your reply to PayPal
+        </h3>
+        {% if submit_endpoint == 'provide-evidence' %}
+        <span class="badge badge-soft-info rounded-full">First response · evidence</span>
+        {% elif submit_endpoint == 'provide-supporting-info' %}
+        <span class="badge badge-soft-warning rounded-full">Under review · follow-up</span>
+        {% else %}
+        <span class="badge badge-soft-neutral rounded-full">No reply window open</span>
+        {% endif %}
+      </div>
 
-            <!-- Category — the human's pick that drives the evidence report -->
-            <form method="post" action="{% url 'disputes:dispute_set_category' dispute.id %}">
-                {% csrf_token %}
-                <label class="label pb-1"><span class="label-text font-semibold">Dispute category</span></label>
-                <select name="category" class="select select-bordered w-full rounded-xl mb-2">
-                    {% for value, label in dispute.REASON_CHOICES %}
-                    <option value="{{ value }}" {% if dispute.dispute_reason == value %}selected{% endif %}>{{ label }}</option>
-                    {% endfor %}
-                </select>
-                <button type="submit" class="btn btn-outline btn-sm w-full rounded-xl">
-                    <i class="bi bi-tag"></i> Set category
-                </button>
-                <span class="text-xs text-base-content/50 mt-2 block">Prefilled from PayPal; change if the human review disagrees.</span>
-            </form>
+      {% if not submit_endpoint %}
+      <div class="rounded-xl bg-base-200/60 text-base-content/70 p-3 text-sm flex items-start gap-2 mb-4">
+        <i class="bi bi-info-circle shrink-0 mt-0.5"></i>
+        <span>PayPal isn't accepting a reply right now (the case may be at the inquiry
+        stage, which is message-only, or already resolved). You can still draft ahead.</span>
+      </div>
+      {% endif %}
 
-            <div class="divider my-5"></div>
+      <!-- Compose: generate / save (multipart for images) -->
+      <form method="post" action="{% url 'disputes:dispute_prepare_submission' dispute.id %}"
+            enctype="multipart/form-data" class="space-y-4">
+        {% csrf_token %}
+        <div>
+          <label class="label pb-1"><span class="label-text font-semibold">What to emphasise (feeds the AI)</span></label>
+          <textarea name="manager_note" rows="2"
+                    class="textarea textarea-bordered w-full rounded-xl text-sm"
+                    placeholder="e.g. Stress that they emailed us from the same IP they used to file the claim.">{{ draft_submission.manager_note }}</textarea>
+          <button type="submit" name="action" value="generate" class="btn btn-outline btn-sm rounded-xl mt-2">
+            <i class="bi bi-magic"></i> Draft with AI
+          </button>
+          {% if draft_submission %}
+          <span class="text-xs text-base-content/50 ml-2">Current draft: {{ draft_submission.get_source_display }}</span>
+          {% endif %}
+        </div>
 
-            <!-- Generate evidence report (the only generated document now) -->
-            <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}">
-                {% csrf_token %}
-                <button type="submit" class="btn btn-primary w-full rounded-xl"
-                        {% if not dispute.zd_ticket_id %}disabled{% endif %}>
-                    <i class="bi bi-magic"></i> Generate evidence report
-                </button>
-                {% if not dispute.zd_ticket_id %}
-                <span class="text-xs text-base-content/60 mt-2 block">Requires Zendesk ticket linkage</span>
-                {% endif %}
-            </form>
+        <div>
+          <div class="flex justify-between items-center pb-1">
+            <label class="label p-0"><span class="label-text font-semibold">Message to PayPal (plain text)</span></label>
+            <span id="composer-count" class="text-xs text-base-content/50"></span>
+          </div>
+          <textarea name="notes" id="composer-notes" rows="10"
+                    class="textarea textarea-bordered w-full rounded-xl text-sm leading-relaxed"
+                    placeholder="Draft with AI above, or write your argument here.">{{ draft_submission.notes }}</textarea>
+        </div>
 
-            <div class="divider my-5"></div>
-
-            <!-- Replying to PayPal lives in the composer (auto-picks the channel). -->
-            <a href="#composer-notes" onclick="document.getElementById('composer-notes')?.scrollIntoView({behavior:'smooth'});return false;"
-               class="btn btn-outline btn-sm w-full rounded-xl">
-                <i class="bi bi-reply"></i> Go to reply composer
-            </a>
-
-            <!-- Accept Claim -->
-            <form method="post" action="{% url 'disputes:dispute_accept_claim' dispute.id %}" class="mt-3"
-                  onsubmit="return confirm('Are you sure you want to accept this claim and issue a refund? This action cannot be undone.');">
-                {% csrf_token %}
-                <input type="hidden" name="note" value="Claim accepted via LORA system">
-                <button type="submit" class="btn btn-warning w-full rounded-xl"
-                        {% if dispute.status == 'ACCEPTED' or dispute.status == 'RESOLVED_WON' or dispute.status == 'RESOLVED_LOST' %}disabled{% endif %}>
-                    <i class="bi bi-hand-thumbs-up"></i> Accept Claim (Refund)
-                </button>
-                {% if dispute.status == 'ACCEPTED' %}
-                <span class="text-xs text-base-content/60 mt-2 block">Claim already accepted</span>
-                {% endif %}
-            </form>
-
-            <div class="divider my-5"></div>
-
-            <!-- Link to Claim -->
-            {% if dispute.claim %}
-            <div>
-                <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">Linked Claim</span>
-                <a href="{% url 'agent_claim_detail' dispute.claim.id %}" class="btn btn-outline w-full mt-2 rounded-xl">
-                    <i class="bi bi-clipboard-data"></i> View Claim #{{ dispute.claim.id }}
-                </a>
-            </div>
-            {% else %}
-            <div class="rounded-xl bg-warning/10 text-warning p-3 text-sm flex items-center gap-2 mb-3">
-                <i class="bi bi-exclamation-triangle shrink-0"></i>
-                No claim linked to this dispute
-            </div>
-            <form method="post" action="{% url 'disputes:dispute_link_claim' dispute.id %}" class="flex flex-col gap-2">
-                {% csrf_token %}
-                <label class="text-xs font-semibold uppercase tracking-wide text-base-content/50">Link to a claim</label>
-                <input type="text" name="claim_ref" required
-                       class="input input-bordered w-full rounded-xl text-sm"
-                       placeholder="Zendesk ticket ID, ALF claim ID, or email">
-                <label class="flex items-center gap-2 text-xs text-base-content/60">
-                    <input type="checkbox" name="override" value="1" class="checkbox checkbox-xs">
-                    Link even if PayPal transaction IDs differ
-                </label>
-                <button type="submit" class="btn btn-primary btn-sm rounded-xl">
-                    <i class="bi bi-link-45deg"></i> Link to claim
-                </button>
-            </form>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="label pb-1"><span class="label-text font-semibold">PayPal evidence type</span></label>
+            <input type="text" name="evidence_type"
+                   value="{{ draft_submission.evidence_type|default:evidence_type_default }}"
+                   class="input input-bordered w-full rounded-xl text-sm">
+            <span class="text-xs text-base-content/50 mt-1 block">Defaulted from the dispute reason; used on the first-evidence reply.</span>
+          </div>
+          <div>
+            <label class="label pb-1"><span class="label-text font-semibold">Attachments (evidence)</span></label>
+            <label class="flex items-center gap-2 text-sm {% if not has_evidence_pdf %}opacity-50{% endif %}">
+              <input type="checkbox" name="attach_evidence_pdf" class="checkbox checkbox-sm"
+                     {% if draft_submission.attach_evidence_pdf %}checked{% endif %}
+                     {% if not has_evidence_pdf %}disabled{% endif %}>
+              Attach the evidence-report PDF
+            </label>
+            {% if not has_evidence_pdf %}
+            <span class="text-xs text-base-content/50 mt-1 block">Generate the evidence report below to enable this.</span>
             {% endif %}
+            <div class="mt-2">
+              <input type="file" name="images" multiple accept="image/*"
+                     class="file-input file-input-bordered file-input-sm w-full rounded-xl">
+              <span class="text-xs text-base-content/50 mt-1 block">Images are always attached.</span>
+            </div>
+          </div>
         </div>
 
-        <!-- Dispute Status Progress -->
-        <div class="card-modern p-6">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-5">
-                <i class="bi bi-diagram-3 text-base-content/70"></i> Status Progress
-            </h3>
-            <div class="space-y-2">
-                {% for status_code, status_label in dispute.STATUS_CHOICES %}
-                <div class="flex items-center gap-2">
-                    <div class="flex-1 h-8 rounded-full bg-base-200/60 overflow-hidden {% if dispute.status == status_code %}ring-2 ring-primary/30{% endif %}">
-                        <div class="h-full {% if dispute.status == status_code %}bg-primary{% elif dispute.status > forloop.counter0 %}bg-success{% else %}bg-base-200{% endif %} rounded-full flex items-center px-3 transition-all duration-300"
-                             style="width: {% if dispute.status >= status_code %}100%{% else %}0%{% endif %}">
-                            <span class="text-xs {% if dispute.status >= status_code %}text-white{% else %}text-base-content/60{% endif %}">{{ status_label }}</span>
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
+        <button type="submit" name="action" value="save" class="btn btn-outline rounded-xl">
+          <i class="bi bi-save"></i> Save draft
+        </button>
+      </form>
+
+      <!-- Attached images on the draft (delete forms must sit OUTSIDE the form above) -->
+      {% if draft_submission and draft_submission.images.all %}
+      <div class="mt-4">
+        <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">Attached images</span>
+        <div class="flex flex-wrap gap-3 mt-2">
+          {% for img in draft_submission.images.all %}
+          <div class="relative">
+            <img src="{{ img.file.url }}" alt="attachment" class="h-20 w-20 object-cover rounded-xl border border-base-200">
+            <form method="post" action="{% url 'disputes:dispute_delete_submission_image' img.id %}" class="absolute -top-2 -right-2">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-xs btn-circle btn-error" title="Remove"><i class="bi bi-x"></i></button>
+            </form>
+          </div>
+          {% endfor %}
         </div>
+      </div>
+      {% endif %}
+
+      <!-- Send to PayPal (outward, money-relevant — confirm). Channel auto-picked by stage. -->
+      <div class="divider my-5"></div>
+      <form method="post" action="{% url 'disputes:dispute_submit_to_paypal' dispute.id %}"
+            onsubmit="return confirm('Send this reply to PayPal now? This sends your message and any attachments.');">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-info w-full rounded-xl text-white"
+                {% if not draft_submission or not draft_submission.notes or not submit_endpoint %}disabled{% endif %}>
+          <i class="bi bi-send"></i>
+          {% if submit_endpoint == 'provide-supporting-info' %}Send follow-up to PayPal{% else %}Send reply to PayPal{% endif %}
+        </button>
+        {% if not draft_submission or not draft_submission.notes %}
+        <span class="text-xs text-base-content/60 mt-2 block">Write or generate a message and Save draft first.</span>
+        {% endif %}
+      </form>
     </div>
+
+    <!-- Evidence report — the attachable PDF artifact -->
+    <details class="card-modern p-0 overflow-hidden" {% if documents %}open{% endif %}>
+      <summary class="cursor-pointer select-none flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 p-6">
+        <span class="text-lg font-semibold tracking-tight flex items-center gap-2">
+          <i class="bi bi-file-earmark-text text-base-content/70"></i> Evidence report
+          <span class="text-xs font-normal text-base-content/50">— generate, then tick "Attach the evidence-report PDF" in your reply</span>
+        </span>
+      </summary>
+      <div class="px-6 pb-6">
+        <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" class="mb-4">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm btn-primary rounded-xl"
+                  {% if not dispute.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
+            <i class="bi bi-magic"></i> Generate evidence report
+          </button>
+        </form>
+        {% if documents %}
+        <div class="overflow-x-auto">
+          <table class="table-modern">
+            <thead>
+              <tr><th>Type</th><th>Status</th><th>Version</th><th>Generated By</th><th>Created</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+              {% for doc in documents %}
+              <tr>
+                <td><strong>{{ doc.get_doc_type_display }}</strong></td>
+                <td>
+                  <span class="badge {% if doc.status == 'SENT' %}badge-soft-info{% elif doc.status == 'REVIEW' %}badge-soft-warning{% else %}badge-soft-neutral{% endif %} rounded-full">{{ doc.get_status_display }}</span>
+                </td>
+                <td class="text-base-content/70">v{{ doc.version }}</td>
+                <td class="text-base-content/60">{{ doc.get_generated_by_display }}</td>
+                <td class="text-base-content/60">{{ doc.created_at|date:"M d, Y H:i" }}</td>
+                <td>
+                  <div class="flex gap-1">
+                    {% if doc.file_path %}
+                    <a href="{{ doc.file_path.url }}" class="btn btn-xs btn-outline rounded-xl" target="_blank" title="Download PDF"><i class="bi bi-download"></i></a>
+                    {% endif %}
+                    <a href="{% url 'disputes:dispute_edit_document' doc.id %}" class="btn btn-xs btn-outline rounded-xl" title="Edit"><i class="bi bi-pencil"></i></a>
+                    <form method="post" action="{% url 'disputes:dispute_delete_document' doc.id %}" class="inline"
+                          onsubmit="return confirm('Are you sure you want to delete this document?');">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-xs btn-outline btn-error rounded-xl" title="Delete Document" {% if doc.status == 'SENT' %}disabled{% endif %}><i class="bi bi-trash"></i></button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="text-sm text-base-content/60">No evidence report yet — generate one to attach it to a reply.</div>
+        {% endif %}
+      </div>
+    </details>
+
+    <!-- Reference: dispute facts (collapsed) -->
+    <details class="card-modern lora-disclosure overflow-hidden">
+      <summary class="cursor-pointer select-none px-6 py-4 text-base font-semibold tracking-tight flex items-center gap-2">
+        <i class="bi bi-info-circle text-base-content/60"></i> Dispute details
+      </summary>
+      <div class="px-6 pb-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+        <div class="flex justify-between gap-4"><dt class="text-base-content/55">Buyer email</dt><dd class="text-right break-all">{{ dispute.buyer_email }}</dd></div>
+        <div class="flex justify-between gap-4"><dt class="text-base-content/55">Amount</dt><dd class="text-right">{% if dispute.dispute_amount %}{{ dispute.dispute_currency }} {{ dispute.dispute_amount }}{% else %}N/A{% endif %}</dd></div>
+        <div class="flex justify-between gap-4"><dt class="text-base-content/55">Transaction ID</dt><dd class="text-right"><code class="text-xs bg-base-200/60 rounded px-1.5 py-0.5 break-all">{{ dispute.transaction_id }}</code></dd></div>
+        <div class="flex justify-between gap-4"><dt class="text-base-content/55">Transaction date</dt><dd class="text-right">{{ dispute.transaction_date|date:"M d, Y H:i" }}</dd></div>
+        <div class="flex justify-between gap-4"><dt class="text-base-content/55">Seller response due</dt><dd class="text-right">{% if dispute.seller_response_due %}{{ dispute.seller_response_due|date:"M d, Y H:i" }}{% else %}N/A{% endif %}</dd></div>
+        <div class="flex justify-between gap-4"><dt class="text-base-content/55">Created</dt><dd class="text-right">{{ dispute.created_at|date:"M d, Y H:i" }}</dd></div>
+        <div class="flex justify-between gap-4"><dt class="text-base-content/55">Last updated</dt><dd class="text-right">{{ dispute.updated_at|date:"M d, Y H:i" }}</dd></div>
+      </div>
+      {% if dispute.notes %}
+      <div class="px-6 pb-6">
+        <h4 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-2">Notes</h4>
+        <div class="text-sm text-base-content/80 leading-relaxed">{{ dispute.notes|linebreaks }}</div>
+      </div>
+      {% endif %}
+    </details>
+
+    <!-- Activity log (collapsed) -->
+    <details class="card-modern lora-disclosure overflow-hidden">
+      <summary class="cursor-pointer select-none px-6 py-4 text-base font-semibold tracking-tight flex items-center gap-2">
+        <i class="bi bi-clock-history text-base-content/60"></i> Activity log
+      </summary>
+      <div class="px-6 pb-6">
+        {% if activity_log %}
+        <div class="space-y-5">
+          {% for activity in activity_log %}
+          <div class="border-l-2 border-primary/20 pl-4 relative">
+            <div class="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-primary"></div>
+            <div class="flex justify-between items-start gap-3">
+              <strong class="text-sm">{{ activity.get_action_display }}</strong>
+              <span class="text-xs text-base-content/50 shrink-0">{{ activity.performed_at|date:"M d, Y H:i" }}</span>
+            </div>
+            {% if activity.details %}<p class="text-sm text-base-content/60 mt-1">{{ activity.details|linebreaks }}</p>{% endif %}
+            {% if activity.performed_by %}<span class="text-xs text-base-content/50">by {{ activity.performed_by.username }}</span>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-sm text-base-content/60 mb-0">No activity logged yet.</p>
+        {% endif %}
+      </div>
+    </details>
+  </div>
+
+  <!-- Right column: case actions -->
+  <div class="lg:col-span-1 space-y-6">
+    <div class="card-modern p-6">
+      <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-5">
+        <i class="bi bi-lightning text-base-content/70"></i> Case actions
+      </h3>
+
+      <!-- Category — the human's pick that drives the evidence report -->
+      <form method="post" action="{% url 'disputes:dispute_set_category' dispute.id %}">
+        {% csrf_token %}
+        <label class="label pb-1"><span class="label-text font-semibold">Dispute category</span></label>
+        <select name="category" class="select select-bordered w-full rounded-xl mb-2">
+          {% for value, label in dispute.REASON_CHOICES %}
+          <option value="{{ value }}" {% if dispute.dispute_reason == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-outline btn-sm w-full rounded-xl"><i class="bi bi-tag"></i> Set category</button>
+        <span class="text-xs text-base-content/50 mt-2 block">Prefilled from PayPal; change if the human review disagrees.</span>
+      </form>
+
+      <div class="divider my-5"></div>
+
+      <!-- Generate evidence report -->
+      <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-primary w-full rounded-xl" {% if not dispute.zd_ticket_id %}disabled{% endif %}>
+          <i class="bi bi-magic"></i> Generate evidence report
+        </button>
+        {% if not dispute.zd_ticket_id %}<span class="text-xs text-base-content/60 mt-2 block">Requires Zendesk ticket linkage</span>{% endif %}
+      </form>
+
+      <div class="divider my-5"></div>
+
+      <!-- Link / linked claim -->
+      {% if dispute.claim %}
+      <div>
+        <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">Linked claim</span>
+        <a href="{% url 'agent_claim_detail' dispute.claim.id %}" class="btn btn-outline w-full mt-2 rounded-xl">
+          <i class="bi bi-clipboard-data"></i> View claim #{{ dispute.claim.id }}
+        </a>
+      </div>
+      {% else %}
+      <form method="post" action="{% url 'disputes:dispute_link_claim' dispute.id %}" class="flex flex-col gap-2">
+        {% csrf_token %}
+        <label class="text-xs font-semibold uppercase tracking-wide text-base-content/50">Link to a claim</label>
+        <input type="text" name="claim_ref" required
+               class="input input-bordered w-full rounded-xl text-sm"
+               placeholder="Zendesk ticket ID, ALF claim ID, or email">
+        <label class="flex items-center gap-2 text-xs text-base-content/60">
+          <input type="checkbox" name="override" value="1" class="checkbox checkbox-xs">
+          Link even if PayPal transaction IDs differ
+        </label>
+        <button type="submit" class="btn btn-primary btn-sm rounded-xl"><i class="bi bi-link-45deg"></i> Link to claim</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <!-- Raw PayPal data (manager debug — verify field mapping against what PayPal sent) -->
+    <details class="card-modern lora-disclosure overflow-hidden">
+      <summary class="cursor-pointer select-none px-5 py-3 text-sm font-medium text-base-content/60 flex items-center gap-2">
+        <i class="bi bi-code-square text-base-content/40"></i> Raw PayPal data
+      </summary>
+      <div class="px-5 pb-5">
+        <p class="text-xs text-base-content/60 mb-2"><i class="bi bi-shield-exclamation"></i> Black out any personal details before sharing this.</p>
+        <pre class="text-xs bg-base-200/60 rounded-xl p-4 overflow-auto max-h-[28rem] whitespace-pre-wrap break-words mb-0">{{ raw_payload_json }}</pre>
+      </div>
+    </details>
+  </div>
 </div>
-
-<!-- Raw PayPal data (manager debug — verify field mapping against what PayPal sent) -->
-<details class="card-modern p-4 mt-6">
-    <summary class="cursor-pointer font-medium flex items-center gap-2 select-none">
-        <i class="bi bi-code-square text-base-content/60"></i> Raw PayPal data
-        <span class="text-xs font-normal text-base-content/50">— exactly what PayPal sent for this dispute</span>
-    </summary>
-    <p class="text-xs text-base-content/60 mt-3 mb-2">
-        <i class="bi bi-shield-exclamation"></i> Black out any personal details (names, emails, addresses) before sharing this.
-    </p>
-    <pre class="text-xs bg-base-200/60 rounded-xl p-4 overflow-auto max-h-[28rem] whitespace-pre-wrap break-words">{{ raw_payload_json }}</pre>
-</details>
+</div>
 
 <script>
 // Composer live char counter — PayPal caps the reply/notes field near
