@@ -4,220 +4,197 @@
 {% block title %}Agent Dashboard{% endblock %}
 
 {% block content %}
-<div class="animate-fade-in">
-<!-- Page Header -->
+<!-- Page heading -->
 <div class="mb-6">
-    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-        <i class="bi bi-speedometer2 text-base-content/70"></i> Agent Dashboard
-    </h2>
-    <p class="text-base-content/60 mt-1">Your claims, emails and disputes at a glance.</p>
+  <h1 class="text-xl font-semibold text-gray-900">Agent Dashboard</h1>
+  <p class="mt-1 text-sm text-gray-600">Your claims, emails and disputes at a glance.</p>
 </div>
 
-<!-- Stats Grid -->
-<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    <!-- Total Claims -->
-    <div class="stat-modern">
-        <div class="stat-label">Total Claims</div>
-        <div class="stat-value text-primary">{{ total_claims }}</div>
-        <div class="stat-icon bg-primary/10">
-            <i class="bi bi-clipboard-data text-2xl text-primary"></i>
-        </div>
-    </div>
-
-    <!-- Active Cases -->
-    <div class="stat-modern">
-        <div class="stat-label">Active Cases</div>
-        <div class="stat-value text-secondary">{{ my_claims }}</div>
-        <div class="stat-icon bg-secondary/10">
-            <i class="bi bi-folder-check text-2xl text-secondary"></i>
-        </div>
-    </div>
-
-    <!-- Urgent Emails -->
-    <div class="stat-modern">
-        <div class="stat-label">Urgent Emails</div>
-        <div class="stat-value text-error">{{ urgent_emails }}</div>
-        <div class="stat-icon bg-error/10">
-            <i class="bi bi-envelope-exclamation text-2xl text-error"></i>
-        </div>
-    </div>
-
-    <!-- Open Disputes -->
-    <div class="stat-modern">
-        <div class="stat-label">Open disputes</div>
-        <div class="stat-value text-warning">{{ disputed }}</div>
-        <div class="stat-icon bg-warning/10">
-            <i class="bi bi-exclamation-triangle text-2xl text-warning"></i>
-        </div>
-    </div>
-</div>
+<!-- At a glance — stat strip -->
+<dl class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-px overflow-hidden rounded-xl bg-gray-200 shadow-sm ring-1 ring-black/5 mb-8">
+  <div class="bg-white px-5 py-4">
+    <dt class="text-sm text-gray-500">Total Claims</dt>
+    <dd class="mt-1 text-2xl font-semibold text-gray-900">{{ total_claims }}</dd>
+  </div>
+  <div class="bg-white px-5 py-4">
+    <dt class="text-sm text-gray-500">Active Cases</dt>
+    <dd class="mt-1 text-2xl font-semibold text-gray-900">{{ my_claims }}</dd>
+  </div>
+  <div class="bg-white px-5 py-4">
+    <dt class="text-sm text-gray-500">Urgent Emails</dt>
+    <dd class="mt-1 text-2xl font-semibold {% if urgent_emails %}text-red-600{% else %}text-gray-900{% endif %}">{{ urgent_emails }}</dd>
+  </div>
+  <div class="bg-white px-5 py-4">
+    <dt class="text-sm text-gray-500">Open disputes</dt>
+    <dd class="mt-1 text-2xl font-semibold {% if disputed %}text-amber-600{% else %}text-gray-900{% endif %}">{{ disputed }}</dd>
+  </div>
+</dl>
 
 <!-- Email Overview Card -->
-<div class="card-modern p-6 mb-6">
-    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <h3 class="text-lg font-semibold flex items-center gap-2">
-            <i class="bi bi-envelope text-base-content/70"></i> Email Overview
-        </h3>
-        <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-primary rounded-xl">
-            View All Emails <i class="bi bi-arrow-right"></i>
-        </a>
-    </div>
+<div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5 mb-8">
+  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+    <h3 class="text-sm font-semibold text-gray-900 flex items-center gap-2">
+      <i class="bi bi-envelope text-base text-gray-400"></i> Email Overview
+    </h3>
+    <a href="{% url 'agent_emails' %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">
+      View All Emails <i class="bi bi-arrow-right"></i>
+    </a>
+  </div>
 
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div class="text-center p-4 bg-base-200/50 rounded-xl">
-            <div class="text-sm text-base-content/60 mb-1">Total Emails</div>
-            <div class="text-2xl font-semibold">{{ total_emails|default:0 }}</div>
-        </div>
-        <div class="text-center p-4 bg-base-200/50 rounded-xl">
-            <div class="text-sm text-base-content/60 mb-1">Requiring Attention</div>
-            <div class="text-2xl font-semibold text-error">{{ emails_requiring_attention|default:0 }}</div>
-        </div>
-        <div class="text-center p-4 bg-base-200/50 rounded-xl">
-            <div class="text-sm text-base-content/60 mb-1">Auto-Resolved</div>
-            <div class="text-2xl font-semibold text-success">{{ auto_resolved_emails|default:0 }}</div>
-        </div>
-        <div class="text-center p-4 bg-base-200/50 rounded-xl">
-            <div class="text-sm text-base-content/60 mb-1">Urgent</div>
-            <div class="text-2xl font-semibold text-error">{{ urgent_emails|default:0 }}</div>
-        </div>
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+    <div class="text-center p-4 rounded-lg bg-gray-50 ring-1 ring-inset ring-gray-200">
+      <div class="text-sm text-gray-500 mb-1">Total Emails</div>
+      <div class="text-2xl font-semibold text-gray-900">{{ total_emails|default:0 }}</div>
     </div>
+    <div class="text-center p-4 rounded-lg bg-gray-50 ring-1 ring-inset ring-gray-200">
+      <div class="text-sm text-gray-500 mb-1">Requiring Attention</div>
+      <div class="text-2xl font-semibold text-red-600">{{ emails_requiring_attention|default:0 }}</div>
+    </div>
+    <div class="text-center p-4 rounded-lg bg-gray-50 ring-1 ring-inset ring-gray-200">
+      <div class="text-sm text-gray-500 mb-1">Auto-Resolved</div>
+      <div class="text-2xl font-semibold text-green-600">{{ auto_resolved_emails|default:0 }}</div>
+    </div>
+    <div class="text-center p-4 rounded-lg bg-gray-50 ring-1 ring-inset ring-gray-200">
+      <div class="text-sm text-gray-500 mb-1">Urgent</div>
+      <div class="text-2xl font-semibold text-red-600">{{ urgent_emails|default:0 }}</div>
+    </div>
+  </div>
 
-    <!-- Category Breakdown -->
-    {% if email_category_stats %}
-    <div class="mt-6 pt-6 border-t border-base-200/60">
-        <div class="text-sm text-base-content/60 mb-3">Category Breakdown</div>
-        <div class="flex flex-wrap gap-2">
-            {% for stat in email_category_stats %}
-            <span class="badge badge-soft-neutral">{{ stat.category|humanize_label }}: {{ stat.count }}</span>
-            {% endfor %}
-        </div>
+  <!-- Category Breakdown -->
+  {% if email_category_stats %}
+  <div class="mt-6 pt-6 border-t border-gray-200">
+    <div class="text-sm text-gray-500 mb-3">Category Breakdown</div>
+    <div class="flex flex-wrap gap-2">
+      {% for stat in email_category_stats %}
+      <span class="inline-flex items-center gap-x-1 rounded-full bg-gray-50 px-2 py-1 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-500/10">{{ stat.category|humanize_label }}: {{ stat.count }}</span>
+      {% endfor %}
     </div>
-    {% endif %}
+  </div>
+  {% endif %}
 </div>
 
 <!-- Recent Emails Table -->
-<div class="card-modern p-0 overflow-hidden mb-6">
-    <div class="p-6 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h3 class="text-lg font-semibold flex items-center gap-2">
-            <i class="bi bi-envelope text-base-content/70"></i> Recent Emails
-        </h3>
-        <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-outline rounded-xl">View All</a>
-    </div>
+<div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5 mb-8">
+  <div class="px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-200">
+    <h3 class="text-sm font-semibold text-gray-900 flex items-center gap-2">
+      <i class="bi bi-envelope text-base text-gray-400"></i> Recent Emails
+    </h3>
+    <a href="{% url 'agent_emails' %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">View All</a>
+  </div>
 
-    <div class="overflow-x-auto">
-        <table class="table-modern">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Subject</th>
-                    <th>From</th>
-                    <th>Category</th>
-                    <th>Claim</th>
-                    <th>Received</th>
-                    <th class="text-right">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for email in recent_emails %}
-                <tr>
-                    <td class="font-mono text-sm text-base-content/60">#{{ email.id }}</td>
-                    <td>
-                        <div class="max-w-xs truncate font-medium" title="{{ email.subject }}">
-                            {{ email.subject }}
-                        </div>
-                    </td>
-                    <td class="text-sm text-base-content/60">{{ email.from_email }}</td>
-                    <td>
-                        <span class="badge badge-soft-neutral gap-1">
-                            {{ email.get_category_display }}
-                            {% if email.action_required %}
-                            <span class="badge badge-error badge-xs">!</span>
-                            {% endif %}
-                        </span>
-                    </td>
-                    <td>
-                        {% if email.claim %}
-                        <a href="{% url 'agent_claim_detail' email.claim.id %}" class="btn btn-xs btn-outline rounded-xl">
-                            #{{ email.claim.id }}
-                        </a>
-                        {% else %}
-                        <span class="text-base-content/40">-</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-sm text-base-content/60 whitespace-nowrap">{{ email.received_at|date:"M d, H:i" }}</td>
-                    <td class="text-right">
-                        <a href="{% url 'agent_email_detail' email.id %}" class="btn btn-xs btn-ghost rounded-xl">
-                            <i class="bi bi-eye"></i>
-                        </a>
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="8" class="text-center py-12">
-                        <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
-                            <i class="bi bi-inbox text-3xl text-base-content/40"></i>
-                        </div>
-                        <p class="text-base-content/60 mt-2 mb-0">No emails found</p>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+  <div class="overflow-x-auto">
+    <table class="min-w-full divide-y divide-gray-300">
+      <thead class="bg-gray-50">
+        <tr>
+          <th class="px-3 py-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">ID</th>
+          <th class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Subject</th>
+          <th class="px-3 py-3 text-left text-sm font-semibold text-gray-900">From</th>
+          <th class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Category</th>
+          <th class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Claim</th>
+          <th class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Received</th>
+          <th class="px-3 py-3 text-right text-sm font-semibold text-gray-900">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-200 bg-white">
+        {% for email in recent_emails %}
+        <tr>
+          <td class="px-3 py-4 text-sm font-mono text-gray-500 sm:pl-6">#{{ email.id }}</td>
+          <td class="px-3 py-4 text-sm text-gray-700">
+            <div class="max-w-xs truncate font-medium text-gray-900" title="{{ email.subject }}">
+              {{ email.subject }}
+            </div>
+          </td>
+          <td class="px-3 py-4 text-sm text-gray-500">{{ email.from_email }}</td>
+          <td class="px-3 py-4 text-sm text-gray-700">
+            <span class="inline-flex items-center gap-x-1 rounded-full bg-gray-50 px-2 py-1 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-500/10">
+              {{ email.get_category_display }}
+              {% if email.action_required %}
+              <span class="inline-flex items-center rounded-full bg-red-50 px-1.5 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-600/10">!</span>
+              {% endif %}
+            </span>
+          </td>
+          <td class="px-3 py-4 text-sm text-gray-700">
+            {% if email.claim %}
+            <a href="{% url 'agent_claim_detail' email.claim.id %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2 py-1 text-xs font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
+              #{{ email.claim.id }}
+            </a>
+            {% else %}
+            <span class="text-gray-400">-</span>
+            {% endif %}
+          </td>
+          <td class="px-3 py-4 text-sm text-gray-500 whitespace-nowrap">{{ email.received_at|date:"M d, H:i" }}</td>
+          <td class="px-3 py-4 text-sm text-right">
+            <a href="{% url 'agent_email_detail' email.id %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md p-2 text-xs font-semibold text-gray-600 hover:bg-gray-100">
+              <i class="bi bi-eye"></i>
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="8" class="px-3 py-12 text-center">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-3">
+              <i class="bi bi-inbox text-3xl text-gray-400"></i>
+            </div>
+            <p class="text-sm text-gray-500 mt-2 mb-0">No emails found</p>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 
 <!-- Recent Claims Table -->
-<div class="card-modern p-0 overflow-hidden">
-    <div class="p-6 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h3 class="text-lg font-semibold flex items-center gap-2">
-            <i class="bi bi-clock-history text-base-content/70"></i> Recent Claims
-        </h3>
-        <a href="{% url 'agent_claims' %}" class="btn btn-sm btn-outline rounded-xl">View All</a>
-    </div>
+<div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
+  <div class="px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-200">
+    <h3 class="text-sm font-semibold text-gray-900 flex items-center gap-2">
+      <i class="bi bi-clock-history text-base text-gray-400"></i> Recent Claims
+    </h3>
+    <a href="{% url 'agent_claims' %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">View All</a>
+  </div>
 
-    <div class="overflow-x-auto">
-        <table class="table-modern">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Customer Email</th>
-                    <th>Status</th>
-                    <th>ZD Ticket</th>
-                    <th>Created</th>
-                    <th class="text-right">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for claim in recent_claims %}
-                <tr>
-                    <td class="font-mono text-sm text-base-content/60">#{{ claim.id }}</td>
-                    <td class="font-medium">{{ claim.client_email }}</td>
-                    <td>
-                        <span class="badge {% if claim.status_category == 'solved' %}badge-soft-neutral{% elif claim.status_category == 'pending' %}badge-soft-warning{% elif claim.status_category == 'new' %}badge-soft-info{% elif claim.status_category == 'hold' %}badge-soft-neutral{% else %}badge-soft-primary{% endif %}">
-                            {{ claim.status }}
-                        </span>
-                    </td>
-                    <td class="text-base-content/60">{{ claim.zd_ticket_id|default:"-" }}</td>
-                    <td class="text-base-content/60 whitespace-nowrap">{{ claim.created_at|date:"M d, Y" }}</td>
-                    <td class="text-right">
-                        <a href="{% url 'agent_claim_detail' claim.id %}" class="btn btn-xs btn-ghost rounded-xl">
-                            <i class="bi bi-eye"></i> View
-                        </a>
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="6" class="text-center py-12">
-                        <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
-                            <i class="bi bi-inbox text-3xl text-base-content/40"></i>
-                        </div>
-                        <p class="text-base-content/60 mt-2 mb-0">No claims found</p>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
+  <div class="overflow-x-auto">
+    <table class="min-w-full divide-y divide-gray-300">
+      <thead class="bg-gray-50">
+        <tr>
+          <th class="px-3 py-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">ID</th>
+          <th class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Customer Email</th>
+          <th class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+          <th class="px-3 py-3 text-left text-sm font-semibold text-gray-900">ZD Ticket</th>
+          <th class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Created</th>
+          <th class="px-3 py-3 text-right text-sm font-semibold text-gray-900">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-200 bg-white">
+        {% for claim in recent_claims %}
+        <tr>
+          <td class="px-3 py-4 text-sm font-mono text-gray-500 sm:pl-6">#{{ claim.id }}</td>
+          <td class="px-3 py-4 text-sm font-medium text-gray-900">{{ claim.client_email }}</td>
+          <td class="px-3 py-4 text-sm text-gray-700">
+            <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset {% if claim.status_category == 'solved' %}bg-gray-50 text-gray-600 ring-gray-500/10{% elif claim.status_category == 'pending' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif claim.status_category == 'new' %}bg-blue-50 text-blue-700 ring-blue-700/10{% elif claim.status_category == 'hold' %}bg-gray-50 text-gray-600 ring-gray-500/10{% else %}bg-indigo-50 text-indigo-700 ring-indigo-700/10{% endif %}">
+              {{ claim.status }}
+            </span>
+          </td>
+          <td class="px-3 py-4 text-sm text-gray-500">{{ claim.zd_ticket_id|default:"-" }}</td>
+          <td class="px-3 py-4 text-sm text-gray-500 whitespace-nowrap">{{ claim.created_at|date:"M d, Y" }}</td>
+          <td class="px-3 py-4 text-sm text-right">
+            <a href="{% url 'agent_claim_detail' claim.id %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md p-2 text-xs font-semibold text-gray-600 hover:bg-gray-100">
+              <i class="bi bi-eye"></i> View
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="6" class="px-3 py-12 text-center">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-3">
+              <i class="bi bi-inbox text-3xl text-gray-400"></i>
+            </div>
+            <p class="text-sm text-gray-500 mt-2 mb-0">No claims found</p>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}
