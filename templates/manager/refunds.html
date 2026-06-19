@@ -236,7 +236,7 @@ function openRefundModal() { document.getElementById('refund_modal').showModal()
 function viewRefundDetails(refundId) {
     var src = document.querySelector('#refund-detail-store [data-refund-id="' + refundId + '"]');
     var target = document.getElementById('refund_details_content');
-    target.innerHTML = src ? src.innerHTML : '<p class="text-base-content/60">Details unavailable.</p>';
+    target.innerHTML = src ? src.innerHTML : '<p class="text-gray-500">Details unavailable.</p>';
     document.getElementById('refund_details_modal').showModal();
 }
 
