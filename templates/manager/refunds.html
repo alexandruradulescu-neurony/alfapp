@@ -9,10 +9,10 @@
 <!-- Page heading -->
 <div class="sm:flex sm:items-center sm:justify-between gap-4 mb-6">
   <div>
-    <h1 class="text-xl font-semibold text-gray-900 flex items-center gap-2">
+    <h1 class="lora-page-title flex items-center gap-2">
       <i class="bi bi-cash-coin text-gray-600"></i> Refunds
     </h1>
-    <p class="mt-1 text-sm text-gray-600">
+    <p class="lora-prose mt-1">
       Clear the refund-requested queue and track what's been issued.
       <span class="text-gray-600">&middot; ${{ stats.total_amount|floatformat:2 }} refunded to date</span>
       {% if stats.failed %}<span class="text-red-600 font-medium">&middot; {{ stats.failed }} failed</span>{% endif %}
@@ -28,10 +28,10 @@
 
 <!-- Action queue: claims awaiting a refund decision (the manager's job here) -->
 {% if refund_requested %}
-<div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5 mb-6 border-l-4 border-l-amber-500">
+<div class="lora-card overflow-hidden mb-6 border-l-4 border-l-amber-500">
   <div class="flex items-center gap-2 px-5 py-3 border-b border-gray-200">
     <i class="bi bi-hourglass-split text-amber-600"></i>
-    <h3 class="font-semibold text-gray-900">Awaiting your decision</h3>
+    <h3 class="lora-card-title">Awaiting your decision</h3>
     <span class="inline-flex items-center gap-x-1 rounded-full bg-yellow-50 px-2 py-1 text-xs font-medium text-yellow-800 ring-1 ring-inset ring-yellow-600/20">{{ refund_requested|length }}</span>
   </div>
   <div class="overflow-x-auto">
@@ -94,7 +94,7 @@
 </div>
 
 <!-- Refunds table -->
-<div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
+<div class="lora-card overflow-hidden">
   <div class="overflow-x-auto">
     <table class="min-w-full divide-y divide-gray-300">
       <thead class="bg-gray-50">
@@ -170,7 +170,7 @@
     <div class="flex items-center justify-between gap-3 mb-4">
       <div>
         <div class="text-2xl font-semibold text-gray-900">{{ refund.currency }} {{ refund.amount }}</div>
-        <div class="text-sm text-gray-600">{{ refund.get_refund_type_display }} refund &middot; {{ refund.get_external_source_display }}</div>
+        <div class="lora-meta">{{ refund.get_refund_type_display }} refund &middot; {{ refund.get_external_source_display }}</div>
       </div>
       <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset {% if refund.status == 'COMPLETED' %}bg-green-50 text-green-700 ring-green-600/20{% elif refund.status == 'FAILED' %}bg-red-50 text-red-700 ring-red-600/10{% elif refund.status == 'CANCELLED' %}bg-gray-50 text-gray-600 ring-gray-500/10{% else %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% endif %}">{{ refund.get_status_display }}</span>
     </div>
@@ -178,19 +178,19 @@
     {% if refund.claim %}
     <a href="{% url 'agent_claim_detail' refund.claim.id %}" class="flex items-center justify-between gap-2 rounded-xl bg-gray-50 px-4 py-3 mb-4 hover:bg-gray-100 transition-colors">
       <div>
-        <div class="font-medium text-indigo-600">{{ refund.claim.client_name|default:refund.claim.client_email }}</div>
-        <div class="text-xs text-gray-500 font-mono">{{ refund.claim.alf_claim_id|default:refund.claim.id }}</div>
+        <div class="lora-value font-medium text-indigo-600">{{ refund.claim.client_name|default:refund.claim.client_email }}</div>
+        <div class="lora-meta font-mono">{{ refund.claim.alf_claim_id|default:refund.claim.id }}</div>
       </div>
       <span class="text-sm text-indigo-600 whitespace-nowrap">Open claim <i class="bi bi-arrow-right"></i></span>
     </a>
     {% endif %}
 
-    <dl class="divide-y divide-gray-200 text-sm">
-      <div class="flex justify-between gap-4 py-2.5 first:pt-0"><dt class="text-gray-500">Reason</dt><dd class="text-right text-gray-900 max-w-[60%]">{{ refund.reason|default:"—" }}</dd></div>
-      <div class="flex justify-between gap-4 py-2.5"><dt class="text-gray-500">PayPal refund ID</dt><dd class="text-right text-gray-900 font-mono break-all">{{ refund.paypal_refund_id|default:"—" }}</dd></div>
-      {% if refund.paypal_capture_id %}<div class="flex justify-between gap-4 py-2.5"><dt class="text-gray-500">PayPal capture ID</dt><dd class="text-right text-gray-900 font-mono break-all">{{ refund.paypal_capture_id }}</dd></div>{% endif %}
-      <div class="flex justify-between gap-4 py-2.5"><dt class="text-gray-500">Created</dt><dd class="text-right text-gray-900">{{ refund.created_at|date:"M d, Y H:i" }}{% if refund.created_by %} by {{ refund.created_by.username }}{% endif %}</dd></div>
-      {% if refund.processed_at %}<div class="flex justify-between gap-4 py-2.5 last:pb-0"><dt class="text-gray-500">Processed</dt><dd class="text-right text-gray-900">{{ refund.processed_at|date:"M d, Y H:i" }}</dd></div>{% endif %}
+    <dl class="divide-y divide-gray-200">
+      <div class="flex justify-between gap-4 py-2.5 first:pt-0"><dt class="lora-label">Reason</dt><dd class="lora-value text-right max-w-[60%]">{{ refund.reason|default:"—" }}</dd></div>
+      <div class="flex justify-between gap-4 py-2.5"><dt class="lora-label">PayPal refund ID</dt><dd class="lora-value text-right font-mono break-all">{{ refund.paypal_refund_id|default:"—" }}</dd></div>
+      {% if refund.paypal_capture_id %}<div class="flex justify-between gap-4 py-2.5"><dt class="lora-label">PayPal capture ID</dt><dd class="lora-value text-right font-mono break-all">{{ refund.paypal_capture_id }}</dd></div>{% endif %}
+      <div class="flex justify-between gap-4 py-2.5"><dt class="lora-label">Created</dt><dd class="lora-value text-right">{{ refund.created_at|date:"M d, Y H:i" }}{% if refund.created_by %} by {{ refund.created_by.username }}{% endif %}</dd></div>
+      {% if refund.processed_at %}<div class="flex justify-between gap-4 py-2.5 last:pb-0"><dt class="lora-label">Processed</dt><dd class="lora-value text-right">{{ refund.processed_at|date:"M d, Y H:i" }}</dd></div>{% endif %}
     </dl>
   </div>
   {% endfor %}
@@ -200,8 +200,8 @@
 <dialog id="refund_modal" class="m-auto w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl backdrop:bg-gray-900/50">
   <div class="relative">
     <form method="dialog"><button class="absolute right-0 top-0 inline-flex items-center justify-center rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600">✕</button></form>
-    <h3 class="font-semibold text-lg text-gray-900 mb-1 flex items-center gap-2"><i class="bi bi-currency-exchange text-indigo-600"></i> Process refund</h3>
-    <p class="text-sm text-gray-600 mb-5">Issue a refund against a claim via WooCommerce (the system of record), which settles it through PayPal.</p>
+    <h3 class="lora-card-title text-lg mb-1"><i class="bi bi-currency-exchange text-indigo-600"></i> Process refund</h3>
+    <p class="lora-prose mb-5">Issue a refund against a claim via WooCommerce (the system of record), which settles it through PayPal.</p>
     <form id="refundForm" method="POST" action="/api/payments/refunds/issue/">
       {% csrf_token %}
       <div class="mb-4"><label class="block text-sm font-medium text-gray-900 mb-1">Claim ID</label>
@@ -224,7 +224,7 @@
 <dialog id="refund_details_modal" class="m-auto w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl backdrop:bg-gray-900/50">
   <div class="relative">
     <form method="dialog"><button class="absolute right-0 top-0 inline-flex items-center justify-center rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600">✕</button></form>
-    <h3 class="font-semibold text-lg text-gray-900 mb-4 flex items-center gap-2"><i class="bi bi-receipt text-gray-600"></i> Refund detail</h3>
+    <h3 class="lora-card-title text-lg mb-4"><i class="bi bi-receipt text-gray-600"></i> Refund detail</h3>
     <div id="refund_details_content"></div>
   </div>
 </dialog>

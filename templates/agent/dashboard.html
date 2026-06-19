@@ -6,34 +6,34 @@
 {% block content %}
 <!-- Page heading -->
 <div class="mb-6">
-  <h1 class="text-xl font-semibold text-gray-900">Agent Dashboard</h1>
+  <h1 class="lora-page-title">Agent Dashboard</h1>
   <p class="mt-1 text-sm text-gray-600">Your claims, emails and disputes at a glance.</p>
 </div>
 
 <!-- At a glance — stat strip -->
 <dl class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-px overflow-hidden rounded-xl bg-gray-200 shadow-sm ring-1 ring-black/5 mb-8">
   <div class="bg-white px-5 py-4">
-    <dt class="text-sm text-gray-500">Total Claims</dt>
+    <dt class="lora-label">Total Claims</dt>
     <dd class="mt-1 text-2xl font-semibold text-gray-900">{{ total_claims }}</dd>
   </div>
   <div class="bg-white px-5 py-4">
-    <dt class="text-sm text-gray-500">Active Cases</dt>
+    <dt class="lora-label">Active Cases</dt>
     <dd class="mt-1 text-2xl font-semibold text-gray-900">{{ my_claims }}</dd>
   </div>
   <div class="bg-white px-5 py-4">
-    <dt class="text-sm text-gray-500">Urgent Emails</dt>
+    <dt class="lora-label">Urgent Emails</dt>
     <dd class="mt-1 text-2xl font-semibold {% if urgent_emails %}text-red-600{% else %}text-gray-900{% endif %}">{{ urgent_emails }}</dd>
   </div>
   <div class="bg-white px-5 py-4">
-    <dt class="text-sm text-gray-500">Open disputes</dt>
+    <dt class="lora-label">Open disputes</dt>
     <dd class="mt-1 text-2xl font-semibold {% if disputed %}text-amber-600{% else %}text-gray-900{% endif %}">{{ disputed }}</dd>
   </div>
 </dl>
 
 <!-- Email Overview Card -->
-<div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5 mb-8">
+<div class="lora-card p-6 mb-8">
   <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-    <h3 class="text-sm font-semibold text-gray-900 flex items-center gap-2">
+    <h3 class="lora-card-title">
       <i class="bi bi-envelope text-base text-gray-400"></i> Email Overview
     </h3>
     <a href="{% url 'agent_emails' %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">
@@ -43,19 +43,19 @@
 
   <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
     <div class="text-center p-4 rounded-lg bg-gray-50 ring-1 ring-inset ring-gray-200">
-      <div class="text-sm text-gray-500 mb-1">Total Emails</div>
+      <div class="lora-label mb-1">Total Emails</div>
       <div class="text-2xl font-semibold text-gray-900">{{ total_emails|default:0 }}</div>
     </div>
     <div class="text-center p-4 rounded-lg bg-gray-50 ring-1 ring-inset ring-gray-200">
-      <div class="text-sm text-gray-500 mb-1">Requiring Attention</div>
+      <div class="lora-label mb-1">Requiring Attention</div>
       <div class="text-2xl font-semibold text-red-600">{{ emails_requiring_attention|default:0 }}</div>
     </div>
     <div class="text-center p-4 rounded-lg bg-gray-50 ring-1 ring-inset ring-gray-200">
-      <div class="text-sm text-gray-500 mb-1">Auto-Resolved</div>
+      <div class="lora-label mb-1">Auto-Resolved</div>
       <div class="text-2xl font-semibold text-green-600">{{ auto_resolved_emails|default:0 }}</div>
     </div>
     <div class="text-center p-4 rounded-lg bg-gray-50 ring-1 ring-inset ring-gray-200">
-      <div class="text-sm text-gray-500 mb-1">Urgent</div>
+      <div class="lora-label mb-1">Urgent</div>
       <div class="text-2xl font-semibold text-red-600">{{ urgent_emails|default:0 }}</div>
     </div>
   </div>
@@ -63,7 +63,7 @@
   <!-- Category Breakdown -->
   {% if email_category_stats %}
   <div class="mt-6 pt-6 border-t border-gray-200">
-    <div class="text-sm text-gray-500 mb-3">Category Breakdown</div>
+    <div class="lora-label mb-3">Category Breakdown</div>
     <div class="flex flex-wrap gap-2">
       {% for stat in email_category_stats %}
       <span class="inline-flex items-center gap-x-1 rounded-full bg-gray-50 px-2 py-1 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-500/10">{{ stat.category|humanize_label }}: {{ stat.count }}</span>
@@ -74,9 +74,9 @@
 </div>
 
 <!-- Recent Emails Table -->
-<div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5 mb-8">
+<div class="overflow-hidden lora-card mb-8">
   <div class="px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-200">
-    <h3 class="text-sm font-semibold text-gray-900 flex items-center gap-2">
+    <h3 class="lora-card-title">
       <i class="bi bi-envelope text-base text-gray-400"></i> Recent Emails
     </h3>
     <a href="{% url 'agent_emails' %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">View All</a>
@@ -145,9 +145,9 @@
 </div>
 
 <!-- Recent Claims Table -->
-<div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
+<div class="overflow-hidden lora-card">
   <div class="px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-200">
-    <h3 class="text-sm font-semibold text-gray-900 flex items-center gap-2">
+    <h3 class="lora-card-title">
       <i class="bi bi-clock-history text-base text-gray-400"></i> Recent Claims
     </h3>
     <a href="{% url 'agent_claims' %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">View All</a>

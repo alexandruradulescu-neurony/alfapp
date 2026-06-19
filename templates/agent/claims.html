@@ -6,8 +6,8 @@
 <!-- Page heading -->
 <div class="sm:flex sm:items-center sm:justify-between gap-4 mb-6">
   <div>
-    <h1 class="text-xl font-semibold text-gray-900">Claims</h1>
-    <p class="mt-1 text-sm text-gray-600">Search, filter and review lost-item claims.</p>
+    <h1 class="lora-page-title">Claims</h1>
+    <p class="lora-prose mt-1">Search, filter and review lost-item claims.</p>
   </div>
   <div class="mt-4 sm:mt-0 flex flex-wrap items-center gap-2">
     <button type="button" id="bulk-delete-btn" onclick="bulkDeleteClaims()" hidden
@@ -22,7 +22,7 @@
 </div>
 
 <!-- Filters -->
-<div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5 mb-6">
+<div class="lora-card p-6 mb-6">
     <form method="get" class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
         <div class="md:col-span-5">
             <label class="block text-sm font-medium text-gray-900 mb-1">Search</label>
@@ -64,7 +64,7 @@
 </div>
 
 <!-- Claims Table -->
-<div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
+<div class="lora-card overflow-hidden">
     <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-300">
             <thead class="bg-gray-50">
@@ -133,8 +133,8 @@
                 <tr>
                     <td colspan="10" class="px-3 py-16 text-center">
                         <i class="bi bi-inbox text-4xl text-gray-300"></i>
-                        <p class="mt-2 text-sm font-medium text-gray-500">No claims found</p>
-                        <p class="mt-1 text-sm text-gray-400">Try adjusting your search or status filter.</p>
+                        <p class="lora-prose font-medium mt-2">No claims found</p>
+                        <p class="lora-meta mt-1">Try adjusting your search or status filter.</p>
                     </td>
                 </tr>
                 {% endfor %}

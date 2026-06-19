@@ -4,9 +4,9 @@
 
 {% block content %}
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-    <h2 class="text-2xl font-semibold tracking-tight text-gray-900 flex items-center gap-2">
+    <h2 class="lora-page-title flex items-center gap-2">
         <i class="bi bi-pencil text-lg"></i> Edit {{ document.get_doc_type_display }}
-        <span class="text-sm font-normal text-gray-500">v{{ document.version }} · Dispute #{{ dispute.id }}</span>
+        <span class="lora-meta font-normal">v{{ document.version }} · Dispute #{{ dispute.id }}</span>
     </h2>
     <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
         <i class="bi bi-arrow-left text-base"></i> Back to Dispute
@@ -20,8 +20,8 @@
     <input type="hidden" name="content_html" id="content_html_field">
     <input type="hidden" name="version_increment" value="on">
 
-    <div class="rounded-xl bg-white p-3 mb-4 flex flex-wrap items-center gap-2 shadow-sm ring-1 ring-black/5 sticky top-2 z-10">
-        <span class="text-sm text-gray-600 mr-2"><i class="bi bi-cursor-text text-base"></i> Click any text to edit it.</span>
+    <div class="lora-card p-3 mb-4 flex flex-wrap items-center gap-2 sticky top-2 z-10">
+        <span class="lora-meta mr-2"><i class="bi bi-cursor-text text-base"></i> Click any text to edit it.</span>
         <div class="inline-flex items-center gap-1">
             <button type="button" class="inline-flex items-center justify-center rounded-md bg-white p-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Bold" onclick="exec('bold')"><i class="bi bi-type-bold text-base"></i></button>
             <button type="button" class="inline-flex items-center justify-center rounded-md bg-white p-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Italic" onclick="exec('italic')"><i class="bi bi-type-italic text-base"></i></button>
@@ -36,12 +36,12 @@
         <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Cancel</a>
     </div>
 
-    <div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
+    <div class="overflow-hidden lora-card">
         <iframe id="reportFrame" title="Evidence report editor"
                 srcdoc="{{ report_srcdoc }}"
                 style="width:100%; border:0; min-height:600px;"></iframe>
     </div>
-    <p class="text-xs text-gray-500 mt-2">
+    <p class="lora-meta mt-2">
         <i class="bi bi-info-circle text-sm"></i> What you see is exactly what the PDF will contain. Images and layout are locked;
         edit the text, then "Save &amp; regenerate PDF". You can re-edit anytime.
     </p>
@@ -50,13 +50,13 @@
 <!-- ============ Plain HTML editor (response letter, etc.) ============ -->
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <div class="lg:col-span-2">
-        <div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+        <div class="lora-card p-6">
             <form method="post" action="{% url 'disputes:dispute_edit_document' document.id %}">
                 {% csrf_token %}
                 <div class="mb-4">
                     <label class="block mb-1">
                         <span class="block text-sm font-medium text-gray-900">Document content</span>
-                        <span class="block text-xs text-gray-500">HTML supported</span>
+                        <span class="lora-meta block">HTML supported</span>
                     </label>
                     <textarea class="block w-full rounded-md bg-white px-3 py-1.5 font-mono text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"
                               id="content_html" name="content_html" rows="20">{{ document.content_html }}</textarea>
@@ -75,8 +75,8 @@
         </div>
     </div>
     <div class="lg:col-span-1">
-        <div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
-            <h3 class="text-lg font-semibold text-gray-900 mb-4"><i class="bi bi-eye text-base"></i> Quick Preview</h3>
+        <div class="lora-card p-6">
+            <h3 class="lora-card-title mb-4"><i class="bi bi-eye text-base"></i> Quick Preview</h3>
             <div class="rounded-xl border border-gray-200 bg-white p-4 min-h-[400px] max-h-[600px] overflow-y-auto">
                 <div id="preview-pane">{{ safe_preview|safe }}</div>
             </div>

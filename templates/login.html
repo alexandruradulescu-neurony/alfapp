@@ -9,13 +9,13 @@
     <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-indigo-50">
       <i class="bi bi-box-seam text-2xl text-indigo-600"></i>
     </div>
-    <h2 class="mt-6 text-center text-2xl font-bold tracking-tight text-gray-900">Lora</h2>
-    <p class="mt-1.5 text-center text-sm text-gray-500">Lost Object Recovery Automation</p>
+    <h2 class="lora-page-title mt-6 text-center">Lora</h2>
+    <p class="lora-meta mt-1.5 text-center">Lost Object Recovery Automation</p>
   </div>
 
   <div class="mt-10 sm:mx-auto sm:w-full sm:max-w-[480px]">
     <!-- Login Form Card -->
-    <div class="rounded-xl bg-white px-6 py-10 shadow-sm ring-1 ring-black/5 sm:px-12">
+    <div class="lora-card px-6 py-10 sm:px-12">
       <form method="post" action="{% url 'login' %}" class="space-y-6">
         {% csrf_token %}
 
@@ -73,7 +73,7 @@
     </div>
 
     <!-- Footer -->
-    <p class="mt-8 text-center text-xs text-gray-400">
+    <p class="lora-meta mt-8 text-center">
       &copy; {% now "Y" %} Lora — Lost Object Recovery Automation
     </p>
   </div>

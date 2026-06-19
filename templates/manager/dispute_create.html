@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="sm:flex sm:items-center sm:justify-between gap-4 mb-6">
-    <h1 class="text-xl font-semibold text-gray-900 flex items-center gap-2">
+    <h1 class="lora-page-title flex items-center gap-2">
         <i class="bi bi-shield-exclamation text-gray-600"></i> Mark claim as disputed
     </h1>
     <a href="{% url 'agent_claim_detail' claim.id %}" class="mt-4 sm:mt-0 inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
@@ -12,8 +12,8 @@
     </a>
 </div>
 
-<div class="max-w-2xl rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
-    <p class="text-sm text-gray-600 mb-5">
+<div class="max-w-2xl lora-card p-6">
+    <p class="lora-prose mb-5">
         Use this when a PayPal dispute did not arrive automatically. It creates a dispute case for
         <strong>{{ claim.client_name|default:claim.client_email }}</strong>
         (claim #{{ claim.id }}{% if claim.alf_claim_id %} · {{ claim.alf_claim_id }}{% endif %}). You can then generate the
@@ -32,7 +32,7 @@
                 <option value="{{ code }}">{{ label }}</option>
                 {% endfor %}
             </select>
-            <span class="block text-xs text-gray-500 mt-1">Drives the report's framing. You can change it later.</span>
+            <span class="lora-meta block mt-1">Drives the report's framing. You can change it later.</span>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
@@ -67,7 +67,7 @@
         <div class="mb-6">
             <label class="block text-sm font-medium text-gray-900 mb-1">Respond by <span class="text-gray-500">(optional)</span></label>
             <input type="date" name="seller_response_due" class="block w-full sm:w-64 rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">
-            <span class="block text-xs text-gray-500 mt-1">PayPal's evidence deadline, if you know it.</span>
+            <span class="lora-meta block mt-1">PayPal's evidence deadline, if you know it.</span>
         </div>
 
         <div class="flex gap-2">

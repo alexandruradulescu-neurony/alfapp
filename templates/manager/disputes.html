@@ -6,10 +6,10 @@
 <!-- Page heading -->
 <div class="sm:flex sm:items-center sm:justify-between gap-4 mb-6">
   <div>
-    <h1 class="text-xl font-semibold text-gray-900 flex items-center gap-2">
+    <h1 class="lora-page-title flex items-center gap-2">
       <i class="bi bi-shield-exclamation text-gray-600"></i> Disputes
     </h1>
-    <p class="mt-1 text-sm text-gray-600">PayPal chargebacks linked to claims. Reply before the deadline — a missed deadline auto-loses the case.</p>
+    <p class="lora-prose mt-1">PayPal chargebacks linked to claims. Reply before the deadline — a missed deadline auto-loses the case.</p>
   </div>
   <div class="mt-4 sm:mt-0 flex items-center gap-2">
     <form method="post" action="{% url 'disputes:dispute_pull_from_paypal' %}"

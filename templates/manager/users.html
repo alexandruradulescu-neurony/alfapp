@@ -6,19 +6,19 @@
 <!-- Page Header -->
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
     <div>
-        <h1 class="text-xl font-semibold text-gray-900 flex items-center gap-2">
+        <h1 class="lora-page-title flex items-center gap-2">
             <i class="bi bi-people"></i> User Management
         </h1>
-        <p class="mt-1 text-sm text-gray-600">Manage team accounts, roles, and access.</p>
+        <p class="lora-prose mt-1">Manage team accounts, roles, and access.</p>
     </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- User List -->
     <div class="lg:col-span-2">
-        <div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
+        <div class="lora-card overflow-hidden">
             <div class="px-6 py-5 border-b border-gray-200">
-                <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2 m-0">
+                <h2 class="lora-card-title m-0">
                     <i class="bi bi-list-ul"></i> All Users
                 </h2>
             </div>
@@ -59,7 +59,7 @@
                         <tr>
                             <td colspan="6" class="px-3 py-12 text-center">
                                 <i class="bi bi-inbox text-4xl text-gray-300"></i>
-                                <p class="mt-2 mb-0 text-sm text-gray-500">No users found</p>
+                                <p class="lora-prose mt-2 mb-0">No users found</p>
                             </td>
                         </tr>
                         {% endfor %}
@@ -71,8 +71,8 @@
 
     <!-- Create User Form -->
     <div class="lg:col-span-1 flex flex-col gap-6">
-        <div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
-            <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-5">
+        <div class="lora-card p-6">
+            <h2 class="lora-card-title mb-5">
                 <i class="bi bi-person-plus"></i> Create New User
             </h2>
             <form method="post" class="flex flex-col gap-4">
@@ -128,18 +128,18 @@
         </div>
 
         <!-- Role Info -->
-        <div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
-            <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
+        <div class="lora-card p-6">
+            <h2 class="lora-card-title mb-4">
                 <i class="bi bi-info-circle"></i> Role Descriptions
             </h2>
             <dl class="flex flex-col gap-4">
                 <div>
-                    <dt class="font-semibold text-indigo-600 mb-0.5">Manager</dt>
-                    <dd class="text-sm text-gray-500">Full access: settings, users, claims, PDF downloads</dd>
+                    <dt class="lora-label font-semibold text-indigo-600 mb-0.5">Manager</dt>
+                    <dd class="lora-prose">Full access: settings, users, claims, PDF downloads</dd>
                 </div>
                 <div>
-                    <dt class="font-semibold text-gray-900 mb-0.5">Agent</dt>
-                    <dd class="text-sm text-gray-500">Claims management, evidence upload, status updates</dd>
+                    <dt class="lora-label font-semibold text-gray-900 mb-0.5">Agent</dt>
+                    <dd class="lora-prose">Claims management, evidence upload, status updates</dd>
                 </div>
             </dl>
         </div>
