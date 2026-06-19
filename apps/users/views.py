@@ -655,63 +655,56 @@ def agent_upload_evidence(request, claim_id):
 
 @agent_required
 def agent_emails(request):
-    """Email list view with filters.
-
-    Agents can filter emails by:
-    - Category (OBJECT_FOUND, OBJECT_NOT_FOUND, etc.)
-    - Action Required (True/False)
-    - Auto Resolved (toggle to show/hide)
-
-    Default: Hide auto_resolved=True emails (show only emails needing attention)
-    Search by: subject, from_email
-    Pagination: 20 emails per page
+    """Inbound institution-email triage, segmented by an action-first TAB/lens
+    (needs_reply · object_found · not_found · resubmit · handled · all), each with
+    a live count. Default = needs_reply. The AI gist (ai_summary) shows inline so
+    the list is triageable without opening each email. Search: subject, from_email.
     """
-    # Base queryset — defer heavy text fields not needed in list view
-    emails = EmailLog.objects.select_related('claim').defer(
-        'body', 'raw_headers', 'ai_summary'
-    ).order_by('-received_at')
+    # ai_summary is shown inline now, so don't defer it; body/raw_headers stay deferred.
+    base = EmailLog.objects.select_related('claim').defer('body', 'raw_headers')
 
-    # Default: Hide auto-resolved emails (show only emails needing attention)
-    show_auto_resolved = request.GET.get('show_auto_resolved', '') == '1'
-    if not show_auto_resolved:
-        emails = emails.filter(auto_resolved=False)
+    needs_reply_q = Q(action_required=True, auto_resolved=False)
+    lenses = {
+        'needs_reply': needs_reply_q,
+        'object_found': Q(category=EmailLog.CATEGORY_OBJECT_FOUND),
+        'not_found': Q(category=EmailLog.CATEGORY_OBJECT_NOT_FOUND),
+        'resubmit': Q(category=EmailLog.CATEGORY_RESUBMISSION_REQUIRED),
+        'handled': ~needs_reply_q,
+        'all': Q(),
+    }
+    tab = request.GET.get('tab') or 'needs_reply'
+    if tab not in lenses:
+        tab = 'needs_reply'
 
-    # Filter by category
-    category_filter = request.GET.get('category', '')
-    if category_filter:
-        emails = emails.filter(category=category_filter)
+    tab_counts = {name: base.filter(q).count() for name, q in lenses.items()}
+    _tab_labels = [
+        ('needs_reply', 'Needs reply'), ('object_found', 'Object found'),
+        ('not_found', 'Not found'), ('resubmit', 'Resubmit'),
+        ('handled', 'Handled'), ('all', 'All'),
+    ]
+    tabs = [{'key': k, 'label': lbl, 'count': tab_counts[k], 'active': tab == k}
+            for k, lbl in _tab_labels]
 
-    # Filter by action_required
-    action_required_filter = request.GET.get('action_required', '')
-    if action_required_filter == '1':
-        emails = emails.filter(action_required=True)
-    elif action_required_filter == '0':
-        emails = emails.filter(action_required=False)
+    emails = base.filter(lenses[tab]).order_by('-received_at')
 
-    # Search by subject or from_email
     search_query = request.GET.get('search', '')
     if search_query:
         emails = emails.filter(
-            Q(subject__icontains=search_query) |
-            Q(from_email__icontains=search_query)
-        )
+            Q(subject__icontains=search_query) | Q(from_email__icontains=search_query))
 
-    # Pagination
     paginator = Paginator(emails, LIST_PAGE_SIZE)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
+    page_obj = paginator.get_page(request.GET.get('page'))
 
-    # Get system settings for Zendesk links (get_instance hits the DB each call)
     settings = SystemSettings.get_instance()
-
     context = {
         'page_obj': page_obj,
         'emails': page_obj,
+        'tab': tab,
+        'tabs': tabs,
+        'tab_counts': tab_counts,
         'search_query': search_query,
-        'category_filter': category_filter,
-        'action_required_filter': action_required_filter,
-        'show_auto_resolved': show_auto_resolved,
         'settings': settings,
+        'zd_ticket_base': _zendesk_ticket_base(settings.zd_subdomain),
     }
 
     return render(request, 'agent/emails.html', context)

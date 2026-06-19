@@ -1,214 +1,118 @@
 {% extends 'base.html' %}
 
-{% block title %}Email Management{% endblock %}
+{% block title %}Emails{% endblock %}
 
 {% block content %}
 <div class="animate-fade-in">
-<!-- Page Header -->
-<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-    <div>
-        <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <i class="bi bi-envelope text-base-content/70"></i> Email Management
-        </h2>
-        <p class="text-sm text-base-content/60 mt-1">Review inbound institution emails and resolve the ones needing action.</p>
-    </div>
-    <a href="{% url 'agent_emails' %}" class="btn btn-outline rounded-xl">
-        <i class="bi bi-arrow-clockwise"></i> Refresh
+<!-- Header -->
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-5">
+  <div>
+    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+      <i class="bi bi-envelope text-base-content/70"></i> Emails
+    </h2>
+    <p class="text-sm text-base-content/60 mt-1">Inbound institution replies, by what needs a reply. (New mail is pulled per claim via "Check email".)</p>
+  </div>
+</div>
+
+<!-- Tabs (lenses, with live counts) + search -->
+<div class="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
+  <div class="flex flex-wrap gap-1.5">
+    {% for t in tabs %}
+    <a href="?tab={{ t.key }}{% if search_query %}&search={{ search_query }}{% endif %}"
+       class="btn btn-sm rounded-full {% if t.active %}btn-primary{% else %}btn-ghost{% endif %}">
+      {{ t.label }}
+      {% if t.count %}<span class="badge badge-sm rounded-full {% if not t.active and t.key == 'needs_reply' %}badge-error{% else %}badge-ghost{% endif %}">{{ t.count }}</span>{% endif %}
     </a>
+    {% endfor %}
+  </div>
+  <form method="get" class="lg:ml-auto flex items-center gap-2">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="text" name="search" value="{{ search_query|default:'' }}"
+           placeholder="Search subject or sender…" class="input-modern w-full lg:w-72">
+    {% if search_query %}<a href="?tab={{ tab }}" class="btn btn-ghost btn-sm rounded-xl" title="Clear search"><i class="bi bi-x-lg"></i></a>{% endif %}
+  </form>
 </div>
 
-<!-- Filters -->
-<div class="card-modern p-6 mb-6">
-    <h3 class="text-lg font-semibold flex items-center gap-2 mb-5">
-        <i class="bi bi-funnel text-base-content/70"></i> Filters
-    </h3>
-    <form method="get" action="{% url 'agent_emails' %}" class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-        <!-- Search -->
-        <div class="md:col-span-3">
-            <label class="label pb-1">
-                <span class="label-text text-sm font-medium text-base-content/70">Search</span>
-            </label>
-            <input type="text" class="input input-bordered w-full" name="search"
-                   value="{{ search_query }}"
-                   placeholder="Subject or From Email">
-        </div>
-
-        <!-- Category Filter -->
-        <div class="md:col-span-3">
-            <label class="label pb-1">
-                <span class="label-text text-sm font-medium text-base-content/70">Category</span>
-            </label>
-            <select class="select select-bordered w-full" name="category">
-                <option value="">All Categories</option>
-                <option value="OBJECT_FOUND" {% if category_filter == 'OBJECT_FOUND' %}selected{% endif %}>Object Found</option>
-                <option value="OBJECT_NOT_FOUND" {% if category_filter == 'OBJECT_NOT_FOUND' %}selected{% endif %}>Object Not Found</option>
-                <option value="RESUBMISSION_REQUIRED" {% if category_filter == 'RESUBMISSION_REQUIRED' %}selected{% endif %}>Resubmission Required</option>
-                <option value="SUBMISSION_CONFIRMATION" {% if category_filter == 'SUBMISSION_CONFIRMATION' %}selected{% endif %}>Submission Confirmation</option>
-                <option value="GENERAL_CORRESPONDENCE" {% if category_filter == 'GENERAL_CORRESPONDENCE' %}selected{% endif %}>General Correspondence</option>
-                <option value="UNKNOWN" {% if category_filter == 'UNKNOWN' %}selected{% endif %}>Unknown</option>
-            </select>
-        </div>
-
-        <!-- Action Required Filter -->
-        <div class="md:col-span-2">
-            <label class="label pb-1">
-                <span class="label-text text-sm font-medium text-base-content/70">Action Required</span>
-            </label>
-            <select class="select select-bordered w-full" name="action_required">
-                <option value="">All</option>
-                <option value="1" {% if action_required_filter == '1' %}selected{% endif %}>Yes</option>
-                <option value="0" {% if action_required_filter == '0' %}selected{% endif %}>No</option>
-            </select>
-        </div>
-
-        <!-- Auto Resolved Toggle -->
-        <div class="md:col-span-2">
-            <label class="label cursor-pointer justify-start gap-3 py-2">
-                <input class="checkbox checkbox-sm checkbox-primary" type="checkbox" name="show_auto_resolved"
-                       id="show_auto_resolved" value="1"
-                       {% if show_auto_resolved %}checked{% endif %}>
-                <span class="label-text text-sm">Show Auto-Resolved</span>
-            </label>
-        </div>
-
-        <!-- Submit Buttons -->
-        <div class="md:col-span-2 flex flex-wrap gap-2 md:justify-end">
-            <button type="submit" class="btn btn-primary rounded-xl">
-                <i class="bi bi-search"></i> Apply
-            </button>
-            <a href="{% url 'agent_emails' %}" class="btn btn-outline rounded-xl">
-                <i class="bi bi-x-circle"></i> Clear
-            </a>
-        </div>
-    </form>
-</div>
-
-<!-- Email List -->
-<div class="card-modern p-0 overflow-hidden">
-    <div class="p-6 flex flex-wrap justify-between items-center gap-3 border-b border-base-200">
-        <h3 class="text-lg font-semibold flex items-center gap-2 m-0">
-            <i class="bi bi-inbox text-base-content/70"></i> Emails
-            {% if page_obj.paginator.count %}
-            <span class="badge badge-soft-neutral ml-1">{{ page_obj.paginator.count }}</span>
+<!-- Email list -->
+<div class="card-modern rounded-2xl overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="table-modern">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Claim / from</th>
+          <th>Category</th>
+          <th>Received</th>
+          <th class="text-right"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for email in emails %}
+        <tr class="hover:bg-base-200/40 transition-colors cursor-pointer {% if email.auto_resolved %}opacity-60{% endif %}"
+            onclick="if(!event.target.closest('a,input,button,details,label')) window.location='{% url 'agent_email_detail' email.id %}'">
+          <td class="max-w-md">
+            <div class="font-medium truncate" title="{{ email.subject }}">{{ email.subject|default:"(no subject)" }}</div>
+            {% if email.ai_summary %}
+            <div class="text-xs text-base-content/60 flex items-start gap-1.5 mt-0.5">
+              <i class="bi bi-robot text-base-content/40 mt-0.5"></i>
+              <span class="line-clamp-2">{{ email.ai_summary }}</span>
+            </div>
             {% endif %}
-        </h3>
-        {% if not show_auto_resolved %}
-        <span class="badge badge-soft-info gap-1"><i class="bi bi-eye-slash"></i> Hiding Auto-Resolved</span>
-        {% endif %}
-    </div>
-    <div class="overflow-x-auto">
-        <table class="table-modern">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Subject</th>
-                    <th>From</th>
-                    <th>Category</th>
-                    <th>Zendesk Ticket</th>
-                    <th>Received</th>
-                    <th class="text-right">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for email in page_obj %}
-                <tr class="{% if email.auto_resolved %}opacity-60{% endif %}">
-                    <td class="font-mono text-sm text-base-content/60">#{{ email.id }}</td>
-                    <td>
-                        <div class="max-w-xs truncate font-medium" title="{{ email.subject }}">
-                            {{ email.subject }}
-                        </div>
-                    </td>
-                    <td>
-                        <span class="text-sm text-base-content/60">{{ email.from_email }}</span>
-                    </td>
-                    <td>
-                        <div class="flex flex-wrap items-center gap-1">
-                            <span class="badge status-{{ email.category }}">
-                                {{ email.get_category_display }}
-                            </span>
-                            {% if email.action_required %}
-                            <span class="badge badge-soft-error badge-sm">Action Required</span>
-                            {% endif %}
-                            {% if email.auto_resolved %}
-                            <span class="badge badge-soft-success badge-sm">Auto-Resolved</span>
-                            {% endif %}
-                        </div>
-                    </td>
-                    <td>
-                        {% if email.zd_ticket_id %}
-                        <a href="https://{{ settings.zd_subdomain|default:'lora' }}.zendesk.com/agent/tickets/{{ email.zd_ticket_id }}"
-                           target="_blank" class="btn btn-sm btn-outline rounded-xl">
-                            <i class="bi bi-ticket-perforated"></i> {{ email.zd_ticket_id }}
-                        </a>
-                        {% else %}
-                        <span class="text-base-content/40">-</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <span class="text-sm text-base-content/60 whitespace-nowrap">{{ email.received_at|date:"M d, Y H:i" }}</span>
-                    </td>
-                    <td>
-                        <div class="flex justify-end gap-1">
-                            <a href="{% url 'agent_email_detail' email.id %}"
-                               class="btn btn-sm btn-outline btn-primary rounded-xl">
-                                <i class="bi bi-eye"></i> View
-                            </a>
-                            {% if email.action_required %}
-                            <button type="button" class="btn btn-sm btn-success rounded-xl"
-                                    onclick="resolveEmail({{ email.id }}, true)" title="Mark resolved">
-                                <i class="bi bi-check2"></i>
-                            </button>
-                            {% endif %}
-                        </div>
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="7" class="text-center py-12">
-                        <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
-                            <i class="bi bi-inbox text-3xl text-base-content/40"></i>
-                        </div>
-                        <p class="text-base-content/60 mt-2 mb-0">No emails found matching your filters</p>
-                        <span class="text-xs text-base-content/40">Try adjusting your filter criteria</span>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Pagination -->
-    {% if page_obj.has_other_pages %}
-    <div class="flex justify-center p-6 border-t border-base-200">
-        <div class="join">
-            {% if page_obj.has_previous %}
-            <a href="?page=1{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
-               class="join-item btn btn-sm">
-                <i class="bi bi-chevron-double-left"></i>
-            </a>
-            <a href="?page={{ page_obj.previous_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
-               class="join-item btn btn-sm">
-                <i class="bi bi-chevron-left"></i> Previous
-            </a>
-            {% endif %}
-
-            <span class="join-item btn btn-sm btn-active">
-                Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+          </td>
+          <td>
+            {% if email.claim %}
+            <a href="{% url 'agent_claim_detail' email.claim.id %}" class="text-sm text-primary hover:underline">{{ email.claim.client_name|default:email.claim.client_email }}</a>
+            {% else %}<span class="text-sm text-base-content/40">—</span>{% endif %}
+            <div class="text-xs text-base-content/50 truncate" title="{{ email.from_email }}">{{ email.from_email }}</div>
+          </td>
+          <td>
+            <span class="badge rounded-full whitespace-nowrap {% if email.category == 'OBJECT_FOUND' %}badge-soft-success{% elif email.category == 'RESUBMISSION_REQUIRED' %}badge-soft-warning{% elif email.category == 'SUBMISSION_CONFIRMATION' %}badge-soft-info{% else %}badge-soft-neutral{% endif %}">
+              {{ email.get_category_display }}
             </span>
-
-            {% if page_obj.has_next %}
-            <a href="?page={{ page_obj.next_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
-               class="join-item btn btn-sm">
-                Next <i class="bi bi-chevron-right"></i>
-            </a>
-            <a href="?page={{ page_obj.paginator.num_pages }}{% if search_query %}&search={{ search_query }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if action_required_filter %}&action_required={{ action_required_filter }}{% endif %}{% if show_auto_resolved %}&show_auto_resolved={{ show_auto_resolved }}{% endif %}"
-               class="join-item btn btn-sm">
-                <i class="bi bi-chevron-double-right"></i>
-            </a>
+            {% if email.action_required and not email.auto_resolved %}
+            <span class="badge badge-soft-error badge-sm rounded-full">Needs reply</span>
+            {% elif email.auto_resolved %}
+            <span class="badge badge-soft-neutral badge-sm rounded-full">Auto</span>
             {% endif %}
-        </div>
+          </td>
+          <td><span class="text-sm text-base-content/60 whitespace-nowrap">{{ email.received_at|timesince }} ago</span></td>
+          <td class="text-right">
+            {% if email.action_required and not email.auto_resolved %}
+            <button type="button" class="btn btn-sm btn-success rounded-xl" onclick="resolveEmail({{ email.id }}, true)" title="Mark resolved">
+              <i class="bi bi-check2"></i> Resolve
+            </button>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="5" class="text-center py-12">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
+              <i class="bi bi-inbox text-3xl text-base-content/40"></i>
+            </div>
+            <p class="text-base-content/60 mt-2 mb-0">{% if tab == 'needs_reply' %}Nothing waiting on a reply.{% else %}No emails in this view.{% endif %}</p>
+            {% if search_query %}<a href="?tab={{ tab }}" class="link link-primary text-sm">Clear search</a>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if page_obj.has_other_pages %}
+  <div class="flex justify-center p-4 border-t border-base-200">
+    <div class="join">
+      {% if page_obj.has_previous %}
+      <a href="?tab={{ tab }}&page={{ page_obj.previous_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="join-item btn btn-sm rounded-xl"><i class="bi bi-chevron-left"></i> Prev</a>
+      {% endif %}
+      <span class="join-item btn btn-sm btn-active rounded-xl">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      {% if page_obj.has_next %}
+      <a href="?tab={{ tab }}&page={{ page_obj.next_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="join-item btn btn-sm rounded-xl">Next <i class="bi bi-chevron-right"></i></a>
+      {% endif %}
     </div>
-    {% endif %}
+  </div>
+  {% endif %}
 </div>
 </div>
 
@@ -224,11 +128,8 @@ function resolveEmail(emailId, resolved) {
         body: JSON.stringify({ resolved: resolved }),
     })
     .then(response => {
-        if (response.ok) {
-            window.location.reload();
-        } else {
-            alert('Could not update the email. Please try again.');
-        }
+        if (response.ok) { window.location.reload(); }
+        else { alert('Could not update the email. Please try again.'); }
     })
     .catch(() => alert('Could not update the email. Please try again.'));
 }

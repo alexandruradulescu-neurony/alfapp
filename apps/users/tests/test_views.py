@@ -577,7 +577,7 @@ class TestAgentEmails:
 
         client = Client()
         client.login(username=f'{test_prefix}agent', password='testpass123')
-        response = client.get('/agent/emails/')
+        response = client.get('/agent/emails/?tab=all')
 
         assert response.status_code == 200
         page_obj = response.context['page_obj']
@@ -610,15 +610,14 @@ class TestAgentEmails:
 
         client = Client()
         client.login(username=f'{test_prefix}agent', password='testpass123')
-        response = client.get('/agent/emails/?action_required=1')
+        # The action_required dropdown was replaced by the "Needs reply" tab.
+        response = client.get('/agent/emails/?tab=needs_reply')
 
         page_obj = response.context['page_obj']
-        emails_on_page = list(page_obj.object_list)
-        email_ids = [e.id for e in emails_on_page]
-        
+        email_ids = [e.id for e in page_obj.object_list]
+
         assert email_action.id in email_ids
         assert email_no_action.id not in email_ids
-        assert response.context['action_required_filter'] == '1'
 
     def test_agent_emails_filters_by_category(self):
         """Test agent emails category filter."""
@@ -644,7 +643,7 @@ class TestAgentEmails:
 
         client = Client()
         client.login(username=f'{test_prefix}agent', password='testpass123')
-        response = client.get('/agent/emails/?category=OBJECT_FOUND')
+        response = client.get('/agent/emails/?tab=object_found')
 
         page_obj = response.context['page_obj']
         emails_on_page = list(page_obj.object_list)
@@ -669,7 +668,7 @@ class TestAgentEmails:
 
         client = Client()
         client.login(username=f'{test_prefix}agent', password='testpass123')
-        response = client.get(f'/agent/emails/?search={test_prefix}specific')
+        response = client.get(f'/agent/emails/?tab=all&search={test_prefix}specific')
 
         page_obj = response.context['page_obj']
         emails_on_page = list(page_obj.object_list)
