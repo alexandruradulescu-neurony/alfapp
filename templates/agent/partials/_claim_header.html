@@ -3,21 +3,19 @@ Compact claim header: identity + one primary status pill + urgent chips on the
 left, everyday + (rare) actions on the right. Presentation only — every endpoint
 and form field is preserved from the original screen.
 {% endcomment %}
-<div class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
-  <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+<div class="lora-card p-4">
+  <div class="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
 
     {# Identity + status #}
     <div class="min-w-0">
-      <div class="flex items-center gap-2 mb-1">
-        <a href="{% url 'manager_claims' %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md p-2 text-sm font-semibold text-gray-600 hover:bg-gray-100" title="Back to claims">
-          <i class="bi bi-arrow-left"></i>
-        </a>
-        <span class="text-xs text-gray-500 font-mono">#{{ claim.alf_claim_id|default:claim.id }}</span>
-      </div>
-      <h2 class="text-xl font-semibold tracking-tight truncate m-0 text-gray-900">
+      <a href="{% url 'manager_claims' %}" class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-gray-700 mb-2" title="Back to claims">
+        <i class="bi bi-arrow-left"></i> Claims
+      </a>
+      <div class="font-mono text-sm font-semibold text-indigo-600">#{{ claim.alf_claim_id|default:claim.id }}</div>
+      <h1 class="lora-page-title truncate m-0">
         {{ claim.client_name|default:claim.client_email }}
-      </h2>
-      <div class="flex flex-wrap items-center gap-2 mt-1.5">
+      </h1>
+      <div class="flex flex-wrap items-center gap-2 mt-2">
         {# One primary status pill — soft badge mapped from the Zendesk status family #}
         <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset {% if claim.status_category == 'solved' %}bg-green-50 text-green-700 ring-green-600/20{% elif claim.status_category == 'pending' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif claim.status_category == 'new' %}bg-blue-50 text-blue-700 ring-blue-700/10{% elif claim.status_category == 'hold' %}bg-gray-50 text-gray-600 ring-gray-500/10{% else %}bg-blue-50 text-blue-700 ring-blue-700/10{% endif %}">
           {% if claim.status_category == 'solved' %}<i class="bi bi-check-circle"></i>
@@ -27,9 +25,6 @@ and form field is preserved from the original screen.
           {% else %}<i class="bi bi-search"></i>{% endif %}
           {{ claim.status }}
         </span>
-        {% if claim.object_description %}
-        <span class="text-sm text-gray-500 truncate">{{ claim.object_description|truncatechars:60 }}</span>
-        {% endif %}
 
         {# Urgent chips only #}
         {% if claim.risk_active %}

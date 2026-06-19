@@ -27,8 +27,8 @@ so the #claim-body root swaps the returned fragment.
 
 {% if not claim.client_report_draft and not claim.client_report_sent_at and not client_followups %}
 {# No cadence yet — offer to start it (older claims) #}
-<div class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
-  <h3 class="text-base font-semibold tracking-tight flex items-center gap-2 mb-1 m-0 text-gray-900">
+<div class="lora-card p-4">
+  <h3 class="lora-card-title mb-1 m-0">
     <i class="bi bi-chat-heart text-indigo-600"></i> Client updates
   </h3>
   <p class="text-sm text-gray-500 mb-3">No client updates have been started for this claim. Start the cadence to draft a "what we did" message now and schedule the day-2/5/11/21 follow-ups.</p>
@@ -44,9 +44,9 @@ so the #claim-body root swaps the returned fragment.
 
 {% if claim.client_report_draft or claim.client_report_sent_at %}
 {# The main "what we did" client update #}
-<div class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
+<div class="lora-card p-4">
   <div class="flex flex-wrap justify-between items-center gap-3 mb-3">
-    <h3 class="text-base font-semibold tracking-tight flex items-center gap-2 m-0 text-gray-900">
+    <h3 class="lora-card-title m-0">
       <i class="bi bi-chat-heart text-indigo-600"></i> Client update
     </h3>
     {% if claim.client_report_sent_at %}
@@ -105,11 +105,11 @@ so the #claim-body root swaps the returned fragment.
 {% endif %}
 
 {% if client_followups %}
-{# Follow-up cadence timeline — every milestone with its status (done counts a
-   LORA send OR the manual Zendesk macro tag). The active step shows the editor
-   inline; a missed step (passed, nothing sent) can be dismissed. #}
-<div class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
-  <h3 class="text-base font-semibold tracking-tight flex items-center gap-2 mb-1 m-0 text-gray-900">
+{% comment %} Follow-up cadence timeline — every milestone with its status (done
+counts a LORA send OR the manual Zendesk macro tag). The active step shows the
+editor inline; a missed step (passed, nothing sent) can be dismissed. {% endcomment %}
+<div class="lora-card p-4">
+  <h3 class="lora-card-title mb-1 m-0">
     <i class="bi bi-clock-history text-indigo-600"></i> Follow-up updates
   </h3>
   <p class="text-sm text-gray-500 mb-3">The progress-update cadence after submission. Each step shows what's done, due, missed or still upcoming. "Done" includes updates your agents sent via the Zendesk macros.</p>
