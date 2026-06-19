@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full" data-theme="lora">
+<html lang="en" class="h-full bg-white" data-theme="lora">
 <head>
     {% load static %}
     <meta charset="UTF-8">
@@ -11,69 +11,54 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Tailwind CSS (compiled with DaisyUI) -->
+    <!-- Tailwind CSS (compiled) -->
     <link href="{% static 'css/tailwind.css' %}" rel="stylesheet">
     <!-- Bootstrap Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
 
     {% block extra_css %}{% endblock %}
 </head>
-<body class="h-full mesh-bg">
-    <div class="flex h-full">
-        <!-- Sidebar -->
-        <aside class="w-64 glass-panel flex flex-col h-screen sticky top-0 z-40">
-            <!-- Logo -->
-            <a href="{% url 'dashboard' %}" class="flex items-center gap-3 px-6 py-5">
+<body class="h-full">
+
+    <!-- Mobile sidebar drawer (native <dialog> — CSP-safe, no Alpine/elements lib) -->
+    <dialog id="mobile-sidebar" class="fixed inset-y-0 left-0 z-50 m-0 h-full w-full max-w-xs bg-white p-0 backdrop:bg-gray-900/80 lg:hidden">
+        <div class="flex h-full grow flex-col gap-y-5 overflow-y-auto bg-white px-6 pb-4">
+            <div class="flex h-16 shrink-0 items-center justify-between">
                 <img src="{% static 'images/loralogo.jpg' %}" alt="LORA" class="h-8 w-auto" />
-            </a>
-
-            <!-- Navigation -->
-            <nav class="flex-1 px-3 pt-4">
-                <ul class="sidebar-nav flex flex-col gap-1">
-                    <li><a href="{% url 'manager_dashboard' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-speedometer2 text-base w-5 text-center"></i> Dashboard</a></li>
-                    <li><a href="{% url 'manager_claims' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-clipboard-data text-base w-5 text-center"></i> Claims</a></li>
-                    <li><a href="{% url 'agent_emails' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-envelope text-base w-5 text-center"></i> Emails</a></li>
-                    <li><a href="{% url 'disputes:dispute_list' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-exclamation-triangle text-base w-5 text-center"></i> Disputes</a></li>
-                    <li><a href="{% url 'manager_refunds' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-currency-exchange text-base w-5 text-center"></i> Refunds</a></li>
-                    <li><a href="{% url 'agent:agent-chat' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-robot text-base w-5 text-center"></i> AI Agent</a></li>
-                    <li class="mt-5 mb-1"><p class="text-xs font-medium text-base-content/40 px-4">Settings</p></li>
-                    <li><a href="{% url 'manager_settings' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-gear text-base w-5 text-center"></i> Configuration</a></li>
-                    <li><a href="{% url 'manager_users' %}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-base-content/70 hover:bg-base-200/80 hover:text-base-content transition-all duration-200"><i class="bi bi-people text-base w-5 text-center"></i> Users</a></li>
-                </ul>
-            </nav>
-
-            <!-- User -->
-            <div class="p-4 mx-3 mb-3 rounded-xl bg-base-200/60">
-                <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-full bg-primary text-primary-content flex items-center justify-center font-semibold text-sm ring-2 ring-primary/20 ring-offset-2 ring-offset-base-100">
-                        {{ user.username|slice:":2"|upper }}
-                    </div>
-                    <div class="flex-1 min-w-0">
-                        <div class="font-semibold text-sm truncate">{{ user.username }}</div>
-                        <div class="text-xs text-base-content/50">{{ user.email }}</div>
-                    </div>
-                    <form method="post" action="{% url 'logout' %}" class="inline">
-                        {% csrf_token %}
-                        <button type="submit" class="btn btn-ghost btn-sm btn-square text-base-content/40 hover:text-error transition-colors" title="Logout">
-                            <i class="bi bi-box-arrow-right"></i>
-                        </button>
-                    </form>
-                </div>
+                <button type="button" onclick="document.getElementById('mobile-sidebar').close()" class="-m-2.5 p-2.5 text-gray-700">
+                    <span class="sr-only">Close sidebar</span><i class="bi bi-x-lg text-lg"></i>
+                </button>
             </div>
-        </aside>
+            {% include 'partials/_sidebar_nav.html' %}
+        </div>
+    </dialog>
 
-        <!-- Main Content -->
-        <div class="flex-1 overflow-auto">
-            <div class="p-6 lg:p-8 max-w-7xl mx-auto animate-fade-in">
-                {% include 'partials/_toast.html' %}
-
-                <!-- Page Content Block -->
-                <main>
-                    {% block content %}{% endblock %}
-                </main>
+    <!-- Static desktop sidebar -->
+    <div class="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-64 lg:flex-col">
+        <div class="flex grow flex-col gap-y-5 overflow-y-auto border-r border-gray-200 bg-white px-6 pb-4">
+            <div class="flex h-16 shrink-0 items-center">
+                <a href="{% url 'dashboard' %}"><img src="{% static 'images/loralogo.jpg' %}" alt="LORA" class="h-8 w-auto" /></a>
             </div>
+            {% include 'partials/_sidebar_nav.html' %}
         </div>
     </div>
+
+    <!-- Mobile top bar -->
+    <div class="sticky top-0 z-40 flex items-center gap-x-6 border-b border-gray-200 bg-white px-4 py-4 shadow-xs sm:px-6 lg:hidden">
+        <button type="button" onclick="document.getElementById('mobile-sidebar').showModal()" class="-m-2.5 p-2.5 text-gray-700">
+            <span class="sr-only">Open sidebar</span><i class="bi bi-list text-2xl"></i>
+        </button>
+        <div class="flex-1 text-sm/6 font-semibold text-gray-900">LORA</div>
+    </div>
+
+    <main class="lg:pl-64">
+        <div class="px-4 py-8 sm:px-6 lg:px-10">
+            <div class="mx-auto max-w-7xl">
+                {% include 'partials/_toast.html' %}
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </main>
 
     <script src="{% static 'js/vendor/htmx.min.js' %}" defer></script>
     <script src="{% static 'js/lora-htmx.js' %}" defer></script>
