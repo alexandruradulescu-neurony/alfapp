@@ -4,367 +4,243 @@
 {% block title %}Refunds{% endblock %}
 
 {% block content %}
-<!-- Page Header -->
-<div class="flex flex-wrap justify-between items-start gap-4 mb-6">
-    <div>
-        <h2 class="text-2xl font-semibold tracking-tight">Refunds</h2>
-        <p class="text-base-content/60 mt-1">Track issued refunds and clear the refund-requested queue.</p>
-    </div>
-    <button class="btn btn-primary rounded-xl" onclick="openRefundModal()">
-        <i class="bi bi-plus-circle"></i> Process Refund
-    </button>
-</div>
+<div class="animate-fade-in">
 
-<!-- Statistics Cards -->
-<div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-    <div class="stat-modern">
-        <div class="stat-icon bg-base-200/60">
-            <i class="bi bi-receipt text-2xl text-base-content/60"></i>
-        </div>
-        <div>
-            <div class="stat-label">Total Refunds</div>
-            <div class="stat-value">{{ stats.total }}</div>
-        </div>
-    </div>
-
-    <div class="stat-modern">
-        <div class="stat-icon bg-success/10">
-            <i class="bi bi-cash-stack text-2xl text-success"></i>
-        </div>
-        <div>
-            <div class="stat-label">Total Amount</div>
-            <div class="stat-value text-success">${{ stats.total_amount|floatformat:2 }}</div>
-        </div>
-    </div>
-
-    <div class="stat-modern">
-        <div class="stat-icon bg-warning/10">
-            <i class="bi bi-clock text-2xl text-warning"></i>
-        </div>
-        <div>
-            <div class="stat-label">Pending</div>
-            <div class="stat-value text-warning">{{ stats.pending }}</div>
-        </div>
-    </div>
-
-    <div class="stat-modern">
-        <div class="stat-icon bg-success/10">
-            <i class="bi bi-check-circle text-2xl text-success"></i>
-        </div>
-        <div>
-            <div class="stat-label">Completed</div>
-            <div class="stat-value text-success">{{ stats.completed }}</div>
-        </div>
-    </div>
-
-    <div class="stat-modern">
-        <div class="stat-icon bg-error/10">
-            <i class="bi bi-x-circle text-2xl text-error"></i>
-        </div>
-        <div>
-            <div class="stat-label">Failed</div>
-            <div class="stat-value text-error">{{ stats.failed }}</div>
-        </div>
-    </div>
-</div>
-
-<!-- Awaiting refund decision — claims whose Zendesk status is 'Refund Requested' -->
-{% if refund_requested %}
-<div class="card-modern p-0 overflow-hidden rounded-2xl mb-6">
-    <div class="flex items-center gap-2 px-6 py-4 border-b border-base-200">
-        <i class="bi bi-hourglass-split text-warning text-lg"></i>
-        <h3 class="text-lg font-semibold">Awaiting refund decision</h3>
-        <span class="badge badge-soft-warning">{{ refund_requested|length }}</span>
-    </div>
-    <div class="overflow-x-auto">
-        <table class="table-modern">
-            <thead>
-                <tr>
-                    <th>ALF #</th>
-                    <th>Client</th>
-                    <th>Paid</th>
-                    <th>Requested</th>
-                    <th>Zendesk</th>
-                    <th class="text-right">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for claim in refund_requested %}
-                <tr>
-                    <td>
-                        <a href="{% url 'agent_claim_detail' claim.id %}" class="font-mono font-semibold text-primary hover:underline">
-                            {{ claim.alf_claim_id|default:"(no number)" }}
-                        </a>
-                    </td>
-                    <td>
-                        <div class="font-medium">{{ claim.client_name|default:claim.client_email }}</div>
-                        {% if claim.client_name %}<div class="text-xs text-base-content/50">{{ claim.client_email }}</div>{% endif %}
-                    </td>
-                    <td>{% if claim.price_paid %}<span class="font-semibold">${{ claim.price_paid|floatformat:2 }}</span>{% else %}<span class="text-base-content/40">—</span>{% endif %}</td>
-                    <td class="text-sm text-base-content/60">
-                        {% if claim.status_changed_at %}{{ claim.status_changed_at|date:"M d, Y" }}{% else %}—{% endif %}
-                    </td>
-                    <td>
-                        {% if claim.zd_ticket_id and zd_ticket_base %}
-                        <a href="{{ zd_ticket_base }}{{ claim.zd_ticket_id }}" target="_blank" rel="noopener" class="link link-primary text-sm whitespace-nowrap">
-                            #{{ claim.zd_ticket_id }} <i class="bi bi-box-arrow-up-right text-xs"></i>
-                        </a>
-                        {% else %}<span class="text-base-content/40">{{ claim.zd_ticket_id|default:"—" }}</span>{% endif %}
-                    </td>
-                    <td class="text-right">
-                        <a href="{% url 'agent_claim_detail' claim.id %}" class="btn btn-sm btn-warning rounded-xl" title="Open the claim to issue the refund">
-                            <i class="bi bi-eye"></i> Review
-                        </a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    <p class="text-xs text-base-content/50 px-6 py-3 border-t border-base-200 mb-0">
-        <i class="bi bi-info-circle"></i> These cases were marked “Refund Requested” in Zendesk. Issuing the refund itself is the next build step.
+<!-- Header -->
+<div class="flex flex-wrap justify-between items-start gap-4 mb-5">
+  <div>
+    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+      <i class="bi bi-cash-coin text-base-content/70"></i> Refunds
+    </h2>
+    <p class="text-sm text-base-content/60 mt-1">
+      Clear the refund-requested queue and track what's been issued.
+      <span class="text-base-content/70">&middot; ${{ stats.total_amount|floatformat:2 }} refunded to date</span>
+      {% if stats.failed %}<span class="text-error font-medium">&middot; {{ stats.failed }} failed</span>{% endif %}
     </p>
+  </div>
+  <button class="btn btn-primary rounded-xl" onclick="openRefundModal()">
+    <i class="bi bi-plus-circle"></i> Process refund
+  </button>
+</div>
+
+<!-- Action queue: claims awaiting a refund decision (the manager's job here) -->
+{% if refund_requested %}
+<div class="card-modern rounded-2xl overflow-hidden mb-6 border-l-4 border-l-warning">
+  <div class="flex items-center gap-2 px-5 py-3 border-b border-base-200">
+    <i class="bi bi-hourglass-split text-warning"></i>
+    <h3 class="font-semibold">Awaiting your decision</h3>
+    <span class="badge badge-soft-warning rounded-full">{{ refund_requested|length }}</span>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="table-modern">
+      <thead><tr><th>Claim</th><th>Paid</th><th>Requested</th><th>Zendesk</th><th class="text-right"></th></tr></thead>
+      <tbody>
+        {% for claim in refund_requested %}
+        <tr class="hover:bg-base-200/40 transition-colors cursor-pointer"
+            onclick="if(!event.target.closest('a,button')) window.location='{% url 'agent_claim_detail' claim.id %}'">
+          <td>
+            <div class="font-medium">{{ claim.client_name|default:claim.client_email }}</div>
+            <div class="text-xs text-base-content/50 font-mono">{{ claim.alf_claim_id|default:"(no number)" }}</div>
+          </td>
+          <td>{% if claim.price_paid %}<span class="font-semibold">${{ claim.price_paid|floatformat:2 }}</span>{% else %}<span class="text-base-content/40">—</span>{% endif %}</td>
+          <td class="text-sm text-base-content/60 whitespace-nowrap">{% if claim.status_changed_at %}{{ claim.status_changed_at|date:"M d, Y" }}{% else %}—{% endif %}</td>
+          <td>
+            {% if claim.zd_ticket_id and zd_ticket_base %}
+            <a href="{{ zd_ticket_base }}{{ claim.zd_ticket_id }}" target="_blank" rel="noopener" class="link link-primary text-sm whitespace-nowrap">#{{ claim.zd_ticket_id }} <i class="bi bi-box-arrow-up-right text-xs"></i></a>
+            {% else %}<span class="text-base-content/40">{{ claim.zd_ticket_id|default:"—" }}</span>{% endif %}
+          </td>
+          <td class="text-right">
+            <a href="{% url 'agent_claim_detail' claim.id %}" class="btn btn-sm btn-warning rounded-xl whitespace-nowrap" title="Open the claim to issue the refund">
+              <i class="bi bi-arrow-right-circle"></i> Review
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endif %}
 
-<!-- Filters -->
-<div class="card-modern p-4 mb-6">
-    <form method="get" class="flex flex-wrap items-end gap-4">
-        <div class="form-control flex-1 min-w-[200px]">
-            <label class="label py-1">
-                <span class="label-text text-xs font-semibold text-base-content/60">Search</span>
-            </label>
-            <input type="text" name="search" value="{{ search_query }}"
-                   placeholder="Email, PayPal ID, reason..."
-                   class="input input-bordered input-sm w-full" />
-        </div>
-
-        <div class="form-control w-[180px]">
-            <label class="label py-1">
-                <span class="label-text text-xs font-semibold text-base-content/60">Status</span>
-            </label>
-            <select name="status" class="select select-bordered select-sm w-full">
-                <option value="">All Statuses</option>
-                {% for value, label in status_choices %}
-                <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-            </select>
-        </div>
-
-        <div class="form-control w-[180px]">
-            <label class="label py-1">
-                <span class="label-text text-xs font-semibold text-base-content/60">Source</span>
-            </label>
-            <select name="source" class="select select-bordered select-sm w-full">
-                <option value="">All Sources</option>
-                {% for value, label in source_choices %}
-                <option value="{{ value }}" {% if source_filter == value %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-            </select>
-        </div>
-
-        <button type="submit" class="btn btn-sm btn-primary rounded-xl">
-            <i class="bi bi-search"></i> Filter
-        </button>
-    </form>
+<!-- Tabs (lenses, live counts) + search -->
+<div class="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
+  <div class="flex flex-wrap gap-1.5">
+    {% for t in tabs %}
+    <a href="?tab={{ t.key }}{% if search_query %}&search={{ search_query }}{% endif %}"
+       class="btn btn-sm rounded-full {% if t.active %}btn-primary{% else %}btn-ghost{% endif %}">
+      {{ t.label }}
+      {% if t.count %}<span class="badge badge-sm rounded-full {% if not t.active and t.key == 'failed' %}badge-error{% else %}badge-ghost{% endif %}">{{ t.count }}</span>{% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  <form method="get" class="lg:ml-auto flex items-center gap-2">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="text" name="search" value="{{ search_query|default:'' }}"
+           placeholder="Search client, ALF #, PayPal ID, reason…" class="input-modern w-full lg:w-80">
+    {% if search_query %}<a href="?tab={{ tab }}" class="btn btn-ghost btn-sm rounded-xl" title="Clear search"><i class="bi bi-x-lg"></i></a>{% endif %}
+  </form>
 </div>
 
-<!-- Refunds Table -->
-<div class="card-modern p-0 overflow-hidden rounded-2xl">
-    <div class="overflow-x-auto">
-        <table class="table-modern">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Claim</th>
-                    <th>PayPal Refund ID</th>
-                    <th>Amount</th>
-                    <th>Type</th>
-                    <th>Source</th>
-                    <th>Status</th>
-                    <th>Date</th>
-                    <th class="text-right">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for refund in refunds %}
-                <tr>
-                    <td class="font-mono text-base-content/60">#{{ refund.id }}</td>
-                    <td>
-                        {% if refund.claim %}
-                        <a href="{% url 'agent_claim_detail' refund.claim.id %}" class="link link-primary">
-                            <span class="font-medium">{{ refund.claim.alf_claim_id|default:refund.claim.id }}</span><br>
-                            <span class="text-xs text-base-content/60">{{ refund.claim.client_email }}</span>
-                        </a>
-                        {% else %}
-                        <span class="text-base-content/40">— no linked claim —</span>
-                        {% endif %}
-                    </td>
-                    <td class="font-mono text-xs text-base-content/70">{{ refund.paypal_refund_id|truncatechars:20 }}</td>
-                    <td class="font-semibold whitespace-nowrap">{{ refund.currency }} {{ refund.amount }}</td>
-                    <td>
-                        <span class="badge {% if refund.refund_type == 'FULL' %}badge-soft-success{% else %}badge-soft-warning{% endif %}">
-                            {{ refund.get_refund_type_display }}
-                        </span>
-                    </td>
-                    <td>
-                        <span class="badge badge-soft-neutral">{{ refund.get_external_source_display }}</span>
-                    </td>
-                    <td>
-                        <span class="badge {% if refund.status == 'COMPLETED' %}badge-soft-success{% elif refund.status == 'REQUESTED' %}badge-soft-info{% elif refund.status == 'PENDING' %}badge-soft-warning{% elif refund.status == 'FAILED' %}badge-soft-error{% elif refund.status == 'PROCESSING' %}badge-soft-primary{% else %}badge-soft-neutral{% endif %}">
-                            {{ refund.get_status_display }}
-                        </span>
-                    </td>
-                    <td class="text-sm text-base-content/60 whitespace-nowrap">{{ refund.created_at|date:"M d, Y" }}</td>
-                    <td class="text-right">
-                        <a href="#" class="btn btn-xs btn-ghost rounded-lg" onclick="viewRefundDetails({{ refund.id }})" title="View refund details">
-                            <i class="bi bi-eye"></i>
-                        </a>
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="9" class="text-center py-12">
-                        <i class="bi bi-inbox text-4xl text-base-content/30"></i>
-                        <p class="text-base-content/60 mt-2">No refunds found</p>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
+<!-- Refunds table -->
+<div class="card-modern rounded-2xl overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="table-modern">
+      <thead>
+        <tr>
+          <th>Claim / client</th>
+          <th>Amount</th>
+          <th>Type</th>
+          <th>Source</th>
+          <th>Status</th>
+          <th>Date</th>
+          <th class="text-right"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for refund in refunds %}
+        <tr class="hover:bg-base-200/40 transition-colors cursor-pointer"
+            onclick="if(!event.target.closest('a,button')) viewRefundDetails({{ refund.id }})">
+          <td>
+            {% if refund.claim %}
+            <a href="{% url 'agent_claim_detail' refund.claim.id %}" class="font-medium text-primary hover:underline">{{ refund.claim.client_name|default:refund.claim.client_email }}</a>
+            <div class="text-xs text-base-content/50 font-mono">{{ refund.claim.alf_claim_id|default:refund.claim.id }}</div>
+            {% else %}<span class="text-base-content/40">— no linked claim —</span>{% endif %}
+          </td>
+          <td class="font-semibold whitespace-nowrap">{{ refund.currency }} {{ refund.amount }}</td>
+          <td>
+            <span class="badge badge-sm rounded-full {% if refund.refund_type == 'FULL' %}badge-soft-neutral{% else %}badge-soft-warning{% endif %}">{{ refund.get_refund_type_display }}</span>
+          </td>
+          <td><span class="text-xs text-base-content/60">{{ refund.get_external_source_display }}</span></td>
+          <td>
+            <span class="badge rounded-full whitespace-nowrap {% if refund.status == 'COMPLETED' %}badge-soft-success{% elif refund.status == 'FAILED' %}badge-soft-error{% elif refund.status == 'CANCELLED' %}badge-soft-neutral{% else %}badge-soft-warning{% endif %}">
+              {{ refund.get_status_display }}
+            </span>
+          </td>
+          <td class="text-sm text-base-content/60 whitespace-nowrap">{{ refund.created_at|date:"M d, Y" }}</td>
+          <td class="text-right"><i class="bi bi-chevron-right text-base-content/30"></i></td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" class="text-center py-12">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
+              <i class="bi bi-cash-coin text-3xl text-base-content/40"></i>
+            </div>
+            <p class="text-base-content/60 mt-2 mb-0">{% if tab == 'failed' %}No failed refunds — good.{% else %}No refunds in this view.{% endif %}</p>
+            {% if search_query %}<a href="?tab={{ tab }}" class="link link-primary text-sm">Clear search</a>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 
-<!-- Pagination -->
-{% if page_obj.has_other_pages %}
-<div class="flex justify-center mt-6">
+  <!-- Pagination -->
+  {% if page_obj.has_other_pages %}
+  <div class="flex justify-center p-4 border-t border-base-200">
     <div class="join">
-        {% if page_obj.has_previous %}
-        <a href="?page=1&status={{ status_filter }}&source={{ source_filter }}&search={{ search_query }}" class="join-item btn btn-sm">«</a>
-        <a href="?page={{ page_obj.previous_page_number }}&status={{ status_filter }}&source={{ source_filter }}&search={{ search_query }}" class="join-item btn btn-sm">‹</a>
-        {% endif %}
-
-        <button class="join-item btn btn-sm btn-active">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</button>
-
-        {% if page_obj.has_next %}
-        <a href="?page={{ page_obj.next_page_number }}&status={{ status_filter }}&source={{ source_filter }}&search={{ search_query }}" class="join-item btn btn-sm">›</a>
-        <a href="?page={{ page_obj.paginator.num_pages }}&status={{ status_filter }}&source={{ source_filter }}&search={{ search_query }}" class="join-item btn btn-sm">»</a>
-        {% endif %}
+      {% if page_obj.has_previous %}
+      <a href="?tab={{ tab }}&page={{ page_obj.previous_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="join-item btn btn-sm rounded-xl"><i class="bi bi-chevron-left"></i> Prev</a>
+      {% endif %}
+      <span class="join-item btn btn-sm btn-active rounded-xl">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      {% if page_obj.has_next %}
+      <a href="?tab={{ tab }}&page={{ page_obj.next_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="join-item btn btn-sm rounded-xl">Next <i class="bi bi-chevron-right"></i></a>
+      {% endif %}
     </div>
+  </div>
+  {% endif %}
 </div>
-{% endif %}
+
+<!-- Per-refund detail content, rendered server-side and cloned into the modal
+     on click (CSP-safe: no eval, no fetch). This is the "single refund" view. -->
+<div id="refund-detail-store" hidden>
+  {% for refund in refunds %}
+  <div data-refund-id="{{ refund.id }}">
+    <div class="flex items-center justify-between gap-3 mb-4">
+      <div>
+        <div class="text-2xl font-semibold">{{ refund.currency }} {{ refund.amount }}</div>
+        <div class="text-sm text-base-content/60">{{ refund.get_refund_type_display }} refund &middot; {{ refund.get_external_source_display }}</div>
+      </div>
+      <span class="badge rounded-full {% if refund.status == 'COMPLETED' %}badge-soft-success{% elif refund.status == 'FAILED' %}badge-soft-error{% elif refund.status == 'CANCELLED' %}badge-soft-neutral{% else %}badge-soft-warning{% endif %}">{{ refund.get_status_display }}</span>
+    </div>
+
+    {% if refund.claim %}
+    <a href="{% url 'agent_claim_detail' refund.claim.id %}" class="flex items-center justify-between gap-2 rounded-xl bg-base-200/50 px-4 py-3 mb-4 hover:bg-base-200 transition-colors">
+      <div>
+        <div class="font-medium text-primary">{{ refund.claim.client_name|default:refund.claim.client_email }}</div>
+        <div class="text-xs text-base-content/50 font-mono">{{ refund.claim.alf_claim_id|default:refund.claim.id }}</div>
+      </div>
+      <span class="text-sm text-primary whitespace-nowrap">Open claim <i class="bi bi-arrow-right"></i></span>
+    </a>
+    {% endif %}
+
+    <dl class="divide-y divide-base-200 text-sm">
+      <div class="flex justify-between gap-4 py-2.5 first:pt-0"><dt class="text-base-content/55">Reason</dt><dd class="text-right max-w-[60%]">{{ refund.reason|default:"—" }}</dd></div>
+      <div class="flex justify-between gap-4 py-2.5"><dt class="text-base-content/55">PayPal refund ID</dt><dd class="text-right font-mono break-all">{{ refund.paypal_refund_id|default:"—" }}</dd></div>
+      {% if refund.paypal_capture_id %}<div class="flex justify-between gap-4 py-2.5"><dt class="text-base-content/55">PayPal capture ID</dt><dd class="text-right font-mono break-all">{{ refund.paypal_capture_id }}</dd></div>{% endif %}
+      <div class="flex justify-between gap-4 py-2.5"><dt class="text-base-content/55">Created</dt><dd class="text-right">{{ refund.created_at|date:"M d, Y H:i" }}{% if refund.created_by %} by {{ refund.created_by.username }}{% endif %}</dd></div>
+      {% if refund.processed_at %}<div class="flex justify-between gap-4 py-2.5 last:pb-0"><dt class="text-base-content/55">Processed</dt><dd class="text-right">{{ refund.processed_at|date:"M d, Y H:i" }}</dd></div>{% endif %}
+    </dl>
+  </div>
+  {% endfor %}
+</div>
 
 <!-- Process Refund Modal -->
 <dialog id="refund_modal" class="modal">
-    <div class="modal-box max-w-2xl">
-        <form method="dialog">
-            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
-        </form>
-        <h3 class="font-semibold text-lg mb-1 flex items-center gap-2">
-            <i class="bi bi-currency-exchange text-primary"></i>
-            Process Refund
-        </h3>
-        <p class="text-sm text-base-content/60 mb-5">Issue a refund against a claim via WooCommerce (the system of record), which settles it through PayPal.</p>
-
-        <form id="refundForm" method="POST" action="/api/payments/refunds/issue/">
-            {% csrf_token %}
-
-            <div class="form-control mb-4">
-                <label class="label py-1">
-                    <span class="label-text font-semibold">Claim ID</span>
-                </label>
-                <input type="number" name="claim_id" id="claim_id" required
-                       class="input input-bordered w-full"
-                       placeholder="Enter claim ID" />
-            </div>
-
-            <div class="form-control mb-4">
-                <label class="label py-1">
-                    <span class="label-text font-semibold">Amount</span>
-                </label>
-                <input type="number" step="0.01" name="amount" id="amount" required
-                       class="input input-bordered w-full"
-                       placeholder="0.00" />
-            </div>
-
-            <div class="form-control mb-4">
-                <label class="label py-1">
-                    <span class="label-text font-semibold">Refund Type</span>
-                </label>
-                <select name="refund_type" id="refund_type" class="select select-bordered w-full">
-                    <option value="FULL">Full Refund</option>
-                    <option value="PARTIAL">Partial Refund</option>
-                </select>
-            </div>
-
-            <div class="form-control mb-4">
-                <label class="label py-1">
-                    <span class="label-text font-semibold">Reason</span>
-                </label>
-                <textarea name="reason" id="reason" required rows="3"
-                          class="textarea textarea-bordered w-full"
-                          placeholder="Reason for refund..."></textarea>
-            </div>
-
-            <div class="modal-action">
-                <button type="button" class="btn btn-outline rounded-xl" onclick="refund_modal.close()">Cancel</button>
-                <button type="submit" class="btn btn-primary rounded-xl">Process Refund</button>
-            </div>
-        </form>
-    </div>
+  <div class="modal-box max-w-2xl">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-semibold text-lg mb-1 flex items-center gap-2"><i class="bi bi-currency-exchange text-primary"></i> Process refund</h3>
+    <p class="text-sm text-base-content/60 mb-5">Issue a refund against a claim via WooCommerce (the system of record), which settles it through PayPal.</p>
+    <form id="refundForm" method="POST" action="/api/payments/refunds/issue/">
+      {% csrf_token %}
+      <div class="form-control mb-4"><label class="label py-1"><span class="label-text font-semibold">Claim ID</span></label>
+        <input type="number" name="claim_id" id="claim_id" required class="input input-bordered w-full" placeholder="Enter claim ID" /></div>
+      <div class="form-control mb-4"><label class="label py-1"><span class="label-text font-semibold">Amount</span></label>
+        <input type="number" step="0.01" name="amount" id="amount" required class="input input-bordered w-full" placeholder="0.00" /></div>
+      <div class="form-control mb-4"><label class="label py-1"><span class="label-text font-semibold">Refund Type</span></label>
+        <select name="refund_type" id="refund_type" class="select select-bordered w-full"><option value="FULL">Full Refund</option><option value="PARTIAL">Partial Refund</option></select></div>
+      <div class="form-control mb-4"><label class="label py-1"><span class="label-text font-semibold">Reason</span></label>
+        <textarea name="reason" id="reason" required rows="3" class="textarea textarea-bordered w-full" placeholder="Reason for refund..."></textarea></div>
+      <div class="modal-action">
+        <button type="button" class="btn btn-outline rounded-xl" onclick="refund_modal.close()">Cancel</button>
+        <button type="submit" class="btn btn-primary rounded-xl">Process Refund</button>
+      </div>
+    </form>
+  </div>
 </dialog>
 
-<!-- Refund Details Modal -->
+<!-- Refund Details Modal (single refund) -->
 <dialog id="refund_details_modal" class="modal">
-    <div class="modal-box max-w-2xl">
-        <form method="dialog">
-            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
-        </form>
-        <h3 class="font-semibold text-lg mb-4">Refund Details</h3>
-        <div id="refund_details_content">
-            <!-- Content loaded via JavaScript -->
-        </div>
-    </div>
+  <div class="modal-box max-w-xl">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-semibold text-lg mb-4 flex items-center gap-2"><i class="bi bi-receipt text-base-content/60"></i> Refund detail</h3>
+    <div id="refund_details_content"></div>
+  </div>
 </dialog>
+</div>
 
 <script>
-function openRefundModal() {
-    document.getElementById('refund_modal').showModal();
-}
+function openRefundModal() { document.getElementById('refund_modal').showModal(); }
 
 function viewRefundDetails(refundId) {
-    // TODO: Fetch refund details via API and display
-    alert('Refund details for #' + refundId);
+    var src = document.querySelector('#refund-detail-store [data-refund-id="' + refundId + '"]');
+    var target = document.getElementById('refund_details_content');
+    target.innerHTML = src ? src.innerHTML : '<p class="text-base-content/60">Details unavailable.</p>';
+    document.getElementById('refund_details_modal').showModal();
 }
 
-// Handle form submission
 document.getElementById('refundForm').addEventListener('submit', async function(e) {
     e.preventDefault();
-
-    const formData = new FormData(this);
-    const data = Object.fromEntries(formData);
-
+    const data = Object.fromEntries(new FormData(this));
     try {
         const response = await fetch('/api/payments/refunds/issue/', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': '{{ csrf_token }}'
-            },
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
             body: JSON.stringify(data)
         });
-
         const result = await response.json();
-
-        if (response.ok) {
-            alert('Refund processed successfully!');
-            window.location.reload();
-        } else {
-            alert('Error: ' + (result.error || 'Failed to process refund'));
-        }
-    } catch (error) {
-        alert('Error: ' + error.message);
-    }
+        if (response.ok) { alert('Refund processed successfully!'); window.location.reload(); }
+        else { alert('Error: ' + (result.error || 'Failed to process refund')); }
+    } catch (error) { alert('Error: ' + error.message); }
 });
 </script>
 {% endblock %}

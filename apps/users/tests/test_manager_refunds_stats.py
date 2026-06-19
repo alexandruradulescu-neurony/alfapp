@@ -46,10 +46,10 @@ class ManagerRefundsStatsTests(TestCase):
         self.failed = mk('REF-F1', Refund.STATUS_FAILED)
 
     def test_stats_are_global_but_list_is_filtered(self):
-        resp = self.web.get(self.URL + '?status=FAILED')
+        resp = self.web.get(self.URL + '?tab=failed')
         self.assertEqual(resp.status_code, 200)
 
-        # Headline stats reflect ALL refunds, ignoring the ?status filter.
+        # Headline stats reflect ALL refunds, ignoring the ?tab lens.
         stats = resp.context['stats']
         self.assertEqual(stats['total'], 4)
         self.assertEqual(stats['completed'], 2)

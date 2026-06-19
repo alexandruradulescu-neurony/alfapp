@@ -906,7 +906,7 @@ class TestManagerRefunds:
         assert refund.id in refund_ids
 
     def test_manager_refunds_status_filter(self):
-        """Test manager refunds status filter."""
+        """The status filter is now the ?tab lens (completed)."""
         test_prefix = 'test_refund_filter_'
         manager = User.objects.create_user(
             username=f'{test_prefix}manager',
@@ -932,14 +932,36 @@ class TestManagerRefunds:
 
         client = Client()
         client.login(username=f'{test_prefix}manager', password='testpass123')
-        response = client.get('/manager/refunds/?status=COMPLETED')
+        response = client.get('/manager/refunds/?tab=completed')
 
         page_obj = response.context['page_obj']
         refunds_on_page = list(page_obj.object_list)
         refund_ids = [r.id for r in refunds_on_page]
-        
+
         assert refund_completed.id in refund_ids
         assert refund_pending.id not in refund_ids
+
+    def test_manager_refunds_redesign_markers(self):
+        """Redesigned list: tab lenses, clickable rows, single-refund detail store;
+        old internal ID column and PayPal-ID column gone from the row."""
+        manager = User.objects.create_user(username='refund_redesign', password='x')
+        claim = Claim.objects.create(client_email='rr@e.com', client_name='Rita Ray',
+                                     alf_claim_id='ALFRR')
+        refund = Refund.objects.create(
+            claim=claim, paypal_refund_id='REF-RR-1', amount=42.00,
+            status='COMPLETED', refund_type='FULL', reason='lost forever')
+        client = Client()
+        client.force_login(manager)
+        resp = client.get('/manager/refunds/?tab=all')
+        assert resp.status_code == 200
+        assert resp.context['tab'] == 'all'
+        assert 'failed' in resp.context['tab_counts']
+        html = resp.content.decode()
+        assert '?tab=in_flight' in html                         # tabs present
+        assert 'viewRefundDetails(' in html                     # clickable -> detail
+        assert f'data-refund-id="{refund.id}"' in html          # single-refund detail rendered
+        assert '<th>ID</th>' not in html                        # internal id column gone
+        assert '<th>PayPal Refund ID</th>' not in html          # moved into detail
 
     def test_manager_refunds_stats(self):
         """Test manager refunds includes statistics."""
