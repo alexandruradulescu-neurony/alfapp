@@ -27,10 +27,11 @@ from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.decorators import login_required
 from apps.users.forms import StaffUserCreationForm
 from django.contrib import messages
-from django.core.paginator import Paginator
+from django.core.paginator import InvalidPage, Paginator
 from django.db import models
 from django.db.models import Case, Count, F, IntegerField, Q, When
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from datetime import timedelta
 from django.utils.text import get_valid_filename
 from django.views.decorators.csrf import csrf_protect
@@ -1032,10 +1033,23 @@ def manager_claims(request):
             Q(alf_claim_id__icontains=search_query)
         )
 
+    # Calendar filter: claims submitted on a given day (created_at, local date).
+    date_raw = request.GET.get('date')
+    date_filter = parse_date(date_raw) if date_raw else None
+    if date_filter:
+        claims = claims.filter(created_at__date=date_filter)
+
     claims = claims.distinct().order_by('-created_at')
 
     paginator = Paginator(claims, LIST_PAGE_SIZE)
     page_obj = paginator.get_page(request.GET.get('page'))
+    # Windowed page numbers (… collapses long runs); falls back to the full
+    # range when there are few pages.
+    try:
+        page_range = list(paginator.get_elided_page_range(
+            page_obj.number, on_each_side=1, on_ends=1))
+    except InvalidPage:
+        page_range = list(paginator.page_range)
 
     # Quiet "drifting" hint — days in the current status (templates do no date math)
     for claim in page_obj:
@@ -1047,11 +1061,14 @@ def manager_claims(request):
     zd_subdomain = SystemSettings.get_instance().zd_subdomain
     context = {
         'page_obj': page_obj,
+        'page_range': page_range,
+        'page_ellipsis': paginator.ELLIPSIS,
         'claims': page_obj,
         'tab': tab,
         'tabs': tabs,
         'tab_counts': tab_counts,
         'search_query': search_query,
+        'date_filter': date_filter,
         'zd_ticket_base': _zendesk_ticket_base(zd_subdomain),
     }
 

@@ -41,7 +41,7 @@
 <div class="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
   <nav class="flex flex-wrap gap-2">
     {% for t in tabs %}
-    <a href="?tab={{ t.key }}{% if search_query %}&search={{ search_query }}{% endif %}"
+    <a href="?tab={{ t.key }}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}{% if date_filter %}&date={{ date_filter|date:'Y-m-d' }}{% endif %}"
        class="inline-flex items-center gap-x-1.5 rounded-md px-3 py-1.5 text-sm font-medium {% if t.active %}bg-indigo-600 text-white{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">
       {{ t.label }}
       {% if t.count %}<span class="rounded-full px-1.5 text-xs font-semibold {% if t.active %}bg-white/20 text-white{% elif t.key == 'problems' or t.key == 'disputes' %}bg-red-100 text-red-700{% else %}bg-gray-100 text-gray-600{% endif %}">{{ t.count }}</span>{% endif %}
@@ -50,12 +50,20 @@
   </nav>
   <form method="get" class="lg:ml-auto flex items-center gap-2">
     <input type="hidden" name="tab" value="{{ tab }}">
+    <!-- Calendar: claims submitted on a chosen day -->
+    <div class="relative">
+      {% if date_filter %}{% heroicon_outline "calendar-days" class="size-4 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-500" %}{% else %}{% heroicon_outline "calendar-days" class="size-4 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" %}{% endif %}
+      <input type="date" name="date" value="{{ date_filter|date:'Y-m-d' }}" onchange="this.form.submit()"
+             title="Show only claims submitted on a day"
+             class="block rounded-md bg-white py-1.5 pl-9 pr-2 text-sm text-gray-900 outline-1 -outline-offset-1 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 {% if date_filter %}font-medium text-indigo-700 outline-indigo-400{% else %}outline-gray-300{% endif %}">
+    </div>
+    {% if date_filter %}<a href="?tab={{ tab }}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}" class="text-gray-400 hover:text-gray-600" title="Clear date">{% heroicon_outline "x-mark" class="size-4" %}</a>{% endif %}
     <div class="relative w-full lg:w-72">
       {% heroicon_outline "magnifying-glass" class="size-4 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" %}
       <input type="text" name="search" value="{{ search_query|default:'' }}" placeholder="Search name, email, ticket, ALF#…"
              class="block w-full rounded-md bg-white py-1.5 pl-9 pr-3 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">
     </div>
-    {% if search_query %}<a href="?tab={{ tab }}" class="text-gray-400 hover:text-gray-600" title="Clear search">{% heroicon_outline "x-mark" class="size-4" %}</a>{% endif %}
+    {% if search_query %}<a href="?tab={{ tab }}{% if date_filter %}&date={{ date_filter|date:'Y-m-d' }}{% endif %}" class="text-gray-400 hover:text-gray-600" title="Clear search">{% heroicon_outline "x-mark" class="size-4" %}</a>{% endif %}
   </form>
 </div>
 
@@ -122,8 +130,8 @@
         <tr>
           <td colspan="5" class="px-3 py-16 text-center">
             {% heroicon_outline "inbox" class="size-12 mx-auto text-gray-300" %}
-            <p class="lora-prose mt-2">{% if tab == 'problems' %}Nothing needs attention right now.{% else %}No claims in this view.{% endif %}</p>
-            {% if search_query %}<a href="?tab={{ tab }}" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Clear search</a>{% endif %}
+            <p class="lora-prose mt-2">{% if date_filter %}No claims submitted on {{ date_filter|date:"M j, Y" }}.{% elif tab == 'problems' %}Nothing needs attention right now.{% else %}No claims in this view.{% endif %}</p>
+            {% if search_query or date_filter %}<a href="?tab={{ tab }}" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Clear filters</a>{% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -135,12 +143,30 @@
   {% if page_obj.has_other_pages %}
   <nav class="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6">
     <p class="hidden text-sm text-gray-700 sm:block">Page <span class="font-medium">{{ page_obj.number }}</span> of <span class="font-medium">{{ page_obj.paginator.num_pages }}</span></p>
-    <div class="flex flex-1 justify-between gap-2 sm:justify-end">
+    <div class="flex flex-1 items-center justify-between gap-1 sm:justify-end">
       {% if page_obj.has_previous %}
-      <a href="?tab={{ tab }}&page={{ page_obj.previous_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Previous</a>
+      <a href="?tab={{ tab }}&page={{ page_obj.previous_page_number }}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}{% if date_filter %}&date={{ date_filter|date:'Y-m-d' }}{% endif %}" class="inline-flex items-center gap-1 rounded-md bg-white px-2.5 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">{% heroicon_outline "chevron-left" class="size-4" %} Previous</a>
+      {% else %}
+      <span class="inline-flex items-center gap-1 rounded-md px-2.5 py-2 text-sm font-semibold text-gray-300">{% heroicon_outline "chevron-left" class="size-4" %} Previous</span>
       {% endif %}
+
+      {# Numbered pages (… collapses long runs). Hidden on small screens. #}
+      <div class="hidden sm:flex items-center gap-1">
+        {% for num in page_range %}
+          {% if num == page_ellipsis %}
+          <span class="px-2 py-2 text-sm text-gray-400">…</span>
+          {% elif num == page_obj.number %}
+          <span aria-current="page" class="inline-flex min-w-9 items-center justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white">{{ num }}</span>
+          {% else %}
+          <a href="?tab={{ tab }}&page={{ num }}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}{% if date_filter %}&date={{ date_filter|date:'Y-m-d' }}{% endif %}" class="inline-flex min-w-9 items-center justify-center rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100">{{ num }}</a>
+          {% endif %}
+        {% endfor %}
+      </div>
+
       {% if page_obj.has_next %}
-      <a href="?tab={{ tab }}&page={{ page_obj.next_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Next</a>
+      <a href="?tab={{ tab }}&page={{ page_obj.next_page_number }}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}{% if date_filter %}&date={{ date_filter|date:'Y-m-d' }}{% endif %}" class="inline-flex items-center gap-1 rounded-md bg-white px-2.5 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Next {% heroicon_outline "chevron-right" class="size-4" %}</a>
+      {% else %}
+      <span class="inline-flex items-center gap-1 rounded-md px-2.5 py-2 text-sm font-semibold text-gray-300">Next {% heroicon_outline "chevron-right" class="size-4" %}</span>
       {% endif %}
     </div>
   </nav>
