@@ -1,0 +1,73 @@
+{% comment %}
+Shared sidebar navigation (Tailwind UI sidebar-navigation styling).
+Included by both the desktop rail and the mobile drawer in base.html.
+`active` is the current url_name (request.resolver_match.url_name).
+{% endcomment %}
+{% with active=request.resolver_match.url_name %}
+<nav class="flex flex-1 flex-col">
+  <ul role="list" class="flex flex-1 flex-col gap-y-7">
+    <li>
+      <ul role="list" class="-mx-2 space-y-1">
+        <li>
+          <a href="{% url 'manager_dashboard' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'manager_dashboard' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
+            <i class="bi bi-speedometer2 w-6 text-center text-base shrink-0 {% if active == 'manager_dashboard' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> Dashboard
+          </a>
+        </li>
+        <li>
+          <a href="{% url 'manager_claims' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'manager_claims' or active == 'agent_claim_detail' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
+            <i class="bi bi-clipboard-data w-6 text-center text-base shrink-0 {% if active == 'manager_claims' or active == 'agent_claim_detail' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> Claims
+          </a>
+        </li>
+        <li>
+          <a href="{% url 'agent_emails' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'agent_emails' or active == 'agent_email_detail' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
+            <i class="bi bi-envelope w-6 text-center text-base shrink-0 {% if active == 'agent_emails' or active == 'agent_email_detail' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> Emails
+          </a>
+        </li>
+        <li>
+          <a href="{% url 'disputes:dispute_list' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'dispute_list' or active == 'dispute_detail' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
+            <i class="bi bi-shield-exclamation w-6 text-center text-base shrink-0 {% if active == 'dispute_list' or active == 'dispute_detail' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> Disputes
+          </a>
+        </li>
+        <li>
+          <a href="{% url 'manager_refunds' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'manager_refunds' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
+            <i class="bi bi-cash-coin w-6 text-center text-base shrink-0 {% if active == 'manager_refunds' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> Refunds
+          </a>
+        </li>
+        <li>
+          <a href="{% url 'agent:agent-chat' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'agent-chat' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
+            <i class="bi bi-robot w-6 text-center text-base shrink-0 {% if active == 'agent-chat' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> AI Agent
+          </a>
+        </li>
+      </ul>
+    </li>
+    <li>
+      <div class="text-xs/6 font-semibold text-gray-400">Settings</div>
+      <ul role="list" class="-mx-2 mt-2 space-y-1">
+        <li>
+          <a href="{% url 'manager_settings' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'manager_settings' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
+            <i class="bi bi-gear w-6 text-center text-base shrink-0 {% if active == 'manager_settings' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> Configuration
+          </a>
+        </li>
+        <li>
+          <a href="{% url 'manager_users' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'manager_users' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
+            <i class="bi bi-people w-6 text-center text-base shrink-0 {% if active == 'manager_users' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> Users
+          </a>
+        </li>
+      </ul>
+    </li>
+    <li class="-mx-2 mt-auto">
+      <div class="flex items-center gap-x-3 rounded-md px-2 py-3">
+        <span class="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm font-semibold text-white">{{ user.username|slice:":2"|upper }}</span>
+        <span class="min-w-0 flex-1">
+          <span class="block truncate text-sm font-semibold text-gray-900">{{ user.username }}</span>
+          <span class="block truncate text-xs text-gray-500">{{ user.email }}</span>
+        </span>
+        <form method="post" action="{% url 'logout' %}" class="shrink-0">
+          {% csrf_token %}
+          <button type="submit" class="text-gray-400 hover:text-gray-600" title="Sign out"><i class="bi bi-box-arrow-right text-lg"></i></button>
+        </form>
+      </div>
+    </li>
+  </ul>
+</nav>
+{% endwith %}

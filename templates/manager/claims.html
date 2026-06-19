@@ -3,119 +3,128 @@
 {% block title %}Claims{% endblock %}
 
 {% block content %}
-<!-- Header -->
-<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-5">
+<!-- Page heading -->
+<div class="sm:flex sm:items-center sm:justify-between gap-4 mb-6">
   <div>
-    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-      <i class="bi bi-clipboard-data text-base-content/70"></i> Claims
-    </h2>
-    <p class="text-sm text-base-content/60 mt-1">Your book, by what needs you.</p>
+    <h1 class="text-xl font-semibold text-gray-900">Claims</h1>
+    <p class="mt-1 text-sm text-gray-600">Your book, by what needs you.</p>
   </div>
-  <div class="flex items-center gap-2">
-    <button type="button" id="bulk-delete-btn" class="btn btn-error btn-sm rounded-xl" onclick="bulkDeleteClaims()" hidden>
+  <div class="mt-4 sm:mt-0 flex items-center gap-2">
+    <button type="button" id="bulk-delete-btn" onclick="bulkDeleteClaims()" hidden
+            class="inline-flex items-center gap-x-1.5 rounded-md bg-red-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-red-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">
       <i class="bi bi-trash"></i> Delete selected (<span id="bulk-count">0</span>)
     </button>
-    <details class="dropdown dropdown-end">
-      <summary class="lora-disclosure btn btn-ghost btn-sm rounded-xl" title="More"><i class="bi bi-three-dots"></i></summary>
-      <div class="dropdown-content card-modern p-4 w-80 z-50 mt-1">
-        <p class="text-sm font-semibold mb-2 flex items-center gap-2"><i class="bi bi-download text-base-content/60"></i> Import from Zendesk</p>
+    <details class="relative inline-block">
+      <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer inline-flex items-center rounded-md bg-white px-2.5 py-2 text-gray-500 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
+        <i class="bi bi-three-dots"></i>
+      </summary>
+      <div class="absolute right-0 z-20 mt-2 w-80 origin-top-right rounded-lg bg-white p-4 shadow-lg ring-1 ring-black/5">
+        <p class="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2"><i class="bi bi-download text-gray-400"></i> Import from Zendesk</p>
         <form method="post" action="{% url 'manager_claims_import' %}" class="flex flex-col gap-2">
           {% csrf_token %}
-          <p class="text-xs text-base-content/60">Paste Zendesk ticket IDs (any separators). LORA pulls each existing claim in — it never creates one. Up to 100.</p>
-          <textarea name="ticket_ids" rows="3" class="input-modern w-full font-mono text-xs" placeholder="e.g. 53973, 54012"></textarea>
-          <button type="submit" class="btn btn-primary btn-sm rounded-xl"><i class="bi bi-download"></i> Pull into LORA</button>
+          <p class="text-xs text-gray-500">Paste Zendesk ticket IDs (any separators). LORA pulls each existing claim in — it never creates one. Up to 100.</p>
+          <textarea name="ticket_ids" rows="3" placeholder="e.g. 53973, 54012"
+                    class="block w-full rounded-md bg-white px-2.5 py-1.5 font-mono text-xs text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"></textarea>
+          <button type="submit" class="inline-flex justify-center items-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">
+            <i class="bi bi-download"></i> Pull into LORA
+          </button>
         </form>
-        <div class="border-t border-base-200/70 my-3"></div>
-        <a href="{% url 'manager_dashboard' %}" class="btn btn-ghost btn-sm rounded-xl w-full justify-start"><i class="bi bi-arrow-left"></i> Back to dashboard</a>
+        <div class="border-t border-gray-200 my-3"></div>
+        <a href="{% url 'manager_dashboard' %}" class="flex items-center gap-2 text-sm text-gray-700 hover:text-indigo-600"><i class="bi bi-arrow-left"></i> Back to dashboard</a>
       </div>
     </details>
   </div>
 </div>
 
-<!-- Tabs (lenses, with live counts) + search -->
+<!-- Tabs (lenses, live counts) + search -->
 <div class="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
-  <div class="flex flex-wrap gap-1.5">
+  <nav class="flex flex-wrap gap-2">
     {% for t in tabs %}
     <a href="?tab={{ t.key }}{% if search_query %}&search={{ search_query }}{% endif %}"
-       class="btn btn-sm rounded-full {% if t.active %}btn-primary{% else %}btn-ghost{% endif %}">
+       class="inline-flex items-center gap-x-1.5 rounded-md px-3 py-1.5 text-sm font-medium {% if t.active %}bg-indigo-600 text-white{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">
       {{ t.label }}
-      {% if t.count %}<span class="badge badge-sm rounded-full {% if not t.active and t.key == 'problems' or not t.active and t.key == 'disputes' %}badge-error{% else %}badge-ghost{% endif %}">{{ t.count }}</span>{% endif %}
+      {% if t.count %}<span class="rounded-full px-1.5 text-xs font-semibold {% if t.active %}bg-white/20 text-white{% elif t.key == 'problems' or t.key == 'disputes' %}bg-red-100 text-red-700{% else %}bg-gray-100 text-gray-600{% endif %}">{{ t.count }}</span>{% endif %}
     </a>
     {% endfor %}
-  </div>
+  </nav>
   <form method="get" class="lg:ml-auto flex items-center gap-2">
     <input type="hidden" name="tab" value="{{ tab }}">
-    <input type="text" name="search" value="{{ search_query|default:'' }}"
-           placeholder="Search name, email, ticket, ALF#…" class="input-modern w-full lg:w-72">
-    {% if search_query %}<a href="?tab={{ tab }}" class="btn btn-ghost btn-sm rounded-xl" title="Clear search"><i class="bi bi-x-lg"></i></a>{% endif %}
+    <div class="relative w-full lg:w-72">
+      <i class="bi bi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"></i>
+      <input type="text" name="search" value="{{ search_query|default:'' }}" placeholder="Search name, email, ticket, ALF#…"
+             class="block w-full rounded-md bg-white py-1.5 pl-9 pr-3 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">
+    </div>
+    {% if search_query %}<a href="?tab={{ tab }}" class="text-gray-400 hover:text-gray-600" title="Clear search"><i class="bi bi-x-lg"></i></a>{% endif %}
   </form>
 </div>
 
 <!-- Claims table -->
-<div class="card-modern rounded-2xl overflow-hidden animate-fade-in">
+<div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
   <div class="overflow-x-auto">
-    <table class="table-modern">
-      <thead>
+    <table class="min-w-full divide-y divide-gray-300">
+      <thead class="bg-gray-50">
         <tr>
-          <th class="w-8"><input type="checkbox" id="select-all" class="checkbox checkbox-sm" title="Select all on this page" onchange="toggleSelectAll(this)"></th>
-          <th>Claim</th>
-          <th>Status</th>
-          <th>Attention</th>
-          <th>Zendesk</th>
+          <th scope="col" class="relative w-12 px-4 py-3 sm:pl-6"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)" title="Select all on this page" class="size-4 rounded border-gray-300 accent-indigo-600"></th>
+          <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Claim</th>
+          <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+          <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Attention</th>
+          <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Zendesk</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody class="divide-y divide-gray-200 bg-white">
         {% for claim in claims %}
-        <tr class="hover:bg-base-200/40 transition-colors cursor-pointer"
-            onclick="if(!event.target.closest('a,input,button,details,label')) window.location='{% url 'agent_claim_detail' claim.id %}'">
-          <td><input type="checkbox" class="checkbox checkbox-sm row-check" value="{{ claim.id }}" onchange="updateBulkButton()"></td>
-          <td>
-            <div class="font-mono font-semibold text-primary">{{ claim.alf_claim_id|default:"(no number)" }}</div>
-            <div class="text-sm">{{ claim.client_name|default:claim.client_email }}</div>
-            {% if claim.client_name %}<div class="text-xs text-base-content/50">{{ claim.client_email }}</div>{% endif %}
+        <tr class="cursor-pointer transition-colors hover:bg-gray-50"
+            onclick="if(!event.target.closest('a,input,button,details,label,summary')) window.location='{% url 'agent_claim_detail' claim.id %}'">
+          <td class="px-4 py-4 sm:pl-6"><input type="checkbox" class="row-check size-4 rounded border-gray-300 accent-indigo-600" value="{{ claim.id }}" onchange="updateBulkButton()"></td>
+          <td class="px-3 py-4 whitespace-nowrap">
+            <div class="font-mono text-sm font-semibold text-indigo-600">{{ claim.alf_claim_id|default:"(no number)" }}</div>
+            <div class="text-sm font-medium text-gray-900">{{ claim.client_name|default:claim.client_email }}</div>
+            {% if claim.client_name %}<div class="text-xs text-gray-500">{{ claim.client_email }}</div>{% endif %}
           </td>
-          <td>
+          <td class="px-3 py-4">
             <div class="flex flex-wrap items-center gap-1.5">
-              <span class="badge rounded-full whitespace-nowrap {% if 'object found' in claim.status|lower %}badge-soft-success{% elif claim.status_category == 'solved' %}badge-soft-neutral{% elif claim.status_category == 'pending' or claim.status_category == 'hold' %}badge-soft-warning{% elif claim.status_category == 'new' or claim.status_category == 'open' %}badge-soft-info{% else %}badge-soft-neutral{% endif %}">
+              <span class="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset {% if 'object found' in claim.status|lower %}bg-green-50 text-green-700 ring-green-600/20{% elif claim.status_category == 'solved' %}bg-gray-50 text-gray-600 ring-gray-500/10{% elif claim.status_category == 'pending' or claim.status_category == 'hold' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif claim.status_category == 'new' or claim.status_category == 'open' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">
                 {{ claim.status|default:"—" }}
               </span>
-              {% if claim.refund_exists %}<span class="badge badge-refund rounded-full">Refund</span>{% endif %}
-              {% if claim.dispute_exists %}<span class="badge badge-soft-error rounded-full">Dispute</span>{% endif %}
+              {% if claim.refund_exists %}<span class="inline-flex items-center rounded-full bg-teal-50 px-2 py-1 text-xs font-medium text-teal-700 ring-1 ring-inset ring-teal-600/20">Refund</span>{% endif %}
+              {% if claim.dispute_exists %}<span class="inline-flex items-center rounded-full bg-red-50 px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-600/10">Dispute</span>{% endif %}
             </div>
             {% if claim.days_in_status is not None and claim.status_category != 'solved' %}
-            <div class="text-xs mt-1 {% if claim.stuck %}text-warning{% else %}text-base-content/40{% endif %}">
+            <div class="mt-1 text-xs {% if claim.stuck %}text-amber-600{% else %}text-gray-400{% endif %}">
               {% if claim.stuck %}<i class="bi bi-hourglass-split"></i> {% endif %}{{ claim.days_in_status }}d in status
             </div>
             {% endif %}
           </td>
-          <td>
+          <td class="px-3 py-4">
             <div class="flex flex-wrap items-center gap-2">
               {% if claim.risk_active %}
-              <span class="text-error text-sm" title="{{ claim.risk_reason_labels|join:', ' }}">
+              <span class="inline-flex items-center gap-1 text-sm font-medium text-red-600" title="{{ claim.risk_reason_labels|join:', ' }}">
                 <i class="bi bi-exclamation-triangle-fill"></i> {% if claim.risk_level == 'at_risk' %}At risk{% else %}Watch{% endif %}
               </span>
               {% endif %}
               {% if claim.attention_emails %}
-              <span class="text-base-content/70 text-sm" title="Institution emails awaiting a human reply">
+              <span class="inline-flex items-center gap-1 text-sm text-gray-600" title="Institution emails awaiting a human reply">
                 <i class="bi bi-envelope-exclamation"></i> {{ claim.attention_emails }}
               </span>
               {% endif %}
-              {% if not claim.risk_active and not claim.attention_emails %}<span class="text-base-content/30">—</span>{% endif %}
+              {% if not claim.risk_active and not claim.attention_emails %}<span class="text-gray-300">—</span>{% endif %}
             </div>
           </td>
-          <td>
+          <td class="px-3 py-4 whitespace-nowrap">
             {% if claim.zd_ticket_id and zd_ticket_base %}
             <a href="{{ zd_ticket_base }}{{ claim.zd_ticket_id }}" target="_blank" rel="noopener"
-               class="link link-primary text-sm whitespace-nowrap" title="Open ticket in Zendesk">#{{ claim.zd_ticket_id }} <i class="bi bi-box-arrow-up-right text-xs"></i></a>
-            {% else %}<span class="text-base-content/40">{{ claim.zd_ticket_id|default:"—" }}</span>{% endif %}
+               class="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-500" title="Open ticket in Zendesk">#{{ claim.zd_ticket_id }} <i class="bi bi-box-arrow-up-right text-xs"></i></a>
+            {% else %}<span class="text-sm text-gray-400">{{ claim.zd_ticket_id|default:"—" }}</span>{% endif %}
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="5" class="text-center py-10">
-          <i class="bi bi-inbox text-4xl text-base-content/30"></i>
-          <p class="text-base-content/60 mt-2 mb-0">{% if tab == 'problems' %}Nothing needs attention right now.{% else %}No claims in this view.{% endif %}</p>
-          {% if search_query %}<a href="?tab={{ tab }}" class="link link-primary text-sm">Clear search</a>{% endif %}
-        </td></tr>
+        <tr>
+          <td colspan="5" class="px-3 py-16 text-center">
+            <i class="bi bi-inbox text-4xl text-gray-300"></i>
+            <p class="mt-2 text-sm text-gray-500">{% if tab == 'problems' %}Nothing needs attention right now.{% else %}No claims in this view.{% endif %}</p>
+            {% if search_query %}<a href="?tab={{ tab }}" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Clear search</a>{% endif %}
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
@@ -123,17 +132,17 @@
 
   <!-- Pagination -->
   {% if page_obj.has_other_pages %}
-  <div class="flex justify-center p-4">
-    <div class="join">
+  <nav class="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6">
+    <p class="hidden text-sm text-gray-700 sm:block">Page <span class="font-medium">{{ page_obj.number }}</span> of <span class="font-medium">{{ page_obj.paginator.num_pages }}</span></p>
+    <div class="flex flex-1 justify-between gap-2 sm:justify-end">
       {% if page_obj.has_previous %}
-      <a href="?tab={{ tab }}&page={{ page_obj.previous_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="btn btn-sm join-item rounded-xl"><i class="bi bi-chevron-left"></i> Prev</a>
+      <a href="?tab={{ tab }}&page={{ page_obj.previous_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Previous</a>
       {% endif %}
-      <button class="btn btn-sm join-item btn-active rounded-xl">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</button>
       {% if page_obj.has_next %}
-      <a href="?tab={{ tab }}&page={{ page_obj.next_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="btn btn-sm join-item rounded-xl">Next <i class="bi bi-chevron-right"></i></a>
+      <a href="?tab={{ tab }}&page={{ page_obj.next_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Next</a>
       {% endif %}
     </div>
-  </div>
+  </nav>
   {% endif %}
 </div>
 
