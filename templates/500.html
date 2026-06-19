@@ -1,4 +1,5 @@
 {% extends 'base_auth.html' %}
+{% load heroicons %}
 
 {% block title %}Server Error{% endblock %}
 
@@ -8,7 +9,7 @@
         <div class="lora-card p-8 text-center sm:p-10">
             <!-- Error Icon -->
             <div class="mx-auto h-16 w-16 bg-red-50 rounded-2xl flex items-center justify-center mb-6">
-                <i class="bi bi-x-octagon text-3xl text-red-600"></i>
+                {% heroicon_outline "x-circle" class="size-10 text-red-600" %}
             </div>
 
             <!-- Error Message -->
@@ -26,19 +27,19 @@
                 <ul class="space-y-3">
                     <li class="flex items-center gap-3 text-sm text-gray-600">
                         <span class="h-8 w-8 rounded-lg bg-gray-50 flex items-center justify-center shrink-0">
-                            <i class="bi bi-arrow-clockwise text-gray-500"></i>
+                            {% heroicon_outline "arrow-path" class="size-4 text-gray-500" %}
                         </span>
                         Refresh the page
                     </li>
                     <li class="flex items-center gap-3 text-sm text-gray-600">
                         <span class="h-8 w-8 rounded-lg bg-gray-50 flex items-center justify-center shrink-0">
-                            <i class="bi bi-arrow-left text-gray-500"></i>
+                            {% heroicon_outline "arrow-left" class="size-4 text-gray-500" %}
                         </span>
                         Go back to the previous page
                     </li>
                     <li class="flex items-center gap-3 text-sm text-gray-600">
                         <span class="h-8 w-8 rounded-lg bg-gray-50 flex items-center justify-center shrink-0">
-                            <i class="bi bi-envelope text-gray-500"></i>
+                            {% heroicon_outline "envelope" class="size-4 text-gray-500" %}
                         </span>
                         Contact support if the problem persists
                     </li>
@@ -49,15 +50,15 @@
             <div class="flex flex-col sm:flex-row gap-3 justify-center mt-8">
                 {% if user.is_authenticated %}
                     <a href="{% url 'dashboard' %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md px-3 py-2 text-sm font-semibold shadow-xs bg-indigo-600 text-white hover:bg-indigo-500">
-                        <i class="bi bi-house"></i> Go to Dashboard
+                        {% heroicon_outline "home" class="size-4" %} Go to Dashboard
                     </a>
                 {% else %}
                     <a href="{% url 'login' %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md px-3 py-2 text-sm font-semibold shadow-xs bg-indigo-600 text-white hover:bg-indigo-500">
-                        <i class="bi bi-box-arrow-in-right"></i> Go to Login
+                        {% heroicon_outline "arrow-right-end-on-rectangle" class="size-4" %} Go to Login
                     </a>
                 {% endif %}
                 <button onclick="history.back()" class="inline-flex items-center justify-center gap-x-1.5 rounded-md px-3 py-2 text-sm font-semibold shadow-xs bg-white text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-                    <i class="bi bi-arrow-left"></i> Go back
+                    {% heroicon_outline "arrow-left" class="size-4" %} Go back
                 </button>
             </div>
         </div>

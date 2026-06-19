@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load heroicons %}
 
 {% block title %}AI Agent Chat{% endblock %}
 
@@ -11,7 +12,7 @@
     <div class="flex flex-wrap justify-between items-start gap-3 mb-6">
         <div class="flex items-start gap-3">
             <div class="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
-                <i class="bi bi-robot text-xl"></i>
+                {% heroicon_outline "cpu-chip" class="size-6" %}
             </div>
             <div>
                 <h2 class="lora-page-title">AI Agent Chat</h2>
@@ -19,7 +20,7 @@
             </div>
         </div>
         <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md px-2.5 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100" onclick="clearChat()" title="Clear conversation">
-            <i class="bi bi-trash"></i> Clear
+            {% heroicon_outline "trash" class="size-4" %} Clear
         </button>
     </div>
 
@@ -30,17 +31,17 @@
             <!-- Welcome Message -->
             <div class="flex gap-3">
                 <div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center flex-shrink-0">
-                    <i class="bi bi-robot text-sm"></i>
+                    {% heroicon_outline "cpu-chip" class="size-4" %}
                 </div>
                 <div class="flex-1">
                     <div class="rounded-2xl bg-gray-50 ring-1 ring-inset ring-gray-200 p-4">
                         <p class="lora-prose">Hello! I'm your AI assistant for LORA. I can help you find information about claims.</p>
                         <p class="lora-prose mt-2 text-gray-600">Try asking me things like:</p>
                         <ul class="lora-prose mt-2 space-y-1.5 text-gray-600">
-                            <li class="flex items-start gap-2"><i class="bi bi-chevron-right text-xs text-indigo-600 mt-1"></i><span>"What's the status of ALF1234567?"</span></li>
-                            <li class="flex items-start gap-2"><i class="bi bi-chevron-right text-xs text-indigo-600 mt-1"></i><span>"Show me emails for ALF-7654321"</span></li>
-                            <li class="flex items-start gap-2"><i class="bi bi-chevron-right text-xs text-indigo-600 mt-1"></i><span>"Has ALF1234567 been refunded?"</span></li>
-                            <li class="flex items-start gap-2"><i class="bi bi-chevron-right text-xs text-indigo-600 mt-1"></i><span>"What's in the Zendesk ticket for ALF1234567?"</span></li>
+                            <li class="flex items-start gap-2">{% heroicon_outline "chevron-right" class="size-3.5 text-indigo-600 mt-1" %}<span>"What's the status of ALF1234567?"</span></li>
+                            <li class="flex items-start gap-2">{% heroicon_outline "chevron-right" class="size-3.5 text-indigo-600 mt-1" %}<span>"Show me emails for ALF-7654321"</span></li>
+                            <li class="flex items-start gap-2">{% heroicon_outline "chevron-right" class="size-3.5 text-indigo-600 mt-1" %}<span>"Has ALF1234567 been refunded?"</span></li>
+                            <li class="flex items-start gap-2">{% heroicon_outline "chevron-right" class="size-3.5 text-indigo-600 mt-1" %}<span>"What's in the Zendesk ticket for ALF1234567?"</span></li>
                         </ul>
                     </div>
                     <div class="lora-meta mt-1 ml-2">Just now</div>
@@ -59,7 +60,7 @@
                     autocomplete="off"
                 >
                 <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500" id="sendBtn">
-                    <i class="bi bi-send"></i> <span class="hidden sm:inline">Send</span>
+                    {% heroicon_outline "paper-airplane" class="size-4" %} <span class="hidden sm:inline">Send</span>
                 </button>
             </form>
             <p class="lora-meta mt-2 px-1">Press Enter to send. Claim IDs are clickable to copy.</p>
@@ -106,8 +107,8 @@ function addMessage(role, content, timestamp = new Date()) {
     messageDiv.className = `flex gap-3 ${role === 'user' ? 'flex-row-reverse' : ''}`;
 
     const avatar = role === 'user'
-        ? '<div class="w-8 h-8 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center flex-shrink-0"><i class="bi bi-person text-sm"></i></div>'
-        : '<div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center flex-shrink-0"><i class="bi bi-robot text-sm"></i></div>';
+        ? '<div class="w-8 h-8 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center flex-shrink-0"><svg class="size-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg></div>'
+        : '<div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center flex-shrink-0"><svg class="size-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Zm.75-12h9v9h-9v-9Z"/></svg></div>';
 
     const bubbleClass = role === 'user'
         ? 'bg-indigo-600 text-white'
@@ -139,7 +140,7 @@ function showLoading() {
     loadingDiv.className = 'flex gap-3';
     loadingDiv.innerHTML = `
         <div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center flex-shrink-0">
-            <i class="bi bi-robot text-sm"></i>
+            <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Zm.75-12h9v9h-9v-9Z"/></svg>
         </div>
         <div class="flex-1">
             <div class="rounded-2xl bg-gray-50 ring-1 ring-inset ring-gray-200 p-4 inline-block">
@@ -241,7 +242,7 @@ function clearChat() {
     chatMessages.innerHTML = `
         <div class="flex gap-3">
             <div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center flex-shrink-0">
-                <i class="bi bi-robot text-sm"></i>
+                <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Zm.75-12h9v9h-9v-9Z"/></svg>
             </div>
             <div class="flex-1">
                 <div class="rounded-2xl bg-gray-50 ring-1 ring-inset ring-gray-200 p-4">

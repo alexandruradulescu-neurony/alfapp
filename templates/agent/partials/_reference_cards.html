@@ -1,3 +1,4 @@
+{% load heroicons %}
 {% comment %}
 Reference cards — collapsed by default using the browser's native <details>
 (CSP-safe, no JS). These hold facts the manager only occasionally needs: status
@@ -10,33 +11,33 @@ id) are demoted in here.
 {# ── Status ── (open by default — the at-a-glance state belongs visible) #}
 <details class="lora-card p-4" open>
   <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
-    <span class="lora-card-title"><i class="bi bi-shield-check text-gray-500"></i> Status</span>
-    <i class="bi bi-chevron-down text-gray-400"></i>
+    <span class="lora-card-title">{% heroicon_outline "shield-check" class="size-4 text-gray-500" %} Status</span>
+    {% heroicon_outline "chevron-down" class="size-4 text-gray-400" %}
   </summary>
   <div class="mt-3 space-y-2">
     <div class="flex items-center justify-between p-2 rounded-lg bg-gray-50">
-      <span class="text-sm flex items-center gap-2 text-gray-900"><i class="bi bi-box-seam text-gray-500"></i> Case</span>
+      <span class="text-sm flex items-center gap-2 text-gray-900">{% heroicon_outline "cube" class="size-4 text-gray-500" %} Case</span>
       <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if claim.status_category == 'solved' %}bg-gray-50 text-gray-600 ring-gray-500/10{% else %}bg-green-50 text-green-700 ring-green-600/20{% endif %}">
         {% if claim.status_category == 'solved' %}Closed{% else %}Active{% endif %}
       </span>
     </div>
     <div class="flex items-center justify-between p-2 rounded-lg bg-gray-50">
-      <span class="text-sm flex items-center gap-2 text-gray-900"><i class="bi bi-currency-dollar text-gray-500"></i> Financial</span>
+      <span class="text-sm flex items-center gap-2 text-gray-900">{% heroicon_outline "currency-dollar" class="size-4 text-gray-500" %} Financial</span>
       <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if claim_refund_status == 'COMPLETED' %}bg-green-50 text-green-700 ring-green-600/20{% elif claim_refund_status %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">
         {% if claim_refund_status == 'COMPLETED' %}Refunded{% elif claim_refund_status %}{{ claim_refund_status|title }}{% else %}No action{% endif %}
       </span>
     </div>
     <div class="flex items-center justify-between p-2 rounded-lg bg-gray-50">
-      <span class="text-sm flex items-center gap-2 text-gray-900"><i class="bi bi-exclamation-triangle text-gray-500"></i> Dispute</span>
+      <span class="text-sm flex items-center gap-2 text-gray-900">{% heroicon_outline "exclamation-triangle" class="size-4 text-gray-500" %} Dispute</span>
       <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if claim.disputes.all %}bg-red-50 text-red-700 ring-red-600/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">
         {% if claim.disputes.all %}Active dispute{% else %}No dispute{% endif %}
       </span>
     </div>
-    <p class="text-xs text-gray-500 pt-1 mb-0"><i class="bi bi-arrow-repeat"></i> Status follows the Zendesk ticket automatically{% if claim.status_changed_at %} · since {{ claim.status_changed_at|date:"M d, Y H:i" }}{% endif %}.</p>
+    <p class="text-xs text-gray-500 pt-1 mb-0">{% heroicon_outline "arrow-path" class="size-4" %} Status follows the Zendesk ticket automatically{% if claim.status_changed_at %} · since {{ claim.status_changed_at|date:"M d, Y H:i" }}{% endif %}.</p>
     {% if claim.zd_ticket_id and zd_subdomain %}
     <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ claim.zd_ticket_id }}"
        target="_blank" rel="noopener" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-      <i class="bi bi-box-arrow-up-right"></i> Open ticket in Zendesk
+      {% heroicon_outline "arrow-top-right-on-square" class="size-4" %} Open ticket in Zendesk
     </a>
     {% endif %}
     <div class="text-xs text-gray-500 pt-1 space-y-1">
@@ -49,8 +50,8 @@ id) are demoted in here.
 {# ── Client ── #}
 <details class="lora-card p-4">
   <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
-    <span class="lora-card-title"><i class="bi bi-person-circle text-gray-500"></i> Client</span>
-    <i class="bi bi-chevron-down text-gray-400"></i>
+    <span class="lora-card-title">{% heroicon_outline "user-circle" class="size-4 text-gray-500" %} Client</span>
+    {% heroicon_outline "chevron-down" class="size-4 text-gray-400" %}
   </summary>
   <div class="mt-3 space-y-3">
     <p class="lora-value font-semibold mb-0">{{ claim.client_name|default:"(name not on file)" }}</p>
@@ -92,8 +93,8 @@ id) are demoted in here.
 {# ── Case facts ── #}
 <details class="lora-card p-4">
   <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
-    <span class="lora-card-title"><i class="bi bi-box-seam text-gray-500"></i> Case facts</span>
-    <i class="bi bi-chevron-down text-gray-400"></i>
+    <span class="lora-card-title">{% heroicon_outline "cube" class="size-4 text-gray-500" %} Case facts</span>
+    {% heroicon_outline "chevron-down" class="size-4 text-gray-400" %}
   </summary>
   <div class="mt-3 space-y-3">
     <div>
@@ -145,8 +146,8 @@ id) are demoted in here.
 {# ── Flight ── #}
 <details class="lora-card p-4">
   <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
-    <span class="lora-card-title"><i class="bi bi-airplane text-gray-500"></i> Flight</span>
-    <i class="bi bi-chevron-down text-gray-400"></i>
+    <span class="lora-card-title">{% heroicon_outline "paper-airplane" class="size-4 text-gray-500" %} Flight</span>
+    {% heroicon_outline "chevron-down" class="size-4 text-gray-400" %}
   </summary>
   <div class="mt-3">
     {% if claim.flight_data %}
@@ -194,7 +195,7 @@ id) are demoted in here.
     {% elif claim.flight_details %}
       <p class="text-sm mb-2 text-gray-900">{{ claim.flight_details|linebreaks }}</p>
       <p class="text-xs text-gray-400 mb-0">
-        <i class="bi bi-info-circle"></i> Not verified yet — use <b>Find flight info</b> in the Zendesk sidebar to look it up and cross-check.
+        {% heroicon_outline "information-circle" class="size-4" %} Not verified yet — use <b>Find flight info</b> in the Zendesk sidebar to look it up and cross-check.
       </p>
     {% else %}
       <p class="text-gray-400 text-sm mb-0">No flight details provided.</p>
@@ -205,8 +206,8 @@ id) are demoted in here.
 {# ── Refunds & evidence ── #}
 <details class="lora-card p-4">
   <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
-    <span class="lora-card-title"><i class="bi bi-currency-exchange text-gray-500"></i> Refunds &amp; evidence</span>
-    <i class="bi bi-chevron-down text-gray-400"></i>
+    <span class="lora-card-title">{% heroicon_outline "receipt-refund" class="size-4 text-gray-500" %} Refunds &amp; evidence</span>
+    {% heroicon_outline "chevron-down" class="size-4 text-gray-400" %}
   </summary>
   <div class="mt-3">
 
@@ -246,13 +247,13 @@ id) are demoted in here.
     {% if claim_refund_status != 'COMPLETED' %}
     <button type="button" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-amber-500 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-amber-400 mb-3"
             onclick="document.getElementById('refundModal').showModal()">
-      <i class="bi bi-currency-exchange"></i> Grant refund
+      {% heroicon_outline "receipt-refund" class="size-4" %} Grant refund
     </button>
     {% endif %}
 
     {# Evidence upload #}
     <div class="border-t border-gray-200 pt-3">
-      <p class="text-sm font-semibold mb-2 flex items-center gap-2 text-gray-900"><i class="bi bi-images text-gray-500"></i> Evidence ({{ claim.evidence.count }})</p>
+      <p class="text-sm font-semibold mb-2 flex items-center gap-2 text-gray-900">{% heroicon_outline "photo" class="size-4 text-gray-500" %} Evidence ({{ claim.evidence.count }})</p>
       <form method="post" action="{% url 'agent_upload_evidence' claim.id %}"
             enctype="multipart/form-data"
             hx-post="{% url 'agent_upload_evidence' claim.id %}" hx-encoding="multipart/form-data"
@@ -261,7 +262,7 @@ id) are demoted in here.
         <input type="file" class="block w-full text-sm text-gray-500 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-indigo-600 hover:file:bg-indigo-100" name="image" accept="image/*" required>
         <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="description" placeholder="Description (optional)">
         <button type="submit" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-green-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-green-500">
-          <i class="bi bi-upload"></i> Upload
+          {% heroicon_outline "arrow-up-tray" class="size-4" %} Upload
         </button>
       </form>
 
@@ -308,7 +309,7 @@ showModal(); the data-* attributes drive refresh/toast/close via lora-htmx.js
   <div class="rounded-2xl bg-white p-6 shadow-xl max-w-2xl">
     <div class="flex items-start justify-between mb-4">
       <h3 class="font-bold text-lg flex items-center gap-2 m-0 text-gray-900">
-        <i class="bi bi-currency-exchange text-amber-600"></i>
+        {% heroicon_outline "receipt-refund" class="size-4 text-amber-600" %}
         Grant refund for claim #{{ claim.alf_claim_id|default:claim.id }}
       </h3>
       <form method="dialog"><button class="inline-flex items-center justify-center rounded-md p-2 text-gray-500 hover:bg-gray-100" aria-label="Close">✕</button></form>
@@ -347,7 +348,7 @@ showModal(); the data-* attributes drive refresh/toast/close via lora-htmx.js
                  class="block w-full rounded-md bg-white py-1.5 pl-8 pr-3 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" placeholder="0.00" />
         </div>
         <p class="mt-1 text-xs text-gray-500">
-          <i class="bi bi-info-circle"></i> Pre-filled with the remaining refundable amount. Choose partial to enter less.
+          {% heroicon_outline "information-circle" class="size-4" %} Pre-filled with the remaining refundable amount. Choose partial to enter less.
         </p>
       </div>
 
@@ -359,7 +360,7 @@ showModal(); the data-* attributes drive refresh/toast/close via lora-htmx.js
       </div>
 
       <div class="rounded-md p-4 text-sm ring-1 ring-inset bg-yellow-50 text-yellow-800 ring-yellow-600/20 mb-4 flex items-start gap-2">
-        <i class="bi bi-exclamation-triangle mt-0.5"></i>
+        {% heroicon_outline "exclamation-triangle" class="size-4 mt-0.5" %}
         <span><strong>Warning:</strong> this action will initiate a refund via PayPal. Ensure all verification steps have been completed.</span>
       </div>
 

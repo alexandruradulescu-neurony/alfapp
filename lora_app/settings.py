@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'django_filters',
     'auditlog',
     'csp',
+    'heroicons',
     # Local apps
     'apps.users',
     'apps.claims',

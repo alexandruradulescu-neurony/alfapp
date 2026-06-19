@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load heroicons %}
 
 {% block title %}Dispute — {{ dispute.buyer_name|default:dispute.buyer_email }}{% endblock %}
 
@@ -7,7 +8,7 @@
 
 <!-- Back -->
 <a href="{% url 'disputes:dispute_list' %}" class="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors mb-4">
-  <i class="bi bi-arrow-left"></i> Disputes
+  {% heroicon_outline "arrow-left" class="size-4" %} Disputes
 </a>
 
 <!-- Snapshot header: who + how much + where it stands + the deadline -->
@@ -22,24 +23,24 @@
       <span class="lora-meta">{{ dispute.get_dispute_reason_display|default:"Reason N/A" }}</span>
       {% if dispute.seller_response_due and dispute.deadline_state %}
       <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset whitespace-nowrap {% if dispute.deadline_state == 'overdue' %}bg-red-50 text-red-700 ring-red-600/10{% elif dispute.deadline_state == 'soon' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">
-        <i class="bi bi-alarm"></i>
+        {% heroicon_outline "bell-alert" class="size-4" %}
         {% if dispute.deadline_state == 'overdue' %}Overdue {{ dispute.seller_response_due|date:"M d" }}{% else %}Due {{ dispute.seller_response_due|date:"M d" }}{% endif %}
       </span>
       {% endif %}
-      <span class="lora-meta inline-flex items-center gap-1"><i class="bi bi-paypal"></i> {{ dispute.paypal_dispute_id }}</span>
+      <span class="lora-meta inline-flex items-center gap-1">{% heroicon_outline "credit-card" class="size-4" %} {{ dispute.paypal_dispute_id }}</span>
     </div>
   </div>
   <div class="flex items-center gap-2 shrink-0">
     {% if dispute.zd_ticket_id %}
     <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ dispute.zd_ticket_id }}" target="_blank" rel="noopener" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-      <i class="bi bi-ticket-perforated"></i> #{{ dispute.zd_ticket_id }}
+      {% heroicon_outline "ticket" class="size-4" %} #{{ dispute.zd_ticket_id }}
     </a>
     {% endif %}
     <details class="relative inline-block">
-      <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer inline-flex items-center justify-center rounded-md p-2 text-gray-600 hover:bg-gray-100" title="More"><i class="bi bi-three-dots-vertical"></i></summary>
+      <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer inline-flex items-center justify-center rounded-md p-2 text-gray-600 hover:bg-gray-100" title="More">{% heroicon_outline "ellipsis-vertical" class="size-4" %}</summary>
       <div class="absolute right-0 z-20 mt-2 w-64 origin-top-right rounded-lg bg-white p-2 shadow-lg ring-1 ring-black/5">
         {% if dispute.claim %}
-        <a href="{% url 'agent_claim_detail' dispute.claim.id %}" class="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="bi bi-clipboard-data"></i> View linked claim</a>
+        <a href="{% url 'agent_claim_detail' dispute.claim.id %}" class="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">{% heroicon_outline "clipboard-document-list" class="size-4" %} View linked claim</a>
         {% endif %}
         <form method="post" action="{% url 'disputes:dispute_accept_claim' dispute.id %}"
               onsubmit="return confirm('Accept this claim and issue a refund? This concedes the dispute and cannot be undone.');">
@@ -47,7 +48,7 @@
           <input type="hidden" name="note" value="Claim accepted via LORA system">
           <button type="submit" class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-amber-600 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
                   {% if dispute.status == 'ACCEPTED' or dispute.status == 'RESOLVED_WON' or dispute.status == 'RESOLVED_LOST' %}disabled{% endif %}>
-            <i class="bi bi-hand-thumbs-up"></i> Accept claim (refund)
+            {% heroicon_outline "hand-thumb-up" class="size-4" %} Accept claim (refund)
           </button>
         </form>
       </div>
@@ -58,7 +59,7 @@
 <!-- Urgent: deadline — a missed PayPal deadline auto-loses the dispute -->
 {% if dispute.deadline_state == 'overdue' or dispute.deadline_state == 'soon' %}
 <div class="rounded-md p-4 flex items-center gap-3 mb-5 text-sm ring-1 ring-inset {% if dispute.deadline_state == 'overdue' %}bg-red-50 text-red-700 ring-red-600/10{% else %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% endif %}">
-  <i class="bi bi-alarm text-lg shrink-0"></i>
+  {% heroicon_outline "bell-alert" class="size-5 shrink-0" %}
   <div>
     <span class="font-semibold">{% if dispute.deadline_state == 'overdue' %}Response deadline PASSED{% else %}Respond to PayPal by{% endif %}:</span>
     {{ dispute.seller_response_due|date:"M d, Y H:i" }}
@@ -69,7 +70,7 @@
 
 {% if not dispute.claim %}
 <div class="rounded-md bg-yellow-50 text-yellow-800 ring-1 ring-inset ring-yellow-600/20 p-3 text-sm flex items-center gap-2 mb-5">
-  <i class="bi bi-exclamation-triangle shrink-0"></i> Not linked to a claim yet — link it below so the evidence report can be built.
+  {% heroicon_outline "exclamation-triangle" class="size-4 shrink-0" %} Not linked to a claim yet — link it below so the evidence report can be built.
 </div>
 {% endif %}
 
@@ -81,13 +82,13 @@
     <div class="lora-card p-6">
       <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-5">
         <h3 class="lora-card-title m-0">
-          <i class="bi bi-chat-left-dots text-gray-600"></i> Conversation with PayPal
+          {% heroicon_outline "chat-bubble-left-right" class="size-4 text-gray-600" %} Conversation with PayPal
         </h3>
         {% if dispute.paypal_dispute_id|slice:":7" != "MANUAL-" %}
         <form method="post" action="{% url 'disputes:dispute_refresh_from_paypal' dispute.id %}" class="inline">
           {% csrf_token %}
           <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Pull the latest messages and status from PayPal into this thread">
-            <i class="bi bi-arrow-clockwise"></i> Refresh from PayPal
+            {% heroicon_outline "arrow-path" class="size-4" %} Refresh from PayPal
           </button>
         </form>
         {% endif %}
@@ -113,9 +114,9 @@
               <div class="flex flex-wrap items-center gap-1.5 mt-2">
                 {% if e.status %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if e.status == 'SUBMITTED' %}bg-green-50 text-green-700 ring-green-600/20{% elif e.status == 'FAILED' %}bg-red-50 text-red-700 ring-red-600/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ e.status }}</span>{% endif %}
                 {% if e.source %}<span class="lora-meta">{{ e.source }}</span>{% endif %}
-                {% if e.attached_pdf %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-blue-50 text-blue-700 ring-blue-700/10"><i class="bi bi-paperclip mr-0.5"></i> report PDF</span>{% endif %}
-                {% if e.image_count %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10"><i class="bi bi-image mr-0.5"></i> {{ e.image_count }}</span>{% endif %}
-                {% if e.doc_count %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10"><i class="bi bi-paperclip mr-0.5"></i> {{ e.doc_count }} file{{ e.doc_count|pluralize }}</span>{% endif %}
+                {% if e.attached_pdf %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-blue-50 text-blue-700 ring-blue-700/10">{% heroicon_outline "paper-clip" class="size-4 mr-0.5" %} report PDF</span>{% endif %}
+                {% if e.image_count %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">{% heroicon_outline "photo" class="size-4 mr-0.5" %} {{ e.image_count }}</span>{% endif %}
+                {% if e.doc_count %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">{% heroicon_outline "paper-clip" class="size-4 mr-0.5" %} {{ e.doc_count }} file{{ e.doc_count|pluralize }}</span>{% endif %}
               </div>
               {% endif %}
               {% if e.text %}
@@ -131,7 +132,7 @@
       </div>
       {% else %}
       <div class="text-center py-8">
-        <i class="bi bi-chat-left-dots text-2xl text-gray-300"></i>
+        {% heroicon_outline "chat-bubble-left-right" class="size-8 text-gray-300" %}
         <p class="lora-value font-medium mt-2 mb-0">No messages yet</p>
         <span class="lora-meta">Your replies and PayPal's responses appear here in order.</span>
       </div>
@@ -142,7 +143,7 @@
     <div class="lora-card p-6">
       <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
         <h3 class="lora-card-title m-0">
-          <i class="bi bi-reply text-gray-600"></i> Your reply to PayPal
+          {% heroicon_outline "arrow-uturn-left" class="size-4 text-gray-600" %} Your reply to PayPal
         </h3>
         {% if submit_endpoint == 'provide-evidence' %}
         <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-blue-50 text-blue-700 ring-blue-700/10">First response · evidence</span>
@@ -155,7 +156,7 @@
 
       {% if not submit_endpoint %}
       <div class="rounded-md bg-gray-50 text-gray-600 ring-1 ring-inset ring-gray-500/10 p-3 text-sm flex items-start gap-2 mb-4">
-        <i class="bi bi-info-circle shrink-0 mt-0.5"></i>
+        {% heroicon_outline "information-circle" class="size-4 shrink-0 mt-0.5" %}
         <span>{{ reply_window_reason }}</span>
       </div>
       {% endif %}
@@ -170,7 +171,7 @@
                     class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"
                     placeholder="e.g. Stress that they emailed us from the same IP they used to file the claim.">{{ draft_submission.manager_note }}</textarea>
           <button type="submit" name="action" value="generate" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50 mt-2">
-            <i class="bi bi-magic"></i> Draft with AI
+            {% heroicon_outline "sparkles" class="size-4" %} Draft with AI
           </button>
           {% if draft_submission %}
           <span class="lora-meta ml-2">Current draft: {{ draft_submission.get_source_display }}</span>
@@ -215,7 +216,7 @@
         </div>
 
         <button type="submit" name="action" value="save" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-          <i class="bi bi-save"></i> Save draft
+          {% heroicon_outline "arrow-down-tray" class="size-4" %} Save draft
         </button>
       </form>
 
@@ -229,7 +230,7 @@
             <img src="{{ img.file.url }}" alt="attachment" class="h-20 w-20 object-cover rounded-xl border border-gray-200">
             <form method="post" action="{% url 'disputes:dispute_delete_submission_image' img.id %}" class="absolute -top-2 -right-2">
               {% csrf_token %}
-              <button type="submit" class="inline-flex items-center justify-center rounded-full bg-red-600 p-1.5 text-xs text-white shadow-xs hover:bg-red-500" title="Remove"><i class="bi bi-x"></i></button>
+              <button type="submit" class="inline-flex items-center justify-center rounded-full bg-red-600 p-1.5 text-xs text-white shadow-xs hover:bg-red-500" title="Remove">{% heroicon_outline "x-mark" class="size-4" %}</button>
             </form>
           </div>
           {% endfor %}
@@ -244,7 +245,7 @@
         {% csrf_token %}
         <button type="submit" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 {% if not draft_submission or not draft_submission.notes or not submit_endpoint %}disabled{% endif %}>
-          <i class="bi bi-send"></i>
+          {% heroicon_outline "paper-airplane" class="size-4" %}
           {% if submit_endpoint == 'provide-supporting-info' %}Send follow-up to PayPal{% else %}Send reply to PayPal{% endif %}
         </button>
         {% if not draft_submission or not draft_submission.notes %}
@@ -257,7 +258,7 @@
     <details class="lora-card overflow-hidden" {% if documents %}open{% endif %}>
       <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 p-6">
         <span class="lora-card-title">
-          <i class="bi bi-file-earmark-text text-gray-600"></i> Evidence report
+          {% heroicon_outline "document-text" class="size-4 text-gray-600" %} Evidence report
           <span class="lora-meta font-normal">— generate, then tick "Attach the evidence-report PDF" in your reply</span>
         </span>
       </summary>
@@ -266,7 +267,7 @@
           {% csrf_token %}
           <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                   {% if not dispute.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
-            <i class="bi bi-magic"></i> Generate evidence report
+            {% heroicon_outline "sparkles" class="size-4" %} Generate evidence report
           </button>
         </form>
         {% if documents %}
@@ -295,13 +296,13 @@
                 <td class="px-3 py-4 text-sm text-gray-700">
                   <div class="flex gap-1">
                     {% if doc.file_path %}
-                    <a href="{{ doc.file_path.url }}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2 py-1 text-xs font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" target="_blank" title="Download PDF"><i class="bi bi-download"></i></a>
+                    <a href="{{ doc.file_path.url }}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2 py-1 text-xs font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" target="_blank" title="Download PDF">{% heroicon_outline "arrow-down-tray" class="size-4" %}</a>
                     {% endif %}
-                    <a href="{% url 'disputes:dispute_edit_document' doc.id %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2 py-1 text-xs font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Edit"><i class="bi bi-pencil"></i></a>
+                    <a href="{% url 'disputes:dispute_edit_document' doc.id %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2 py-1 text-xs font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Edit">{% heroicon_outline "pencil" class="size-4" %}</a>
                     <form method="post" action="{% url 'disputes:dispute_delete_document' doc.id %}" class="inline"
                           onsubmit="return confirm('Are you sure you want to delete this document?');">
                       {% csrf_token %}
-                      <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2 py-1 text-xs font-semibold text-red-600 shadow-xs ring-1 ring-inset ring-red-300 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed" title="Delete Document" {% if doc.status == 'SENT' %}disabled{% endif %}><i class="bi bi-trash"></i></button>
+                      <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2 py-1 text-xs font-semibold text-red-600 shadow-xs ring-1 ring-inset ring-red-300 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed" title="Delete Document" {% if doc.status == 'SENT' %}disabled{% endif %}>{% heroicon_outline "trash" class="size-4" %}</button>
                     </form>
                   </div>
                 </td>
@@ -319,7 +320,7 @@
     <!-- Reference: dispute facts (collapsed) -->
     <details class="lora-card overflow-hidden">
       <summary class="lora-card-title list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none px-6 py-4">
-        <i class="bi bi-info-circle text-gray-500"></i> Dispute details
+        {% heroicon_outline "information-circle" class="size-4 text-gray-500" %} Dispute details
       </summary>
       <div class="px-6 pb-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
         <div class="flex justify-between gap-4"><dt class="lora-label">Buyer email</dt><dd class="lora-value text-right break-all">{{ dispute.buyer_email }}</dd></div>
@@ -341,7 +342,7 @@
     <!-- Activity log (collapsed) -->
     <details class="lora-card overflow-hidden">
       <summary class="lora-card-title list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none px-6 py-4">
-        <i class="bi bi-clock-history text-gray-500"></i> Activity log
+        {% heroicon_outline "clock" class="size-4 text-gray-500" %} Activity log
       </summary>
       <div class="px-6 pb-6">
         {% if activity_log %}
@@ -369,7 +370,7 @@
   <div class="lg:col-span-1 space-y-6">
     <div class="lora-card p-6">
       <h3 class="lora-card-title mb-5">
-        <i class="bi bi-lightning text-gray-600"></i> Case actions
+        {% heroicon_outline "bolt" class="size-4 text-gray-600" %} Case actions
       </h3>
 
       <!-- Category — the human's pick that drives the evidence report -->
@@ -381,7 +382,7 @@
           <option value="{{ value }}" {% if dispute.dispute_reason == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
-        <button type="submit" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50"><i class="bi bi-tag"></i> Set category</button>
+        <button type="submit" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">{% heroicon_outline "tag" class="size-4" %} Set category</button>
         <span class="lora-meta mt-2 block">Prefilled from PayPal; change if the human review disagrees.</span>
       </form>
 
@@ -391,7 +392,7 @@
       <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}">
         {% csrf_token %}
         <button type="submit" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed" {% if not dispute.zd_ticket_id %}disabled{% endif %}>
-          <i class="bi bi-magic"></i> Generate evidence report
+          {% heroicon_outline "sparkles" class="size-4" %} Generate evidence report
         </button>
         {% if not dispute.zd_ticket_id %}<span class="lora-meta mt-2 block">Requires Zendesk ticket linkage</span>{% endif %}
       </form>
@@ -403,7 +404,7 @@
       <div>
         <span class="lora-eyebrow">Linked claim</span>
         <a href="{% url 'agent_claim_detail' dispute.claim.id %}" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50 mt-2">
-          <i class="bi bi-clipboard-data"></i> View claim #{{ dispute.claim.id }}
+          {% heroicon_outline "clipboard-document-list" class="size-4" %} View claim #{{ dispute.claim.id }}
         </a>
       </div>
       {% else %}
@@ -417,7 +418,7 @@
           <input type="checkbox" name="override" value="1" class="size-4 rounded border-gray-300 accent-indigo-600">
           Link even if PayPal transaction IDs differ
         </label>
-        <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500"><i class="bi bi-link-45deg"></i> Link to claim</button>
+        <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">{% heroicon_outline "link" class="size-4" %} Link to claim</button>
       </form>
       {% endif %}
     </div>
@@ -425,10 +426,10 @@
     <!-- Raw PayPal data (manager debug — verify field mapping against what PayPal sent) -->
     <details class="lora-card overflow-hidden">
       <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none px-5 py-3 text-sm font-medium text-gray-500 flex items-center gap-2">
-        <i class="bi bi-code-square text-gray-400"></i> Raw PayPal data
+        {% heroicon_outline "code-bracket-square" class="size-4 text-gray-400" %} Raw PayPal data
       </summary>
       <div class="px-5 pb-5">
-        <p class="lora-meta mb-2"><i class="bi bi-shield-exclamation"></i> Black out any personal details before sharing this.</p>
+        <p class="lora-meta mb-2">{% heroicon_outline "shield-exclamation" class="size-4" %} Black out any personal details before sharing this.</p>
         <pre class="text-xs bg-gray-50 text-gray-900 rounded-xl p-4 overflow-auto max-h-[28rem] whitespace-pre-wrap break-words mb-0">{{ raw_payload_json }}</pre>
       </div>
     </details>

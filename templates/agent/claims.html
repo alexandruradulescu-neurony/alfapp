@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load heroicons %}
 
 {% block title %}Claims{% endblock %}
 
@@ -12,11 +13,11 @@
   <div class="mt-4 sm:mt-0 flex flex-wrap items-center gap-2">
     <button type="button" id="bulk-delete-btn" onclick="bulkDeleteClaims()" hidden
             class="inline-flex items-center gap-x-1.5 rounded-md bg-red-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-red-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">
-      <i class="bi bi-trash"></i> Delete selected (<span id="bulk-count">0</span>)
+      {% heroicon_outline "trash" class="size-4" %} Delete selected (<span id="bulk-count">0</span>)
     </button>
     <a href="{% url 'agent_dashboard' %}"
        class="inline-flex items-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-      <i class="bi bi-arrow-left"></i> Back to Dashboard
+      {% heroicon_outline "arrow-left" class="size-4" %} Back to Dashboard
     </a>
   </div>
 </div>
@@ -51,13 +52,13 @@
         <div class="md:col-span-1">
             <button type="submit"
                     class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">
-                <i class="bi bi-search"></i> Filter
+                {% heroicon_outline "magnifying-glass" class="size-5" %} Filter
             </button>
         </div>
         <div class="md:col-span-1">
             <a href="{% url 'agent_claims' %}"
                class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-                <i class="bi bi-x-circle"></i> Clear
+                {% heroicon_outline "x-circle" class="size-5" %} Clear
             </a>
         </div>
     </form>
@@ -125,14 +126,14 @@
                     <td class="px-3 py-4 text-right">
                         <a href="{% url 'agent_claim_detail' claim.id %}"
                            class="inline-flex items-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-indigo-600 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-                            <i class="bi bi-eye"></i> View
+                            {% heroicon_outline "eye" class="size-4" %} View
                         </a>
                     </td>
                 </tr>
                 {% empty %}
                 <tr>
                     <td colspan="10" class="px-3 py-16 text-center">
-                        <i class="bi bi-inbox text-4xl text-gray-300"></i>
+                        {% heroicon_outline "inbox" class="size-12 mx-auto text-gray-300" %}
                         <p class="lora-prose font-medium mt-2">No claims found</p>
                         <p class="lora-meta mt-1">Try adjusting your search or status filter.</p>
                     </td>
@@ -150,22 +151,22 @@
             {% if page_obj.has_previous %}
             <a href="?page=1{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
                class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-                <i class="bi bi-chevron-double-left"></i> First
+                {% heroicon_outline "chevron-double-left" class="size-4" %} First
             </a>
             <a href="?page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
                class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-                <i class="bi bi-chevron-left"></i> Previous
+                {% heroicon_outline "chevron-left" class="size-4" %} Previous
             </a>
             {% endif %}
 
             {% if page_obj.has_next %}
             <a href="?page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
                class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-                Next <i class="bi bi-chevron-right"></i>
+                Next {% heroicon_outline "chevron-right" class="size-4" %}
             </a>
             <a href="?page={{ page_obj.paginator.num_pages }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
                class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-                Last <i class="bi bi-chevron-double-right"></i>
+                Last {% heroicon_outline "chevron-double-right" class="size-4" %}
             </a>
             {% endif %}
         </div>

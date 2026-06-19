@@ -1,15 +1,16 @@
 {% extends 'base.html' %}
+{% load heroicons %}
 
 {% block title %}Edit Document #{{ document.id }}{% endblock %}
 
 {% block content %}
 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
     <h2 class="lora-page-title flex items-center gap-2">
-        <i class="bi bi-pencil text-lg"></i> Edit {{ document.get_doc_type_display }}
+        {% heroicon_outline "pencil" class="size-5" %} Edit {{ document.get_doc_type_display }}
         <span class="lora-meta font-normal">v{{ document.version }} · Dispute #{{ dispute.id }}</span>
     </h2>
     <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-        <i class="bi bi-arrow-left text-base"></i> Back to Dispute
+        {% heroicon_outline "arrow-left" class="size-5" %} Back to Dispute
     </a>
 </div>
 
@@ -21,17 +22,17 @@
     <input type="hidden" name="version_increment" value="on">
 
     <div class="lora-card p-3 mb-4 flex flex-wrap items-center gap-2 sticky top-2 z-10">
-        <span class="lora-meta mr-2"><i class="bi bi-cursor-text text-base"></i> Click any text to edit it.</span>
+        <span class="lora-meta mr-2">{% heroicon_outline "pencil-square" class="size-5" %} Click any text to edit it.</span>
         <div class="inline-flex items-center gap-1">
-            <button type="button" class="inline-flex items-center justify-center rounded-md bg-white p-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Bold" onclick="exec('bold')"><i class="bi bi-type-bold text-base"></i></button>
-            <button type="button" class="inline-flex items-center justify-center rounded-md bg-white p-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Italic" onclick="exec('italic')"><i class="bi bi-type-italic text-base"></i></button>
-            <button type="button" class="inline-flex items-center justify-center rounded-md bg-white p-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Underline" onclick="exec('underline')"><i class="bi bi-type-underline text-base"></i></button>
-            <button type="button" class="inline-flex items-center justify-center rounded-md bg-white p-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Undo" onclick="exec('undo')"><i class="bi bi-arrow-counterclockwise text-base"></i></button>
-            <button type="button" class="inline-flex items-center justify-center rounded-md bg-white p-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Redo" onclick="exec('redo')"><i class="bi bi-arrow-clockwise text-base"></i></button>
+            <button type="button" class="inline-flex items-center justify-center rounded-md bg-white p-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Bold" onclick="exec('bold')">{% heroicon_outline "bold" class="size-5" %}</button>
+            <button type="button" class="inline-flex items-center justify-center rounded-md bg-white p-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Italic" onclick="exec('italic')">{% heroicon_outline "italic" class="size-5" %}</button>
+            <button type="button" class="inline-flex items-center justify-center rounded-md bg-white p-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Underline" onclick="exec('underline')">{% heroicon_outline "underline" class="size-5" %}</button>
+            <button type="button" class="inline-flex items-center justify-center rounded-md bg-white p-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Undo" onclick="exec('undo')">{% heroicon_outline "arrow-uturn-left" class="size-5" %}</button>
+            <button type="button" class="inline-flex items-center justify-center rounded-md bg-white p-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Redo" onclick="exec('redo')">{% heroicon_outline "arrow-path" class="size-5" %}</button>
         </div>
         <div class="flex-1"></div>
         <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500" onclick="saveReport()">
-            <i class="bi bi-save text-base"></i> Save &amp; regenerate PDF
+            {% heroicon_outline "arrow-down-tray" class="size-5" %} Save &amp; regenerate PDF
         </button>
         <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Cancel</a>
     </div>
@@ -42,7 +43,7 @@
                 style="width:100%; border:0; min-height:600px;"></iframe>
     </div>
     <p class="lora-meta mt-2">
-        <i class="bi bi-info-circle text-sm"></i> What you see is exactly what the PDF will contain. Images and layout are locked;
+        {% heroicon_outline "information-circle" class="size-4" %} What you see is exactly what the PDF will contain. Images and layout are locked;
         edit the text, then "Save &amp; regenerate PDF". You can re-edit anytime.
     </p>
 </form>
@@ -68,7 +69,7 @@
                     </label>
                 </div>
                 <div class="flex gap-2">
-                    <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500"><i class="bi bi-save text-base"></i> Save Changes</button>
+                    <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">{% heroicon_outline "arrow-down-tray" class="size-5" %} Save Changes</button>
                     <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Cancel</a>
                 </div>
             </form>
@@ -76,7 +77,7 @@
     </div>
     <div class="lg:col-span-1">
         <div class="lora-card p-6">
-            <h3 class="lora-card-title mb-4"><i class="bi bi-eye text-base"></i> Quick Preview</h3>
+            <h3 class="lora-card-title mb-4">{% heroicon_outline "eye" class="size-5" %} Quick Preview</h3>
             <div class="rounded-xl border border-gray-200 bg-white p-4 min-h-[400px] max-h-[600px] overflow-y-auto">
                 <div id="preview-pane">{{ safe_preview|safe }}</div>
             </div>
@@ -88,7 +89,7 @@
 {% if document.file_path %}
 <div class="mt-4">
     <a href="{{ document.file_path.url }}" target="_blank" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-indigo-600 shadow-xs ring-1 ring-inset ring-indigo-300 hover:bg-indigo-50">
-        <i class="bi bi-download text-base"></i> Download current PDF
+        {% heroicon_outline "arrow-down-tray" class="size-5" %} Download current PDF
     </a>
 </div>
 {% endif %}

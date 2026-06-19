@@ -1,14 +1,15 @@
 {% extends 'base.html' %}
+{% load heroicons %}
 
 {% block title %}Create dispute — Claim #{{ claim.id }}{% endblock %}
 
 {% block content %}
 <div class="sm:flex sm:items-center sm:justify-between gap-4 mb-6">
     <h1 class="lora-page-title flex items-center gap-2">
-        <i class="bi bi-shield-exclamation text-gray-600"></i> Mark claim as disputed
+        {% heroicon_outline "shield-exclamation" class="size-5 text-gray-600" %} Mark claim as disputed
     </h1>
     <a href="{% url 'agent_claim_detail' claim.id %}" class="mt-4 sm:mt-0 inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-        <i class="bi bi-arrow-left"></i> Back to claim
+        {% heroicon_outline "arrow-left" class="size-4" %} Back to claim
     </a>
 </div>
 
@@ -72,10 +73,10 @@
 
         <div class="flex gap-2">
             <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">
-                <i class="bi bi-shield-exclamation"></i> Create dispute
+                {% heroicon_outline "shield-exclamation" class="size-5" %} Create dispute
             </button>
             <a href="{% url 'agent_claim_detail' claim.id %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-                <i class="bi bi-x-circle"></i> Cancel
+                {% heroicon_outline "x-circle" class="size-5" %} Cancel
             </a>
         </div>
     </form>

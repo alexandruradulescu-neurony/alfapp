@@ -1,3 +1,4 @@
+{% load heroicons %}
 {% comment %}
 Compact claim header: identity + one primary status pill + urgent chips on the
 left, everyday + (rare) actions on the right. Presentation only — every endpoint
@@ -9,7 +10,7 @@ and form field is preserved from the original screen.
     {# Identity + status #}
     <div class="min-w-0">
       <a href="{% url 'manager_claims' %}" class="inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-gray-700 mb-2" title="Back to claims">
-        <i class="bi bi-arrow-left"></i> Claims
+        {% heroicon_outline "arrow-left" class="size-4" %} Claims
       </a>
       <div class="font-mono text-sm font-semibold text-indigo-600">#{{ claim.alf_claim_id|default:claim.id }}</div>
       <h1 class="lora-page-title truncate m-0">
@@ -18,20 +19,20 @@ and form field is preserved from the original screen.
       <div class="flex flex-wrap items-center gap-2 mt-2">
         {# One primary status pill — soft badge mapped from the Zendesk status family #}
         <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset {% if claim.status_category == 'solved' %}bg-green-50 text-green-700 ring-green-600/20{% elif claim.status_category == 'pending' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif claim.status_category == 'new' %}bg-blue-50 text-blue-700 ring-blue-700/10{% elif claim.status_category == 'hold' %}bg-gray-50 text-gray-600 ring-gray-500/10{% else %}bg-blue-50 text-blue-700 ring-blue-700/10{% endif %}">
-          {% if claim.status_category == 'solved' %}<i class="bi bi-check-circle"></i>
-          {% elif claim.status_category == 'pending' %}<i class="bi bi-hourglass-split"></i>
-          {% elif claim.status_category == 'hold' %}<i class="bi bi-pause-circle"></i>
-          {% elif claim.status_category == 'new' %}<i class="bi bi-inbox"></i>
-          {% else %}<i class="bi bi-search"></i>{% endif %}
+          {% if claim.status_category == 'solved' %}{% heroicon_outline "check-circle" class="size-4" %}
+          {% elif claim.status_category == 'pending' %}{% heroicon_outline "clock" class="size-4" %}
+          {% elif claim.status_category == 'hold' %}{% heroicon_outline "pause-circle" class="size-4" %}
+          {% elif claim.status_category == 'new' %}{% heroicon_outline "inbox" class="size-4" %}
+          {% else %}{% heroicon_outline "magnifying-glass" class="size-4" %}{% endif %}
           {{ claim.status }}
         </span>
 
         {# Urgent chips only #}
         {% if claim.risk_active %}
-        <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10"><i class="bi bi-exclamation-triangle"></i> Client risk flag</span>
+        <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10">{% heroicon_outline "exclamation-triangle" class="size-4" %} Client risk flag</span>
         {% endif %}
         {% if emails_open %}
-        <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10"><i class="bi bi-envelope-exclamation"></i> {{ emails_open|length }} need action</span>
+        <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10">{% heroicon_outline "envelope" class="size-4" %} {{ emails_open|length }} need action</span>
         {% endif %}
       </div>
     </div>
@@ -46,13 +47,13 @@ and form field is preserved from the original screen.
               data-toast-ok="Mailbox checked" data-toast-err="Could not check mail"
               {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"
               {% else %}title="Check the mailbox for new mail addressed to this claim's email alias"{% endif %}>
-        <i class="bi bi-envelope-arrow-down"></i> Check email
+        {% heroicon_outline "inbox-arrow-down" class="size-5" %} Check email
       </button>
 
       {# Rare / dangerous actions behind a native <details> dropdown (CSP-safe) #}
       <details class="relative inline-block">
         <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer inline-flex items-center justify-center gap-x-1.5 rounded-md px-2.5 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100" title="More actions">
-          <i class="bi bi-three-dots"></i>
+          {% heroicon_outline "ellipsis-horizontal" class="size-5" %}
         </summary>
         <div class="absolute right-0 z-50 mt-2 w-60 origin-top-right rounded-lg bg-white p-1 shadow-lg ring-1 ring-black/5">
 
@@ -63,13 +64,13 @@ and form field is preserved from the original screen.
                   data-refresh-body="{% url 'agent_claim_detail_body' claim.id %}"
                   data-toast-ok="Refreshed from Zendesk" data-toast-err="Could not refresh from Zendesk"
                   {% if not claim.zd_ticket_id %}disabled{% endif %}>
-            <i class="bi bi-arrow-clockwise"></i> Refresh from Zendesk
+            {% heroicon_outline "arrow-path" class="size-4" %} Refresh from Zendesk
           </button>
 
           {% if claim.zd_ticket_id and zd_subdomain %}
           <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ claim.zd_ticket_id }}"
              target="_blank" rel="noopener" class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100">
-            <i class="bi bi-box-arrow-up-right"></i> Open ticket in Zendesk
+            {% heroicon_outline "arrow-top-right-on-square" class="size-4" %} Open ticket in Zendesk
           </a>
           {% endif %}
 
@@ -77,12 +78,12 @@ and form field is preserved from the original screen.
           {% if dispute %}
           <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-amber-600 hover:bg-gray-100"
              title="This claim already has a dispute case">
-            <i class="bi bi-shield-exclamation"></i> View dispute
+            {% heroicon_outline "shield-exclamation" class="size-4" %} View dispute
           </a>
           {% else %}
           <a href="{% url 'disputes:dispute_create' %}?claim={{ claim.id }}" class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-amber-600 hover:bg-gray-100"
              title="Manually create a PayPal dispute case for this claim">
-            <i class="bi bi-shield-exclamation"></i> Mark as disputed
+            {% heroicon_outline "shield-exclamation" class="size-4" %} Mark as disputed
           </a>
           {% endif %}
           {% endwith %}
@@ -95,7 +96,7 @@ and form field is preserved from the original screen.
                   data-claim-action
                   data-redirect="{% url 'manager_claims' %}" data-toast-err="Could not delete the claim"
                   title="Delete this claim from LORA (the Zendesk ticket is not touched)">
-            <i class="bi bi-trash"></i> Delete claim
+            {% heroicon_outline "trash" class="size-4" %} Delete claim
           </button>
         </div>
       </details>
