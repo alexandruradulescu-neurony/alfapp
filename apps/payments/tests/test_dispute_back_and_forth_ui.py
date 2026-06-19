@@ -85,6 +85,24 @@ class TimelineBuilderTests(TestCase):
         ours = [e for e in tl if 'our case on file' in (e['text'] or '')]
         self.assertEqual(ours[0]['actor'], 'Airport Lost & Found')
 
+    def test_seller_evidence_reads_as_submitted_and_hides_cryptic_type(self):
+        """Our SUBMITTED_BY_SELLER evidence must read as clearly *sent* (not the
+        vague 'On file at PayPal'), informative evidence types are kept, and the
+        cryptic 'OTHER' on a PayPal request is suppressed (it rendered an empty,
+        confusing card)."""
+        d = _dispute(payload={'evidences': [
+            {'evidence_type': 'PROOF_OF_FULFILLMENT', 'notes': 'our proof',
+             'source': 'SUBMITTED_BY_SELLER', 'date': '2026-06-09T07:33:00Z'},
+            {'evidence_type': 'OTHER', 'source': 'REQUESTED_FROM_SELLER',
+             'date': '2026-06-09T07:34:00Z'},  # no notes
+        ]})
+        tl = ds.build_dispute_reply_timeline(d)
+        seller = next(e for e in tl if e['actor'] == 'Airport Lost & Found')
+        self.assertIn('submitted', seller['title'].lower())          # clearly sent
+        self.assertEqual(seller['source'], 'PROOF_OF_FULFILLMENT')   # informative type kept
+        paypal = next(e for e in tl if e['actor'] == 'PayPal')
+        self.assertEqual(paypal['source'], '')                       # cryptic 'OTHER' suppressed
+
     def test_empty_when_nothing(self):
         self.assertEqual(ds.build_dispute_reply_timeline(_dispute()), [])
 
@@ -235,3 +253,22 @@ class DeleteImageTests(_UITestBase):
         img.file.save('s.png', SimpleUploadedFile('s.png', b'P', content_type='image/png'), save=True)
         self.web.post(reverse('disputes:dispute_delete_submission_image', args=[img.id]))
         self.assertEqual(sub.images.count(), 1)  # untouched
+
+
+class ReplyWindowReasonTests(_UITestBase):
+    """When no submit endpoint is open, the composer must explain WHY in the
+    manager's terms — not a vague 'inquiry or resolved' guess."""
+
+    def test_inquiry_waiting_on_buyer_is_explained(self):
+        d = _dispute(status='RECEIVED', dispute_life_cycle_stage='INQUIRY',
+                     payload={'status': 'WAITING_FOR_BUYER_RESPONSE',
+                              'dispute_state': 'REQUIRED_OTHER_PARTY_ACTION'})
+        resp = self.web.get(reverse('disputes:dispute_detail', args=[d.id]))
+        self.assertEqual(resp.context['submit_endpoint'], '')        # window genuinely closed
+        self.assertIn('waiting for the buyer', resp.context['reply_window_reason'].lower())
+        self.assertContains(resp, 'waiting for the buyer')
+
+    def test_resolved_is_explained(self):
+        d = _dispute(status='RESOLVED_WON', payload={'status': 'RESOLVED'})
+        resp = self.web.get(reverse('disputes:dispute_detail', args=[d.id]))
+        self.assertIn('resolved', resp.context['reply_window_reason'].lower())

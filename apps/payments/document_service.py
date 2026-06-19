@@ -1614,7 +1614,9 @@ def build_dispute_reply_timeline(dispute) -> list:
         elif src == 'REQUESTED_FROM_SELLER':
             actor, title = 'PayPal', 'PayPal requested information'
         elif src == 'SUBMITTED_BY_SELLER':
-            actor, title = 'Airport Lost & Found', 'On file at PayPal'
+            # We submitted this — say so plainly (the old 'On file at PayPal'
+            # left the manager unsure whether it had actually been sent).
+            actor, title = 'Airport Lost & Found', 'Submitted to PayPal'
         else:
             # Unknown/other source: recorded at PayPal but not clearly ours —
             # never claim it under our name.
@@ -1623,10 +1625,14 @@ def build_dispute_reply_timeline(dispute) -> list:
         docs = ev.get('documents')
         if not isinstance(docs, list):
             docs = (ev.get('evidence_info') or {}).get('documents') or []
+        # PayPal's bookkeeping types CREATE (dispute-open) and OTHER (a bare
+        # request) carry no meaning to a human — showing them rendered an empty,
+        # cryptic "OTHER" card. Only surface an informative evidence type.
+        shown_type = '' if etype in ('', 'OTHER', 'CREATE') else ev.get('evidence_type', '')
         entries.append({
             'when': when, 'when_str': _fmt_zd_time(when), 'actor': actor,
             'kind': 'paypal_evidence', 'title': title, 'status': '',
-            'source': ev.get('evidence_type', ''), 'text': notes[:_CASE_LOG_TEXT_DISPLAY_CHARS],
+            'source': shown_type, 'text': notes[:_CASE_LOG_TEXT_DISPLAY_CHARS],
             'doc_count': len(docs) if isinstance(docs, list) else 0,
         })
 

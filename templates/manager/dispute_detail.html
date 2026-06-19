@@ -158,8 +158,7 @@
       {% if not submit_endpoint %}
       <div class="rounded-xl bg-base-200/60 text-base-content/70 p-3 text-sm flex items-start gap-2 mb-4">
         <i class="bi bi-info-circle shrink-0 mt-0.5"></i>
-        <span>PayPal isn't accepting a reply right now (the case may be at the inquiry
-        stage, which is message-only, or already resolved). You can still draft ahead.</span>
+        <span>{{ reply_window_reason }}</span>
       </div>
       {% endif %}
 
