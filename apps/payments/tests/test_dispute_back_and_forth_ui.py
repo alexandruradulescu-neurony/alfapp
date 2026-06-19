@@ -54,6 +54,37 @@ class TimelineBuilderTests(TestCase):
         self.assertEqual(tl[0]['actor'], 'PayPal')
         self.assertIn('requested', tl[0]['title'].lower())
 
+    def test_buyer_submitted_evidence_is_never_attributed_to_us(self):
+        """Regression (Angelina Solano dispute): PayPal records the buyer's
+        opening complaint BOTH as a SUBMITTED_BY_BUYER/CREATE evidence and as a
+        buyer message — same text, same time. The evidence must be attributed to
+        the Buyer (never 'Airport Lost & Found'), and the duplicate of the
+        buyer's message must not be shown twice."""
+        scam = 'This website is a scam but I had already paid them before finding out'
+        d = _dispute(payload={
+            'evidences': [
+                {'evidence_type': 'CREATE', 'notes': scam + ' ',   # trailing space, as PayPal sends
+                 'source': 'SUBMITTED_BY_BUYER', 'date': '2026-06-07T20:03:00Z'},
+                {'evidence_type': 'PROOF_OF_FULFILLMENT', 'notes': 'our case on file',
+                 'source': 'SUBMITTED_BY_SELLER', 'date': '2026-06-09T07:33:00Z'},
+            ],
+            'messages': [
+                {'posted_by': 'BUYER', 'content': scam, 'time_posted': '2026-06-07T20:03:00Z'},
+            ],
+        })
+        tl = ds.build_dispute_reply_timeline(d)
+        # The buyer's words are never attributed to us.
+        for e in tl:
+            if scam[:25] in (e['text'] or ''):
+                self.assertEqual(e['actor'], 'Buyer',
+                                 f"buyer complaint mislabelled as {e['actor']!r}")
+        # And it appears exactly once (the CREATE evidence is deduped against the message).
+        shown = sum(1 for e in tl if scam[:25] in (e['text'] or ''))
+        self.assertEqual(shown, 1, f'buyer complaint shown {shown}x, expected once')
+        # Our own seller-submitted evidence is still attributed to us.
+        ours = [e for e in tl if 'our case on file' in (e['text'] or '')]
+        self.assertEqual(ours[0]['actor'], 'Airport Lost & Found')
+
     def test_empty_when_nothing(self):
         self.assertEqual(ds.build_dispute_reply_timeline(_dispute()), [])
 
