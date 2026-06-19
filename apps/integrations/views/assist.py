@@ -96,14 +96,32 @@ class ZendeskBriefingView(APIView):
             from apps.integrations.briefing import refresh_claim_summary
             refresh = bool(data.get('refresh'))
             if refresh or not (claim.ai_summary or '').strip():
-                ticket_data = {
-                    'subject': data.get('subject', ''),
-                    'description': data.get('description', ''),
-                    'created_at': data.get('ticket_created_at', ''),
-                    'comments': data.get('comments') or [],
-                }
-                refresh_claim_summary(claim, ticket_data)  # best-effort; persists
-                claim.refresh_from_db(fields=['ai_summary', 'ai_summary_updated_at'])
+                # On an explicit Regenerate, FIRST pull the ticket's current
+                # status live from Zendesk and mirror it (same path as the
+                # webhook), so a missed status webhook self-heals on demand.
+                # When that pull actually changes the status, the mirror has
+                # already regenerated the summary from live ticket content, so
+                # we don't rebuild it a second time.
+                synced = {'outcome': 'skipped'}
+                if refresh:
+                    try:
+                        from apps.integrations.views.webhooks import resync_ticket_status
+                        synced = resync_ticket_status(claim)
+                    except Exception as e:  # never let a sync hiccup 500 the sidebar
+                        logger.warning("Status resync failed for ticket %s: %s", ticket_id, e)
+                if synced.get('outcome') == 'updated':
+                    claim.refresh_from_db()
+                else:
+                    ticket_data = {
+                        'subject': data.get('subject', ''),
+                        'description': data.get('description', ''),
+                        'created_at': data.get('ticket_created_at', ''),
+                        'comments': data.get('comments') or [],
+                    }
+                    refresh_claim_summary(claim, ticket_data)  # best-effort; persists
+                    claim.refresh_from_db()
+                # Rebuild facts so the sidebar shows the freshly-pulled status.
+                facts = build_claim_facts(claim)
             summary = (claim.ai_summary or '').strip() or \
                 'No summary yet — click Regenerate to create one.'
             updated = (claim.ai_summary_updated_at.isoformat()

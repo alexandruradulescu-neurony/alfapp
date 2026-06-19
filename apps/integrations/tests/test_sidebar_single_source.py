@@ -51,7 +51,10 @@ class BriefingSingleSourceTests(TestCase):
             claim.ai_summary_updated_at = timezone.now()
             claim.save(update_fields=['ai_summary', 'ai_summary_updated_at'])
             return True
-        with patch('apps.integrations.briefing.refresh_claim_summary',
+        # Status pull is a no-op here (live fetch unavailable) → falls through to
+        # the summary refresh, which is what this test pins.
+        with patch('apps.integrations.views.webhooks.fetch_zendesk_ticket', return_value=None), \
+             patch('apps.integrations.briefing.refresh_claim_summary',
                    side_effect=fake_refresh) as refresh:
             resp = self.api.post(self.URL, {'ticket_id': '81001', 'refresh': True},
                                  format='json', **self.auth)
@@ -60,6 +63,31 @@ class BriefingSingleSourceTests(TestCase):
         self.assertEqual(resp.data['summary'], 'REGENERATED SUMMARY')
         self.claim.refresh_from_db()
         self.assertEqual(self.claim.ai_summary, 'REGENERATED SUMMARY')
+
+    def test_refresh_pulls_live_status_into_facts(self):
+        # The reported bug: Zendesk moved to a new status but LORA stayed stale.
+        # Regenerate must pull the live status and surface it in the sidebar facts.
+        with patch('apps.integrations.views.webhooks.fetch_zendesk_ticket',
+                   return_value={'custom_status_id': '777'}), \
+             patch('apps.integrations.views.webhooks.fetch_zendesk_comments', return_value=[]), \
+             patch('apps.integrations.views.webhooks.resolve_custom_status',
+                   return_value={'name': 'Object found', 'category': 'open'}), \
+             patch('apps.integrations.views.webhooks.refresh_claim_summary', return_value='delta'), \
+             patch('apps.communications.client_updates.sync_cadence_for_status'):
+            resp = self.api.post(self.URL, {'ticket_id': '81001', 'refresh': True},
+                                 format='json', **self.auth)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['facts']['status'], 'Object found')   # fresh status returned
+        self.claim.refresh_from_db()
+        self.assertEqual(self.claim.status, 'Object found')              # LORA self-healed
+        self.assertEqual(self.claim.status_category, 'open')
+
+    def test_open_without_refresh_does_not_pull_status(self):
+        # Opening a ticket (no refresh) must NOT hit Zendesk for status.
+        with patch('apps.integrations.views.webhooks.fetch_zendesk_ticket') as fetch:
+            resp = self.api.post(self.URL, {'ticket_id': '81001'}, format='json', **self.auth)
+        self.assertEqual(resp.status_code, 200)
+        fetch.assert_not_called()
 
     def test_missing_summary_is_generated_once_on_open(self):
         self.claim.ai_summary = ''
