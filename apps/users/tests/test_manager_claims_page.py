@@ -68,3 +68,49 @@ class ManagerClaimsPageTests(TestCase):
         self.assertNotIn('<th>Deadline</th>', html)       # deadline column removed
         self.assertNotIn('bi-file-earmark-pdf', html)     # PDF icon removed
         self.assertNotIn('All claims ever', html)         # stat cards removed
+
+    def test_numbered_pagination_when_many_pages(self):
+        # 45 claims over page size 20 → 3 pages, numbered.
+        for i in range(45):
+            Claim.objects.create(
+                client_email=f'p{i}@e.com', alf_claim_id=f'ALFPG{i:04d}',
+                status='Claim submitted', status_category='open')
+        html = self.web.get(self.URL + '?tab=all').content.decode()
+        self.assertIn('aria-current="page"', html)        # current page highlighted
+        self.assertIn('&page=2', html)                    # a numbered link
+        self.assertIn('&page=3', html)
+        # Numbers carry the active tab through.
+        self.assertIn('?tab=all&page=2', html)
+
+    def test_pagination_preserves_search_and_date(self):
+        for i in range(45):
+            Claim.objects.create(
+                client_email=f'q{i}@e.com', client_name='Page Person',
+                alf_claim_id=f'ALFQ{i:04d}', status_category='open')
+        html = self.web.get(self.URL + '?tab=all&search=Page+Person').content.decode()
+        self.assertIn('search=Page%20Person', html)       # search rides the page links, URL-encoded
+        self.assertIn('&page=2', html)
+
+    def test_date_filter_shows_only_that_day(self):
+        # created_at is auto-set; rewrite it to place claims on distinct days.
+        on_day = Claim.objects.create(
+            client_email='onday@e.com', client_name='On The Day',
+            alf_claim_id='ALFDAY1', status_category='open')
+        off_day = Claim.objects.create(
+            client_email='offday@e.com', client_name='Other Day',
+            alf_claim_id='ALFDAY2', status_category='open')
+        target = timezone.now().replace(year=2026, month=3, day=15)
+        Claim.objects.filter(pk=on_day.pk).update(created_at=target)
+        Claim.objects.filter(pk=off_day.pk).update(
+            created_at=target - timedelta(days=5))
+
+        html = self.web.get(self.URL + '?tab=all&date=2026-03-15').content.decode()
+        self.assertIn('On The Day', html)
+        self.assertNotIn('Other Day', html)
+        # A clear-date control is offered.
+        self.assertIn('Clear date', html)
+
+    def test_bad_date_is_ignored(self):
+        resp = self.web.get(self.URL + '?tab=all&date=not-a-date')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('Ana Popescu', resp.content.decode())  # unfiltered
