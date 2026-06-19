@@ -809,7 +809,7 @@ class TestManagerClaims:
 
         client = Client()
         client.login(username=f'{test_prefix}manager', password='testpass123')
-        response = client.get('/manager/claims/')
+        response = client.get('/manager/claims/?tab=all')
 
         assert response.status_code == 200
         page_obj = response.context['page_obj']
@@ -819,36 +819,8 @@ class TestManagerClaims:
         assert claim1.id in claim_ids
         assert claim2.id in claim_ids
 
-    def test_manager_claims_status_filter(self):
-        """Test manager claims status filter."""
-        test_prefix = 'test_mgr_filter_'
-        manager = User.objects.create_user(
-            username=f'{test_prefix}manager',
-            password='testpass123',
-        )
-        claim_initiated = Claim.objects.create(
-            client_email=f'{test_prefix}received@example.com',
-            status='Investigation initiated',
-            status_category='open',
-            flight_details='Flight AA100'
-        )
-        claim_submitted = Claim.objects.create(
-            client_email=f'{test_prefix}searching@example.com',
-            status='Claim submitted',
-            status_category='open',
-            flight_details='Flight AA101'
-        )
-
-        client = Client()
-        client.login(username=f'{test_prefix}manager', password='testpass123')
-        response = client.get('/manager/claims/?status=Investigation+initiated')
-
-        page_obj = response.context['page_obj']
-        claims_on_page = list(page_obj.object_list)
-        claim_ids = [c.id for c in claims_on_page]
-
-        assert claim_initiated.id in claim_ids
-        assert claim_submitted.id not in claim_ids
+    # (Removed test_manager_claims_status_filter: the status-dropdown filter was
+    # replaced by the tab/lens segmentation — see test_manager_claims_tabs.py.)
 
     def test_manager_claims_search(self):
         """Test manager claims search functionality."""
@@ -865,7 +837,7 @@ class TestManagerClaims:
 
         client = Client()
         client.login(username=f'{test_prefix}manager', password='testpass123')
-        response = client.get(f'/manager/claims/?search={test_prefix}search')
+        response = client.get(f'/manager/claims/?tab=all&search={test_prefix}search')
 
         page_obj = response.context['page_obj']
         claims_on_page = list(page_obj.object_list)

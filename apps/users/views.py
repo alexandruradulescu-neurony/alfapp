@@ -840,61 +840,51 @@ def manager_dashboard(request):
 def manager_claims(request):
     """Manager claim overview — the management "one screen".
 
-    Built around what a manager scans for: who the client is, where the
-    case stands (family-colored status + how long it has sat there), the
-    deadline (nearest first, overdue on top), and which cases have
-    institution emails waiting on a human. Solved/closed cases are hidden
-    by default ('Active'); headline counters always reflect the whole book.
+    Segmented by an action-first TAB/lens (problems · object found · refunds ·
+    disputes · open · solved · all), each with a live count. Lenses are
+    non-exclusive views, not folders (a disputed claim also shows under Open).
+    "Problems" is the act-now list: an unacknowledged risk flag, OR an
+    institution email awaiting a human reply.
     """
-    from django.db.models.functions import Cast, Coalesce
+    from django.db.models import Exists, OuterRef
+    from apps.payments.models import Refund, Dispute
 
     now = timezone.now()
 
-    # Older claims carry only the raw deadline_date — the computed
-    # deadline_at exists just for claims created/refreshed since the status
-    # mirror shipped. Everything here (sorting, overdue count, display)
-    # works off whichever the claim has.
-    deadline_eff = Coalesce(
-        'deadline_at', Cast('deadline_date', models.DateTimeField()))
-
-    # Headline numbers are unfiltered — the state of the whole book
-    active_qs = Claim.objects.exclude(status_category='solved')
-    stats = {
-        'active': active_qs.count(),
-        'overdue': active_qs.annotate(deadline_eff=deadline_eff)
-                            .filter(deadline_eff__lt=now).count(),
-        'attention': Claim.objects.filter(
-            emails__action_required=True, emails__auto_resolved=False,
-        ).distinct().count(),
-        'total': Claim.objects.count(),
-    }
-
-    claims = Claim.objects.annotate(
-        email_count=Count('emails', distinct=True),
+    base = Claim.objects.annotate(
         attention_emails=Count(
             'emails', distinct=True,
-            filter=Q(emails__action_required=True, emails__auto_resolved=False),
-        ),
-        deadline_eff=deadline_eff,
+            filter=Q(emails__action_required=True, emails__auto_resolved=False)),
+        refund_exists=Exists(Refund.objects.filter(claim=OuterRef('pk'))),
+        dispute_exists=Exists(Dispute.objects.filter(claim=OuterRef('pk'))),
     )
 
-    # Family quick-filter; default hides solved/closed cases
-    family_filter = request.GET.get('family') or 'active'
-    if family_filter == 'active':
-        claims = claims.exclude(status_category='solved')
-    elif family_filter in ('new', 'open', 'pending', 'hold', 'solved'):
-        claims = claims.filter(status_category=family_filter)
-    else:
-        family_filter = 'all'
+    flagged_q = Q(risk_acknowledged_at__isnull=True) & ~Q(risk_level='none')
+    lenses = {
+        'problems': flagged_q | Q(attention_emails__gt=0),
+        'object_found': Q(status__icontains='object found'),
+        'refunds': Q(refund_exists=True),
+        'disputes': Q(dispute_exists=True),
+        'open': ~Q(status_category='solved'),
+        'solved': Q(status_category='solved'),
+        'all': Q(),
+    }
+    tab = request.GET.get('tab') or 'problems'
+    if tab not in lenses:
+        tab = 'problems'
 
-    status_filter = request.GET.get('status')
-    if status_filter:
-        claims = claims.filter(status=status_filter)
+    # Live per-tab counts over the whole book (distinct: the email filter joins).
+    tab_counts = {name: base.filter(q).distinct().count() for name, q in lenses.items()}
 
-    # Filter by risk: show only unacknowledged flagged claims
-    risk_filter = request.GET.get('risk')
-    if risk_filter:
-        claims = claims.filter(risk_acknowledged_at__isnull=True).exclude(risk_level='none')
+    _tab_labels = [
+        ('problems', 'Problems'), ('object_found', 'Object found'),
+        ('refunds', 'Refunds'), ('disputes', 'Disputes'),
+        ('open', 'Open'), ('solved', 'Solved'), ('all', 'All'),
+    ]
+    tabs = [{'key': k, 'label': lbl, 'count': tab_counts[k], 'active': tab == k}
+            for k, lbl in _tab_labels]
+
+    claims = base.filter(lenses[tab])
 
     search_query = request.GET.get('search')
     if search_query:
@@ -906,31 +896,27 @@ def manager_claims(request):
             Q(alf_claim_id__icontains=search_query)
         )
 
-    # Urgency order: nearest deadline first (overdue leads), undated last
-    claims = claims.order_by(F('deadline_eff').asc(nulls_last=True), '-created_at')
+    claims = claims.distinct().order_by('-created_at')
 
     paginator = Paginator(claims, LIST_PAGE_SIZE)
     page_obj = paginator.get_page(request.GET.get('page'))
 
-    # Pre-compute display state — templates shouldn't do date math
+    # Quiet "drifting" hint — days in the current status (templates do no date math)
     for claim in page_obj:
-        _annotate_deadline(claim, now)
         claim.days_in_status = (
             (now - claim.status_changed_at).days if claim.status_changed_at else None)
         claim.stuck = (claim.days_in_status is not None and claim.days_in_status > CLAIM_STUCK_DAYS
-                       and claim.status_category not in ('solved',))
+                       and claim.status_category != 'solved')
 
     zd_subdomain = SystemSettings.get_instance().zd_subdomain
     context = {
         'page_obj': page_obj,
         'claims': page_obj,
-        'stats': stats,
-        'family_filter': family_filter,
-        'status_filter': status_filter,
-        'risk_filter': risk_filter,
+        'tab': tab,
+        'tabs': tabs,
+        'tab_counts': tab_counts,
         'search_query': search_query,
         'zd_ticket_base': _zendesk_ticket_base(zd_subdomain),
-        'status_choices': _claim_status_choices(),
     }
 
     return render(request, 'manager/claims.html', context)

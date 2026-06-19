@@ -330,3 +330,6 @@ summary.lora-disclosure { list-style: none; }
 summary.lora-disclosure::-webkit-details-marker { display: none; }
 summary .bi-chevron-down { transition: transform 0.2s ease; }
 details[open] > summary .bi-chevron-down { transform: rotate(180deg); }
+
+/* ── Refund attribute chip — teal (money moving), distinct from status colours ── */
+.badge-refund { background: oklch(0.95 0.04 185); color: oklch(0.45 0.10 185); border: none; }
