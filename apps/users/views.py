@@ -851,8 +851,91 @@ def manager_dashboard(request):
         'recent_emails': recent_emails,
         'recent_disputes': recent_disputes,
     }
+    # Trend chart (top of dashboard) — default 14 days, claims/day. Toggles
+    # re-render just the chart fragment via HTMX (manager_dashboard_chart).
+    context.update(_dashboard_chart_data(14, 'claims'))
 
     return render(request, 'manager/dashboard.html', context)
+
+
+def _dashboard_chart_data(range_days, metric):
+    """Daily series for the dashboard trend chart — claims/day or income/day —
+    over the last `range_days` days (inclusive of today). Returns the template
+    context: bars with %-heights + labels, totals, and the active toggle state.
+    Income = service fees (Claim.price_paid) bucketed by the claim's created day.
+    """
+    from django.db.models import Sum
+    from django.db.models.functions import TruncDate
+
+    if range_days not in (7, 14, 30):
+        range_days = 14
+    if metric not in ('claims', 'income'):
+        metric = 'claims'
+
+    today = timezone.localdate()
+    start = today - timedelta(days=range_days - 1)
+
+    rows = (Claim.objects.filter(created_at__date__gte=start)
+            .annotate(d=TruncDate('created_at'))
+            .values('d')
+            .annotate(claims=Count('id'), income=Sum('price_paid')))
+    by_date = {r['d']: r for r in rows}
+
+    series = []
+    for i in range(range_days):
+        d = start + timedelta(days=i)
+        r = by_date.get(d)
+        series.append({
+            'date': d,
+            'claims': r['claims'] if r else 0,
+            'income': float(r['income']) if r and r['income'] is not None else 0.0,
+        })
+
+    values = [s[metric] for s in series]
+    ymax = max(values) if values else 0
+    total = sum(values)
+    step = 1 if range_days <= 14 else 3  # thin out x-labels on the 30-day view
+
+    bars = []
+    for i, s in enumerate(series):
+        v = s[metric]
+        disp = '${:,.0f}'.format(v) if metric == 'income' else str(int(v))
+        bars.append({
+            'pct': round(v / ymax * 100, 1) if ymax else 0,
+            'value': v,
+            'xlabel': s['date'].day,
+            'show_label': (i % step == 0) or (i == range_days - 1),
+            'tooltip': '{} — {}'.format(s['date'].strftime('%b %d'), disp),
+        })
+
+    if metric == 'income':
+        total_label = '${:,.0f} in service fees'.format(total)
+        ymax_label = '${:,.0f}'.format(ymax)
+    else:
+        total_label = '{} claim{}'.format(int(total), '' if total == 1 else 's')
+        ymax_label = str(int(ymax))
+
+    return {
+        'chart_range': range_days,
+        'chart_metric': metric,
+        'chart_bars': bars,
+        'chart_total_label': total_label,
+        'chart_ymax_label': ymax_label,
+        'chart_has_data': total > 0,
+    }
+
+
+@manager_required
+def manager_dashboard_chart(request):
+    """HTMX fragment for the dashboard trend chart — serves the 7/14/30-day and
+    claims/income toggles (?range= & ?metric=)."""
+    try:
+        range_days = int(request.GET.get('range', 14))
+    except (TypeError, ValueError):
+        range_days = 14
+    metric = request.GET.get('metric', 'claims')
+    return render(request, 'manager/partials/_dashboard_chart.html',
+                  _dashboard_chart_data(range_days, metric))
 
 
 @manager_required
