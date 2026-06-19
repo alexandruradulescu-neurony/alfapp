@@ -6,10 +6,10 @@
 {% block content %}
 <!-- Page Header -->
 <div class="mb-6">
-    <h1 class="text-xl font-semibold text-gray-900 flex items-center gap-2">
+    <h1 class="lora-page-title flex items-center gap-2">
         <i class="bi bi-gear"></i> System Settings
     </h1>
-    <p class="mt-1 text-sm text-gray-600">
+    <p class="lora-prose mt-1">
         Switches at the top take effect instantly. Everything below is saved with the
         <span class="font-medium">Save settings</span> button. Sensitive values are encrypted at rest.
     </p>
@@ -18,24 +18,24 @@
 <input type="hidden" id="csrf_token" value="{{ csrf_token }}">
 
 <!-- ============================ AUTOMATION SWITCHES (instant) ============================ -->
-<div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-8">
+<div class="lora-card p-6 lg:p-8 mb-8">
     <div class="mb-5">
-        <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+        <h2 class="lora-card-title">
             <i class="bi bi-toggles text-gray-500"></i> Automation switches
         </h2>
-        <p class="mt-1 text-sm text-gray-500">Real on/off switches — each takes effect the moment you flip it (no Save needed).</p>
+        <p class="lora-prose mt-1">Real on/off switches — each takes effect the moment you flip it (no Save needed).</p>
     </div>
 
     <div class="divide-y divide-gray-200">
         <!-- Scheduled jobs (master) -->
         <label class="flex items-start justify-between gap-4 py-4 cursor-pointer">
             <span class="flex flex-col gap-0.5">
-                <span class="font-medium text-gray-900 flex items-center gap-2">
+                <span class="lora-value font-medium flex items-center gap-2">
                     <i class="bi bi-clock-history text-gray-500"></i> Scheduled jobs
                     <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if scheduler_status.get_status_color == 'success' %}bg-green-50 text-green-700 ring-green-600/20{% elif scheduler_status.get_status_color == 'warning' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif scheduler_status.get_status_color == 'error' %}bg-red-50 text-red-700 ring-red-600/10{% elif scheduler_status.get_status_color == 'info' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ scheduler_status.get_status_display }}</span>
                 </span>
-                <span class="text-xs text-gray-500 max-w-2xl">Master switch for the timed jobs (client progress updates, inbox sweep). A Railway cron runs them; this is the global off-switch.{% if scheduler_status.last_checked %} Last run {{ scheduler_status.last_checked|date:"M d, H:i" }} UTC.{% endif %}</span>
-                {% if scheduler_status.last_error %}<span class="text-xs text-red-600">{{ scheduler_status.last_error|truncatechars:120 }}</span>{% endif %}
+                <span class="lora-meta max-w-2xl">Master switch for the timed jobs (client progress updates, inbox sweep). A Railway cron runs them; this is the global off-switch.{% if scheduler_status.last_checked %} Last run {{ scheduler_status.last_checked|date:"M d, H:i" }} UTC.{% endif %}</span>
+                {% if scheduler_status.last_error %}<span class="lora-meta text-red-600">{{ scheduler_status.last_error|truncatechars:120 }}</span>{% endif %}
             </span>
             <input type="checkbox" id="scheduler-enabled" data-service-toggle="SCHEDULER" class="mt-0.5 size-5 rounded border-gray-300 accent-indigo-600"
                    {% if scheduler_status.is_enabled %}checked{% endif %}>
@@ -44,8 +44,8 @@
         <!-- Autonomous client updates -->
         <label class="flex items-start justify-between gap-4 py-4 cursor-pointer">
             <span class="flex flex-col gap-0.5">
-                <span class="font-medium text-gray-900 flex items-center gap-2"><i class="bi bi-chat-heart text-gray-500"></i> Autonomous client updates</span>
-                <span class="text-xs text-gray-500 max-w-2xl">When ON, the scheduled job drafts <em>and sends</em> due client progress updates as public Zendesk replies. When OFF (default), updates are only scheduled for an agent to review and send. Object-found news is always left for an agent.</span>
+                <span class="lora-value font-medium flex items-center gap-2"><i class="bi bi-chat-heart text-gray-500"></i> Autonomous client updates</span>
+                <span class="lora-meta max-w-2xl">When ON, the scheduled job drafts <em>and sends</em> due client progress updates as public Zendesk replies. When OFF (default), updates are only scheduled for an agent to review and send. Object-found news is always left for an agent.</span>
             </span>
             <input type="checkbox" id="client_updates_autosend" data-flag-toggle="client_updates_autosend" class="mt-0.5 size-5 rounded border-gray-300 accent-amber-500"
                    {% if settings.client_updates_autosend %}checked{% endif %}>
@@ -54,8 +54,8 @@
         <!-- Automatic inbox sweep -->
         <label class="flex items-start justify-between gap-4 py-4 cursor-pointer">
             <span class="flex flex-col gap-0.5">
-                <span class="font-medium text-gray-900 flex items-center gap-2"><i class="bi bi-envelope-paper text-gray-500"></i> Automatic inbox sweep</span>
-                <span class="text-xs text-gray-500 max-w-2xl">When ON, the scheduled job sweeps the shared inbox on a timer and auto-categorises institution replies on live tickets. When OFF (default), email is only checked per-ticket via the manual button. Leave OFF until the AI categorisation is proven.</span>
+                <span class="lora-value font-medium flex items-center gap-2"><i class="bi bi-envelope-paper text-gray-500"></i> Automatic inbox sweep</span>
+                <span class="lora-meta max-w-2xl">When ON, the scheduled job sweeps the shared inbox on a timer and auto-categorises institution replies on live tickets. When OFF (default), email is only checked per-ticket via the manual button. Leave OFF until the AI categorisation is proven.</span>
             </span>
             <input type="checkbox" id="email_sweep_autorun" data-flag-toggle="email_sweep_autorun" class="mt-0.5 size-5 rounded border-gray-300 accent-amber-500"
                    {% if settings.email_sweep_autorun %}checked{% endif %}>
@@ -64,8 +64,8 @@
         <!-- Import claims from email (backlog transition) -->
         <label class="flex items-start justify-between gap-4 py-4 cursor-pointer">
             <span class="flex flex-col gap-0.5">
-                <span class="font-medium text-gray-900 flex items-center gap-2"><i class="bi bi-download text-gray-500"></i> Import claims from email</span>
-                <span class="text-xs text-gray-500 max-w-2xl">Backlog transition only. When ON, an inbound email that matches a Zendesk ticket with no local claim imports that existing claim from Zendesk on the spot &mdash; it never creates a new one. Needs <em>Automatic inbox sweep</em> ON to take effect. Turn OFF once every claim is in LORA.</span>
+                <span class="lora-value font-medium flex items-center gap-2"><i class="bi bi-download text-gray-500"></i> Import claims from email</span>
+                <span class="lora-meta max-w-2xl">Backlog transition only. When ON, an inbound email that matches a Zendesk ticket with no local claim imports that existing claim from Zendesk on the spot &mdash; it never creates a new one. Needs <em>Automatic inbox sweep</em> ON to take effect. Turn OFF once every claim is in LORA.</span>
             </span>
             <input type="checkbox" id="import_claims_from_email" data-flag-toggle="import_claims_from_email" class="mt-0.5 size-5 rounded border-gray-300 accent-amber-500"
                    {% if settings.import_claims_from_email %}checked{% endif %}>
@@ -77,12 +77,12 @@
 <form method="post">
     {% csrf_token %}
 
-    <h2 class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3 mt-2">Connections</h2>
+    <h2 class="lora-eyebrow mb-3 mt-2">Connections</h2>
 
     <!-- AI -->
-    <div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-6">
+    <div class="lora-card p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-            <h3 class="text-base font-semibold text-gray-900 flex items-center gap-2">
+            <h3 class="lora-card-title">
                 <i class="bi bi-robot text-gray-500"></i> AI provider
                 <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if ai_status.get_status_color == 'success' %}bg-green-50 text-green-700 ring-green-600/20{% elif ai_status.get_status_color == 'warning' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif ai_status.get_status_color == 'error' %}bg-red-50 text-red-700 ring-red-600/10{% elif ai_status.get_status_color == 'info' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ ai_status.get_status_display }}</span>
             </h3>
@@ -111,9 +111,9 @@
     </div>
 
     <!-- Email / IMAP -->
-    <div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-6">
+    <div class="lora-card p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-            <h3 class="text-base font-semibold text-gray-900 flex items-center gap-2">
+            <h3 class="lora-card-title">
                 <i class="bi bi-envelope text-gray-500"></i> Email inbox (IMAP)
                 <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if imap_status.get_status_color == 'success' %}bg-green-50 text-green-700 ring-green-600/20{% elif imap_status.get_status_color == 'warning' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif imap_status.get_status_color == 'error' %}bg-red-50 text-red-700 ring-red-600/10{% elif imap_status.get_status_color == 'info' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ imap_status.get_status_display }}</span>
             </h3>
@@ -148,9 +148,9 @@
     </div>
 
     <!-- Zendesk -->
-    <div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-6">
+    <div class="lora-card p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-            <h3 class="text-base font-semibold text-gray-900 flex items-center gap-2">
+            <h3 class="lora-card-title">
                 <i class="bi bi-ticket text-gray-500"></i> Zendesk
                 <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if zd_status.get_status_color == 'success' %}bg-green-50 text-green-700 ring-green-600/20{% elif zd_status.get_status_color == 'warning' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif zd_status.get_status_color == 'error' %}bg-red-50 text-red-700 ring-red-600/10{% elif zd_status.get_status_color == 'info' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ zd_status.get_status_display }}</span>
             </h3>
@@ -175,9 +175,9 @@
     </div>
 
     <!-- PayPal -->
-    <div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-6">
+    <div class="lora-card p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-            <h3 class="text-base font-semibold text-gray-900 flex items-center gap-2">
+            <h3 class="lora-card-title">
                 <i class="bi bi-currency-dollar text-gray-500"></i> PayPal
                 <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if paypal_status.get_status_color == 'success' %}bg-green-50 text-green-700 ring-green-600/20{% elif paypal_status.get_status_color == 'warning' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif paypal_status.get_status_color == 'error' %}bg-red-50 text-red-700 ring-red-600/10{% elif paypal_status.get_status_color == 'info' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ paypal_status.get_status_display }}</span>
             </h3>
@@ -196,7 +196,7 @@
                     <span class="text-sm font-medium text-amber-600">Live (real money)</span>
                 </label>
             </div>
-            {% if settings.paypal_mode == 'live' %}<span class="block text-xs text-amber-600 mt-1"><i class="bi bi-exclamation-triangle"></i> Live mode is active — refund/dispute actions move real money.</span>{% endif %}
+            {% if settings.paypal_mode == 'live' %}<span class="lora-meta block text-amber-600 mt-1"><i class="bi bi-exclamation-triangle"></i> Live mode is active — refund/dispute actions move real money.</span>{% endif %}
         </div>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
@@ -217,15 +217,15 @@
     </div>
 
     <!-- WooCommerce -->
-    <div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-6">
+    <div class="lora-card p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
-            <h3 class="text-base font-semibold text-gray-900 flex items-center gap-2">
+            <h3 class="lora-card-title">
                 <i class="bi bi-bag-check text-gray-500"></i> WooCommerce (refunds)
                 {% if settings.woocommerce_consumer_key %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20">Configured</span>{% else %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">Not set</span>{% endif %}
             </h3>
             <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="WOOCOMMERCE"><i class="bi bi-activity"></i> Test</button>
         </div>
-        <p class="text-sm text-gray-500 mb-6">When LORA issues a refund it asks WooCommerce to refund the order through PayPal. Create a Read/Write key under <span class="font-medium text-gray-700">WooCommerce → Settings → Advanced → REST API</span>.</p>
+        <p class="lora-prose mb-6">When LORA issues a refund it asks WooCommerce to refund the order through PayPal. Create a Read/Write key under <span class="font-medium text-gray-700">WooCommerce → Settings → Advanced → REST API</span>.</p>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
                 <label class="block text-sm font-medium text-gray-900 mb-1">Store URL</label>
@@ -245,9 +245,9 @@
     </div>
 
     <!-- Zendesk Sidebar -->
-    <div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-6">
+    <div class="lora-card p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
-            <h3 class="text-base font-semibold text-gray-900 flex items-center gap-2">
+            <h3 class="lora-card-title">
                 <i class="bi bi-shield-lock text-gray-500"></i> Zendesk sidebar
                 {% if settings.sidebar_secret_token %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20">Configured</span>{% else %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">Not set</span>{% endif %}
             </h3>
@@ -259,11 +259,11 @@
         </div>
     </div>
 
-    <h2 class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3 mt-8">Client updates</h2>
+    <h2 class="lora-eyebrow mb-3 mt-8">Client updates</h2>
 
     <!-- Client update settings -->
-    <div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-6">
-        <p class="text-sm text-gray-500 mb-6">When a claim enters the trigger status, LORA drafts a "what we did" update and starts the progress cadence (day 2, 5, 11, 21, then every 10 days, then a final note at the end of the service period). The autonomous-sending switch is at the top of this page.</p>
+    <div class="lora-card p-6 lg:p-8 mb-6">
+        <p class="lora-prose mb-6">When a claim enters the trigger status, LORA drafts a "what we did" update and starts the progress cadence (day 2, 5, 11, 21, then every 10 days, then a final note at the end of the service period). The autonomous-sending switch is at the top of this page.</p>
         <div class="grid md:grid-cols-2 gap-6">
             <div>
                 <label class="block text-sm font-medium text-gray-900 mb-1">Trigger status ID
@@ -271,10 +271,10 @@
                 <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="client_report_trigger_status_id" value="{{ settings.client_report_trigger_status_id }}" placeholder="e.g. 11688538967068" list="zd-custom-status-ids" autocomplete="off">
                 {% if custom_statuses %}
                 <datalist id="zd-custom-status-ids">{% for cs in custom_statuses %}<option value="{{ cs.id }}">{{ cs.name }} ({{ cs.category }})</option>{% endfor %}</datalist>
-                <div class="text-xs text-gray-500 mt-2">Available statuses:
+                <div class="lora-meta mt-2">Available statuses:
                     <span class="block mt-1 space-y-0.5">{% for cs in custom_statuses %}<span class="block"><code class="text-[0.7rem]">{{ cs.id }}</code> — {{ cs.name }} <span class="text-gray-400">({{ cs.category }})</span></span>{% endfor %}</span>
                 </div>
-                {% else %}<span class="block text-xs text-amber-600 mt-1">Could not load Zendesk statuses — enter the ID manually.</span>{% endif %}
+                {% else %}<span class="lora-meta block text-amber-600 mt-1">Could not load Zendesk statuses — enter the ID manually.</span>{% endif %}
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-900 mb-1">Service length (days)

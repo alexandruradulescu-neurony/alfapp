@@ -71,13 +71,13 @@ id) are demoted in here.
     {% if claim.shipping_address %}
     <div>
       <span class="lora-label">Ship found object to</span>
-      <p class="font-medium mt-0.5 mb-0 whitespace-pre-line text-gray-900">{{ claim.shipping_address }}</p>
+      <p class="lora-value font-medium mt-0.5 mb-0 whitespace-pre-line">{{ claim.shipping_address }}</p>
     </div>
     {% endif %}
     {% if claim.billing_address and claim.billing_address != claim.shipping_address %}
     <div>
       <span class="lora-label">Billing address</span>
-      <p class="font-medium mt-0.5 mb-0 whitespace-pre-line text-gray-900">{{ claim.billing_address }}</p>
+      <p class="lora-value font-medium mt-0.5 mb-0 whitespace-pre-line">{{ claim.billing_address }}</p>
     </div>
     {% endif %}
     {% if claim.email_alias %}
@@ -109,7 +109,7 @@ id) are demoted in here.
     {% if claim.incident_details %}
     <div>
       <span class="lora-label">What happened</span>
-      <p class="text-sm mt-0.5 mb-0 text-gray-900">{{ claim.incident_details }}</p>
+      <p class="lora-value font-medium mt-0.5 mb-0">{{ claim.incident_details }}</p>
     </div>
     {% endif %}
     <div>
@@ -226,7 +226,7 @@ id) are demoted in here.
               <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if refund.refund_type == 'FULL' %}bg-green-50 text-green-700 ring-green-600/20{% else %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% endif %}">{{ refund.get_refund_type_display }}</span>
               <span class="text-xs text-gray-400 ml-2">{{ refund.created_at|date:"M d, Y" }}</span>
             </div>
-            <span class="font-semibold text-gray-900">{{ refund.currency }} {{ refund.amount }}</span>
+            <span class="lora-value font-semibold">{{ refund.currency }} {{ refund.amount }}</span>
           </div>
           <div class="flex justify-between items-center">
             <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if refund.status == 'COMPLETED' %}bg-green-50 text-green-700 ring-green-600/20{% elif refund.status == 'REQUESTED' %}bg-blue-50 text-blue-700 ring-blue-700/10{% elif refund.status == 'PENDING' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif refund.status == 'FAILED' %}bg-red-50 text-red-700 ring-red-600/10{% elif refund.status == 'PROCESSING' %}bg-indigo-50 text-indigo-700 ring-indigo-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ refund.get_status_display }}</span>

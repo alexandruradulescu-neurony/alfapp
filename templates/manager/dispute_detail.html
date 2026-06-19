@@ -13,20 +13,20 @@
 <!-- Snapshot header: who + how much + where it stands + the deadline -->
 <div class="flex flex-col lg:flex-row justify-between items-start gap-4 mb-5">
   <div class="min-w-0">
-    <h2 class="text-2xl font-semibold tracking-tight text-gray-900 break-words">{{ dispute.buyer_name|default:dispute.buyer_email }}</h2>
+    <h2 class="lora-page-title break-words">{{ dispute.buyer_name|default:dispute.buyer_email }}</h2>
     <div class="flex flex-wrap items-center gap-2 mt-2">
       <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset whitespace-nowrap {% if dispute.status == 'RESOLVED_WON' %}bg-green-50 text-green-700 ring-green-600/20{% elif dispute.status == 'RESOLVED_LOST' %}bg-red-50 text-red-700 ring-red-600/10{% elif dispute.status == 'ACCEPTED' %}bg-gray-50 text-gray-600 ring-gray-500/10{% elif dispute.status == 'UNDER_REVIEW' or dispute.status == 'EVIDENCE_SENT' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% else %}bg-blue-50 text-blue-700 ring-blue-700/10{% endif %}">
         {{ dispute.get_status_display }}
       </span>
-      {% if dispute.dispute_amount %}<span class="font-semibold tabular-nums text-gray-900">{{ dispute.dispute_currency }} {{ dispute.dispute_amount }}</span>{% endif %}
-      <span class="text-sm text-gray-500">{{ dispute.get_dispute_reason_display|default:"Reason N/A" }}</span>
+      {% if dispute.dispute_amount %}<span class="lora-value font-semibold tabular-nums">{{ dispute.dispute_currency }} {{ dispute.dispute_amount }}</span>{% endif %}
+      <span class="lora-meta">{{ dispute.get_dispute_reason_display|default:"Reason N/A" }}</span>
       {% if dispute.seller_response_due and dispute.deadline_state %}
       <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset whitespace-nowrap {% if dispute.deadline_state == 'overdue' %}bg-red-50 text-red-700 ring-red-600/10{% elif dispute.deadline_state == 'soon' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">
         <i class="bi bi-alarm"></i>
         {% if dispute.deadline_state == 'overdue' %}Overdue {{ dispute.seller_response_due|date:"M d" }}{% else %}Due {{ dispute.seller_response_due|date:"M d" }}{% endif %}
       </span>
       {% endif %}
-      <span class="inline-flex items-center gap-1 text-xs text-gray-400"><i class="bi bi-paypal"></i> {{ dispute.paypal_dispute_id }}</span>
+      <span class="lora-meta inline-flex items-center gap-1"><i class="bi bi-paypal"></i> {{ dispute.paypal_dispute_id }}</span>
     </div>
   </div>
   <div class="flex items-center gap-2 shrink-0">
@@ -78,9 +78,9 @@
   <div class="lg:col-span-2 space-y-6">
 
     <!-- Conversation with PayPal -->
-    <div class="rounded-xl bg-white shadow-sm ring-1 ring-black/5 p-6">
+    <div class="lora-card p-6">
       <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-5">
-        <h3 class="text-lg font-semibold tracking-tight text-gray-900 flex items-center gap-2 m-0">
+        <h3 class="lora-card-title m-0">
           <i class="bi bi-chat-left-dots text-gray-600"></i> Conversation with PayPal
         </h3>
         {% if dispute.paypal_dispute_id|slice:":7" != "MANUAL-" %}
@@ -105,21 +105,21 @@
             </div>
             <div class="flex-1 min-w-0">
               <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <span class="text-sm font-semibold text-gray-900">{{ e.actor }}</span>
-                <span class="text-xs text-gray-500">{{ e.title }}</span>
-                <span class="text-xs text-gray-400 ml-auto shrink-0">{{ e.when_str|default:"—" }}</span>
+                <span class="lora-value font-semibold">{{ e.actor }}</span>
+                <span class="lora-meta">{{ e.title }}</span>
+                <span class="lora-meta ml-auto shrink-0">{{ e.when_str|default:"—" }}</span>
               </div>
               {% if e.status or e.source or e.attached_pdf or e.image_count or e.doc_count %}
               <div class="flex flex-wrap items-center gap-1.5 mt-2">
                 {% if e.status %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if e.status == 'SUBMITTED' %}bg-green-50 text-green-700 ring-green-600/20{% elif e.status == 'FAILED' %}bg-red-50 text-red-700 ring-red-600/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ e.status }}</span>{% endif %}
-                {% if e.source %}<span class="text-xs text-gray-500">{{ e.source }}</span>{% endif %}
+                {% if e.source %}<span class="lora-meta">{{ e.source }}</span>{% endif %}
                 {% if e.attached_pdf %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-blue-50 text-blue-700 ring-blue-700/10"><i class="bi bi-paperclip mr-0.5"></i> report PDF</span>{% endif %}
                 {% if e.image_count %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10"><i class="bi bi-image mr-0.5"></i> {{ e.image_count }}</span>{% endif %}
                 {% if e.doc_count %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10"><i class="bi bi-paperclip mr-0.5"></i> {{ e.doc_count }} file{{ e.doc_count|pluralize }}</span>{% endif %}
               </div>
               {% endif %}
               {% if e.text %}
-              <div class="thread-body text-sm text-gray-600 mt-2 leading-relaxed whitespace-pre-line {% if e.text|length > 280 %}line-clamp-5{% endif %}">{{ e.text }}</div>
+              <div class="thread-body lora-prose mt-2 whitespace-pre-line {% if e.text|length > 280 %}line-clamp-5{% endif %}">{{ e.text }}</div>
               {% if e.text|length > 280 %}
               <button type="button" class="thread-toggle text-xs text-indigo-600 mt-1.5 hover:underline">Show full message</button>
               {% endif %}
@@ -132,16 +132,16 @@
       {% else %}
       <div class="text-center py-8">
         <i class="bi bi-chat-left-dots text-2xl text-gray-300"></i>
-        <p class="text-gray-600 mt-2 mb-0 font-medium">No messages yet</p>
-        <span class="text-xs text-gray-500">Your replies and PayPal's responses appear here in order.</span>
+        <p class="lora-value font-medium mt-2 mb-0">No messages yet</p>
+        <span class="lora-meta">Your replies and PayPal's responses appear here in order.</span>
       </div>
       {% endif %}
     </div>
 
     <!-- Composer: your reply to PayPal (one box; channel auto-picked by stage) -->
-    <div class="rounded-xl bg-white shadow-sm ring-1 ring-black/5 p-6">
+    <div class="lora-card p-6">
       <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
-        <h3 class="text-lg font-semibold tracking-tight text-gray-900 flex items-center gap-2 m-0">
+        <h3 class="lora-card-title m-0">
           <i class="bi bi-reply text-gray-600"></i> Your reply to PayPal
         </h3>
         {% if submit_endpoint == 'provide-evidence' %}
@@ -173,14 +173,14 @@
             <i class="bi bi-magic"></i> Draft with AI
           </button>
           {% if draft_submission %}
-          <span class="text-xs text-gray-500 ml-2">Current draft: {{ draft_submission.get_source_display }}</span>
+          <span class="lora-meta ml-2">Current draft: {{ draft_submission.get_source_display }}</span>
           {% endif %}
         </div>
 
         <div>
           <div class="flex justify-between items-center pb-1">
             <label class="block text-sm font-medium text-gray-900">Message to PayPal (plain text)</label>
-            <span id="composer-count" class="text-xs text-gray-500"></span>
+            <span id="composer-count" class="lora-meta"></span>
           </div>
           <textarea name="notes" id="composer-notes" rows="10"
                     class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 leading-relaxed outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"
@@ -193,7 +193,7 @@
             <input type="text" name="evidence_type"
                    value="{{ draft_submission.evidence_type|default:evidence_type_default }}"
                    class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">
-            <span class="text-xs text-gray-500 mt-1 block">Defaulted from the dispute reason; used on the first-evidence reply.</span>
+            <span class="lora-meta mt-1 block">Defaulted from the dispute reason; used on the first-evidence reply.</span>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-900 mb-1">Attachments (evidence)</label>
@@ -204,12 +204,12 @@
               Attach the evidence-report PDF
             </label>
             {% if not has_evidence_pdf %}
-            <span class="text-xs text-gray-500 mt-1 block">Generate the evidence report below to enable this.</span>
+            <span class="lora-meta mt-1 block">Generate the evidence report below to enable this.</span>
             {% endif %}
             <div class="mt-2">
               <input type="file" name="images" multiple accept="image/*"
                      class="block w-full text-sm text-gray-500 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-indigo-600 hover:file:bg-indigo-100">
-              <span class="text-xs text-gray-500 mt-1 block">Images are always attached.</span>
+              <span class="lora-meta mt-1 block">Images are always attached.</span>
             </div>
           </div>
         </div>
@@ -222,7 +222,7 @@
       <!-- Attached images on the draft (delete forms must sit OUTSIDE the form above) -->
       {% if draft_submission and draft_submission.images.all %}
       <div class="mt-4">
-        <span class="text-xs font-semibold uppercase tracking-wide text-gray-500">Attached images</span>
+        <span class="lora-eyebrow">Attached images</span>
         <div class="flex flex-wrap gap-3 mt-2">
           {% for img in draft_submission.images.all %}
           <div class="relative">
@@ -248,17 +248,17 @@
           {% if submit_endpoint == 'provide-supporting-info' %}Send follow-up to PayPal{% else %}Send reply to PayPal{% endif %}
         </button>
         {% if not draft_submission or not draft_submission.notes %}
-        <span class="text-xs text-gray-500 mt-2 block">Write or generate a message and Save draft first.</span>
+        <span class="lora-meta mt-2 block">Write or generate a message and Save draft first.</span>
         {% endif %}
       </form>
     </div>
 
     <!-- Evidence report — the attachable PDF artifact -->
-    <details class="rounded-xl bg-white shadow-sm ring-1 ring-black/5 overflow-hidden" {% if documents %}open{% endif %}>
+    <details class="lora-card overflow-hidden" {% if documents %}open{% endif %}>
       <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 p-6">
-        <span class="text-lg font-semibold tracking-tight text-gray-900 flex items-center gap-2">
+        <span class="lora-card-title">
           <i class="bi bi-file-earmark-text text-gray-600"></i> Evidence report
-          <span class="text-xs font-normal text-gray-500">— generate, then tick "Attach the evidence-report PDF" in your reply</span>
+          <span class="lora-meta font-normal">— generate, then tick "Attach the evidence-report PDF" in your reply</span>
         </span>
       </summary>
       <div class="px-6 pb-6">
@@ -311,36 +311,36 @@
           </table>
         </div>
         {% else %}
-        <div class="text-sm text-gray-500">No evidence report yet — generate one to attach it to a reply.</div>
+        <div class="lora-prose">No evidence report yet — generate one to attach it to a reply.</div>
         {% endif %}
       </div>
     </details>
 
     <!-- Reference: dispute facts (collapsed) -->
-    <details class="rounded-xl bg-white shadow-sm ring-1 ring-black/5 overflow-hidden">
-      <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none px-6 py-4 text-base font-semibold tracking-tight text-gray-900 flex items-center gap-2">
+    <details class="lora-card overflow-hidden">
+      <summary class="lora-card-title list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none px-6 py-4">
         <i class="bi bi-info-circle text-gray-500"></i> Dispute details
       </summary>
       <div class="px-6 pb-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
-        <div class="flex justify-between gap-4"><dt class="text-gray-500">Buyer email</dt><dd class="text-right break-all text-gray-900">{{ dispute.buyer_email }}</dd></div>
-        <div class="flex justify-between gap-4"><dt class="text-gray-500">Amount</dt><dd class="text-right text-gray-900">{% if dispute.dispute_amount %}{{ dispute.dispute_currency }} {{ dispute.dispute_amount }}{% else %}N/A{% endif %}</dd></div>
-        <div class="flex justify-between gap-4"><dt class="text-gray-500">Transaction ID</dt><dd class="text-right"><code class="text-xs bg-gray-100 text-gray-900 rounded px-1.5 py-0.5 break-all">{{ dispute.transaction_id }}</code></dd></div>
-        <div class="flex justify-between gap-4"><dt class="text-gray-500">Transaction date</dt><dd class="text-right text-gray-900">{{ dispute.transaction_date|date:"M d, Y H:i" }}</dd></div>
-        <div class="flex justify-between gap-4"><dt class="text-gray-500">Seller response due</dt><dd class="text-right text-gray-900">{% if dispute.seller_response_due %}{{ dispute.seller_response_due|date:"M d, Y H:i" }}{% else %}N/A{% endif %}</dd></div>
-        <div class="flex justify-between gap-4"><dt class="text-gray-500">Created</dt><dd class="text-right text-gray-900">{{ dispute.created_at|date:"M d, Y H:i" }}</dd></div>
-        <div class="flex justify-between gap-4"><dt class="text-gray-500">Last updated</dt><dd class="text-right text-gray-900">{{ dispute.updated_at|date:"M d, Y H:i" }}</dd></div>
+        <div class="flex justify-between gap-4"><dt class="lora-label">Buyer email</dt><dd class="lora-value text-right break-all">{{ dispute.buyer_email }}</dd></div>
+        <div class="flex justify-between gap-4"><dt class="lora-label">Amount</dt><dd class="lora-value text-right">{% if dispute.dispute_amount %}{{ dispute.dispute_currency }} {{ dispute.dispute_amount }}{% else %}N/A{% endif %}</dd></div>
+        <div class="flex justify-between gap-4"><dt class="lora-label">Transaction ID</dt><dd class="text-right"><code class="text-xs bg-gray-100 text-gray-900 rounded px-1.5 py-0.5 break-all">{{ dispute.transaction_id }}</code></dd></div>
+        <div class="flex justify-between gap-4"><dt class="lora-label">Transaction date</dt><dd class="lora-value text-right">{{ dispute.transaction_date|date:"M d, Y H:i" }}</dd></div>
+        <div class="flex justify-between gap-4"><dt class="lora-label">Seller response due</dt><dd class="lora-value text-right">{% if dispute.seller_response_due %}{{ dispute.seller_response_due|date:"M d, Y H:i" }}{% else %}N/A{% endif %}</dd></div>
+        <div class="flex justify-between gap-4"><dt class="lora-label">Created</dt><dd class="lora-value text-right">{{ dispute.created_at|date:"M d, Y H:i" }}</dd></div>
+        <div class="flex justify-between gap-4"><dt class="lora-label">Last updated</dt><dd class="lora-value text-right">{{ dispute.updated_at|date:"M d, Y H:i" }}</dd></div>
       </div>
       {% if dispute.notes %}
       <div class="px-6 pb-6">
-        <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Notes</h4>
-        <div class="text-sm text-gray-600 leading-relaxed">{{ dispute.notes|linebreaks }}</div>
+        <h4 class="lora-eyebrow mb-2">Notes</h4>
+        <div class="lora-prose">{{ dispute.notes|linebreaks }}</div>
       </div>
       {% endif %}
     </details>
 
     <!-- Activity log (collapsed) -->
-    <details class="rounded-xl bg-white shadow-sm ring-1 ring-black/5 overflow-hidden">
-      <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none px-6 py-4 text-base font-semibold tracking-tight text-gray-900 flex items-center gap-2">
+    <details class="lora-card overflow-hidden">
+      <summary class="lora-card-title list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none px-6 py-4">
         <i class="bi bi-clock-history text-gray-500"></i> Activity log
       </summary>
       <div class="px-6 pb-6">
@@ -350,16 +350,16 @@
           <div class="border-l-2 border-indigo-200 pl-4 relative">
             <div class="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-indigo-600"></div>
             <div class="flex justify-between items-start gap-3">
-              <strong class="text-sm text-gray-900">{{ activity.get_action_display }}</strong>
-              <span class="text-xs text-gray-500 shrink-0">{{ activity.performed_at|date:"M d, Y H:i" }}</span>
+              <strong class="lora-value font-semibold">{{ activity.get_action_display }}</strong>
+              <span class="lora-meta shrink-0">{{ activity.performed_at|date:"M d, Y H:i" }}</span>
             </div>
-            {% if activity.details %}<p class="text-sm text-gray-500 mt-1">{{ activity.details|linebreaks }}</p>{% endif %}
-            {% if activity.performed_by %}<span class="text-xs text-gray-500">by {{ activity.performed_by.username }}</span>{% endif %}
+            {% if activity.details %}<p class="lora-prose mt-1">{{ activity.details|linebreaks }}</p>{% endif %}
+            {% if activity.performed_by %}<span class="lora-meta">by {{ activity.performed_by.username }}</span>{% endif %}
           </div>
           {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm text-gray-500 mb-0">No activity logged yet.</p>
+        <p class="lora-prose mb-0">No activity logged yet.</p>
         {% endif %}
       </div>
     </details>
@@ -367,8 +367,8 @@
 
   <!-- Right column: case actions -->
   <div class="lg:col-span-1 space-y-6">
-    <div class="rounded-xl bg-white shadow-sm ring-1 ring-black/5 p-6">
-      <h3 class="text-lg font-semibold tracking-tight text-gray-900 flex items-center gap-2 mb-5">
+    <div class="lora-card p-6">
+      <h3 class="lora-card-title mb-5">
         <i class="bi bi-lightning text-gray-600"></i> Case actions
       </h3>
 
@@ -382,7 +382,7 @@
           {% endfor %}
         </select>
         <button type="submit" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50"><i class="bi bi-tag"></i> Set category</button>
-        <span class="text-xs text-gray-500 mt-2 block">Prefilled from PayPal; change if the human review disagrees.</span>
+        <span class="lora-meta mt-2 block">Prefilled from PayPal; change if the human review disagrees.</span>
       </form>
 
       <div class="my-5 border-t border-gray-200"></div>
@@ -393,7 +393,7 @@
         <button type="submit" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed" {% if not dispute.zd_ticket_id %}disabled{% endif %}>
           <i class="bi bi-magic"></i> Generate evidence report
         </button>
-        {% if not dispute.zd_ticket_id %}<span class="text-xs text-gray-500 mt-2 block">Requires Zendesk ticket linkage</span>{% endif %}
+        {% if not dispute.zd_ticket_id %}<span class="lora-meta mt-2 block">Requires Zendesk ticket linkage</span>{% endif %}
       </form>
 
       <div class="my-5 border-t border-gray-200"></div>
@@ -401,7 +401,7 @@
       <!-- Link / linked claim -->
       {% if dispute.claim %}
       <div>
-        <span class="text-xs font-semibold uppercase tracking-wide text-gray-500">Linked claim</span>
+        <span class="lora-eyebrow">Linked claim</span>
         <a href="{% url 'agent_claim_detail' dispute.claim.id %}" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50 mt-2">
           <i class="bi bi-clipboard-data"></i> View claim #{{ dispute.claim.id }}
         </a>
@@ -409,7 +409,7 @@
       {% else %}
       <form method="post" action="{% url 'disputes:dispute_link_claim' dispute.id %}" class="flex flex-col gap-2">
         {% csrf_token %}
-        <label class="text-xs font-semibold uppercase tracking-wide text-gray-500">Link to a claim</label>
+        <label class="lora-eyebrow">Link to a claim</label>
         <input type="text" name="claim_ref" required
                class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"
                placeholder="Zendesk ticket ID, ALF claim ID, or email">
@@ -423,12 +423,12 @@
     </div>
 
     <!-- Raw PayPal data (manager debug — verify field mapping against what PayPal sent) -->
-    <details class="rounded-xl bg-white shadow-sm ring-1 ring-black/5 overflow-hidden">
+    <details class="lora-card overflow-hidden">
       <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none px-5 py-3 text-sm font-medium text-gray-500 flex items-center gap-2">
         <i class="bi bi-code-square text-gray-400"></i> Raw PayPal data
       </summary>
       <div class="px-5 pb-5">
-        <p class="text-xs text-gray-500 mb-2"><i class="bi bi-shield-exclamation"></i> Black out any personal details before sharing this.</p>
+        <p class="lora-meta mb-2"><i class="bi bi-shield-exclamation"></i> Black out any personal details before sharing this.</p>
         <pre class="text-xs bg-gray-50 text-gray-900 rounded-xl p-4 overflow-auto max-h-[28rem] whitespace-pre-wrap break-words mb-0">{{ raw_payload_json }}</pre>
       </div>
     </details>
