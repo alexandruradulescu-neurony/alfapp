@@ -8,38 +8,38 @@ id) are demoted in here.
 {% endcomment %}
 
 {# ── Status ── #}
-<details class="card-modern p-3">
-  <summary class="lora-disclosure flex items-center justify-between w-full cursor-pointer">
-    <span class="text-sm font-semibold flex items-center gap-2"><i class="bi bi-shield-check text-base-content/60"></i> Status</span>
-    <i class="bi bi-chevron-down text-base-content/40"></i>
+<details class="rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5">
+  <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
+    <span class="text-sm font-semibold flex items-center gap-2 text-gray-900"><i class="bi bi-shield-check text-gray-500"></i> Status</span>
+    <i class="bi bi-chevron-down text-gray-400"></i>
   </summary>
   <div class="mt-3 space-y-2">
-    <div class="flex items-center justify-between p-2 rounded-lg bg-base-200/50">
-      <span class="text-sm flex items-center gap-2"><i class="bi bi-box-seam text-base-content/60"></i> Case</span>
-      <span class="badge badge-sm rounded-full {% if claim.status_category == 'solved' %}badge-neutral{% else %}badge-success{% endif %}">
+    <div class="flex items-center justify-between p-2 rounded-lg bg-gray-50">
+      <span class="text-sm flex items-center gap-2 text-gray-900"><i class="bi bi-box-seam text-gray-500"></i> Case</span>
+      <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if claim.status_category == 'solved' %}bg-gray-50 text-gray-600 ring-gray-500/10{% else %}bg-green-50 text-green-700 ring-green-600/20{% endif %}">
         {% if claim.status_category == 'solved' %}Closed{% else %}Active{% endif %}
       </span>
     </div>
-    <div class="flex items-center justify-between p-2 rounded-lg bg-base-200/50">
-      <span class="text-sm flex items-center gap-2"><i class="bi bi-currency-dollar text-base-content/60"></i> Financial</span>
-      <span class="badge badge-sm rounded-full {% if claim_refund_status == 'COMPLETED' %}badge-success{% elif claim_refund_status %}badge-warning{% else %}badge-neutral{% endif %}">
+    <div class="flex items-center justify-between p-2 rounded-lg bg-gray-50">
+      <span class="text-sm flex items-center gap-2 text-gray-900"><i class="bi bi-currency-dollar text-gray-500"></i> Financial</span>
+      <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if claim_refund_status == 'COMPLETED' %}bg-green-50 text-green-700 ring-green-600/20{% elif claim_refund_status %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">
         {% if claim_refund_status == 'COMPLETED' %}Refunded{% elif claim_refund_status %}{{ claim_refund_status|title }}{% else %}No action{% endif %}
       </span>
     </div>
-    <div class="flex items-center justify-between p-2 rounded-lg bg-base-200/50">
-      <span class="text-sm flex items-center gap-2"><i class="bi bi-exclamation-triangle text-base-content/60"></i> Dispute</span>
-      <span class="badge badge-sm rounded-full {% if claim.disputes.all %}badge-error{% else %}badge-neutral{% endif %}">
+    <div class="flex items-center justify-between p-2 rounded-lg bg-gray-50">
+      <span class="text-sm flex items-center gap-2 text-gray-900"><i class="bi bi-exclamation-triangle text-gray-500"></i> Dispute</span>
+      <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if claim.disputes.all %}bg-red-50 text-red-700 ring-red-600/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">
         {% if claim.disputes.all %}Active dispute{% else %}No dispute{% endif %}
       </span>
     </div>
-    <p class="text-xs text-base-content/50 pt-1 mb-0"><i class="bi bi-arrow-repeat"></i> Status follows the Zendesk ticket automatically{% if claim.status_changed_at %} · since {{ claim.status_changed_at|date:"M d, Y H:i" }}{% endif %}.</p>
+    <p class="text-xs text-gray-500 pt-1 mb-0"><i class="bi bi-arrow-repeat"></i> Status follows the Zendesk ticket automatically{% if claim.status_changed_at %} · since {{ claim.status_changed_at|date:"M d, Y H:i" }}{% endif %}.</p>
     {% if claim.zd_ticket_id and zd_subdomain %}
     <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ claim.zd_ticket_id }}"
-       target="_blank" rel="noopener" class="btn btn-sm btn-outline rounded-xl w-full">
+       target="_blank" rel="noopener" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
       <i class="bi bi-box-arrow-up-right"></i> Open ticket in Zendesk
     </a>
     {% endif %}
-    <div class="text-xs text-base-content/50 pt-1 space-y-1">
+    <div class="text-xs text-gray-500 pt-1 space-y-1">
       <div>Ticket: {% if claim.zd_ticket_id %}<span class="font-mono">#{{ claim.zd_ticket_id }}</span>{% else %}not linked{% endif %}</div>
       <div>Opened {{ claim.created_at|date:"M d, Y H:i" }} · last update {{ claim.updated_at|date:"M d, Y H:i" }}</div>
     </div>
@@ -47,135 +47,135 @@ id) are demoted in here.
 </details>
 
 {# ── Client ── #}
-<details class="card-modern p-3">
-  <summary class="lora-disclosure flex items-center justify-between w-full cursor-pointer">
-    <span class="text-sm font-semibold flex items-center gap-2"><i class="bi bi-person-circle text-base-content/60"></i> Client</span>
-    <i class="bi bi-chevron-down text-base-content/40"></i>
+<details class="rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5">
+  <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
+    <span class="text-sm font-semibold flex items-center gap-2 text-gray-900"><i class="bi bi-person-circle text-gray-500"></i> Client</span>
+    <i class="bi bi-chevron-down text-gray-400"></i>
   </summary>
   <div class="mt-3 space-y-3">
-    <p class="font-semibold mb-0">{{ claim.client_name|default:"(name not on file)" }}</p>
+    <p class="font-semibold mb-0 text-gray-900">{{ claim.client_name|default:"(name not on file)" }}</p>
     <div>
-      <span class="text-sm text-base-content/60">Email</span>
-      <p class="font-medium mt-0.5 mb-0"><a href="mailto:{{ claim.client_email }}" class="hover:text-primary transition-colors">{{ claim.client_email }}</a></p>
+      <span class="text-sm text-gray-500">Email</span>
+      <p class="font-medium mt-0.5 mb-0 text-gray-900"><a href="mailto:{{ claim.client_email }}" class="hover:text-indigo-600 transition-colors">{{ claim.client_email }}</a></p>
     </div>
     {% if claim.alternate_email %}
     <div>
-      <span class="text-sm text-base-content/60">Alternate email</span>
-      <p class="font-medium mt-0.5 mb-0">{{ claim.alternate_email }}</p>
+      <span class="text-sm text-gray-500">Alternate email</span>
+      <p class="font-medium mt-0.5 mb-0 text-gray-900">{{ claim.alternate_email }}</p>
     </div>
     {% endif %}
     <div>
-      <span class="text-sm text-base-content/60">Phone</span>
-      <p class="font-medium mt-0.5 mb-0">{% if claim.phone %}<a href="tel:{{ claim.phone }}" class="hover:text-primary transition-colors">{{ claim.phone }}</a>{% else %}<span class="text-base-content/40">—</span>{% endif %}</p>
+      <span class="text-sm text-gray-500">Phone</span>
+      <p class="font-medium mt-0.5 mb-0 text-gray-900">{% if claim.phone %}<a href="tel:{{ claim.phone }}" class="hover:text-indigo-600 transition-colors">{{ claim.phone }}</a>{% else %}<span class="text-gray-400">—</span>{% endif %}</p>
     </div>
     {% if claim.shipping_address %}
     <div>
-      <span class="text-sm text-base-content/60">Ship found object to</span>
-      <p class="font-medium mt-0.5 mb-0 whitespace-pre-line">{{ claim.shipping_address }}</p>
+      <span class="text-sm text-gray-500">Ship found object to</span>
+      <p class="font-medium mt-0.5 mb-0 whitespace-pre-line text-gray-900">{{ claim.shipping_address }}</p>
     </div>
     {% endif %}
     {% if claim.billing_address and claim.billing_address != claim.shipping_address %}
     <div>
-      <span class="text-sm text-base-content/60">Billing address</span>
-      <p class="font-medium mt-0.5 mb-0 whitespace-pre-line">{{ claim.billing_address }}</p>
+      <span class="text-sm text-gray-500">Billing address</span>
+      <p class="font-medium mt-0.5 mb-0 whitespace-pre-line text-gray-900">{{ claim.billing_address }}</p>
     </div>
     {% endif %}
     {% if claim.email_alias %}
     <div>
-      <span class="text-sm text-base-content/60">Case email alias</span>
-      <p class="font-mono text-sm mt-0.5 mb-0">{{ claim.email_alias }}</p>
+      <span class="text-sm text-gray-500">Case email alias</span>
+      <p class="font-mono text-sm mt-0.5 mb-0 text-gray-900">{{ claim.email_alias }}</p>
     </div>
     {% endif %}
   </div>
 </details>
 
 {# ── Case facts ── #}
-<details class="card-modern p-3">
-  <summary class="lora-disclosure flex items-center justify-between w-full cursor-pointer">
-    <span class="text-sm font-semibold flex items-center gap-2"><i class="bi bi-box-seam text-base-content/60"></i> Case facts</span>
-    <i class="bi bi-chevron-down text-base-content/40"></i>
+<details class="rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5">
+  <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
+    <span class="text-sm font-semibold flex items-center gap-2 text-gray-900"><i class="bi bi-box-seam text-gray-500"></i> Case facts</span>
+    <i class="bi bi-chevron-down text-gray-400"></i>
   </summary>
   <div class="mt-3 space-y-3">
     <div>
-      <span class="text-sm text-base-content/60">Lost object</span>
-      <p class="font-medium mt-0.5 mb-0">{{ claim.object_description|default:"(no description)" }}</p>
+      <span class="text-sm text-gray-500">Lost object</span>
+      <p class="font-medium mt-0.5 mb-0 text-gray-900">{{ claim.object_description|default:"(no description)" }}</p>
     </div>
     {% if claim.lost_location %}
     <div>
-      <span class="text-sm text-base-content/60">Where it was lost</span>
-      <p class="font-medium mt-0.5 mb-0">{{ claim.lost_location }}</p>
+      <span class="text-sm text-gray-500">Where it was lost</span>
+      <p class="font-medium mt-0.5 mb-0 text-gray-900">{{ claim.lost_location }}</p>
     </div>
     {% endif %}
     {% if claim.incident_details %}
     <div>
-      <span class="text-sm text-base-content/60">What happened</span>
-      <p class="text-sm mt-0.5 mb-0">{{ claim.incident_details }}</p>
+      <span class="text-sm text-gray-500">What happened</span>
+      <p class="text-sm mt-0.5 mb-0 text-gray-900">{{ claim.incident_details }}</p>
     </div>
     {% endif %}
     <div>
-      <span class="text-sm text-base-content/60">Deadline</span>
-      <p class="font-medium mt-0.5 mb-0">
+      <span class="text-sm text-gray-500">Deadline</span>
+      <p class="font-medium mt-0.5 mb-0 text-gray-900">
         {% if claim.deadline_show %}
           {{ claim.deadline_show|date:"M d, Y" }}
           {% if claim.deadline_label %}
-          <span class="badge badge-sm rounded-full {% if claim.deadline_state == 'overdue' %}badge-error{% elif claim.deadline_state == 'soon' %}badge-warning{% else %}badge-ghost{% endif %} ml-1">{{ claim.deadline_label }}</span>
+          <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if claim.deadline_state == 'overdue' %}bg-red-50 text-red-700 ring-red-600/10{% elif claim.deadline_state == 'soon' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %} ml-1">{{ claim.deadline_label }}</span>
           {% endif %}
-        {% else %}<span class="text-base-content/40">—</span>{% endif %}
+        {% else %}<span class="text-gray-400">—</span>{% endif %}
       </p>
     </div>
     {% if claim.price_paid %}
     <div>
-      <span class="text-sm text-base-content/60">Service paid</span>
-      <p class="font-medium mt-0.5 mb-0">
+      <span class="text-sm text-gray-500">Service paid</span>
+      <p class="font-medium mt-0.5 mb-0 text-gray-900">
         ${{ claim.price_paid|floatformat:2 }}
-        {% if claim.payment_method %}<span class="text-sm text-base-content/50">via {{ claim.payment_method }}</span>{% endif %}
-        {% if claim.payment_status %}<span class="badge badge-sm badge-ghost rounded-full ml-1">{{ claim.payment_status }}</span>{% endif %}
+        {% if claim.payment_method %}<span class="text-sm text-gray-500">via {{ claim.payment_method }}</span>{% endif %}
+        {% if claim.payment_status %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10 ml-1">{{ claim.payment_status }}</span>{% endif %}
       </p>
     </div>
     {% endif %}
     {% if claim.tracking_info %}
     <div>
-      <span class="text-sm text-base-content/60">Shipment tracking</span>
-      <p class="font-medium mt-0.5 mb-0">{{ claim.tracking_info }}</p>
+      <span class="text-sm text-gray-500">Shipment tracking</span>
+      <p class="font-medium mt-0.5 mb-0 text-gray-900">{{ claim.tracking_info }}</p>
     </div>
     {% endif %}
   </div>
 </details>
 
 {# ── Flight ── #}
-<details class="card-modern p-3">
-  <summary class="lora-disclosure flex items-center justify-between w-full cursor-pointer">
-    <span class="text-sm font-semibold flex items-center gap-2"><i class="bi bi-airplane text-base-content/60"></i> Flight</span>
-    <i class="bi bi-chevron-down text-base-content/40"></i>
+<details class="rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5">
+  <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
+    <span class="text-sm font-semibold flex items-center gap-2 text-gray-900"><i class="bi bi-airplane text-gray-500"></i> Flight</span>
+    <i class="bi bi-chevron-down text-gray-400"></i>
   </summary>
   <div class="mt-3">
     {% if claim.flight_data %}
       {% with verdict=claim.flight_data.verdict %}
       {% if verdict %}
-      <span class="badge rounded-full {% if verdict.level == 'verified' %}badge-success{% elif verdict.level == 'check' %}badge-warning{% elif verdict.level == 'not_found' %}badge-error{% else %}badge-neutral{% endif %} mb-3">
+      <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset {% if verdict.level == 'verified' %}bg-green-50 text-green-700 ring-green-600/20{% elif verdict.level == 'check' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif verdict.level == 'not_found' %}bg-red-50 text-red-700 ring-red-600/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %} mb-3">
         {{ verdict.label }}
       </span>
       {% endif %}
       {% endwith %}
-      <p class="font-semibold mb-2">
+      <p class="font-semibold mb-2 text-gray-900">
         {{ claim.flight_data.number }}
         {% if claim.flight_data.airline %}— {{ claim.flight_data.airline }}{% endif %}
-        {% if claim.flight_data.status %}<span class="badge badge-sm badge-ghost rounded-full ml-1">{{ claim.flight_data.status }}</span>{% endif %}
+        {% if claim.flight_data.status %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10 ml-1">{{ claim.flight_data.status }}</span>{% endif %}
       </p>
       {% for leg in claim.flight_data.legs %}
-      <div class="rounded-xl bg-base-200/50 p-3 mb-2 text-sm">
-        <div class="font-medium">
+      <div class="rounded-xl bg-gray-50 p-3 mb-2 text-sm">
+        <div class="font-medium text-gray-900">
           {{ leg.from_iata }}{% if leg.from_city %} ({{ leg.from_city }}){% endif %}
           → {{ leg.to_iata }}{% if leg.to_city %} ({{ leg.to_city }}){% endif %}
         </div>
         {% if leg.scheduled_departure_local or leg.scheduled_arrival_local %}
-        <div class="text-base-content/60">
+        <div class="text-gray-500">
           {% if leg.scheduled_departure_local %}dep {{ leg.scheduled_departure_local }}{% endif %}
           {% if leg.scheduled_arrival_local %} · arr {{ leg.scheduled_arrival_local }}{% endif %}
         </div>
         {% endif %}
         {% if leg.from_terminal or leg.from_gate or leg.to_terminal or leg.to_gate or leg.to_baggage_belt %}
-        <div class="text-base-content/60">
+        <div class="text-gray-500">
           {% if leg.from_terminal or leg.from_gate %}dep {% if leg.from_terminal %}Terminal {{ leg.from_terminal }}{% endif %}{% if leg.from_gate %}{% if leg.from_terminal %}, {% endif %}Gate {{ leg.from_gate }}{% endif %}{% endif %}
           {% if leg.to_terminal or leg.to_gate or leg.to_baggage_belt %} · arr {% if leg.to_terminal %}Terminal {{ leg.to_terminal }}{% endif %}{% if leg.to_gate %}{% if leg.to_terminal %}, {% endif %}Gate {{ leg.to_gate }}{% endif %}{% if leg.to_baggage_belt %}{% if leg.to_terminal or leg.to_gate %}, {% endif %}Belt {{ leg.to_baggage_belt }}{% endif %}{% endif %}
         </div>
@@ -183,84 +183,84 @@ id) are demoted in here.
       </div>
       {% endfor %}
       {% if claim.flight_data_updated_at %}
-      <p class="text-xs text-base-content/40 mt-1 mb-0">Verified {{ claim.flight_data_updated_at|timesince }} ago via AeroDataBox</p>
+      <p class="text-xs text-gray-400 mt-1 mb-0">Verified {{ claim.flight_data_updated_at|timesince }} ago via AeroDataBox</p>
       {% endif %}
       {% if claim.flight_details %}
       <details class="mt-2">
-        <summary class="text-xs text-primary cursor-pointer">Client-reported details</summary>
-        <p class="text-sm mt-1 mb-0 text-base-content/70">{{ claim.flight_details|linebreaks }}</p>
+        <summary class="text-xs font-medium text-indigo-600 hover:text-indigo-500 cursor-pointer">Client-reported details</summary>
+        <p class="text-sm mt-1 mb-0 text-gray-600">{{ claim.flight_details|linebreaks }}</p>
       </details>
       {% endif %}
     {% elif claim.flight_details %}
-      <p class="text-sm mb-2">{{ claim.flight_details|linebreaks }}</p>
-      <p class="text-xs text-base-content/40 mb-0">
+      <p class="text-sm mb-2 text-gray-900">{{ claim.flight_details|linebreaks }}</p>
+      <p class="text-xs text-gray-400 mb-0">
         <i class="bi bi-info-circle"></i> Not verified yet — use <b>Find flight info</b> in the Zendesk sidebar to look it up and cross-check.
       </p>
     {% else %}
-      <p class="text-base-content/40 text-sm mb-0">No flight details provided.</p>
+      <p class="text-gray-400 text-sm mb-0">No flight details provided.</p>
     {% endif %}
   </div>
 </details>
 
 {# ── Refunds & evidence ── #}
-<details class="card-modern p-3">
-  <summary class="lora-disclosure flex items-center justify-between w-full cursor-pointer">
-    <span class="text-sm font-semibold flex items-center gap-2"><i class="bi bi-currency-exchange text-base-content/60"></i> Refunds &amp; evidence</span>
-    <i class="bi bi-chevron-down text-base-content/40"></i>
+<details class="rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5">
+  <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
+    <span class="text-sm font-semibold flex items-center gap-2 text-gray-900"><i class="bi bi-currency-exchange text-gray-500"></i> Refunds &amp; evidence</span>
+    <i class="bi bi-chevron-down text-gray-400"></i>
   </summary>
   <div class="mt-3">
 
     {# Refund history #}
     {% if claim.refunds.exists %}
-      <div class="bg-success/10 rounded-xl p-3 mb-3">
+      <div class="bg-green-50 rounded-xl p-3 mb-3">
         <div class="flex justify-between items-center">
-          <span class="text-sm text-base-content/60">Total refunded</span>
-          <span class="text-xl font-bold text-success">${{ claim.refund_total|floatformat:2 }}</span>
+          <span class="text-sm text-gray-500">Total refunded</span>
+          <span class="text-xl font-bold text-green-600">${{ claim.refund_total|floatformat:2 }}</span>
         </div>
       </div>
       <div class="space-y-2 mb-3">
         {% for refund in claim.refunds.all %}
-        <div class="border border-base-200/60 rounded-xl p-3">
+        <div class="border border-gray-200 rounded-xl p-3">
           <div class="flex justify-between items-start mb-2">
             <div>
-              <span class="badge badge-sm rounded-full {% if refund.refund_type == 'FULL' %}badge-success{% else %}badge-warning{% endif %}">{{ refund.get_refund_type_display }}</span>
-              <span class="text-xs text-base-content/40 ml-2">{{ refund.created_at|date:"M d, Y" }}</span>
+              <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if refund.refund_type == 'FULL' %}bg-green-50 text-green-700 ring-green-600/20{% else %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% endif %}">{{ refund.get_refund_type_display }}</span>
+              <span class="text-xs text-gray-400 ml-2">{{ refund.created_at|date:"M d, Y" }}</span>
             </div>
-            <span class="font-semibold">{{ refund.currency }} {{ refund.amount }}</span>
+            <span class="font-semibold text-gray-900">{{ refund.currency }} {{ refund.amount }}</span>
           </div>
           <div class="flex justify-between items-center">
-            <span class="badge badge-sm rounded-full {% if refund.status == 'COMPLETED' %}badge-success{% elif refund.status == 'REQUESTED' %}badge-info{% elif refund.status == 'PENDING' %}badge-warning{% elif refund.status == 'FAILED' %}badge-error{% elif refund.status == 'PROCESSING' %}badge-primary{% else %}badge-neutral{% endif %}">{{ refund.get_status_display }}</span>
-            <span class="text-xs text-base-content/40 font-mono">{{ refund.paypal_refund_id|truncatechars:15 }}</span>
+            <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if refund.status == 'COMPLETED' %}bg-green-50 text-green-700 ring-green-600/20{% elif refund.status == 'REQUESTED' %}bg-blue-50 text-blue-700 ring-blue-700/10{% elif refund.status == 'PENDING' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif refund.status == 'FAILED' %}bg-red-50 text-red-700 ring-red-600/10{% elif refund.status == 'PROCESSING' %}bg-indigo-50 text-indigo-700 ring-indigo-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ refund.get_status_display }}</span>
+            <span class="text-xs text-gray-400 font-mono">{{ refund.paypal_refund_id|truncatechars:15 }}</span>
           </div>
           {% if refund.reason %}
-          <p class="text-xs text-base-content/60 mt-2 mb-0 italic">"{{ refund.reason|truncatechars:80 }}"</p>
+          <p class="text-xs text-gray-500 mt-2 mb-0 italic">"{{ refund.reason|truncatechars:80 }}"</p>
           {% endif %}
         </div>
         {% endfor %}
       </div>
     {% else %}
-      <p class="text-base-content/60 text-sm mb-3">No refunds issued for this claim.</p>
+      <p class="text-gray-500 text-sm mb-3">No refunds issued for this claim.</p>
     {% endif %}
 
     {# Grant refund — issuing moves money; opens the native <dialog> below #}
     {% if claim_refund_status != 'COMPLETED' %}
-    <button type="button" class="btn btn-sm btn-warning rounded-xl w-full mb-3"
+    <button type="button" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-amber-500 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-amber-400 mb-3"
             onclick="document.getElementById('refundModal').showModal()">
       <i class="bi bi-currency-exchange"></i> Grant refund
     </button>
     {% endif %}
 
     {# Evidence upload #}
-    <div class="border-t border-base-200/60 pt-3">
-      <p class="text-sm font-semibold mb-2 flex items-center gap-2"><i class="bi bi-images text-base-content/60"></i> Evidence ({{ claim.evidence.count }})</p>
+    <div class="border-t border-gray-200 pt-3">
+      <p class="text-sm font-semibold mb-2 flex items-center gap-2 text-gray-900"><i class="bi bi-images text-gray-500"></i> Evidence ({{ claim.evidence.count }})</p>
       <form method="post" action="{% url 'agent_upload_evidence' claim.id %}"
             enctype="multipart/form-data"
             hx-post="{% url 'agent_upload_evidence' claim.id %}" hx-encoding="multipart/form-data"
             class="mb-3 space-y-2">
         {% csrf_token %}
-        <input type="file" class="file-input file-input-bordered file-input-sm rounded-xl w-full" name="image" accept="image/*" required>
-        <input type="text" class="input-modern w-full" name="description" placeholder="Description (optional)">
-        <button type="submit" class="btn btn-sm btn-success rounded-xl w-full">
+        <input type="file" class="block w-full text-sm text-gray-500 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-indigo-600 hover:file:bg-indigo-100" name="image" accept="image/*" required>
+        <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="description" placeholder="Description (optional)">
+        <button type="submit" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-green-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-green-500">
           <i class="bi bi-upload"></i> Upload
         </button>
       </form>
@@ -268,30 +268,30 @@ id) are demoted in here.
       {# Evidence grid #}
       <div class="grid grid-cols-2 gap-2">
         {% for evidence in claim.evidence.all %}
-        <div class="card-modern overflow-hidden">
+        <div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
           <figure class="px-2 pt-2">
             <img src="{{ evidence.image.url }}" class="rounded-xl h-24 w-full object-cover cursor-pointer"
                  alt="{{ evidence.description }}" onclick="document.getElementById('imageModal{{ evidence.id }}').showModal()" />
           </figure>
           <div class="p-2">
-            <p class="text-xs font-medium mb-0.5 truncate">{{ evidence.description|default:"No description"|truncatechars:40 }}</p>
-            <p class="text-xs text-base-content/40 mb-0">{{ evidence.uploaded_at|date:"M d, Y" }}</p>
+            <p class="text-xs font-medium mb-0.5 truncate text-gray-900">{{ evidence.description|default:"No description"|truncatechars:40 }}</p>
+            <p class="text-xs text-gray-400 mb-0">{{ evidence.uploaded_at|date:"M d, Y" }}</p>
           </div>
-          <dialog id="imageModal{{ evidence.id }}" class="modal">
-            <div class="modal-box max-w-4xl rounded-2xl">
-              <h3 class="font-semibold text-lg mb-4">{{ evidence.description|default:"Evidence image" }}</h3>
+          <dialog id="imageModal{{ evidence.id }}" class="m-auto rounded-2xl bg-transparent p-0 backdrop:bg-gray-900/50">
+            <div class="rounded-2xl bg-white p-6 shadow-xl max-w-4xl">
+              <h3 class="font-semibold text-lg mb-4 text-gray-900">{{ evidence.description|default:"Evidence image" }}</h3>
               <div class="text-center">
                 <img src="{{ evidence.image.url }}" class="max-w-full max-h-[70vh] rounded-xl" alt="{{ evidence.description }}" />
               </div>
-              <div class="modal-action">
-                <form method="dialog"><button class="btn btn-outline rounded-xl">Close</button></form>
+              <div class="flex justify-end mt-4">
+                <form method="dialog"><button class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Close</button></form>
               </div>
             </div>
-            <form method="dialog" class="modal-backdrop backdrop-blur"><button>close</button></form>
+            <form method="dialog" class="fixed inset-0 -z-10"><button class="cursor-default" aria-label="Close">close</button></form>
           </dialog>
         </div>
         {% empty %}
-        <p class="col-span-2 text-center text-sm text-base-content/50 py-4 mb-0">No evidence uploaded yet.</p>
+        <p class="col-span-2 text-center text-sm text-gray-500 py-4 mb-0">No evidence uploaded yet.</p>
         {% endfor %}
       </div>
     </div>
@@ -304,14 +304,14 @@ showModal(); the data-* attributes drive refresh/toast/close via lora-htmx.js
 (the system-action contract).
 {% endcomment %}
 {% if claim_refund_status != 'COMPLETED' %}
-<dialog id="refundModal" class="modal">
-  <div class="modal-box max-w-2xl rounded-2xl">
+<dialog id="refundModal" class="m-auto rounded-2xl bg-transparent p-0 backdrop:bg-gray-900/50">
+  <div class="rounded-2xl bg-white p-6 shadow-xl max-w-2xl">
     <div class="flex items-start justify-between mb-4">
-      <h3 class="font-bold text-lg flex items-center gap-2 m-0">
-        <i class="bi bi-currency-exchange text-warning"></i>
+      <h3 class="font-bold text-lg flex items-center gap-2 m-0 text-gray-900">
+        <i class="bi bi-currency-exchange text-amber-600"></i>
         Grant refund for claim #{{ claim.alf_claim_id|default:claim.id }}
       </h3>
-      <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost" aria-label="Close">✕</button></form>
+      <form method="dialog"><button class="inline-flex items-center justify-center rounded-md p-2 text-gray-500 hover:bg-gray-100" aria-label="Close">✕</button></form>
     </div>
 
     <form hx-post="/api/payments/refunds/issue/" hx-swap="none"
@@ -323,53 +323,53 @@ showModal(); the data-* attributes drive refresh/toast/close via lora-htmx.js
       {% csrf_token %}
       <input type="hidden" name="claim_id" value="{{ claim.id }}" />
 
-      <div class="form-control mb-4">
-        <label class="label"><span class="label-text font-semibold">Refund type</span></label>
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-900 mb-1">Refund type</label>
         <div class="grid grid-cols-2 gap-2">
-          <label class="flex items-center gap-2 cursor-pointer rounded-xl border border-base-200/60 px-3 py-2.5 hover:bg-base-200/30 transition-colors">
-            <input type="radio" name="refund_type" value="FULL" class="radio radio-warning radio-sm" checked onchange="loraRefundType(this.form)" />
-            <span class="label-text">Full refund</span>
+          <label class="flex items-center gap-2 cursor-pointer rounded-xl border border-gray-200 px-3 py-2.5 hover:bg-gray-50 transition-colors">
+            <input type="radio" name="refund_type" value="FULL" class="size-4 border-gray-300 accent-indigo-600" checked onchange="loraRefundType(this.form)" />
+            <span class="text-sm text-gray-900">Full refund</span>
           </label>
-          <label class="flex items-center gap-2 cursor-pointer rounded-xl border border-base-200/60 px-3 py-2.5 hover:bg-base-200/30 transition-colors">
-            <input type="radio" name="refund_type" value="PARTIAL" class="radio radio-warning radio-sm" onchange="loraRefundType(this.form)" />
-            <span class="label-text">Partial refund</span>
+          <label class="flex items-center gap-2 cursor-pointer rounded-xl border border-gray-200 px-3 py-2.5 hover:bg-gray-50 transition-colors">
+            <input type="radio" name="refund_type" value="PARTIAL" class="size-4 border-gray-300 accent-indigo-600" onchange="loraRefundType(this.form)" />
+            <span class="text-sm text-gray-900">Partial refund</span>
           </label>
         </div>
       </div>
 
-      <div class="form-control mb-4">
-        <label class="label"><span class="label-text font-semibold">Refund amount (USD)</span></label>
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-900 mb-1">Refund amount (USD)</label>
         <div class="relative">
-          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-base-content/60">$</span>
+          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
           <input type="number" step="0.01" name="amount" required readonly
                  data-remaining="{{ remaining_refund|floatformat:2 }}"
                  value="{{ remaining_refund|floatformat:2 }}"
-                 class="input input-bordered rounded-xl w-full pl-8" placeholder="0.00" />
+                 class="block w-full rounded-md bg-white py-1.5 pl-8 pr-3 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" placeholder="0.00" />
         </div>
-        <label class="label"><span class="label-text-alt text-base-content/60">
+        <p class="mt-1 text-xs text-gray-500">
           <i class="bi bi-info-circle"></i> Pre-filled with the remaining refundable amount. Choose partial to enter less.
-        </span></label>
+        </p>
       </div>
 
-      <div class="form-control mb-4">
-        <label class="label"><span class="label-text font-semibold">Reason <span class="text-error">*</span></span></label>
-        <textarea name="reason" required rows="4" class="textarea textarea-bordered rounded-xl w-full"
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-900 mb-1">Reason <span class="text-red-600">*</span></label>
+        <textarea name="reason" required rows="4" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"
                   placeholder="Explain the reason for this refund (e.g., Customer request, Item not found, Service failure, etc.)"></textarea>
-        <label class="label"><span class="label-text-alt text-base-content/60">This reason will be recorded in the refund history.</span></label>
+        <p class="mt-1 text-xs text-gray-500">This reason will be recorded in the refund history.</p>
       </div>
 
-      <div class="alert alert-warning bg-warning/10 rounded-xl mb-4">
-        <i class="bi bi-exclamation-triangle"></i>
+      <div class="rounded-md p-4 text-sm ring-1 ring-inset bg-yellow-50 text-yellow-800 ring-yellow-600/20 mb-4 flex items-start gap-2">
+        <i class="bi bi-exclamation-triangle mt-0.5"></i>
         <span><strong>Warning:</strong> this action will initiate a refund via PayPal. Ensure all verification steps have been completed.</span>
       </div>
 
-      <div class="modal-action">
-        <button type="button" class="btn btn-ghost rounded-xl"
+      <div class="flex justify-end gap-2">
+        <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100"
                 onclick="document.getElementById('refundModal').close()">Cancel</button>
-        <button type="submit" class="btn btn-warning rounded-xl">Confirm &amp; process refund</button>
+        <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-amber-500 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-amber-400">Confirm &amp; process refund</button>
       </div>
     </form>
   </div>
-  <form method="dialog" class="modal-backdrop backdrop-blur"><button>close</button></form>
+  <form method="dialog" class="fixed inset-0 -z-10"><button class="cursor-default" aria-label="Close">close</button></form>
 </dialog>
 {% endif %}

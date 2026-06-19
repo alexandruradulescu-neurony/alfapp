@@ -6,12 +6,12 @@ so the #claim-body root swaps the returned fragment.
 {% endcomment %}
 
 {% if claim.risk_active %}
-<div class="card-modern p-4 border border-error/40 bg-error/5 animate-fade-in">
+<div class="rounded-xl bg-red-50 p-4 ring-1 ring-inset ring-red-600/20">
   <div class="flex items-start justify-between gap-3">
     <div>
-      <h3 class="font-semibold text-error flex items-center gap-2 m-0"><i class="bi bi-exclamation-triangle"></i> Client risk flag</h3>
-      <p class="mt-1 text-sm m-0">{{ claim.risk_detail }}</p>
-      <p class="mt-1 text-xs opacity-70 m-0">
+      <h3 class="font-semibold text-red-700 flex items-center gap-2 m-0"><i class="bi bi-exclamation-triangle"></i> Client risk flag</h3>
+      <p class="mt-1 text-sm m-0 text-gray-900">{{ claim.risk_detail }}</p>
+      <p class="mt-1 text-xs text-gray-500 m-0">
         Reasons: {{ claim.risk_reason_labels|join:", " }}
         · first flagged {{ claim.risk_first_flagged_at|date:"M j, Y H:i" }}
       </p>
@@ -19,7 +19,7 @@ so the #claim-body root swaps the returned fragment.
     <form method="post" action="{% url 'claim_acknowledge_risk' claim.id %}"
           hx-post="{% url 'claim_acknowledge_risk' claim.id %}">
       {% csrf_token %}
-      <button type="submit" class="btn btn-sm btn-error rounded-xl">Acknowledge</button>
+      <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-red-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-red-500">Acknowledge</button>
     </form>
   </div>
 </div>
@@ -27,15 +27,15 @@ so the #claim-body root swaps the returned fragment.
 
 {% if not claim.client_report_draft and not claim.client_report_sent_at and not client_followups %}
 {# No cadence yet — offer to start it (older claims) #}
-<div class="card-modern p-4 animate-fade-in">
-  <h3 class="text-base font-semibold tracking-tight flex items-center gap-2 mb-1 m-0">
-    <i class="bi bi-chat-heart text-primary"></i> Client updates
+<div class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
+  <h3 class="text-base font-semibold tracking-tight flex items-center gap-2 mb-1 m-0 text-gray-900">
+    <i class="bi bi-chat-heart text-indigo-600"></i> Client updates
   </h3>
-  <p class="text-sm text-base-content/60 mb-3">No client updates have been started for this claim. Start the cadence to draft a "what we did" message now and schedule the day-2/5/11/21 follow-ups.</p>
+  <p class="text-sm text-gray-500 mb-3">No client updates have been started for this claim. Start the cadence to draft a "what we did" message now and schedule the day-2/5/11/21 follow-ups.</p>
   <form method="post" action="{% url 'client_updates_start' claim.id %}"
         hx-post="{% url 'client_updates_start' claim.id %}">
     {% csrf_token %}
-    <button type="submit" class="btn btn-primary btn-sm rounded-xl" {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
+    <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed" {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
       <i class="bi bi-play-circle"></i> Start client updates
     </button>
   </form>
@@ -44,41 +44,41 @@ so the #claim-body root swaps the returned fragment.
 
 {% if claim.client_report_draft or claim.client_report_sent_at %}
 {# The main "what we did" client update #}
-<div class="card-modern p-4 animate-fade-in">
+<div class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
   <div class="flex flex-wrap justify-between items-center gap-3 mb-3">
-    <h3 class="text-base font-semibold tracking-tight flex items-center gap-2 m-0">
-      <i class="bi bi-chat-heart text-primary"></i> Client update
+    <h3 class="text-base font-semibold tracking-tight flex items-center gap-2 m-0 text-gray-900">
+      <i class="bi bi-chat-heart text-indigo-600"></i> Client update
     </h3>
     {% if claim.client_report_sent_at %}
-    <span class="badge badge-soft-success rounded-full"><i class="bi bi-check-circle"></i> Sent {{ claim.client_report_sent_at|date:"M d, Y H:i" }}</span>
+    <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20"><i class="bi bi-check-circle"></i> Sent {{ claim.client_report_sent_at|date:"M d, Y H:i" }}</span>
     {% elif claim.client_report_skipped_at %}
-    <span class="badge badge-soft-neutral rounded-full"><i class="bi bi-slash-circle"></i> Skipped</span>
+    <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10"><i class="bi bi-slash-circle"></i> Skipped</span>
     {% else %}
-    <span class="badge badge-soft-warning rounded-full">Draft — not sent</span>
+    <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-yellow-50 text-yellow-800 ring-yellow-600/20">Draft — not sent</span>
     {% endif %}
   </div>
 
   {% if claim.client_report_sent_at %}
-  <p class="text-sm text-base-content/60 mb-2">This update was sent to the client as a public reply on the Zendesk ticket.</p>
-  <div class="rounded-xl bg-base-200/50 p-4 text-sm whitespace-pre-wrap">{{ claim.client_report_draft }}</div>
+  <p class="text-sm text-gray-500 mb-2">This update was sent to the client as a public reply on the Zendesk ticket.</p>
+  <div class="rounded-xl bg-gray-50 p-4 text-sm whitespace-pre-wrap text-gray-900">{{ claim.client_report_draft }}</div>
   {% elif claim.client_report_skipped_at %}
-  <p class="text-sm text-base-content/60 mb-3">This initial update was <strong>skipped</strong> — it won't be sent (e.g. the claim reached LORA after the client had already been updated).</p>
-  <div class="rounded-xl bg-base-200/50 p-4 text-sm whitespace-pre-wrap opacity-60">{{ claim.client_report_draft }}</div>
+  <p class="text-sm text-gray-500 mb-3">This initial update was <strong>skipped</strong> — it won't be sent (e.g. the claim reached LORA after the client had already been updated).</p>
+  <div class="rounded-xl bg-gray-50 p-4 text-sm whitespace-pre-wrap text-gray-900 opacity-60">{{ claim.client_report_draft }}</div>
   <form method="post" action="{% url 'claim_client_report_skip' claim.id %}"
         hx-post="{% url 'claim_client_report_skip' claim.id %}" class="mt-2">
     {% csrf_token %}
-    <button type="submit" class="btn btn-ghost btn-sm rounded-xl">
+    <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md px-2.5 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100">
       <i class="bi bi-arrow-counterclockwise"></i> Un-skip
     </button>
   </form>
   {% else %}
-  <p class="text-sm text-base-content/60 mb-3">Review and edit this message, then send it to the client as a public Zendesk reply. It will <strong>not</strong> be sent until you click Send.</p>
+  <p class="text-sm text-gray-500 mb-3">Review and edit this message, then send it to the client as a public Zendesk reply. It will <strong>not</strong> be sent until you click Send.</p>
   <form method="post" action="{% url 'claim_client_report_send' claim.id %}"
         hx-post="{% url 'claim_client_report_send' claim.id %}">
     {% csrf_token %}
-    <textarea name="body" rows="14" class="rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full text-sm p-4">{{ claim.client_report_draft }}</textarea>
+    <textarea name="body" rows="14" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">{{ claim.client_report_draft }}</textarea>
     <div class="flex flex-wrap gap-2 mt-3">
-      <button type="submit" class="btn btn-primary btn-sm rounded-xl"
+      <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
               {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
         <i class="bi bi-send"></i> Send to client
       </button>
@@ -88,14 +88,14 @@ so the #claim-body root swaps the returned fragment.
     <form method="post" action="{% url 'claim_client_report_generate' claim.id %}"
           hx-post="{% url 'claim_client_report_generate' claim.id %}">
       {% csrf_token %}
-      <button type="submit" class="btn btn-ghost btn-sm rounded-xl" title="Rewrite the draft (AI-polished)">
+      <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md px-2.5 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100" title="Rewrite the draft (AI-polished)">
         <i class="bi bi-arrow-repeat"></i> Regenerate draft
       </button>
     </form>
     <form method="post" action="{% url 'claim_client_report_skip' claim.id %}"
           hx-post="{% url 'claim_client_report_skip' claim.id %}">
       {% csrf_token %}
-      <button type="submit" class="btn btn-ghost btn-sm rounded-xl" title="Don't send the initial update (e.g. the client was already updated)">
+      <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md px-2.5 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100" title="Don't send the initial update (e.g. the client was already updated)">
         <i class="bi bi-slash-circle"></i> Skip
       </button>
     </form>
@@ -108,29 +108,29 @@ so the #claim-body root swaps the returned fragment.
 {# Follow-up cadence timeline — every milestone with its status (done counts a
    LORA send OR the manual Zendesk macro tag). The active step shows the editor
    inline; a missed step (passed, nothing sent) can be dismissed. #}
-<div class="card-modern p-4 animate-fade-in">
-  <h3 class="text-base font-semibold tracking-tight flex items-center gap-2 mb-1 m-0">
-    <i class="bi bi-clock-history text-primary"></i> Follow-up updates
+<div class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
+  <h3 class="text-base font-semibold tracking-tight flex items-center gap-2 mb-1 m-0 text-gray-900">
+    <i class="bi bi-clock-history text-indigo-600"></i> Follow-up updates
   </h3>
-  <p class="text-sm text-base-content/60 mb-3">The progress-update cadence after submission. Each step shows what's done, due, missed or still upcoming. "Done" includes updates your agents sent via the Zendesk macros.</p>
+  <p class="text-sm text-gray-500 mb-3">The progress-update cadence after submission. Each step shows what's done, due, missed or still upcoming. "Done" includes updates your agents sent via the Zendesk macros.</p>
   <div class="space-y-3">
   {% for step in cadence %}
     {% if step.key != 'initial' %}
     {% if step.status == 'due' or step.status == 'drafted' %}
     {# Active step — editor / prepare inline #}
-    <div class="rounded-xl border border-primary/30 bg-primary/5 p-4">
+    <div class="rounded-xl border border-indigo-200 bg-indigo-50 p-4">
       <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-        <span class="font-semibold text-sm"><i class="bi bi-calendar-event text-base-content/50"></i> {{ step.label }}</span>
-        {% if step.status == 'drafted' %}<span class="badge badge-soft-warning rounded-full">Draft ready{% if not step.has_news %} · no new developments{% endif %}</span>
-        {% else %}<span class="badge badge-soft-primary rounded-full">Due now</span>{% endif %}
+        <span class="font-semibold text-sm text-gray-900"><i class="bi bi-calendar-event text-gray-500"></i> {{ step.label }}</span>
+        {% if step.status == 'drafted' %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-yellow-50 text-yellow-800 ring-yellow-600/20">Draft ready{% if not step.has_news %} · no new developments{% endif %}</span>
+        {% else %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-indigo-50 text-indigo-700 ring-indigo-700/10">Due now</span>{% endif %}
       </div>
       {% if step.status == 'drafted' %}
       <form method="post" action="{% url 'client_followup_send' step.fu_id %}"
             hx-post="{% url 'client_followup_send' step.fu_id %}">
         {% csrf_token %}
-        <textarea name="body" rows="9" class="rounded-xl bg-base-200/50 border-0 focus:ring-2 focus:ring-primary/30 w-full text-sm p-3">{{ step.draft_body }}</textarea>
+        <textarea name="body" rows="9" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">{{ step.draft_body }}</textarea>
         <div class="flex flex-wrap gap-2 mt-2">
-          <button type="submit" class="btn btn-primary btn-sm rounded-xl" {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
+          <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed" {% if not claim.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
             <i class="bi bi-send"></i> Send to client
           </button>
         </div>
@@ -139,19 +139,19 @@ so the #claim-body root swaps the returned fragment.
         <form method="post" action="{% url 'client_followup_prepare' step.fu_id %}"
               hx-post="{% url 'client_followup_prepare' step.fu_id %}">
           {% csrf_token %}
-          <button type="submit" class="btn btn-ghost btn-sm rounded-xl"><i class="bi bi-arrow-repeat"></i> Regenerate</button>
+          <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md px-2.5 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100"><i class="bi bi-arrow-repeat"></i> Regenerate</button>
         </form>
         <form method="post" action="{% url 'client_followup_skip' step.fu_id %}"
               hx-post="{% url 'client_followup_skip' step.fu_id %}">
           {% csrf_token %}
-          <button type="submit" class="btn btn-ghost btn-sm rounded-xl"><i class="bi bi-x-circle"></i> Skip</button>
+          <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md px-2.5 py-1.5 text-sm font-semibold text-gray-600 hover:bg-gray-100"><i class="bi bi-x-circle"></i> Skip</button>
         </form>
       </div>
       {% else %}
       <form method="post" action="{% url 'client_followup_prepare' step.fu_id %}"
             hx-post="{% url 'client_followup_prepare' step.fu_id %}">
         {% csrf_token %}
-        <button type="submit" class="btn btn-primary btn-sm rounded-xl">
+        <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">
           <i class="bi bi-magic"></i> Prepare update
         </button>
       </form>
@@ -159,25 +159,25 @@ so the #claim-body root swaps the returned fragment.
     </div>
     {% else %}
     {# Compact status row: done / skipped / missed / upcoming #}
-    <div class="rounded-xl border {% if step.status == 'missed' %}border-error/30 bg-error/5{% else %}border-base-200/70{% endif %} p-3">
+    <div class="rounded-xl border {% if step.status == 'missed' %}border-red-200 bg-red-50{% else %}border-gray-200{% endif %} p-3">
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <span class="text-sm text-base-content/70"><i class="bi bi-calendar-event text-base-content/40"></i> {{ step.label }}</span>
-        {% if step.status == 'done' %}<span class="badge badge-soft-success rounded-full"><i class="bi bi-check-circle"></i> Done{% if step.sent_at %} · {{ step.sent_at|date:"M d" }}{% endif %}</span>
-        {% elif step.status == 'skipped' %}<span class="badge badge-soft-neutral rounded-full">Skipped</span>
-        {% elif step.status == 'missed' %}<span class="badge badge-soft-error rounded-full"><i class="bi bi-exclamation-circle"></i> Missed</span>
-        {% else %}<span class="text-xs text-base-content/50">Upcoming · {{ step.due_at|date:"M d, Y" }}</span>{% endif %}
+        <span class="text-sm text-gray-600"><i class="bi bi-calendar-event text-gray-400"></i> {{ step.label }}</span>
+        {% if step.status == 'done' %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20"><i class="bi bi-check-circle"></i> Done{% if step.sent_at %} · {{ step.sent_at|date:"M d" }}{% endif %}</span>
+        {% elif step.status == 'skipped' %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">Skipped</span>
+        {% elif step.status == 'missed' %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10"><i class="bi bi-exclamation-circle"></i> Missed</span>
+        {% else %}<span class="text-xs text-gray-500">Upcoming · {{ step.due_at|date:"M d, Y" }}</span>{% endif %}
       </div>
       {% if step.status == 'done' and step.draft_body %}
       <details class="mt-2">
-        <summary class="cursor-pointer text-xs text-primary">View sent message</summary>
-        <div class="mt-2 rounded-lg bg-base-200/40 p-3 text-sm whitespace-pre-wrap">{{ step.draft_body }}</div>
+        <summary class="cursor-pointer text-xs font-medium text-indigo-600 hover:text-indigo-500">View sent message</summary>
+        <div class="mt-2 rounded-lg bg-gray-50 p-3 text-sm whitespace-pre-wrap text-gray-900">{{ step.draft_body }}</div>
       </details>
       {% elif step.status == 'missed' %}
-      <p class="text-xs text-base-content/50 mt-1 mb-1">This step's date passed and nothing was sent.</p>
+      <p class="text-xs text-gray-500 mt-1 mb-1">This step's date passed and nothing was sent.</p>
       <form method="post" action="{% url 'client_followup_dismiss' claim.id step.key %}"
             hx-post="{% url 'client_followup_dismiss' claim.id step.key %}">
         {% csrf_token %}
-        <button type="submit" class="btn btn-ghost btn-xs rounded-lg"><i class="bi bi-x-circle"></i> Dismiss</button>
+        <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100"><i class="bi bi-x-circle"></i> Dismiss</button>
       </form>
       {% endif %}
     </div>

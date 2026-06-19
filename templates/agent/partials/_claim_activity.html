@@ -5,41 +5,41 @@ the history the manager relies on is visible, but collapsible like the other
 right-column cards. (Restored after the two-column rebuild dropped it.)
 {% endcomment %}
 {% if claim.ai_summary %}
-<div class="card-modern p-3">
+<div class="rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5">
   <div class="flex items-center gap-2 mb-2">
-    <i class="bi bi-robot text-base-content/60"></i>
-    <span class="text-sm font-semibold">AI summary</span>
+    <i class="bi bi-robot text-gray-500"></i>
+    <span class="text-sm font-semibold text-gray-900">AI summary</span>
   </div>
-  <p class="text-sm mb-0">{{ claim.ai_summary }}</p>
+  <p class="text-sm mb-0 text-gray-900">{{ claim.ai_summary }}</p>
   {% if claim.ai_summary_updated_at %}
-  <p class="text-xs text-base-content/40 mt-1 mb-0">Updated {{ claim.ai_summary_updated_at|timesince }} ago</p>
+  <p class="text-xs text-gray-400 mt-1 mb-0">Updated {{ claim.ai_summary_updated_at|timesince }} ago</p>
   {% endif %}
 </div>
 {% endif %}
 
-<details class="card-modern p-3" open>
-  <summary class="lora-disclosure flex items-center justify-between w-full cursor-pointer">
-    <span class="text-sm font-semibold flex items-center gap-2"><i class="bi bi-clock-history text-base-content/60"></i> Timeline</span>
-    <i class="bi bi-chevron-down text-base-content/40"></i>
+<details class="rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5" open>
+  <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
+    <span class="text-sm font-semibold flex items-center gap-2 text-gray-900"><i class="bi bi-clock-history text-gray-500"></i> Timeline</span>
+    <i class="bi bi-chevron-down text-gray-400"></i>
   </summary>
   <div class="mt-3 max-h-96 overflow-y-auto pr-1">
     {% for update in claim.updates.all %}
-    <div class="border-l-2 border-primary/50 pl-3 pb-3 mb-3 relative">
-      <div class="absolute -left-1.5 top-1 w-2.5 h-2.5 bg-primary rounded-full"></div>
+    <div class="border-l-2 border-indigo-300 pl-3 pb-3 mb-3 relative">
+      <div class="absolute -left-1.5 top-1 w-2.5 h-2.5 bg-indigo-600 rounded-full"></div>
       <div class="flex items-center gap-2 mb-1 flex-wrap">
-        <span class="badge badge-sm badge-ghost rounded-full">{{ update.get_update_type_display }}</span>
-        <span class="text-xs text-base-content/40">{{ update.created_at|date:"M d, Y H:i" }}</span>
+        <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">{{ update.get_update_type_display }}</span>
+        <span class="text-xs text-gray-400">{{ update.created_at|date:"M d, Y H:i" }}</span>
       </div>
-      {% if update.llm_summary %}<p class="text-sm mb-0">{{ update.llm_summary }}</p>{% endif %}
+      {% if update.llm_summary %}<p class="text-sm mb-0 text-gray-900">{{ update.llm_summary }}</p>{% endif %}
       {% if update.changes_summary %}
       <details class="mt-1">
-        <summary class="text-xs text-primary cursor-pointer">View details</summary>
-        <pre class="text-xs mt-1 bg-base-200/60 p-2 rounded-lg overflow-auto max-h-40 whitespace-pre-wrap">{{ update.changes_summary }}</pre>
+        <summary class="text-xs font-medium text-indigo-600 hover:text-indigo-500 cursor-pointer">View details</summary>
+        <pre class="text-xs mt-1 bg-gray-50 p-2 rounded-lg overflow-auto max-h-40 whitespace-pre-wrap text-gray-900">{{ update.changes_summary }}</pre>
       </details>
       {% endif %}
     </div>
     {% empty %}
-    <p class="text-base-content/50 text-sm mb-0">No status updates yet. Use "Refresh from Zendesk" (the ... menu) to pull the latest.</p>
+    <p class="text-gray-500 text-sm mb-0">No status updates yet. Use "Refresh from Zendesk" (the ... menu) to pull the latest.</p>
     {% endfor %}
   </div>
 </details>
