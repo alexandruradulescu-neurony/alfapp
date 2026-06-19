@@ -1588,12 +1588,37 @@ def build_dispute_reply_timeline(dispute) -> list:
         })
 
     payload = dispute.raw_webhook_payload or {}
+
+    # PayPal records the buyer's opening complaint BOTH as a SUBMITTED_BY_BUYER
+    # CREATE evidence AND as a buyer message[] — identical text and time. Collect
+    # the buyer messages first so that duplicate evidence can be dropped (and the
+    # buyer's words are NEVER mislabelled as ours, which is what made the buyer's
+    # "this website is a scam" complaint show under "Airport Lost & Found").
+    def _norm(t):
+        return ' '.join((t or '').split())
+    _buyer_msg_texts = {_norm(m.get('content'))
+                        for m in (payload.get('messages') or [])
+                        if (m.get('posted_by') or '').upper() == 'BUYER'}
+
     for ev in (payload.get('evidences') or []):
         src = (ev.get('source') or '').upper()
-        if src == 'REQUESTED_FROM_SELLER':
+        etype = (ev.get('evidence_type') or '').upper()
+        notes = ev.get('notes') or ''
+        if src in ('SUBMITTED_BY_BUYER', 'REQUESTED_FROM_BUYER'):
+            # The buyer's own words. Skip it if the message thread already carries
+            # the same text (the opening complaint), else show it as the Buyer.
+            if _norm(notes) and _norm(notes) in _buyer_msg_texts:
+                continue
+            actor = 'Buyer'
+            title = 'Buyer opened the dispute' if etype == 'CREATE' else 'Buyer submitted to PayPal'
+        elif src == 'REQUESTED_FROM_SELLER':
             actor, title = 'PayPal', 'PayPal requested information'
-        else:
+        elif src == 'SUBMITTED_BY_SELLER':
             actor, title = 'Airport Lost & Found', 'On file at PayPal'
+        else:
+            # Unknown/other source: recorded at PayPal but not clearly ours —
+            # never claim it under our name.
+            actor, title = 'PayPal', 'On file at PayPal'
         when = _parse_dt(ev.get('date') or ev.get('create_time'))
         docs = ev.get('documents')
         if not isinstance(docs, list):
@@ -1601,7 +1626,7 @@ def build_dispute_reply_timeline(dispute) -> list:
         entries.append({
             'when': when, 'when_str': _fmt_zd_time(when), 'actor': actor,
             'kind': 'paypal_evidence', 'title': title, 'status': '',
-            'source': ev.get('evidence_type', ''), 'text': (ev.get('notes') or '')[:_CASE_LOG_TEXT_DISPLAY_CHARS],
+            'source': ev.get('evidence_type', ''), 'text': notes[:_CASE_LOG_TEXT_DISPLAY_CHARS],
             'doc_count': len(docs) if isinstance(docs, list) else 0,
         })
 
