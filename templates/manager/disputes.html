@@ -3,134 +3,135 @@
 {% block title %}Disputes{% endblock %}
 
 {% block content %}
-<div class="animate-fade-in">
-
-<!-- Header -->
-<div class="flex flex-wrap justify-between items-start gap-3 mb-5">
+<!-- Page heading -->
+<div class="sm:flex sm:items-center sm:justify-between gap-4 mb-6">
   <div>
-    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-      <i class="bi bi-shield-exclamation text-base-content/70"></i> Disputes
-    </h2>
-    <p class="text-sm text-base-content/60 mt-1">PayPal chargebacks linked to claims. Reply before the deadline — a missed deadline auto-loses the case.</p>
+    <h1 class="text-xl font-semibold text-gray-900 flex items-center gap-2">
+      <i class="bi bi-shield-exclamation text-gray-600"></i> Disputes
+    </h1>
+    <p class="mt-1 text-sm text-gray-600">PayPal chargebacks linked to claims. Reply before the deadline — a missed deadline auto-loses the case.</p>
   </div>
-  <div class="flex items-center gap-2">
+  <div class="mt-4 sm:mt-0 flex items-center gap-2">
     <form method="post" action="{% url 'disputes:dispute_pull_from_paypal' %}"
           onsubmit="return confirm('Pull current disputes from PayPal and match them to claims? This reads from PayPal and creates any that are missing.');">
       {% csrf_token %}
-      <button type="submit" class="btn btn-primary rounded-xl"><i class="bi bi-cloud-download"></i> Pull from PayPal</button>
+      <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">
+        <i class="bi bi-cloud-download"></i> Pull from PayPal
+      </button>
     </form>
-    <details class="dropdown dropdown-end">
-      <summary class="btn btn-ghost btn-square rounded-xl" title="More"><i class="bi bi-three-dots-vertical"></i></summary>
-      <ul class="dropdown-content menu bg-base-100 rounded-2xl z-10 w-60 p-2 shadow-lg border border-base-200 mt-1">
+    <details class="relative inline-block">
+      <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer inline-flex items-center rounded-md bg-white px-2.5 py-2 text-gray-500 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="More">
+        <i class="bi bi-three-dots-vertical"></i>
+      </summary>
+      <div class="absolute right-0 z-20 mt-2 w-60 origin-top-right rounded-lg bg-white p-2 shadow-lg ring-1 ring-black/5">
         {% if resolved_count %}
-        <li>
-          <form method="post" action="{% url 'disputes:dispute_prune_resolved' %}"
-                onsubmit="return confirm('Delete {{ resolved_count }} dispute(s) already resolved/closed at PayPal? This cannot be undone.');">
-            {% csrf_token %}
-            <button type="submit" class="text-error w-full text-left"><i class="bi bi-trash"></i> Remove {{ resolved_count }} resolved</button>
-          </form>
-        </li>
+        <form method="post" action="{% url 'disputes:dispute_prune_resolved' %}"
+              onsubmit="return confirm('Delete {{ resolved_count }} dispute(s) already resolved/closed at PayPal? This cannot be undone.');">
+          {% csrf_token %}
+          <button type="submit" class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-red-600 hover:bg-gray-100"><i class="bi bi-trash"></i> Remove {{ resolved_count }} resolved</button>
+        </form>
         {% endif %}
-        <li><a href="{% url 'manager_dashboard' %}"><i class="bi bi-speedometer2"></i> Back to dashboard</a></li>
-      </ul>
+        <a href="{% url 'manager_dashboard' %}" class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100"><i class="bi bi-speedometer2"></i> Back to dashboard</a>
+      </div>
     </details>
   </div>
 </div>
 
 {% if unmatched_count %}
-<a href="?status=RECEIVED" class="alert alert-warning rounded-2xl mb-5 flex items-center gap-2 py-3">
+<a href="?status=RECEIVED" class="flex items-center gap-2 rounded-md bg-yellow-50 p-4 text-sm text-yellow-800 ring-1 ring-inset ring-yellow-600/20 mb-5">
   <i class="bi bi-link-45deg shrink-0"></i>
-  <span class="text-sm">{{ unmatched_count }} dispute{{ unmatched_count|pluralize }} not yet linked to a claim — open each and use "Link to claim."</span>
+  <span>{{ unmatched_count }} dispute{{ unmatched_count|pluralize }} not yet linked to a claim — open each and use "Link to claim."</span>
 </a>
 {% endif %}
 
 <!-- Tabs (lenses, live counts) + search -->
 <div class="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
-  <div class="flex flex-wrap gap-1.5">
+  <nav class="flex flex-wrap gap-2">
     <a href="?view=action{% if search_query %}&search={{ search_query }}{% endif %}"
-       class="btn btn-sm rounded-full {% if view == 'action' and not status_filter %}btn-primary{% else %}btn-ghost{% endif %}">
-      Needs reply {% if view_counts.action %}<span class="badge badge-sm rounded-full {% if not view == 'action' %}badge-error{% else %}badge-ghost{% endif %}">{{ view_counts.action }}</span>{% endif %}
+       class="inline-flex items-center gap-x-1.5 rounded-md px-3 py-1.5 text-sm font-medium {% if view == 'action' and not status_filter %}bg-indigo-600 text-white{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">
+      Needs reply {% if view_counts.action %}<span class="rounded-full px-1.5 text-xs font-semibold {% if view == 'action' %}bg-white/20 text-white{% else %}bg-red-100 text-red-700{% endif %}">{{ view_counts.action }}</span>{% endif %}
     </a>
     <a href="?view=review{% if search_query %}&search={{ search_query }}{% endif %}"
-       class="btn btn-sm rounded-full {% if view == 'review' %}btn-primary{% else %}btn-ghost{% endif %}">
-      Under PayPal review {% if view_counts.review %}<span class="badge badge-sm rounded-full badge-ghost">{{ view_counts.review }}</span>{% endif %}
+       class="inline-flex items-center gap-x-1.5 rounded-md px-3 py-1.5 text-sm font-medium {% if view == 'review' %}bg-indigo-600 text-white{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">
+      Under PayPal review {% if view_counts.review %}<span class="rounded-full px-1.5 text-xs font-semibold {% if view == 'review' %}bg-white/20 text-white{% else %}bg-gray-100 text-gray-600{% endif %}">{{ view_counts.review }}</span>{% endif %}
     </a>
     <a href="?view=resolved{% if search_query %}&search={{ search_query }}{% endif %}"
-       class="btn btn-sm rounded-full {% if view == 'resolved' %}btn-primary{% else %}btn-ghost{% endif %}">
-      Resolved / closed {% if view_counts.resolved %}<span class="badge badge-sm rounded-full badge-ghost">{{ view_counts.resolved }}</span>{% endif %}
+       class="inline-flex items-center gap-x-1.5 rounded-md px-3 py-1.5 text-sm font-medium {% if view == 'resolved' %}bg-indigo-600 text-white{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">
+      Resolved / closed {% if view_counts.resolved %}<span class="rounded-full px-1.5 text-xs font-semibold {% if view == 'resolved' %}bg-white/20 text-white{% else %}bg-gray-100 text-gray-600{% endif %}">{{ view_counts.resolved }}</span>{% endif %}
     </a>
     <a href="?view=all{% if search_query %}&search={{ search_query }}{% endif %}"
-       class="btn btn-sm rounded-full {% if view == 'all' %}btn-primary{% else %}btn-ghost{% endif %}">
-      All {% if view_counts.all %}<span class="badge badge-sm rounded-full badge-ghost">{{ view_counts.all }}</span>{% endif %}
+       class="inline-flex items-center gap-x-1.5 rounded-md px-3 py-1.5 text-sm font-medium {% if view == 'all' %}bg-indigo-600 text-white{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">
+      All {% if view_counts.all %}<span class="rounded-full px-1.5 text-xs font-semibold {% if view == 'all' %}bg-white/20 text-white{% else %}bg-gray-100 text-gray-600{% endif %}">{{ view_counts.all }}</span>{% endif %}
     </a>
-  </div>
+  </nav>
   <form method="get" class="lg:ml-auto flex items-center gap-2">
     <input type="hidden" name="view" value="{{ view }}">
-    <input type="text" name="search" value="{{ search_query|default:'' }}"
-           placeholder="Search buyer, ticket, PayPal ID…" class="input-modern w-full lg:w-72">
-    {% if search_query %}<a href="?view={{ view }}" class="btn btn-ghost btn-sm rounded-xl" title="Clear search"><i class="bi bi-x-lg"></i></a>{% endif %}
+    <div class="relative w-full lg:w-72">
+      <i class="bi bi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"></i>
+      <input type="text" name="search" value="{{ search_query|default:'' }}" placeholder="Search buyer, ticket, PayPal ID…"
+             class="block w-full rounded-md bg-white py-1.5 pl-9 pr-3 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">
+    </div>
+    {% if search_query %}<a href="?view={{ view }}" class="text-gray-400 hover:text-gray-600" title="Clear search"><i class="bi bi-x-lg"></i></a>{% endif %}
   </form>
 </div>
 
 <!-- Disputes table -->
-<div class="card-modern rounded-2xl overflow-hidden">
+<div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
   <div class="overflow-x-auto">
-    <table class="table-modern">
-      <thead>
+    <table class="min-w-full divide-y divide-gray-300">
+      <thead class="bg-gray-50">
         <tr>
-          <th>Buyer</th>
-          <th>Amount</th>
-          <th>Status</th>
-          <th>Deadline</th>
-          <th>Zendesk</th>
-          <th>Created</th>
-          <th class="text-right"></th>
+          <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">Buyer</th>
+          <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Amount</th>
+          <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+          <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Deadline</th>
+          <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Zendesk</th>
+          <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Created</th>
+          <th scope="col" class="px-3 py-3 text-right text-sm font-semibold text-gray-900"></th>
         </tr>
       </thead>
-      <tbody>
+      <tbody class="divide-y divide-gray-200 bg-white">
         {% for dispute in disputes %}
-        <tr class="hover:bg-base-200/40 transition-colors cursor-pointer"
+        <tr class="cursor-pointer transition-colors hover:bg-gray-50"
             onclick="if(!event.target.closest('a,button')) window.location='{% url 'disputes:dispute_detail' dispute.id %}'">
-          <td>
-            <div class="font-medium">{{ dispute.buyer_name|default:dispute.buyer_email }}</div>
-            {% if dispute.buyer_name %}<div class="text-xs text-base-content/50 truncate" title="{{ dispute.buyer_email }}">{{ dispute.buyer_email }}</div>{% endif %}
+          <td class="px-3 py-4 text-sm text-gray-700 sm:pl-6">
+            <div class="font-medium text-gray-900">{{ dispute.buyer_name|default:dispute.buyer_email }}</div>
+            {% if dispute.buyer_name %}<div class="text-xs text-gray-500 truncate" title="{{ dispute.buyer_email }}">{{ dispute.buyer_email }}</div>{% endif %}
           </td>
-          <td class="font-semibold whitespace-nowrap tabular-nums">
-            {% if dispute.dispute_amount %}{{ dispute.dispute_currency }} {{ dispute.dispute_amount }}{% else %}<span class="text-base-content/40">—</span>{% endif %}
+          <td class="px-3 py-4 text-sm font-semibold text-gray-900 whitespace-nowrap tabular-nums">
+            {% if dispute.dispute_amount %}{{ dispute.dispute_currency }} {{ dispute.dispute_amount }}{% else %}<span class="text-gray-400">—</span>{% endif %}
           </td>
-          <td>
-            <span class="badge rounded-full whitespace-nowrap {% if dispute.status == 'RESOLVED_WON' %}badge-soft-success{% elif dispute.status == 'RESOLVED_LOST' %}badge-soft-error{% elif dispute.status == 'ACCEPTED' %}badge-soft-neutral{% elif dispute.status == 'UNDER_REVIEW' or dispute.status == 'EVIDENCE_SENT' %}badge-soft-warning{% else %}badge-soft-info{% endif %}">
+          <td class="px-3 py-4 text-sm text-gray-700">
+            <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset whitespace-nowrap {% if dispute.status == 'RESOLVED_WON' %}bg-green-50 text-green-700 ring-green-600/20{% elif dispute.status == 'RESOLVED_LOST' %}bg-red-50 text-red-700 ring-red-600/10{% elif dispute.status == 'ACCEPTED' %}bg-gray-50 text-gray-600 ring-gray-500/10{% elif dispute.status == 'UNDER_REVIEW' or dispute.status == 'EVIDENCE_SENT' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% else %}bg-blue-50 text-blue-700 ring-blue-700/10{% endif %}">
               {{ dispute.get_status_display }}
             </span>
           </td>
-          <td class="whitespace-nowrap">
+          <td class="px-3 py-4 text-sm text-gray-700 whitespace-nowrap">
             {% if dispute.deadline_state == 'overdue' %}
-            <span class="text-error font-semibold text-sm"><i class="bi bi-exclamation-circle"></i> Overdue</span>
-            <div class="text-xs text-error/70">{{ dispute.seller_response_due|date:"M d" }}</div>
+            <span class="text-red-600 font-semibold text-sm"><i class="bi bi-exclamation-circle"></i> Overdue</span>
+            <div class="text-xs text-red-600/70">{{ dispute.seller_response_due|date:"M d" }}</div>
             {% elif dispute.deadline_state == 'soon' %}
-            <span class="text-warning font-medium text-sm"><i class="bi bi-clock"></i> Due {{ dispute.seller_response_due|date:"M d" }}</span>
+            <span class="text-amber-600 font-medium text-sm"><i class="bi bi-clock"></i> Due {{ dispute.seller_response_due|date:"M d" }}</span>
             {% elif dispute.deadline_state == 'ok' %}
-            <span class="text-sm text-base-content/60">Due {{ dispute.seller_response_due|date:"M d" }}</span>
+            <span class="text-sm text-gray-500">Due {{ dispute.seller_response_due|date:"M d" }}</span>
             {% else %}
-            <span class="text-base-content/30">—</span>
+            <span class="text-gray-300">—</span>
             {% endif %}
           </td>
-          <td>
+          <td class="px-3 py-4 text-sm text-gray-700">
             {% if dispute.zd_ticket_id and zd_subdomain %}
-            <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ dispute.zd_ticket_id }}" target="_blank" rel="noopener" class="link link-primary text-sm whitespace-nowrap">#{{ dispute.zd_ticket_id }} <i class="bi bi-box-arrow-up-right text-xs"></i></a>
-            {% else %}<span class="text-base-content/40 text-sm">{{ dispute.zd_ticket_id|default:"—" }}</span>{% endif %}
+            <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ dispute.zd_ticket_id }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 font-medium text-indigo-600 hover:text-indigo-500 text-sm whitespace-nowrap">#{{ dispute.zd_ticket_id }} <i class="bi bi-box-arrow-up-right text-xs"></i></a>
+            {% else %}<span class="text-gray-400 text-sm">{{ dispute.zd_ticket_id|default:"—" }}</span>{% endif %}
           </td>
-          <td class="text-sm text-base-content/60 whitespace-nowrap">{{ dispute.created_at|date:"M d, Y" }}</td>
-          <td class="text-right"><i class="bi bi-chevron-right text-base-content/30"></i></td>
+          <td class="px-3 py-4 text-sm text-gray-500 whitespace-nowrap">{{ dispute.created_at|date:"M d, Y" }}</td>
+          <td class="px-3 py-4 text-right"><i class="bi bi-chevron-right text-gray-300"></i></td>
         </tr>
         {% empty %}
         <tr>
-          <td colspan="7" class="text-center py-12">
-            <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
-              <i class="bi bi-shield-check text-3xl text-base-content/40"></i>
-            </div>
-            <p class="text-base-content/60 mt-2 mb-0">{% if view == 'action' %}No disputes waiting on a reply.{% else %}No disputes in this view.{% endif %}</p>
-            {% if search_query %}<a href="?view={{ view }}" class="link link-primary text-sm">Clear search</a>{% endif %}
+          <td colspan="7" class="px-3 py-16 text-center">
+            <i class="bi bi-shield-check text-4xl text-gray-300"></i>
+            <p class="mt-2 text-sm text-gray-500">{% if view == 'action' %}No disputes waiting on a reply.{% else %}No disputes in this view.{% endif %}</p>
+            {% if search_query %}<a href="?view={{ view }}" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Clear search</a>{% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -140,18 +141,17 @@
 
   <!-- Pagination -->
   {% if page_obj.has_other_pages %}
-  <div class="flex justify-center p-4 border-t border-base-200">
-    <div class="join">
+  <nav class="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6">
+    <p class="hidden text-sm text-gray-700 sm:block">Page <span class="font-medium">{{ page_obj.number }}</span> of <span class="font-medium">{{ page_obj.paginator.num_pages }}</span></p>
+    <div class="flex flex-1 justify-between gap-2 sm:justify-end">
       {% if page_obj.has_previous %}
-      <a href="?view={{ view }}&page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}" class="join-item btn btn-sm rounded-xl"><i class="bi bi-chevron-left"></i> Prev</a>
+      <a href="?view={{ view }}&page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}" class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50"><i class="bi bi-chevron-left"></i> Prev</a>
       {% endif %}
-      <span class="join-item btn btn-sm btn-active rounded-xl">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
       {% if page_obj.has_next %}
-      <a href="?view={{ view }}&page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}" class="join-item btn btn-sm rounded-xl">Next <i class="bi bi-chevron-right"></i></a>
+      <a href="?view={{ view }}&page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}" class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Next <i class="bi bi-chevron-right"></i></a>
       {% endif %}
     </div>
-  </div>
+  </nav>
   {% endif %}
-</div>
 </div>
 {% endblock %}
