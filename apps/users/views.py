@@ -729,9 +729,19 @@ def agent_email_detail(request, email_id):
     # Get system settings for Zendesk links
     settings = SystemSettings.get_instance()
 
+    # Lead the page with the one thing a manager decides here: does this reply
+    # need a response? (action_required, unless the AI already auto-handled it.)
+    if email.action_required and not email.auto_resolved:
+        email_state = 'needs_reply'
+    elif email.auto_resolved:
+        email_state = 'auto'
+    else:
+        email_state = 'handled'
+
     context = {
         'email': email,
         'settings': settings,
+        'email_state': email_state,
     }
 
     return render(request, 'agent/email_detail.html', context)
