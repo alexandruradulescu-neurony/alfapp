@@ -3,82 +3,84 @@
 {% block title %}Emails{% endblock %}
 
 {% block content %}
-<div class="animate-fade-in">
-<!-- Header -->
-<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-5">
+<!-- Page heading -->
+<div class="sm:flex sm:items-center sm:justify-between gap-4 mb-6">
   <div>
-    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-      <i class="bi bi-envelope text-base-content/70"></i> Emails
-    </h2>
-    <p class="text-sm text-base-content/60 mt-1">Inbound institution replies, by what needs a reply. (New mail is pulled per claim via "Check email".)</p>
+    <h1 class="text-xl font-semibold text-gray-900 flex items-center gap-2">
+      <i class="bi bi-envelope text-gray-600"></i> Emails
+    </h1>
+    <p class="mt-1 text-sm text-gray-600">Inbound institution replies, by what needs a reply. (New mail is pulled per claim via "Check email".)</p>
   </div>
 </div>
 
 <!-- Tabs (lenses, with live counts) + search -->
 <div class="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
-  <div class="flex flex-wrap gap-1.5">
+  <nav class="flex flex-wrap gap-2">
     {% for t in tabs %}
     <a href="?tab={{ t.key }}{% if search_query %}&search={{ search_query }}{% endif %}"
-       class="btn btn-sm rounded-full {% if t.active %}btn-primary{% else %}btn-ghost{% endif %}">
+       class="inline-flex items-center gap-x-1.5 rounded-md px-3 py-1.5 text-sm font-medium {% if t.active %}bg-indigo-600 text-white{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">
       {{ t.label }}
-      {% if t.count %}<span class="badge badge-sm rounded-full {% if not t.active and t.key == 'needs_reply' %}badge-error{% else %}badge-ghost{% endif %}">{{ t.count }}</span>{% endif %}
+      {% if t.count %}<span class="rounded-full px-1.5 text-xs font-semibold {% if t.active %}bg-white/20 text-white{% elif t.key == 'needs_reply' %}bg-red-100 text-red-700{% else %}bg-gray-100 text-gray-600{% endif %}">{{ t.count }}</span>{% endif %}
     </a>
     {% endfor %}
-  </div>
+  </nav>
   <form method="get" class="lg:ml-auto flex items-center gap-2">
     <input type="hidden" name="tab" value="{{ tab }}">
-    <input type="text" name="search" value="{{ search_query|default:'' }}"
-           placeholder="Search subject or sender…" class="input-modern w-full lg:w-72">
-    {% if search_query %}<a href="?tab={{ tab }}" class="btn btn-ghost btn-sm rounded-xl" title="Clear search"><i class="bi bi-x-lg"></i></a>{% endif %}
+    <div class="relative w-full lg:w-72">
+      <i class="bi bi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"></i>
+      <input type="text" name="search" value="{{ search_query|default:'' }}" placeholder="Search subject or sender…"
+             class="block w-full rounded-md bg-white py-1.5 pl-9 pr-3 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">
+    </div>
+    {% if search_query %}<a href="?tab={{ tab }}" class="text-gray-400 hover:text-gray-600" title="Clear search"><i class="bi bi-x-lg"></i></a>{% endif %}
   </form>
 </div>
 
 <!-- Email list -->
-<div class="card-modern rounded-2xl overflow-hidden">
+<div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
   <div class="overflow-x-auto">
-    <table class="table-modern">
-      <thead>
+    <table class="min-w-full divide-y divide-gray-300">
+      <thead class="bg-gray-50">
         <tr>
-          <th>Email</th>
-          <th>Claim / from</th>
-          <th>Category</th>
-          <th>Received</th>
-          <th class="text-right"></th>
+          <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">Email</th>
+          <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Claim / from</th>
+          <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Category</th>
+          <th scope="col" class="px-3 py-3 text-left text-sm font-semibold text-gray-900">Received</th>
+          <th scope="col" class="px-3 py-3 text-right text-sm font-semibold text-gray-900"></th>
         </tr>
       </thead>
-      <tbody>
+      <tbody class="divide-y divide-gray-200 bg-white">
         {% for email in emails %}
-        <tr class="hover:bg-base-200/40 transition-colors cursor-pointer {% if email.auto_resolved %}opacity-60{% endif %}"
+        <tr class="cursor-pointer transition-colors hover:bg-gray-50 {% if email.auto_resolved %}opacity-60{% endif %}"
             onclick="if(!event.target.closest('a,input,button,details,label')) window.location='{% url 'agent_email_detail' email.id %}'">
-          <td class="max-w-md">
-            <div class="font-medium truncate" title="{{ email.subject }}">{{ email.subject|default:"(no subject)" }}</div>
+          <td class="px-3 py-4 text-sm text-gray-700 sm:pl-6 max-w-md">
+            <div class="font-medium text-gray-900 truncate" title="{{ email.subject }}">{{ email.subject|default:"(no subject)" }}</div>
             {% if email.ai_summary %}
-            <div class="text-xs text-base-content/60 flex items-start gap-1.5 mt-0.5">
-              <i class="bi bi-robot text-base-content/40 mt-0.5"></i>
+            <div class="text-xs text-gray-500 flex items-start gap-1.5 mt-0.5">
+              <i class="bi bi-robot text-gray-400 mt-0.5"></i>
               <span class="line-clamp-2">{{ email.ai_summary }}</span>
             </div>
             {% endif %}
           </td>
-          <td>
+          <td class="px-3 py-4 text-sm text-gray-700">
             {% if email.claim %}
-            <a href="{% url 'agent_claim_detail' email.claim.id %}" class="text-sm text-primary hover:underline">{{ email.claim.client_name|default:email.claim.client_email }}</a>
-            {% else %}<span class="text-sm text-base-content/40">—</span>{% endif %}
-            <div class="text-xs text-base-content/50 truncate" title="{{ email.from_email }}">{{ email.from_email }}</div>
+            <a href="{% url 'agent_claim_detail' email.claim.id %}" class="font-medium text-indigo-600 hover:text-indigo-500">{{ email.claim.client_name|default:email.claim.client_email }}</a>
+            {% else %}<span class="text-sm text-gray-400">—</span>{% endif %}
+            <div class="text-xs text-gray-500 truncate" title="{{ email.from_email }}">{{ email.from_email }}</div>
           </td>
-          <td>
-            <span class="badge rounded-full whitespace-nowrap {% if email.category == 'OBJECT_FOUND' %}badge-soft-success{% elif email.category == 'RESUBMISSION_REQUIRED' %}badge-soft-warning{% elif email.category == 'SUBMISSION_CONFIRMATION' %}badge-soft-info{% else %}badge-soft-neutral{% endif %}">
+          <td class="px-3 py-4 text-sm text-gray-700">
+            <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset whitespace-nowrap {% if email.category == 'OBJECT_FOUND' %}bg-green-50 text-green-700 ring-green-600/20{% elif email.category == 'RESUBMISSION_REQUIRED' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif email.category == 'SUBMISSION_CONFIRMATION' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">
               {{ email.get_category_display }}
             </span>
             {% if email.action_required and not email.auto_resolved %}
-            <span class="badge badge-soft-error badge-sm rounded-full">Needs reply</span>
+            <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10">Needs reply</span>
             {% elif email.auto_resolved %}
-            <span class="badge badge-soft-neutral badge-sm rounded-full">Auto</span>
+            <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">Auto</span>
             {% endif %}
           </td>
-          <td><span class="text-sm text-base-content/60 whitespace-nowrap">{{ email.received_at|timesince }} ago</span></td>
-          <td class="text-right">
+          <td class="px-3 py-4 text-sm text-gray-700"><span class="text-sm text-gray-500 whitespace-nowrap">{{ email.received_at|timesince }} ago</span></td>
+          <td class="px-3 py-4 text-sm text-gray-700 text-right">
             {% if email.action_required and not email.auto_resolved %}
-            <button type="button" class="btn btn-sm btn-success rounded-xl" onclick="resolveEmail({{ email.id }}, true)" title="Mark resolved">
+            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-green-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-green-500" onclick="resolveEmail({{ email.id }}, true)" title="Mark resolved">
               <i class="bi bi-check2"></i> Resolve
             </button>
             {% endif %}
@@ -86,12 +88,10 @@
         </tr>
         {% empty %}
         <tr>
-          <td colspan="5" class="text-center py-12">
-            <div class="inline-flex items-center justify-center w-16 h-16 bg-base-200/60 rounded-full mb-3">
-              <i class="bi bi-inbox text-3xl text-base-content/40"></i>
-            </div>
-            <p class="text-base-content/60 mt-2 mb-0">{% if tab == 'needs_reply' %}Nothing waiting on a reply.{% else %}No emails in this view.{% endif %}</p>
-            {% if search_query %}<a href="?tab={{ tab }}" class="link link-primary text-sm">Clear search</a>{% endif %}
+          <td colspan="5" class="px-3 py-16 text-center">
+            <i class="bi bi-inbox text-4xl text-gray-300"></i>
+            <p class="mt-2 text-sm text-gray-500">{% if tab == 'needs_reply' %}Nothing waiting on a reply.{% else %}No emails in this view.{% endif %}</p>
+            {% if search_query %}<a href="?tab={{ tab }}" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Clear search</a>{% endif %}
           </td>
         </tr>
         {% endfor %}
@@ -101,19 +101,18 @@
 
   <!-- Pagination -->
   {% if page_obj.has_other_pages %}
-  <div class="flex justify-center p-4 border-t border-base-200">
-    <div class="join">
+  <nav class="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6">
+    <p class="hidden text-sm text-gray-700 sm:block">Page <span class="font-medium">{{ page_obj.number }}</span> of <span class="font-medium">{{ page_obj.paginator.num_pages }}</span></p>
+    <div class="flex flex-1 justify-between gap-2 sm:justify-end">
       {% if page_obj.has_previous %}
-      <a href="?tab={{ tab }}&page={{ page_obj.previous_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="join-item btn btn-sm rounded-xl"><i class="bi bi-chevron-left"></i> Prev</a>
+      <a href="?tab={{ tab }}&page={{ page_obj.previous_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Previous</a>
       {% endif %}
-      <span class="join-item btn btn-sm btn-active rounded-xl">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
       {% if page_obj.has_next %}
-      <a href="?tab={{ tab }}&page={{ page_obj.next_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="join-item btn btn-sm rounded-xl">Next <i class="bi bi-chevron-right"></i></a>
+      <a href="?tab={{ tab }}&page={{ page_obj.next_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Next</a>
       {% endif %}
     </div>
-  </div>
+  </nav>
   {% endif %}
-</div>
 </div>
 
 <script>
