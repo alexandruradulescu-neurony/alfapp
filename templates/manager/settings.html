@@ -6,10 +6,10 @@
 {% block content %}
 <!-- Page Header -->
 <div class="mb-6">
-    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+    <h1 class="text-xl font-semibold text-gray-900 flex items-center gap-2">
         <i class="bi bi-gear"></i> System Settings
-    </h2>
-    <p class="text-base-content/60 mt-1">
+    </h1>
+    <p class="mt-1 text-sm text-gray-600">
         Switches at the top take effect instantly. Everything below is saved with the
         <span class="font-medium">Save settings</span> button. Sensitive values are encrypted at rest.
     </p>
@@ -18,56 +18,56 @@
 <input type="hidden" id="csrf_token" value="{{ csrf_token }}">
 
 <!-- ============================ AUTOMATION SWITCHES (instant) ============================ -->
-<div class="card-modern p-6 lg:p-8 mb-8">
+<div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-8">
     <div class="mb-5">
-        <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-            <i class="bi bi-toggles text-base-content/60"></i> Automation switches
-        </h3>
-        <p class="text-sm text-base-content/60 mt-1">Real on/off switches — each takes effect the moment you flip it (no Save needed).</p>
+        <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+            <i class="bi bi-toggles text-gray-500"></i> Automation switches
+        </h2>
+        <p class="mt-1 text-sm text-gray-500">Real on/off switches — each takes effect the moment you flip it (no Save needed).</p>
     </div>
 
-    <div class="divide-y divide-base-200/70">
+    <div class="divide-y divide-gray-200">
         <!-- Scheduled jobs (master) -->
         <label class="flex items-start justify-between gap-4 py-4 cursor-pointer">
             <span class="flex flex-col gap-0.5">
-                <span class="font-medium flex items-center gap-2">
-                    <i class="bi bi-clock-history text-base-content/50"></i> Scheduled jobs
-                    <span class="badge badge-sm badge-{{ scheduler_status.get_status_color }} gap-1">{{ scheduler_status.get_status_display }}</span>
+                <span class="font-medium text-gray-900 flex items-center gap-2">
+                    <i class="bi bi-clock-history text-gray-500"></i> Scheduled jobs
+                    <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if scheduler_status.get_status_color == 'success' %}bg-green-50 text-green-700 ring-green-600/20{% elif scheduler_status.get_status_color == 'warning' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif scheduler_status.get_status_color == 'error' %}bg-red-50 text-red-700 ring-red-600/10{% elif scheduler_status.get_status_color == 'info' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ scheduler_status.get_status_display }}</span>
                 </span>
-                <span class="text-xs text-base-content/50 max-w-2xl">Master switch for the timed jobs (client progress updates, inbox sweep). A Railway cron runs them; this is the global off-switch.{% if scheduler_status.last_checked %} Last run {{ scheduler_status.last_checked|date:"M d, H:i" }} UTC.{% endif %}</span>
-                {% if scheduler_status.last_error %}<span class="text-xs text-error/80">{{ scheduler_status.last_error|truncatechars:120 }}</span>{% endif %}
+                <span class="text-xs text-gray-500 max-w-2xl">Master switch for the timed jobs (client progress updates, inbox sweep). A Railway cron runs them; this is the global off-switch.{% if scheduler_status.last_checked %} Last run {{ scheduler_status.last_checked|date:"M d, H:i" }} UTC.{% endif %}</span>
+                {% if scheduler_status.last_error %}<span class="text-xs text-red-600">{{ scheduler_status.last_error|truncatechars:120 }}</span>{% endif %}
             </span>
-            <input type="checkbox" id="scheduler-enabled" data-service-toggle="SCHEDULER" class="toggle toggle-primary"
+            <input type="checkbox" id="scheduler-enabled" data-service-toggle="SCHEDULER" class="mt-0.5 size-5 rounded border-gray-300 accent-indigo-600"
                    {% if scheduler_status.is_enabled %}checked{% endif %}>
         </label>
 
         <!-- Autonomous client updates -->
         <label class="flex items-start justify-between gap-4 py-4 cursor-pointer">
             <span class="flex flex-col gap-0.5">
-                <span class="font-medium flex items-center gap-2"><i class="bi bi-chat-heart text-base-content/50"></i> Autonomous client updates</span>
-                <span class="text-xs text-base-content/50 max-w-2xl">When ON, the scheduled job drafts <em>and sends</em> due client progress updates as public Zendesk replies. When OFF (default), updates are only scheduled for an agent to review and send. Object-found news is always left for an agent.</span>
+                <span class="font-medium text-gray-900 flex items-center gap-2"><i class="bi bi-chat-heart text-gray-500"></i> Autonomous client updates</span>
+                <span class="text-xs text-gray-500 max-w-2xl">When ON, the scheduled job drafts <em>and sends</em> due client progress updates as public Zendesk replies. When OFF (default), updates are only scheduled for an agent to review and send. Object-found news is always left for an agent.</span>
             </span>
-            <input type="checkbox" id="client_updates_autosend" data-flag-toggle="client_updates_autosend" class="toggle toggle-warning"
+            <input type="checkbox" id="client_updates_autosend" data-flag-toggle="client_updates_autosend" class="mt-0.5 size-5 rounded border-gray-300 accent-amber-500"
                    {% if settings.client_updates_autosend %}checked{% endif %}>
         </label>
 
         <!-- Automatic inbox sweep -->
         <label class="flex items-start justify-between gap-4 py-4 cursor-pointer">
             <span class="flex flex-col gap-0.5">
-                <span class="font-medium flex items-center gap-2"><i class="bi bi-envelope-paper text-base-content/50"></i> Automatic inbox sweep</span>
-                <span class="text-xs text-base-content/50 max-w-2xl">When ON, the scheduled job sweeps the shared inbox on a timer and auto-categorises institution replies on live tickets. When OFF (default), email is only checked per-ticket via the manual button. Leave OFF until the AI categorisation is proven.</span>
+                <span class="font-medium text-gray-900 flex items-center gap-2"><i class="bi bi-envelope-paper text-gray-500"></i> Automatic inbox sweep</span>
+                <span class="text-xs text-gray-500 max-w-2xl">When ON, the scheduled job sweeps the shared inbox on a timer and auto-categorises institution replies on live tickets. When OFF (default), email is only checked per-ticket via the manual button. Leave OFF until the AI categorisation is proven.</span>
             </span>
-            <input type="checkbox" id="email_sweep_autorun" data-flag-toggle="email_sweep_autorun" class="toggle toggle-warning"
+            <input type="checkbox" id="email_sweep_autorun" data-flag-toggle="email_sweep_autorun" class="mt-0.5 size-5 rounded border-gray-300 accent-amber-500"
                    {% if settings.email_sweep_autorun %}checked{% endif %}>
         </label>
 
         <!-- Import claims from email (backlog transition) -->
         <label class="flex items-start justify-between gap-4 py-4 cursor-pointer">
             <span class="flex flex-col gap-0.5">
-                <span class="font-medium flex items-center gap-2"><i class="bi bi-download text-base-content/50"></i> Import claims from email</span>
-                <span class="text-xs text-base-content/50 max-w-2xl">Backlog transition only. When ON, an inbound email that matches a Zendesk ticket with no local claim imports that existing claim from Zendesk on the spot &mdash; it never creates a new one. Needs <em>Automatic inbox sweep</em> ON to take effect. Turn OFF once every claim is in LORA.</span>
+                <span class="font-medium text-gray-900 flex items-center gap-2"><i class="bi bi-download text-gray-500"></i> Import claims from email</span>
+                <span class="text-xs text-gray-500 max-w-2xl">Backlog transition only. When ON, an inbound email that matches a Zendesk ticket with no local claim imports that existing claim from Zendesk on the spot &mdash; it never creates a new one. Needs <em>Automatic inbox sweep</em> ON to take effect. Turn OFF once every claim is in LORA.</span>
             </span>
-            <input type="checkbox" id="import_claims_from_email" data-flag-toggle="import_claims_from_email" class="toggle toggle-warning"
+            <input type="checkbox" id="import_claims_from_email" data-flag-toggle="import_claims_from_email" class="mt-0.5 size-5 rounded border-gray-300 accent-amber-500"
                    {% if settings.import_claims_from_email %}checked{% endif %}>
         </label>
     </div>
@@ -77,225 +77,225 @@
 <form method="post">
     {% csrf_token %}
 
-    <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content/40 mb-3 mt-2">Connections</h3>
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3 mt-2">Connections</h2>
 
     <!-- AI -->
-    <div class="card-modern p-6 lg:p-8 mb-6">
+    <div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-            <h4 class="text-base font-semibold flex items-center gap-2">
-                <i class="bi bi-robot text-base-content/60"></i> AI provider
-                <span class="badge badge-sm badge-{{ ai_status.get_status_color }} gap-1">{{ ai_status.get_status_display }}</span>
-            </h4>
-            <button type="button" class="btn btn-sm btn-outline rounded-xl" data-test="AI"><i class="bi bi-activity"></i> Test</button>
+            <h3 class="text-base font-semibold text-gray-900 flex items-center gap-2">
+                <i class="bi bi-robot text-gray-500"></i> AI provider
+                <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if ai_status.get_status_color == 'success' %}bg-green-50 text-green-700 ring-green-600/20{% elif ai_status.get_status_color == 'warning' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif ai_status.get_status_color == 'error' %}bg-red-50 text-red-700 ring-red-600/10{% elif ai_status.get_status_color == 'info' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ ai_status.get_status_display }}</span>
+            </h3>
+            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="AI"><i class="bi bi-activity"></i> Test</button>
         </div>
-        {% if ai_status.last_error %}<div class="alert alert-error rounded-xl mb-4 py-2 text-xs"><i class="bi bi-exclamation-triangle"></i>{{ ai_status.last_error|truncatechars:120 }}</div>{% endif %}
+        {% if ai_status.last_error %}<div class="rounded-md p-4 text-sm ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10 mb-4 flex items-center gap-2"><i class="bi bi-exclamation-triangle"></i>{{ ai_status.last_error|truncatechars:120 }}</div>{% endif %}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="form-control">
-                <label class="label"><span class="label-text font-medium">Provider</span></label>
-                <input type="text" class="input-modern w-full" name="ai_provider" value="{{ settings.ai_provider }}" placeholder="DeepSeek">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Provider</label>
+                <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="ai_provider" value="{{ settings.ai_provider }}" placeholder="DeepSeek">
             </div>
-            <div class="form-control">
-                <label class="label"><span class="label-text font-medium">Model</span></label>
-                <input type="text" class="input-modern w-full" name="ai_api_model" value="{{ settings.ai_api_model }}" placeholder="deepseek-chat">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Model</label>
+                <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="ai_api_model" value="{{ settings.ai_api_model }}" placeholder="deepseek-chat">
             </div>
-            <div class="form-control">
-                <label class="label"><span class="label-text font-medium">API base URL</span></label>
-                <input type="text" class="input-modern w-full" name="ai_api_base" value="{{ settings.ai_api_base }}" placeholder="https://api.deepseek.com/v1">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">API base URL</label>
+                <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="ai_api_base" value="{{ settings.ai_api_base }}" placeholder="https://api.deepseek.com/v1">
             </div>
         </div>
-        <div class="form-control mt-4 max-w-md">
-            <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">API key</span>
-                <span class="text-xs text-base-content/50">Leave blank to keep current</span></label>
-            <input type="password" class="input-modern w-full" name="ai_api_key" placeholder="{% if settings.ai_api_key %}••••••••••••{% endif %}" autocomplete="off">
+        <div class="mt-4 max-w-md">
+            <label class="block text-sm font-medium text-gray-900 mb-1">API key
+                <span class="block text-xs font-normal text-gray-500">Leave blank to keep current</span></label>
+            <input type="password" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="ai_api_key" placeholder="{% if settings.ai_api_key %}••••••••••••{% endif %}" autocomplete="off">
         </div>
     </div>
 
     <!-- Email / IMAP -->
-    <div class="card-modern p-6 lg:p-8 mb-6">
+    <div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-            <h4 class="text-base font-semibold flex items-center gap-2">
-                <i class="bi bi-envelope text-base-content/60"></i> Email inbox (IMAP)
-                <span class="badge badge-sm badge-{{ imap_status.get_status_color }} gap-1">{{ imap_status.get_status_display }}</span>
-            </h4>
-            <button type="button" class="btn btn-sm btn-outline rounded-xl" data-test="IMAP"><i class="bi bi-activity"></i> Test</button>
+            <h3 class="text-base font-semibold text-gray-900 flex items-center gap-2">
+                <i class="bi bi-envelope text-gray-500"></i> Email inbox (IMAP)
+                <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if imap_status.get_status_color == 'success' %}bg-green-50 text-green-700 ring-green-600/20{% elif imap_status.get_status_color == 'warning' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif imap_status.get_status_color == 'error' %}bg-red-50 text-red-700 ring-red-600/10{% elif imap_status.get_status_color == 'info' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ imap_status.get_status_display }}</span>
+            </h3>
+            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="IMAP"><i class="bi bi-activity"></i> Test</button>
         </div>
-        {% if imap_status.last_error %}<div class="alert alert-error rounded-xl mb-4 py-2 text-xs"><i class="bi bi-exclamation-triangle"></i>{{ imap_status.last_error|truncatechars:120 }}</div>{% endif %}
+        {% if imap_status.last_error %}<div class="rounded-md p-4 text-sm ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10 mb-4 flex items-center gap-2"><i class="bi bi-exclamation-triangle"></i>{{ imap_status.last_error|truncatechars:120 }}</div>{% endif %}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="form-control">
-                <label class="label"><span class="label-text font-medium">Host</span></label>
-                <input type="text" class="input-modern w-full" name="imap_host" value="{{ settings.imap_host }}">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Host</label>
+                <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="imap_host" value="{{ settings.imap_host }}">
             </div>
-            <div class="form-control">
-                <label class="label"><span class="label-text font-medium">Username</span></label>
-                <input type="text" class="input-modern w-full" name="imap_user" value="{{ settings.imap_user }}">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Username</label>
+                <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="imap_user" value="{{ settings.imap_user }}">
             </div>
-            <div class="form-control">
-                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Password</span>
-                    <span class="text-xs text-base-content/50">Leave blank to keep current</span></label>
-                <input type="password" class="input-modern w-full" name="imap_pass" placeholder="{% if settings.imap_pass %}••••••••••••{% endif %}" autocomplete="off">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Password
+                    <span class="block text-xs font-normal text-gray-500">Leave blank to keep current</span></label>
+                <input type="password" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="imap_pass" placeholder="{% if settings.imap_pass %}••••••••••••{% endif %}" autocomplete="off">
             </div>
-            <div class="form-control">
-                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Alias domain</span>
-                    <span class="text-xs text-base-content/50">Domain that per-ticket reply aliases use (alias matching)</span></label>
-                <input type="text" class="input-modern w-full" name="email_domain" value="{{ settings.email_domain }}" placeholder="mailapptoday.com">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Alias domain
+                    <span class="block text-xs font-normal text-gray-500">Domain that per-ticket reply aliases use (alias matching)</span></label>
+                <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="email_domain" value="{{ settings.email_domain }}" placeholder="mailapptoday.com">
             </div>
-            <div class="form-control">
-                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Zendesk alias field ID</span>
-                    <span class="text-xs text-base-content/50">Custom-field ID holding the ticket's email alias</span></label>
-                <input type="text" class="input-modern w-full" name="zd_alias_custom_field_id" value="{{ settings.zd_alias_custom_field_id }}">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Zendesk alias field ID
+                    <span class="block text-xs font-normal text-gray-500">Custom-field ID holding the ticket's email alias</span></label>
+                <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="zd_alias_custom_field_id" value="{{ settings.zd_alias_custom_field_id }}">
             </div>
         </div>
     </div>
 
     <!-- Zendesk -->
-    <div class="card-modern p-6 lg:p-8 mb-6">
+    <div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-            <h4 class="text-base font-semibold flex items-center gap-2">
-                <i class="bi bi-ticket text-base-content/60"></i> Zendesk
-                <span class="badge badge-sm badge-{{ zd_status.get_status_color }} gap-1">{{ zd_status.get_status_display }}</span>
-            </h4>
-            <button type="button" class="btn btn-sm btn-outline rounded-xl" data-test="ZENDESK"><i class="bi bi-activity"></i> Test</button>
+            <h3 class="text-base font-semibold text-gray-900 flex items-center gap-2">
+                <i class="bi bi-ticket text-gray-500"></i> Zendesk
+                <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if zd_status.get_status_color == 'success' %}bg-green-50 text-green-700 ring-green-600/20{% elif zd_status.get_status_color == 'warning' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif zd_status.get_status_color == 'error' %}bg-red-50 text-red-700 ring-red-600/10{% elif zd_status.get_status_color == 'info' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ zd_status.get_status_display }}</span>
+            </h3>
+            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="ZENDESK"><i class="bi bi-activity"></i> Test</button>
         </div>
-        {% if zd_status.last_error %}<div class="alert alert-error rounded-xl mb-4 py-2 text-xs"><i class="bi bi-exclamation-triangle"></i>{{ zd_status.last_error|truncatechars:120 }}</div>{% endif %}
+        {% if zd_status.last_error %}<div class="rounded-md p-4 text-sm ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10 mb-4 flex items-center gap-2"><i class="bi bi-exclamation-triangle"></i>{{ zd_status.last_error|truncatechars:120 }}</div>{% endif %}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="form-control">
-                <label class="label"><span class="label-text font-medium">Subdomain</span></label>
-                <input type="text" class="input-modern w-full" name="zd_subdomain" value="{{ settings.zd_subdomain }}" placeholder="your-company">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Subdomain</label>
+                <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="zd_subdomain" value="{{ settings.zd_subdomain }}" placeholder="your-company">
             </div>
-            <div class="form-control">
-                <label class="label"><span class="label-text font-medium">Account email</span></label>
-                <input type="email" class="input-modern w-full" name="zd_email" value="{{ settings.zd_email }}">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Account email</label>
+                <input type="email" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="zd_email" value="{{ settings.zd_email }}">
             </div>
-            <div class="form-control">
-                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">API token</span>
-                    <span class="text-xs text-base-content/50">Leave blank to keep current</span></label>
-                <input type="password" class="input-modern w-full" name="zd_token" placeholder="{% if settings.zd_token %}••••••••••••{% endif %}" autocomplete="off">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">API token
+                    <span class="block text-xs font-normal text-gray-500">Leave blank to keep current</span></label>
+                <input type="password" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="zd_token" placeholder="{% if settings.zd_token %}••••••••••••{% endif %}" autocomplete="off">
             </div>
         </div>
     </div>
 
     <!-- PayPal -->
-    <div class="card-modern p-6 lg:p-8 mb-6">
+    <div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-            <h4 class="text-base font-semibold flex items-center gap-2">
-                <i class="bi bi-currency-dollar text-base-content/60"></i> PayPal
-                <span class="badge badge-sm badge-{{ paypal_status.get_status_color }} gap-1">{{ paypal_status.get_status_display }}</span>
-            </h4>
-            <button type="button" class="btn btn-sm btn-outline rounded-xl" data-test="PAYPAL"><i class="bi bi-activity"></i> Test</button>
+            <h3 class="text-base font-semibold text-gray-900 flex items-center gap-2">
+                <i class="bi bi-currency-dollar text-gray-500"></i> PayPal
+                <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if paypal_status.get_status_color == 'success' %}bg-green-50 text-green-700 ring-green-600/20{% elif paypal_status.get_status_color == 'warning' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif paypal_status.get_status_color == 'error' %}bg-red-50 text-red-700 ring-red-600/10{% elif paypal_status.get_status_color == 'info' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ paypal_status.get_status_display }}</span>
+            </h3>
+            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="PAYPAL"><i class="bi bi-activity"></i> Test</button>
         </div>
-        {% if paypal_status.last_error %}<div class="alert alert-error rounded-xl mb-4 py-2 text-xs"><i class="bi bi-exclamation-triangle"></i>{{ paypal_status.last_error|truncatechars:120 }}</div>{% endif %}
-        <div class="form-control mb-4">
-            <label class="label"><span class="label-text font-medium">Environment</span></label>
+        {% if paypal_status.last_error %}<div class="rounded-md p-4 text-sm ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10 mb-4 flex items-center gap-2"><i class="bi bi-exclamation-triangle"></i>{{ paypal_status.last_error|truncatechars:120 }}</div>{% endif %}
+        <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-900 mb-1">Environment</label>
             <div class="flex flex-wrap gap-4">
                 <label class="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="paypal_mode" value="sandbox" class="radio radio-sm radio-success" {% if settings.paypal_mode != 'live' %}checked{% endif %}>
-                    <span class="text-sm">Sandbox <span class="text-base-content/50">(test — no real money)</span></span>
+                    <input type="radio" name="paypal_mode" value="sandbox" class="size-4 border-gray-300 accent-green-600" {% if settings.paypal_mode != 'live' %}checked{% endif %}>
+                    <span class="text-sm text-gray-900">Sandbox <span class="text-gray-500">(test — no real money)</span></span>
                 </label>
                 <label class="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="paypal_mode" value="live" class="radio radio-sm radio-warning" {% if settings.paypal_mode == 'live' %}checked{% endif %}>
-                    <span class="text-sm font-medium text-warning">Live (real money)</span>
+                    <input type="radio" name="paypal_mode" value="live" class="size-4 border-gray-300 accent-amber-500" {% if settings.paypal_mode == 'live' %}checked{% endif %}>
+                    <span class="text-sm font-medium text-amber-600">Live (real money)</span>
                 </label>
             </div>
-            {% if settings.paypal_mode == 'live' %}<span class="text-xs text-warning/80 mt-1"><i class="bi bi-exclamation-triangle"></i> Live mode is active — refund/dispute actions move real money.</span>{% endif %}
+            {% if settings.paypal_mode == 'live' %}<span class="block text-xs text-amber-600 mt-1"><i class="bi bi-exclamation-triangle"></i> Live mode is active — refund/dispute actions move real money.</span>{% endif %}
         </div>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="form-control">
-                <label class="label"><span class="label-text font-medium">Client ID</span></label>
-                <input type="text" class="input-modern w-full" name="paypal_client_id" value="{{ settings.paypal_client_id }}">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Client ID</label>
+                <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="paypal_client_id" value="{{ settings.paypal_client_id }}">
             </div>
-            <div class="form-control">
-                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Secret</span>
-                    <span class="text-xs text-base-content/50">Leave blank to keep current</span></label>
-                <input type="password" class="input-modern w-full" name="paypal_secret" placeholder="{% if settings.paypal_secret %}••••••••••••{% endif %}" autocomplete="off">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Secret
+                    <span class="block text-xs font-normal text-gray-500">Leave blank to keep current</span></label>
+                <input type="password" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="paypal_secret" placeholder="{% if settings.paypal_secret %}••••••••••••{% endif %}" autocomplete="off">
             </div>
-            <div class="form-control">
-                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Webhook ID</span>
-                    <span class="text-xs text-base-content/50">Used to verify PayPal dispute webhooks</span></label>
-                <input type="text" class="input-modern w-full" name="paypal_webhook_id" value="{{ settings.paypal_webhook_id }}">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Webhook ID
+                    <span class="block text-xs font-normal text-gray-500">Used to verify PayPal dispute webhooks</span></label>
+                <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="paypal_webhook_id" value="{{ settings.paypal_webhook_id }}">
             </div>
         </div>
     </div>
 
     <!-- WooCommerce -->
-    <div class="card-modern p-6 lg:p-8 mb-6">
+    <div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
-            <h4 class="text-base font-semibold flex items-center gap-2">
-                <i class="bi bi-bag-check text-base-content/60"></i> WooCommerce (refunds)
-                {% if settings.woocommerce_consumer_key %}<span class="badge badge-sm badge-success">Configured</span>{% else %}<span class="badge badge-sm badge-neutral">Not set</span>{% endif %}
-            </h4>
-            <button type="button" class="btn btn-sm btn-outline rounded-xl" data-test="WOOCOMMERCE"><i class="bi bi-activity"></i> Test</button>
+            <h3 class="text-base font-semibold text-gray-900 flex items-center gap-2">
+                <i class="bi bi-bag-check text-gray-500"></i> WooCommerce (refunds)
+                {% if settings.woocommerce_consumer_key %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20">Configured</span>{% else %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">Not set</span>{% endif %}
+            </h3>
+            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="WOOCOMMERCE"><i class="bi bi-activity"></i> Test</button>
         </div>
-        <p class="text-sm text-base-content/60 mb-6">When LORA issues a refund it asks WooCommerce to refund the order through PayPal. Create a Read/Write key under <span class="font-medium text-base-content/80">WooCommerce → Settings → Advanced → REST API</span>.</p>
+        <p class="text-sm text-gray-500 mb-6">When LORA issues a refund it asks WooCommerce to refund the order through PayPal. Create a Read/Write key under <span class="font-medium text-gray-700">WooCommerce → Settings → Advanced → REST API</span>.</p>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="form-control">
-                <label class="label"><span class="label-text font-medium">Store URL</span></label>
-                <input type="text" class="input-modern w-full" name="woocommerce_store_url" value="{{ settings.woocommerce_store_url }}" placeholder="https://store.example.com">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Store URL</label>
+                <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="woocommerce_store_url" value="{{ settings.woocommerce_store_url }}" placeholder="https://store.example.com">
             </div>
-            <div class="form-control">
-                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Consumer key</span>
-                    <span class="text-xs text-base-content/50">Leave blank to keep current</span></label>
-                <input type="password" class="input-modern w-full" name="woocommerce_consumer_key" placeholder="{% if settings.woocommerce_consumer_key %}••••••••••••{% else %}ck_…{% endif %}" autocomplete="off">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Consumer key
+                    <span class="block text-xs font-normal text-gray-500">Leave blank to keep current</span></label>
+                <input type="password" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="woocommerce_consumer_key" placeholder="{% if settings.woocommerce_consumer_key %}••••••••••••{% else %}ck_…{% endif %}" autocomplete="off">
             </div>
-            <div class="form-control">
-                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Consumer secret</span>
-                    <span class="text-xs text-base-content/50">Leave blank to keep current</span></label>
-                <input type="password" class="input-modern w-full" name="woocommerce_consumer_secret" placeholder="{% if settings.woocommerce_consumer_secret %}••••••••••••{% else %}cs_…{% endif %}" autocomplete="off">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Consumer secret
+                    <span class="block text-xs font-normal text-gray-500">Leave blank to keep current</span></label>
+                <input type="password" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="woocommerce_consumer_secret" placeholder="{% if settings.woocommerce_consumer_secret %}••••••••••••{% else %}cs_…{% endif %}" autocomplete="off">
             </div>
         </div>
     </div>
 
     <!-- Zendesk Sidebar -->
-    <div class="card-modern p-6 lg:p-8 mb-6">
+    <div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
-            <h4 class="text-base font-semibold flex items-center gap-2">
-                <i class="bi bi-shield-lock text-base-content/60"></i> Zendesk sidebar
-                {% if settings.sidebar_secret_token %}<span class="badge badge-sm badge-success">Configured</span>{% else %}<span class="badge badge-sm badge-neutral">Not set</span>{% endif %}
-            </h4>
+            <h3 class="text-base font-semibold text-gray-900 flex items-center gap-2">
+                <i class="bi bi-shield-lock text-gray-500"></i> Zendesk sidebar
+                {% if settings.sidebar_secret_token %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20">Configured</span>{% else %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">Not set</span>{% endif %}
+            </h3>
         </div>
-        <div class="form-control max-w-md">
-            <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Sidebar secret token</span>
-                <span class="text-xs text-base-content/50">Authenticates the Zendesk sidebar widget's requests. Leave blank to keep current.</span></label>
-            <input type="password" class="input-modern w-full" name="sidebar_secret_token" placeholder="{% if settings.sidebar_secret_token %}••••••••••••{% endif %}" autocomplete="off">
+        <div class="max-w-md">
+            <label class="block text-sm font-medium text-gray-900 mb-1">Sidebar secret token
+                <span class="block text-xs font-normal text-gray-500">Authenticates the Zendesk sidebar widget's requests. Leave blank to keep current.</span></label>
+            <input type="password" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="sidebar_secret_token" placeholder="{% if settings.sidebar_secret_token %}••••••••••••{% endif %}" autocomplete="off">
         </div>
     </div>
 
-    <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content/40 mb-3 mt-8">Client updates</h3>
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3 mt-8">Client updates</h2>
 
     <!-- Client update settings -->
-    <div class="card-modern p-6 lg:p-8 mb-6">
-        <p class="text-sm text-base-content/60 mb-6">When a claim enters the trigger status, LORA drafts a "what we did" update and starts the progress cadence (day 2, 5, 11, 21, then every 10 days, then a final note at the end of the service period). The autonomous-sending switch is at the top of this page.</p>
+    <div class="rounded-xl bg-white p-6 lg:p-8 shadow-sm ring-1 ring-black/5 mb-6">
+        <p class="text-sm text-gray-500 mb-6">When a claim enters the trigger status, LORA drafts a "what we did" update and starts the progress cadence (day 2, 5, 11, 21, then every 10 days, then a final note at the end of the service period). The autonomous-sending switch is at the top of this page.</p>
         <div class="grid md:grid-cols-2 gap-6">
-            <div class="form-control">
-                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Trigger status ID</span>
-                    <span class="text-xs text-base-content/50">Zendesk custom-status <strong>ID</strong> for "Claim submitted". Leave blank to disable.</span></label>
-                <input type="text" class="input-modern w-full" name="client_report_trigger_status_id" value="{{ settings.client_report_trigger_status_id }}" placeholder="e.g. 11688538967068" list="zd-custom-status-ids" autocomplete="off">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Trigger status ID
+                    <span class="block text-xs font-normal text-gray-500">Zendesk custom-status <strong>ID</strong> for "Claim submitted". Leave blank to disable.</span></label>
+                <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="client_report_trigger_status_id" value="{{ settings.client_report_trigger_status_id }}" placeholder="e.g. 11688538967068" list="zd-custom-status-ids" autocomplete="off">
                 {% if custom_statuses %}
                 <datalist id="zd-custom-status-ids">{% for cs in custom_statuses %}<option value="{{ cs.id }}">{{ cs.name }} ({{ cs.category }})</option>{% endfor %}</datalist>
-                <div class="text-xs text-base-content/50 mt-2">Available statuses:
-                    <span class="block mt-1 space-y-0.5">{% for cs in custom_statuses %}<span class="block"><code class="text-[0.7rem]">{{ cs.id }}</code> — {{ cs.name }} <span class="opacity-60">({{ cs.category }})</span></span>{% endfor %}</span>
+                <div class="text-xs text-gray-500 mt-2">Available statuses:
+                    <span class="block mt-1 space-y-0.5">{% for cs in custom_statuses %}<span class="block"><code class="text-[0.7rem]">{{ cs.id }}</code> — {{ cs.name }} <span class="text-gray-400">({{ cs.category }})</span></span>{% endfor %}</span>
                 </div>
-                {% else %}<span class="text-xs text-warning/80 mt-1">Could not load Zendesk statuses — enter the ID manually.</span>{% endif %}
+                {% else %}<span class="block text-xs text-amber-600 mt-1">Could not load Zendesk statuses — enter the ID manually.</span>{% endif %}
             </div>
-            <div class="form-control">
-                <label class="label flex-col items-start gap-0.5"><span class="label-text font-medium">Service length (days)</span>
-                    <span class="text-xs text-base-content/50">Concierge service length from claim creation. Drives the update cadence and the final note.</span></label>
-                <input type="number" min="1" max="365" class="input-modern w-full" name="service_length_days" value="{{ settings.service_length_days }}" placeholder="30">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Service length (days)
+                    <span class="block text-xs font-normal text-gray-500">Concierge service length from claim creation. Drives the update cadence and the final note.</span></label>
+                <input type="number" min="1" max="365" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="service_length_days" value="{{ settings.service_length_days }}" placeholder="30">
 
-                <label class="label flex-col items-start gap-0.5 mt-6"><span class="label-text font-medium">Legacy trigger status name</span>
-                    <span class="text-xs text-base-content/50">Fallback only — used if the ID is blank. Prefer the ID.</span></label>
-                <input type="text" class="input-modern w-full" name="client_report_trigger_status" value="{{ settings.client_report_trigger_status }}" placeholder="Claim submitted">
+                <label class="block text-sm font-medium text-gray-900 mb-1 mt-6">Legacy trigger status name
+                    <span class="block text-xs font-normal text-gray-500">Fallback only — used if the ID is blank. Prefer the ID.</span></label>
+                <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="client_report_trigger_status" value="{{ settings.client_report_trigger_status }}" placeholder="Claim submitted">
             </div>
         </div>
     </div>
 
     <!-- Save -->
     <div class="flex justify-end">
-        <button type="submit" class="btn btn-primary btn-lg rounded-xl"><i class="bi bi-check-circle"></i> Save settings</button>
+        <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500"><i class="bi bi-check-circle"></i> Save settings</button>
     </div>
 </form>
 
 <!-- Security Notice -->
-<div class="rounded-xl border border-info/20 bg-info/10 text-info p-4 flex items-start gap-3 mt-6">
+<div class="rounded-md p-4 text-sm ring-1 ring-inset bg-blue-50 text-blue-700 ring-blue-700/10 flex items-start gap-3 mt-6">
     <i class="bi bi-shield-check text-lg mt-0.5"></i>
     <div class="text-sm">
         <span class="font-semibold">Security:</span> credentials are encrypted at rest. Password fields are never pre-filled —

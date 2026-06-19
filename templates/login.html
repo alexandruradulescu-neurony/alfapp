@@ -3,26 +3,26 @@
 {% block title %}Login - LORA{% endblock %}
 
 {% block content %}
-<div class="min-h-full flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-  <div class="w-full max-w-md animate-fade-in">
+<div class="flex min-h-full flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
+  <div class="sm:mx-auto sm:w-full sm:max-w-md">
     <!-- Logo and Title -->
-    <div class="text-center mb-8">
-      <div class="mx-auto h-14 w-14 bg-primary/10 rounded-xl flex items-center justify-center">
-        <i class="bi bi-box-seam text-2xl text-primary"></i>
-      </div>
-      <h2 class="mt-5 text-2xl font-semibold tracking-tight text-base-content">Lora</h2>
-      <p class="mt-1.5 text-sm text-base-content/60">Lost Object Recovery Automation</p>
+    <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-indigo-50">
+      <i class="bi bi-box-seam text-2xl text-indigo-600"></i>
     </div>
+    <h2 class="mt-6 text-center text-2xl font-bold tracking-tight text-gray-900">Lora</h2>
+    <p class="mt-1.5 text-center text-sm text-gray-500">Lost Object Recovery Automation</p>
+  </div>
 
+  <div class="mt-10 sm:mx-auto sm:w-full sm:max-w-[480px]">
     <!-- Login Form Card -->
-    <div class="card-modern p-8 sm:p-10">
+    <div class="rounded-xl bg-white px-6 py-10 shadow-sm ring-1 ring-black/5 sm:px-12">
       <form method="post" action="{% url 'login' %}" class="space-y-6">
         {% csrf_token %}
 
         <!-- Error Messages -->
         {% if messages %}
           {% for message in messages %}
-          <div role="alert" class="flex items-center gap-3 rounded-xl bg-error/10 text-error px-4 py-3 text-sm">
+          <div role="alert" class="flex items-center gap-3 rounded-md bg-red-50 p-4 text-sm text-red-700 ring-1 ring-inset ring-red-600/10">
             <i class="bi bi-exclamation-circle text-lg shrink-0"></i>
             <span>{{ message }}</span>
           </div>
@@ -30,10 +30,10 @@
         {% endif %}
 
         <!-- Username Field -->
-        <div class="space-y-1.5">
-          <label class="text-sm font-medium text-base-content">Username</label>
+        <div>
+          <label class="block text-sm font-medium text-gray-900 mb-1">Username</label>
           <div class="relative">
-            <i class="bi bi-person absolute left-4 top-1/2 -translate-y-1/2 text-base-content/40"></i>
+            <i class="bi bi-person absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
             <input
               type="text"
               name="username"
@@ -41,31 +41,31 @@
               required
               autocomplete="username"
               autofocus
-              class="input-modern w-full pl-11 rounded-xl"
+              class="block w-full rounded-md bg-white pl-10 pr-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"
             />
           </div>
         </div>
 
         <!-- Password Field -->
-        <div class="space-y-1.5">
-          <label class="text-sm font-medium text-base-content">Password</label>
+        <div>
+          <label class="block text-sm font-medium text-gray-900 mb-1">Password</label>
           <div class="relative">
-            <i class="bi bi-lock absolute left-4 top-1/2 -translate-y-1/2 text-base-content/40"></i>
+            <i class="bi bi-lock absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
             <input
               type="password"
               name="password"
               placeholder="Enter your password"
               required
               autocomplete="current-password"
-              class="input-modern w-full pl-11 rounded-xl"
+              class="block w-full rounded-md bg-white pl-10 pr-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"
             />
           </div>
         </div>
 
         <!-- Submit Button -->
         <div class="pt-2">
-          <button type="submit" class="btn btn-primary w-full rounded-xl">
-            <i class="bi bi-box-arrow-in-right mr-2"></i>
+          <button type="submit" class="flex w-full justify-center items-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">
+            <i class="bi bi-box-arrow-in-right"></i>
             Sign in
           </button>
         </div>
@@ -73,7 +73,7 @@
     </div>
 
     <!-- Footer -->
-    <p class="mt-8 text-center text-xs text-base-content/40">
+    <p class="mt-8 text-center text-xs text-gray-400">
       &copy; {% now "Y" %} Lora — Lost Object Recovery Automation
     </p>
   </div>

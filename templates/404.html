@@ -4,35 +4,33 @@
 
 {% block content %}
 <div class="min-h-full flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-    <div class="card-modern w-full max-w-md text-center animate-fade-in">
-        <div class="p-8 sm:p-10">
-            <!-- Error Icon -->
-            <div class="mx-auto h-20 w-20 bg-primary/10 rounded-2xl flex items-center justify-center mb-6">
-                <i class="bi bi-compass text-4xl text-primary"></i>
-            </div>
+    <div class="w-full max-w-md text-center rounded-xl bg-white p-8 shadow-sm ring-1 ring-black/5 sm:p-10">
+        <!-- Error Icon -->
+        <div class="mx-auto h-20 w-20 bg-indigo-50 rounded-2xl flex items-center justify-center mb-6">
+            <i class="bi bi-compass text-4xl text-indigo-600"></i>
+        </div>
 
-            <!-- Error Message -->
-            <span class="badge badge-soft-neutral mb-4">Error 404</span>
-            <h2 class="text-2xl font-semibold tracking-tight text-base-content mb-3">Page not found</h2>
-            <p class="text-base-content/60 mb-8 leading-relaxed">
-                The page you're looking for doesn't exist or has been moved to a new location.
-            </p>
+        <!-- Error Message -->
+        <span class="inline-flex items-center gap-x-1 rounded-full bg-gray-50 px-2 py-1 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-500/10 mb-4">Error 404</span>
+        <h2 class="text-2xl font-semibold tracking-tight text-gray-900 mb-3">Page not found</h2>
+        <p class="text-gray-500 mb-8 leading-relaxed">
+            The page you're looking for doesn't exist or has been moved to a new location.
+        </p>
 
-            <!-- Action Buttons -->
-            <div class="flex flex-col sm:flex-row gap-3 justify-center">
-                {% if user.is_authenticated %}
-                    <a href="{% url 'dashboard' %}" class="btn btn-primary rounded-xl">
-                        <i class="bi bi-house mr-1"></i> Go to Dashboard
-                    </a>
-                {% else %}
-                    <a href="{% url 'login' %}" class="btn btn-primary rounded-xl">
-                        <i class="bi bi-box-arrow-in-right mr-1"></i> Go to Login
-                    </a>
-                {% endif %}
-                <button onclick="history.back()" class="btn btn-ghost rounded-xl">
-                    <i class="bi bi-arrow-left mr-1"></i> Go back
-                </button>
-            </div>
+        <!-- Action Buttons -->
+        <div class="flex flex-col sm:flex-row gap-3 justify-center">
+            {% if user.is_authenticated %}
+                <a href="{% url 'dashboard' %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md px-3 py-2 text-sm font-semibold shadow-xs bg-indigo-600 text-white hover:bg-indigo-500">
+                    <i class="bi bi-house"></i> Go to Dashboard
+                </a>
+            {% else %}
+                <a href="{% url 'login' %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md px-3 py-2 text-sm font-semibold shadow-xs bg-indigo-600 text-white hover:bg-indigo-500">
+                    <i class="bi bi-box-arrow-in-right"></i> Go to Login
+                </a>
+            {% endif %}
+            <button onclick="history.back()" class="inline-flex items-center justify-center gap-x-1.5 rounded-md px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100">
+                <i class="bi bi-arrow-left"></i> Go back
+            </button>
         </div>
     </div>
 </div>
