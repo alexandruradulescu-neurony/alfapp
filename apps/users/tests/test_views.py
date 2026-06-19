@@ -707,8 +707,32 @@ class TestAgentEmailDetail:
         assert response.status_code == 200
         assert response.context['email'] == email
 
-
-# ============== Manager Views Tests ==============
+    def test_email_detail_leads_with_gist_and_context(self):
+        """Redesigned detail leads with the AI gist + reply state and links the claim;
+        technical plumbing (raw email ID field, action-required grid) is gone."""
+        from apps.claims.models import Claim
+        user = User.objects.create_user(username='emd_redesign', password='x')
+        claim = Claim.objects.create(
+            client_email='c@e.com', client_name='Eric Wilson',
+            alf_claim_id='ALFD', zd_ticket_id='7777')
+        email = EmailLog.objects.create(
+            subject='Re: your lost item', body='b', from_email='lostfound@airport.com',
+            category='OBJECT_FOUND', action_required=True, auto_resolved=False,
+            ai_summary='The office located a black suitcase matching the description.',
+            claim=claim)
+        client = Client()
+        client.force_login(user)
+        resp = client.get(f'/agent/emails/{email.id}/')
+        assert resp.status_code == 200
+        assert resp.context['email_state'] == 'needs_reply'
+        html = resp.content.decode()
+        assert 'The office located a black suitcase' in html      # gist leads
+        assert 'Eric Wilson' in html                               # claim/client linked
+        assert f'/agent/claims/{claim.id}/' in html                # links to the claim
+        assert 'lostfound@airport.com' in html                     # source office shown
+        assert 'Needs reply' in html                               # reply state
+        assert 'Email ID' not in html                              # internal id noise gone
+        assert 'Action Required' not in html                       # raw-flag grid gone
 
 @pytest.mark.django_db
 class TestManagerDashboard:
