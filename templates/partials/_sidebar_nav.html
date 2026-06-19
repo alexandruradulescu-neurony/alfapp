@@ -1,3 +1,4 @@
+{% load heroicons %}
 {% comment %}
 Shared sidebar navigation (Tailwind UI sidebar-navigation styling).
 Included by both the desktop rail and the mobile drawer in base.html.
@@ -10,32 +11,32 @@ Included by both the desktop rail and the mobile drawer in base.html.
       <ul role="list" class="-mx-2 space-y-1">
         <li>
           <a href="{% url 'manager_dashboard' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'manager_dashboard' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
-            <i class="bi bi-speedometer2 w-6 text-center text-base shrink-0 {% if active == 'manager_dashboard' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> Dashboard
+            {% heroicon_outline "squares-2x2" class="size-6 shrink-0" %} Dashboard
           </a>
         </li>
         <li>
           <a href="{% url 'manager_claims' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'manager_claims' or active == 'agent_claim_detail' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
-            <i class="bi bi-clipboard-data w-6 text-center text-base shrink-0 {% if active == 'manager_claims' or active == 'agent_claim_detail' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> Claims
+            {% heroicon_outline "clipboard-document-list" class="size-6 shrink-0" %} Claims
           </a>
         </li>
         <li>
           <a href="{% url 'agent_emails' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'agent_emails' or active == 'agent_email_detail' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
-            <i class="bi bi-envelope w-6 text-center text-base shrink-0 {% if active == 'agent_emails' or active == 'agent_email_detail' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> Emails
+            {% heroicon_outline "envelope" class="size-6 shrink-0" %} Emails
           </a>
         </li>
         <li>
           <a href="{% url 'disputes:dispute_list' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'dispute_list' or active == 'dispute_detail' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
-            <i class="bi bi-shield-exclamation w-6 text-center text-base shrink-0 {% if active == 'dispute_list' or active == 'dispute_detail' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> Disputes
+            {% heroicon_outline "shield-exclamation" class="size-6 shrink-0" %} Disputes
           </a>
         </li>
         <li>
           <a href="{% url 'manager_refunds' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'manager_refunds' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
-            <i class="bi bi-cash-coin w-6 text-center text-base shrink-0 {% if active == 'manager_refunds' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> Refunds
+            {% heroicon_outline "banknotes" class="size-6 shrink-0" %} Refunds
           </a>
         </li>
         <li>
           <a href="{% url 'agent:agent-chat' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'agent-chat' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
-            <i class="bi bi-robot w-6 text-center text-base shrink-0 {% if active == 'agent-chat' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> AI Agent
+            {% heroicon_outline "cpu-chip" class="size-6 shrink-0" %} AI Agent
           </a>
         </li>
       </ul>
@@ -45,12 +46,12 @@ Included by both the desktop rail and the mobile drawer in base.html.
       <ul role="list" class="-mx-2 mt-2 space-y-1">
         <li>
           <a href="{% url 'manager_settings' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'manager_settings' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
-            <i class="bi bi-gear w-6 text-center text-base shrink-0 {% if active == 'manager_settings' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> Configuration
+            {% heroicon_outline "cog-6-tooth" class="size-6 shrink-0" %} Configuration
           </a>
         </li>
         <li>
           <a href="{% url 'manager_users' %}" class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active == 'manager_users' %}bg-gray-50 text-indigo-600{% else %}text-gray-700 hover:bg-gray-50 hover:text-indigo-600{% endif %}">
-            <i class="bi bi-people w-6 text-center text-base shrink-0 {% if active == 'manager_users' %}text-indigo-600{% else %}text-gray-400 group-hover:text-indigo-600{% endif %}"></i> Users
+            {% heroicon_outline "users" class="size-6 shrink-0" %} Users
           </a>
         </li>
       </ul>
@@ -64,7 +65,7 @@ Included by both the desktop rail and the mobile drawer in base.html.
         </span>
         <form method="post" action="{% url 'logout' %}" class="shrink-0">
           {% csrf_token %}
-          <button type="submit" class="text-gray-400 hover:text-gray-600" title="Sign out"><i class="bi bi-box-arrow-right text-lg"></i></button>
+          <button type="submit" class="text-gray-400 hover:text-gray-600" title="Sign out">{% heroicon_outline "arrow-right-start-on-rectangle" class="size-5" %}</button>
         </form>
       </div>
     </li>

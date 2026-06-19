@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load heroicons %}
 
 {% block title %}Test AI Connection{% endblock %}
 
@@ -7,12 +8,12 @@
 <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
     <div>
         <h2 class="lora-page-title flex items-center gap-2">
-            <i class="bi bi-robot text-gray-500"></i> Test AI Connection
+            {% heroicon_outline "cpu-chip" class="size-4 text-gray-500" %} Test AI Connection
         </h2>
         <p class="lora-meta mt-1">Send a prompt to verify the configured AI provider responds.</p>
     </div>
     <a href="{% url 'manager_settings' %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-        <i class="bi bi-gear"></i> Back to Settings
+        {% heroicon_outline "cog-6-tooth" class="size-4" %} Back to Settings
     </a>
 </div>
 
@@ -20,12 +21,12 @@
 <div class="lora-card mb-6">
     <div class="p-6">
         <h3 class="lora-card-title mb-5">
-            <i class="bi bi-info-circle text-gray-500"></i> Current Configuration
+            {% heroicon_outline "information-circle" class="size-4 text-gray-500" %} Current Configuration
         </h3>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div class="flex items-center gap-3 rounded-xl border border-gray-200 p-4">
                 <div class="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
-                    <i class="bi bi-cpu text-indigo-600 text-xl"></i>
+                    {% heroicon_outline "cpu-chip" class="size-6 text-indigo-600" %}
                 </div>
                 <div class="min-w-0">
                     <div class="lora-label">Provider</div>
@@ -34,7 +35,7 @@
             </div>
             <div class="flex items-center gap-3 rounded-xl border border-gray-200 p-4">
                 <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
-                    <i class="bi bi-link-45deg text-blue-600 text-xl"></i>
+                    {% heroicon_outline "link" class="size-6 text-blue-600" %}
                 </div>
                 <div class="min-w-0">
                     <div class="lora-label">API Base</div>
@@ -43,7 +44,7 @@
             </div>
             <div class="flex items-center gap-3 rounded-xl border border-gray-200 p-4">
                 <div class="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center shrink-0">
-                    <i class="bi bi-box text-green-600 text-xl"></i>
+                    {% heroicon_outline "cube" class="size-6 text-green-600" %}
                 </div>
                 <div class="min-w-0">
                     <div class="lora-label">Model</div>
@@ -52,7 +53,7 @@
             </div>
             <div class="flex items-center gap-3 rounded-xl border border-gray-200 p-4">
                 <div class="w-10 h-10 rounded-lg {% if config.api_key_configured %}bg-green-50{% else %}bg-red-50{% endif %} flex items-center justify-center shrink-0">
-                    <i class="bi bi-key {% if config.api_key_configured %}text-green-600{% else %}text-red-600{% endif %} text-xl"></i>
+                    {% if config.api_key_configured %}{% heroicon_outline "key" class="size-6 text-green-600" %}{% else %}{% heroicon_outline "key" class="size-6 text-red-600" %}{% endif %}
                 </div>
                 <div class="min-w-0">
                     <div class="lora-label">API Key</div>
@@ -73,7 +74,7 @@
 <div class="lora-card mb-6">
     <div class="p-6">
         <h3 class="lora-card-title mb-5">
-            <i class="bi bi-lightning text-gray-500"></i> Run a Test
+            {% heroicon_outline "bolt" class="size-4 text-gray-500" %} Run a Test
         </h3>
 
         <form method="post" class="space-y-4">
@@ -83,7 +84,7 @@
                 <textarea name="test_prompt" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" rows="3" placeholder="Enter a test prompt...">Say hello and tell me what AI model you are</textarea>
             </div>
             <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">
-                <i class="bi bi-play"></i> Test Connection
+                {% heroicon_outline "play" class="size-4" %} Test Connection
             </button>
         </form>
     </div>
@@ -101,14 +102,14 @@
 <div class="lora-card mb-6">
     <div class="p-6">
         <h3 class="lora-card-title mb-4">
-            <i class="bi bi-chat-square-text text-gray-500"></i> AI Response
+            {% heroicon_outline "chat-bubble-bottom-center-text" class="size-4 text-gray-500" %} AI Response
         </h3>
         <div class="rounded-xl bg-gray-50 border border-gray-200 p-4">
             <p class="lora-prose whitespace-pre-wrap">{{ response }}</p>
         </div>
         {% if tokens_used %}
         <div class="lora-meta mt-3 flex items-center gap-1.5">
-            <i class="bi bi-hdd"></i> Tokens used: {{ tokens_used }}
+            {% heroicon_outline "server" class="size-4" %} Tokens used: {{ tokens_used }}
         </div>
         {% endif %}
     </div>
@@ -117,7 +118,7 @@
 
 <!-- Usage Tips -->
 <div class="rounded-md p-4 text-sm ring-1 ring-inset bg-blue-50 text-blue-700 ring-blue-700/10 flex items-start gap-3">
-    <i class="bi bi-lightbulb text-blue-600 text-lg mt-0.5 shrink-0"></i>
+    {% heroicon_outline "light-bulb" class="size-5 text-blue-600 mt-0.5 shrink-0" %}
     <div class="text-sm leading-relaxed">
         <span class="font-semibold">Tip:</span> This test page uses the same AI configuration as the email analysis and dispute response features.
         If this test fails, check your API key, base URL, and model name in

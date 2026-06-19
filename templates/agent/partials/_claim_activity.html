@@ -1,3 +1,4 @@
+{% load heroicons %}
 {% comment %}
 Right-column AI summary — the at-a-glance "what's going on" snapshot. The
 status-change Timeline now lives in the LEFT column (after Institution replies)
@@ -5,7 +6,7 @@ in _claim_timeline.html.
 {% endcomment %}
 {% if claim.ai_summary %}
 <div class="lora-card p-4">
-  <h3 class="lora-card-title m-0 mb-2"><i class="bi bi-robot text-gray-500"></i> AI summary</h3>
+  <h3 class="lora-card-title m-0 mb-2">{% heroicon_outline "cpu-chip" class="size-4 text-gray-500" %} AI summary</h3>
   <p class="lora-prose mb-0">{{ claim.ai_summary }}</p>
   {% if claim.ai_summary_updated_at %}
   <p class="lora-meta mt-2 mb-0">Updated {{ claim.ai_summary_updated_at|timesince }} ago</p>

@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load heroicons %}
 
 {% block title %}Refunds{% endblock %}
 
@@ -10,7 +11,7 @@
 <div class="sm:flex sm:items-center sm:justify-between gap-4 mb-6">
   <div>
     <h1 class="lora-page-title flex items-center gap-2">
-      <i class="bi bi-cash-coin text-gray-600"></i> Refunds
+      {% heroicon_outline "banknotes" class="size-5 text-gray-600" %} Refunds
     </h1>
     <p class="lora-prose mt-1">
       Clear the refund-requested queue and track what's been issued.
@@ -21,7 +22,7 @@
   <div class="mt-4 sm:mt-0 flex items-center gap-2">
     <button type="button" onclick="openRefundModal()"
             class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">
-      <i class="bi bi-plus-circle"></i> Process refund
+      {% heroicon_outline "plus-circle" class="size-5" %} Process refund
     </button>
   </div>
 </div>
@@ -30,7 +31,7 @@
 {% if refund_requested %}
 <div class="lora-card overflow-hidden mb-6 border-l-4 border-l-amber-500">
   <div class="flex items-center gap-2 px-5 py-3 border-b border-gray-200">
-    <i class="bi bi-hourglass-split text-amber-600"></i>
+    {% heroicon_outline "clock" class="size-5 text-amber-600" %}
     <h3 class="lora-card-title">Awaiting your decision</h3>
     <span class="inline-flex items-center gap-x-1 rounded-full bg-yellow-50 px-2 py-1 text-xs font-medium text-yellow-800 ring-1 ring-inset ring-yellow-600/20">{{ refund_requested|length }}</span>
   </div>
@@ -55,12 +56,12 @@
           <td class="px-3 py-4 text-sm text-gray-600 whitespace-nowrap">{% if claim.status_changed_at %}{{ claim.status_changed_at|date:"M d, Y" }}{% else %}—{% endif %}</td>
           <td class="px-3 py-4 text-sm text-gray-700">
             {% if claim.zd_ticket_id and zd_ticket_base %}
-            <a href="{{ zd_ticket_base }}{{ claim.zd_ticket_id }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 font-medium text-indigo-600 hover:text-indigo-500 whitespace-nowrap">#{{ claim.zd_ticket_id }} <i class="bi bi-box-arrow-up-right text-xs"></i></a>
+            <a href="{{ zd_ticket_base }}{{ claim.zd_ticket_id }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 font-medium text-indigo-600 hover:text-indigo-500 whitespace-nowrap">#{{ claim.zd_ticket_id }} {% heroicon_outline "arrow-top-right-on-square" class="size-3.5" %}</a>
             {% else %}<span class="text-gray-400">{{ claim.zd_ticket_id|default:"—" }}</span>{% endif %}
           </td>
           <td class="px-3 py-4 text-right">
             <a href="{% url 'agent_claim_detail' claim.id %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-amber-500 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-amber-400 whitespace-nowrap" title="Open the claim to issue the refund">
-              <i class="bi bi-arrow-right-circle"></i> Review
+              {% heroicon_outline "arrow-right-circle" class="size-5" %} Review
             </a>
           </td>
         </tr>
@@ -85,11 +86,11 @@
   <form method="get" class="lg:ml-auto flex items-center gap-2">
     <input type="hidden" name="tab" value="{{ tab }}">
     <div class="relative w-full lg:w-80">
-      <i class="bi bi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"></i>
+      {% heroicon_outline "magnifying-glass" class="size-4 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" %}
       <input type="text" name="search" value="{{ search_query|default:'' }}" placeholder="Search client, ALF #, PayPal ID, reason…"
              class="block w-full rounded-md bg-white py-1.5 pl-9 pr-3 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">
     </div>
-    {% if search_query %}<a href="?tab={{ tab }}" class="text-gray-400 hover:text-gray-600" title="Clear search"><i class="bi bi-x-lg"></i></a>{% endif %}
+    {% if search_query %}<a href="?tab={{ tab }}" class="text-gray-400 hover:text-gray-600" title="Clear search">{% heroicon_outline "x-mark" class="size-4" %}</a>{% endif %}
   </form>
 </div>
 
@@ -129,13 +130,13 @@
             </span>
           </td>
           <td class="px-3 py-4 text-sm text-gray-600 whitespace-nowrap">{{ refund.created_at|date:"M d, Y" }}</td>
-          <td class="px-3 py-4 text-right"><i class="bi bi-chevron-right text-gray-300"></i></td>
+          <td class="px-3 py-4 text-right">{% heroicon_outline "chevron-right" class="size-4 text-gray-300" %}</td>
         </tr>
         {% empty %}
         <tr>
           <td colspan="7" class="px-3 py-16 text-center">
             <div class="inline-flex items-center justify-center w-16 h-16 bg-gray-50 rounded-full mb-3">
-              <i class="bi bi-cash-coin text-3xl text-gray-400"></i>
+              {% heroicon_outline "banknotes" class="size-8 text-gray-400" %}
             </div>
             <p class="mt-2 text-sm text-gray-500">{% if tab == 'failed' %}No failed refunds — good.{% else %}No refunds in this view.{% endif %}</p>
             {% if search_query %}<a href="?tab={{ tab }}" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Clear search</a>{% endif %}
@@ -181,7 +182,7 @@
         <div class="lora-value font-medium text-indigo-600">{{ refund.claim.client_name|default:refund.claim.client_email }}</div>
         <div class="lora-meta font-mono">{{ refund.claim.alf_claim_id|default:refund.claim.id }}</div>
       </div>
-      <span class="text-sm text-indigo-600 whitespace-nowrap">Open claim <i class="bi bi-arrow-right"></i></span>
+      <span class="text-sm text-indigo-600 whitespace-nowrap">Open claim {% heroicon_outline "arrow-right" class="size-4" %}</span>
     </a>
     {% endif %}
 
@@ -200,7 +201,7 @@
 <dialog id="refund_modal" class="m-auto w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl backdrop:bg-gray-900/50">
   <div class="relative">
     <form method="dialog"><button class="absolute right-0 top-0 inline-flex items-center justify-center rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600">✕</button></form>
-    <h3 class="lora-card-title text-lg mb-1"><i class="bi bi-currency-exchange text-indigo-600"></i> Process refund</h3>
+    <h3 class="lora-card-title text-lg mb-1">{% heroicon_outline "receipt-refund" class="size-5 text-indigo-600" %} Process refund</h3>
     <p class="lora-prose mb-5">Issue a refund against a claim via WooCommerce (the system of record), which settles it through PayPal.</p>
     <form id="refundForm" method="POST" action="/api/payments/refunds/issue/">
       {% csrf_token %}
@@ -224,7 +225,7 @@
 <dialog id="refund_details_modal" class="m-auto w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl backdrop:bg-gray-900/50">
   <div class="relative">
     <form method="dialog"><button class="absolute right-0 top-0 inline-flex items-center justify-center rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600">✕</button></form>
-    <h3 class="lora-card-title text-lg mb-4"><i class="bi bi-receipt text-gray-600"></i> Refund detail</h3>
+    <h3 class="lora-card-title text-lg mb-4">{% heroicon_outline "receipt-percent" class="size-5 text-gray-600" %} Refund detail</h3>
     <div id="refund_details_content"></div>
   </div>
 </dialog>

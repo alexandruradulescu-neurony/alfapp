@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load heroicons %}
 
 {% block title %}Claims{% endblock %}
 
@@ -12,25 +13,25 @@
   <div class="mt-4 sm:mt-0 flex items-center gap-2">
     <button type="button" id="bulk-delete-btn" onclick="bulkDeleteClaims()" hidden
             class="inline-flex items-center gap-x-1.5 rounded-md bg-red-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-red-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">
-      <i class="bi bi-trash"></i> Delete selected (<span id="bulk-count">0</span>)
+      {% heroicon_outline "trash" class="size-4" %} Delete selected (<span id="bulk-count">0</span>)
     </button>
     <details class="relative inline-block">
       <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer inline-flex items-center rounded-md bg-white px-2.5 py-2 text-gray-500 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
-        <i class="bi bi-three-dots"></i>
+        {% heroicon_outline "ellipsis-horizontal" class="size-4" %}
       </summary>
       <div class="absolute right-0 z-20 mt-2 w-80 origin-top-right rounded-lg bg-white p-4 shadow-lg ring-1 ring-black/5">
-        <p class="lora-card-title mb-1"><i class="bi bi-download text-gray-400"></i> Import from Zendesk</p>
+        <p class="lora-card-title mb-1">{% heroicon_outline "arrow-down-tray" class="size-5 text-gray-400" %} Import from Zendesk</p>
         <form method="post" action="{% url 'manager_claims_import' %}" class="flex flex-col gap-2">
           {% csrf_token %}
           <p class="lora-meta">Paste Zendesk ticket IDs (any separators). LORA pulls each existing claim in — it never creates one. Up to 100.</p>
           <textarea name="ticket_ids" rows="3" placeholder="e.g. 53973, 54012"
                     class="block w-full rounded-md bg-white px-2.5 py-1.5 font-mono text-xs text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"></textarea>
           <button type="submit" class="inline-flex justify-center items-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">
-            <i class="bi bi-download"></i> Pull into LORA
+            {% heroicon_outline "arrow-down-tray" class="size-5" %} Pull into LORA
           </button>
         </form>
         <div class="border-t border-gray-200 my-3"></div>
-        <a href="{% url 'manager_dashboard' %}" class="flex items-center gap-2 text-sm text-gray-700 hover:text-indigo-600"><i class="bi bi-arrow-left"></i> Back to dashboard</a>
+        <a href="{% url 'manager_dashboard' %}" class="flex items-center gap-2 text-sm text-gray-700 hover:text-indigo-600">{% heroicon_outline "arrow-left" class="size-4" %} Back to dashboard</a>
       </div>
     </details>
   </div>
@@ -50,11 +51,11 @@
   <form method="get" class="lg:ml-auto flex items-center gap-2">
     <input type="hidden" name="tab" value="{{ tab }}">
     <div class="relative w-full lg:w-72">
-      <i class="bi bi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"></i>
+      {% heroicon_outline "magnifying-glass" class="size-4 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" %}
       <input type="text" name="search" value="{{ search_query|default:'' }}" placeholder="Search name, email, ticket, ALF#…"
              class="block w-full rounded-md bg-white py-1.5 pl-9 pr-3 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">
     </div>
-    {% if search_query %}<a href="?tab={{ tab }}" class="text-gray-400 hover:text-gray-600" title="Clear search"><i class="bi bi-x-lg"></i></a>{% endif %}
+    {% if search_query %}<a href="?tab={{ tab }}" class="text-gray-400 hover:text-gray-600" title="Clear search">{% heroicon_outline "x-mark" class="size-4" %}</a>{% endif %}
   </form>
 </div>
 
@@ -91,7 +92,7 @@
             </div>
             {% if claim.days_in_status is not None and claim.status_category != 'solved' %}
             <div class="mt-1 text-xs {% if claim.stuck %}text-amber-600{% else %}text-gray-400{% endif %}">
-              {% if claim.stuck %}<i class="bi bi-hourglass-split"></i> {% endif %}{{ claim.days_in_status }}d in status
+              {% if claim.stuck %}{% heroicon_outline "clock" class="size-4" %} {% endif %}{{ claim.days_in_status }}d in status
             </div>
             {% endif %}
           </td>
@@ -99,12 +100,12 @@
             <div class="flex flex-wrap items-center gap-2">
               {% if claim.risk_active %}
               <span class="inline-flex items-center gap-1 text-sm font-medium text-red-600" title="{{ claim.risk_reason_labels|join:', ' }}">
-                <i class="bi bi-exclamation-triangle-fill"></i> {% if claim.risk_level == 'at_risk' %}At risk{% else %}Watch{% endif %}
+                {% heroicon_solid "exclamation-triangle" class="size-4" %} {% if claim.risk_level == 'at_risk' %}At risk{% else %}Watch{% endif %}
               </span>
               {% endif %}
               {% if claim.attention_emails %}
               <span class="inline-flex items-center gap-1 text-sm text-gray-600" title="Institution emails awaiting a human reply">
-                <i class="bi bi-envelope-exclamation"></i> {{ claim.attention_emails }}
+                {% heroicon_outline "envelope" class="size-4" %} {{ claim.attention_emails }}
               </span>
               {% endif %}
               {% if not claim.risk_active and not claim.attention_emails %}<span class="text-gray-300">—</span>{% endif %}
@@ -113,14 +114,14 @@
           <td class="px-3 py-4 whitespace-nowrap">
             {% if claim.zd_ticket_id and zd_ticket_base %}
             <a href="{{ zd_ticket_base }}{{ claim.zd_ticket_id }}" target="_blank" rel="noopener"
-               class="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-500" title="Open ticket in Zendesk">#{{ claim.zd_ticket_id }} <i class="bi bi-box-arrow-up-right text-xs"></i></a>
+               class="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-500" title="Open ticket in Zendesk">#{{ claim.zd_ticket_id }} {% heroicon_outline "arrow-top-right-on-square" class="size-3.5" %}</a>
             {% else %}<span class="text-sm text-gray-400">{{ claim.zd_ticket_id|default:"—" }}</span>{% endif %}
           </td>
         </tr>
         {% empty %}
         <tr>
           <td colspan="5" class="px-3 py-16 text-center">
-            <i class="bi bi-inbox text-4xl text-gray-300"></i>
+            {% heroicon_outline "inbox" class="size-12 mx-auto text-gray-300" %}
             <p class="lora-prose mt-2">{% if tab == 'problems' %}Nothing needs attention right now.{% else %}No claims in this view.{% endif %}</p>
             {% if search_query %}<a href="?tab={{ tab }}" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Clear search</a>{% endif %}
           </td>

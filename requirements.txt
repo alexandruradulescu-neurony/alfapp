@@ -42,6 +42,9 @@ cryptography==48.0.0              # Field-level encryption in apps/config/encryp
 # ----- Observability -----
 structlog==25.5.0                 # Structured logs with correlation IDs
 
+# ----- UI -----
+heroicons[django]==2.14.0         # Inline Heroicon SVGs via {% heroicon_* %} template tags
+
 # ----- Production server -----
 gunicorn==26.0.0
 whitenoise[brotli]==6.12.0        # Serve static files in production (no CDN needed)

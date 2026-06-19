@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load heroicons %}
 
 {% block title %}Emails{% endblock %}
 
@@ -7,7 +8,7 @@
 <div class="sm:flex sm:items-center sm:justify-between gap-4 mb-6">
   <div>
     <h1 class="lora-page-title flex items-center gap-2">
-      <i class="bi bi-envelope text-gray-600"></i> Emails
+      {% heroicon_outline "envelope" class="size-5 text-gray-600" %} Emails
     </h1>
     <p class="lora-prose mt-1">Inbound institution replies, by what needs a reply. (New mail is pulled per claim via "Check email".)</p>
   </div>
@@ -27,11 +28,11 @@
   <form method="get" class="lg:ml-auto flex items-center gap-2">
     <input type="hidden" name="tab" value="{{ tab }}">
     <div class="relative w-full lg:w-72">
-      <i class="bi bi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"></i>
+      {% heroicon_outline "magnifying-glass" class="size-4 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" %}
       <input type="text" name="search" value="{{ search_query|default:'' }}" placeholder="Search subject or sender…"
              class="block w-full rounded-md bg-white py-1.5 pl-9 pr-3 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">
     </div>
-    {% if search_query %}<a href="?tab={{ tab }}" class="text-gray-400 hover:text-gray-600" title="Clear search"><i class="bi bi-x-lg"></i></a>{% endif %}
+    {% if search_query %}<a href="?tab={{ tab }}" class="text-gray-400 hover:text-gray-600" title="Clear search">{% heroicon_outline "x-mark" class="size-4" %}</a>{% endif %}
   </form>
 </div>
 
@@ -56,7 +57,7 @@
             <div class="font-medium text-gray-900 truncate" title="{{ email.subject }}">{{ email.subject|default:"(no subject)" }}</div>
             {% if email.ai_summary %}
             <div class="text-xs text-gray-500 flex items-start gap-1.5 mt-0.5">
-              <i class="bi bi-robot text-gray-400 mt-0.5"></i>
+              {% heroicon_outline "cpu-chip" class="size-4 text-gray-400 mt-0.5" %}
               <span class="line-clamp-2">{{ email.ai_summary }}</span>
             </div>
             {% endif %}
@@ -81,7 +82,7 @@
           <td class="px-3 py-4 text-sm text-gray-700 text-right">
             {% if email.action_required and not email.auto_resolved %}
             <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-green-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-green-500" onclick="resolveEmail({{ email.id }}, true)" title="Mark resolved">
-              <i class="bi bi-check2"></i> Resolve
+              {% heroicon_outline "check" class="size-4" %} Resolve
             </button>
             {% endif %}
           </td>
@@ -89,7 +90,7 @@
         {% empty %}
         <tr>
           <td colspan="5" class="px-3 py-16 text-center">
-            <i class="bi bi-inbox text-4xl text-gray-300"></i>
+            {% heroicon_outline "inbox" class="size-12 text-gray-300 mx-auto" %}
             <p class="mt-2 text-sm text-gray-500">{% if tab == 'needs_reply' %}Nothing waiting on a reply.{% else %}No emails in this view.{% endif %}</p>
             {% if search_query %}<a href="?tab={{ tab }}" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Clear search</a>{% endif %}
           </td>

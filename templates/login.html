@@ -1,4 +1,5 @@
 {% extends 'base_auth.html' %}
+{% load heroicons %}
 
 {% block title %}Login - LORA{% endblock %}
 
@@ -7,7 +8,7 @@
   <div class="sm:mx-auto sm:w-full sm:max-w-md">
     <!-- Logo and Title -->
     <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-indigo-50">
-      <i class="bi bi-box-seam text-2xl text-indigo-600"></i>
+      {% heroicon_outline "cube" class="size-8 text-indigo-600" %}
     </div>
     <h2 class="lora-page-title mt-6 text-center">Lora</h2>
     <p class="lora-meta mt-1.5 text-center">Lost Object Recovery Automation</p>
@@ -23,7 +24,7 @@
         {% if messages %}
           {% for message in messages %}
           <div role="alert" class="flex items-center gap-3 rounded-md bg-red-50 p-4 text-sm text-red-700 ring-1 ring-inset ring-red-600/10">
-            <i class="bi bi-exclamation-circle text-lg shrink-0"></i>
+            {% heroicon_outline "exclamation-circle" class="size-5 shrink-0" %}
             <span>{{ message }}</span>
           </div>
           {% endfor %}
@@ -33,7 +34,7 @@
         <div>
           <label class="block text-sm font-medium text-gray-900 mb-1">Username</label>
           <div class="relative">
-            <i class="bi bi-person absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+            {% heroicon_outline "user" class="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" %}
             <input
               type="text"
               name="username"
@@ -50,7 +51,7 @@
         <div>
           <label class="block text-sm font-medium text-gray-900 mb-1">Password</label>
           <div class="relative">
-            <i class="bi bi-lock absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+            {% heroicon_outline "lock-closed" class="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" %}
             <input
               type="password"
               name="password"
@@ -65,7 +66,7 @@
         <!-- Submit Button -->
         <div class="pt-2">
           <button type="submit" class="flex w-full justify-center items-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">
-            <i class="bi bi-box-arrow-in-right"></i>
+            {% heroicon_outline "arrow-right-end-on-rectangle" class="size-4" %}
             Sign in
           </button>
         </div>

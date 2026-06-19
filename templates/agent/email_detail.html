@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load heroicons %}
 
 {% block title %}{{ email.subject|default:"Email" }}{% endblock %}
 
@@ -7,7 +8,7 @@
 
 <!-- Back -->
 <a href="{% url 'agent_emails' %}" class="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors mb-4">
-  <i class="bi bi-arrow-left"></i> Emails
+  {% heroicon_outline "arrow-left" class="size-4" %} Emails
 </a>
 
 <!-- Header: subject is the identity; one category badge + reply state; the action -->
@@ -19,11 +20,11 @@
         {{ email.get_category_display }}
       </span>
       {% if email_state == 'needs_reply' %}
-      <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10"><i class="bi bi-exclamation-circle"></i> Needs reply</span>
+      <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10">{% heroicon_outline "exclamation-circle" class="size-4" %} Needs reply</span>
       {% elif email_state == 'auto' %}
-      <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10"><i class="bi bi-robot"></i> Auto-handled</span>
+      <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">{% heroicon_outline "cpu-chip" class="size-4" %} Auto-handled</span>
       {% else %}
-      <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20"><i class="bi bi-check2"></i> Handled</span>
+      <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20">{% heroicon_outline "check" class="size-4" %} Handled</span>
       {% endif %}
       <span class="lora-meta">from {{ email.from_email }} &middot; {{ email.received_at|timesince }} ago</span>
     </div>
@@ -31,11 +32,11 @@
   <div class="flex flex-wrap gap-2 shrink-0">
     {% if email_state == 'needs_reply' %}
     <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-green-500" onclick="resolveEmail({{ email.id }}, true)">
-      <i class="bi bi-check2"></i> Mark resolved
+      {% heroicon_outline "check" class="size-4" %} Mark resolved
     </button>
     {% else %}
     <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" onclick="resolveEmail({{ email.id }}, false)">
-      <i class="bi bi-arrow-counterclockwise"></i> Re-open
+      {% heroicon_outline "arrow-uturn-left" class="size-4" %} Re-open
     </button>
     {% endif %}
   </div>
@@ -48,7 +49,7 @@
     <!-- Lead with the gist — what the office actually said -->
     <div class="lora-card p-5 border-l-4 border-l-indigo-400">
       <div class="lora-card-title mb-2">
-        <i class="bi bi-robot text-indigo-600"></i> What this says
+        {% heroicon_outline "cpu-chip" class="size-5 text-indigo-600" %} What this says
       </div>
       <p class="lora-prose mb-0">{{ email.ai_summary }}</p>
     </div>
@@ -57,7 +58,7 @@
     <!-- Full message -->
     <div class="lora-card p-6">
       <h3 class="lora-card-title mb-4">
-        <i class="bi bi-file-text"></i> Full message
+        {% heroicon_outline "document-text" class="size-5" %} Full message
       </h3>
       <div class="rounded-xl bg-gray-50 p-4 overflow-x-auto">
         <pre class="whitespace-pre-wrap font-sans text-sm leading-relaxed text-gray-900">{{ email.body }}</pre>
@@ -98,7 +99,7 @@
         <div class="flex justify-between gap-3 items-center">
           <span class="lora-label">Zendesk</span>
           <a href="https://{{ settings.zd_subdomain|default:'lora' }}.zendesk.com/agent/tickets/{{ email.zd_ticket_id }}"
-             target="_blank" class="lora-value font-medium text-indigo-600 hover:text-indigo-500">#{{ email.zd_ticket_id }} <i class="bi bi-box-arrow-up-right text-xs"></i></a>
+             target="_blank" class="lora-value font-medium text-indigo-600 hover:text-indigo-500">#{{ email.zd_ticket_id }} {% heroicon_outline "arrow-top-right-on-square" class="size-3.5 inline" %}</a>
         </div>
         {% endif %}
         <div class="flex justify-between gap-3">
@@ -111,7 +112,7 @@
     <!-- Technical plumbing, tucked away -->
     <details class="lora-card overflow-hidden">
       <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none px-5 py-3 lora-card-title">
-        <i class="bi bi-gear text-gray-400"></i> Delivery &amp; headers
+        {% heroicon_outline "cog-6-tooth" class="size-5 text-gray-400" %} Delivery &amp; headers
       </summary>
       <div class="px-5 pb-5 space-y-2">
         <div class="flex justify-between gap-3"><span class="lora-label">To</span><span class="lora-value text-right break-all">{{ email.to_email|default:"—" }}</span></div>

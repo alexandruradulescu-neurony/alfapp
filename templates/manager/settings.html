@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load heroicons %}
 {% load static %}
 
 {% block title %}System Settings{% endblock %}
@@ -7,7 +8,7 @@
 <!-- Page Header -->
 <div class="mb-6">
     <h1 class="lora-page-title flex items-center gap-2">
-        <i class="bi bi-gear"></i> System Settings
+        {% heroicon_outline "cog-6-tooth" class="size-4" %} System Settings
     </h1>
     <p class="lora-prose mt-1">
         Switches at the top take effect instantly. Everything below is saved with the
@@ -21,7 +22,7 @@
 <div class="lora-card p-6 lg:p-8 mb-8">
     <div class="mb-5">
         <h2 class="lora-card-title">
-            <i class="bi bi-toggles text-gray-500"></i> Automation switches
+            {% heroicon_outline "adjustments-horizontal" class="size-4 text-gray-500" %} Automation switches
         </h2>
         <p class="lora-prose mt-1">Real on/off switches — each takes effect the moment you flip it (no Save needed).</p>
     </div>
@@ -31,7 +32,7 @@
         <label class="flex items-start justify-between gap-4 py-4 cursor-pointer">
             <span class="flex flex-col gap-0.5">
                 <span class="lora-value font-medium flex items-center gap-2">
-                    <i class="bi bi-clock-history text-gray-500"></i> Scheduled jobs
+                    {% heroicon_outline "clock" class="size-4 text-gray-500" %} Scheduled jobs
                     <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if scheduler_status.get_status_color == 'success' %}bg-green-50 text-green-700 ring-green-600/20{% elif scheduler_status.get_status_color == 'warning' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif scheduler_status.get_status_color == 'error' %}bg-red-50 text-red-700 ring-red-600/10{% elif scheduler_status.get_status_color == 'info' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ scheduler_status.get_status_display }}</span>
                 </span>
                 <span class="lora-meta max-w-2xl">Master switch for the timed jobs (client progress updates, inbox sweep). A Railway cron runs them; this is the global off-switch.{% if scheduler_status.last_checked %} Last run {{ scheduler_status.last_checked|date:"M d, H:i" }} UTC.{% endif %}</span>
@@ -44,7 +45,7 @@
         <!-- Autonomous client updates -->
         <label class="flex items-start justify-between gap-4 py-4 cursor-pointer">
             <span class="flex flex-col gap-0.5">
-                <span class="lora-value font-medium flex items-center gap-2"><i class="bi bi-chat-heart text-gray-500"></i> Autonomous client updates</span>
+                <span class="lora-value font-medium flex items-center gap-2">{% heroicon_outline "chat-bubble-left-right" class="size-4 text-gray-500" %} Autonomous client updates</span>
                 <span class="lora-meta max-w-2xl">When ON, the scheduled job drafts <em>and sends</em> due client progress updates as public Zendesk replies. When OFF (default), updates are only scheduled for an agent to review and send. Object-found news is always left for an agent.</span>
             </span>
             <input type="checkbox" id="client_updates_autosend" data-flag-toggle="client_updates_autosend" class="mt-0.5 size-5 rounded border-gray-300 accent-amber-500"
@@ -54,7 +55,7 @@
         <!-- Automatic inbox sweep -->
         <label class="flex items-start justify-between gap-4 py-4 cursor-pointer">
             <span class="flex flex-col gap-0.5">
-                <span class="lora-value font-medium flex items-center gap-2"><i class="bi bi-envelope-paper text-gray-500"></i> Automatic inbox sweep</span>
+                <span class="lora-value font-medium flex items-center gap-2">{% heroicon_outline "envelope" class="size-4 text-gray-500" %} Automatic inbox sweep</span>
                 <span class="lora-meta max-w-2xl">When ON, the scheduled job sweeps the shared inbox on a timer and auto-categorises institution replies on live tickets. When OFF (default), email is only checked per-ticket via the manual button. Leave OFF until the AI categorisation is proven.</span>
             </span>
             <input type="checkbox" id="email_sweep_autorun" data-flag-toggle="email_sweep_autorun" class="mt-0.5 size-5 rounded border-gray-300 accent-amber-500"
@@ -64,7 +65,7 @@
         <!-- Import claims from email (backlog transition) -->
         <label class="flex items-start justify-between gap-4 py-4 cursor-pointer">
             <span class="flex flex-col gap-0.5">
-                <span class="lora-value font-medium flex items-center gap-2"><i class="bi bi-download text-gray-500"></i> Import claims from email</span>
+                <span class="lora-value font-medium flex items-center gap-2">{% heroicon_outline "arrow-down-tray" class="size-4 text-gray-500" %} Import claims from email</span>
                 <span class="lora-meta max-w-2xl">Backlog transition only. When ON, an inbound email that matches a Zendesk ticket with no local claim imports that existing claim from Zendesk on the spot &mdash; it never creates a new one. Needs <em>Automatic inbox sweep</em> ON to take effect. Turn OFF once every claim is in LORA.</span>
             </span>
             <input type="checkbox" id="import_claims_from_email" data-flag-toggle="import_claims_from_email" class="mt-0.5 size-5 rounded border-gray-300 accent-amber-500"
@@ -83,12 +84,12 @@
     <div class="lora-card p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
             <h3 class="lora-card-title">
-                <i class="bi bi-robot text-gray-500"></i> AI provider
+                {% heroicon_outline "cpu-chip" class="size-4 text-gray-500" %} AI provider
                 <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if ai_status.get_status_color == 'success' %}bg-green-50 text-green-700 ring-green-600/20{% elif ai_status.get_status_color == 'warning' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif ai_status.get_status_color == 'error' %}bg-red-50 text-red-700 ring-red-600/10{% elif ai_status.get_status_color == 'info' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ ai_status.get_status_display }}</span>
             </h3>
-            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="AI"><i class="bi bi-activity"></i> Test</button>
+            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="AI">{% heroicon_outline "bolt" class="size-4" %} Test</button>
         </div>
-        {% if ai_status.last_error %}<div class="rounded-md p-4 text-sm ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10 mb-4 flex items-center gap-2"><i class="bi bi-exclamation-triangle"></i>{{ ai_status.last_error|truncatechars:120 }}</div>{% endif %}
+        {% if ai_status.last_error %}<div class="rounded-md p-4 text-sm ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10 mb-4 flex items-center gap-2">{% heroicon_outline "exclamation-triangle" class="size-4" %}{{ ai_status.last_error|truncatechars:120 }}</div>{% endif %}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
                 <label class="block text-sm font-medium text-gray-900 mb-1">Provider</label>
@@ -114,12 +115,12 @@
     <div class="lora-card p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
             <h3 class="lora-card-title">
-                <i class="bi bi-envelope text-gray-500"></i> Email inbox (IMAP)
+                {% heroicon_outline "envelope" class="size-4 text-gray-500" %} Email inbox (IMAP)
                 <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if imap_status.get_status_color == 'success' %}bg-green-50 text-green-700 ring-green-600/20{% elif imap_status.get_status_color == 'warning' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif imap_status.get_status_color == 'error' %}bg-red-50 text-red-700 ring-red-600/10{% elif imap_status.get_status_color == 'info' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ imap_status.get_status_display }}</span>
             </h3>
-            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="IMAP"><i class="bi bi-activity"></i> Test</button>
+            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="IMAP">{% heroicon_outline "bolt" class="size-4" %} Test</button>
         </div>
-        {% if imap_status.last_error %}<div class="rounded-md p-4 text-sm ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10 mb-4 flex items-center gap-2"><i class="bi bi-exclamation-triangle"></i>{{ imap_status.last_error|truncatechars:120 }}</div>{% endif %}
+        {% if imap_status.last_error %}<div class="rounded-md p-4 text-sm ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10 mb-4 flex items-center gap-2">{% heroicon_outline "exclamation-triangle" class="size-4" %}{{ imap_status.last_error|truncatechars:120 }}</div>{% endif %}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
                 <label class="block text-sm font-medium text-gray-900 mb-1">Host</label>
@@ -151,12 +152,12 @@
     <div class="lora-card p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
             <h3 class="lora-card-title">
-                <i class="bi bi-ticket text-gray-500"></i> Zendesk
+                {% heroicon_outline "ticket" class="size-4 text-gray-500" %} Zendesk
                 <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if zd_status.get_status_color == 'success' %}bg-green-50 text-green-700 ring-green-600/20{% elif zd_status.get_status_color == 'warning' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif zd_status.get_status_color == 'error' %}bg-red-50 text-red-700 ring-red-600/10{% elif zd_status.get_status_color == 'info' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ zd_status.get_status_display }}</span>
             </h3>
-            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="ZENDESK"><i class="bi bi-activity"></i> Test</button>
+            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="ZENDESK">{% heroicon_outline "bolt" class="size-4" %} Test</button>
         </div>
-        {% if zd_status.last_error %}<div class="rounded-md p-4 text-sm ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10 mb-4 flex items-center gap-2"><i class="bi bi-exclamation-triangle"></i>{{ zd_status.last_error|truncatechars:120 }}</div>{% endif %}
+        {% if zd_status.last_error %}<div class="rounded-md p-4 text-sm ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10 mb-4 flex items-center gap-2">{% heroicon_outline "exclamation-triangle" class="size-4" %}{{ zd_status.last_error|truncatechars:120 }}</div>{% endif %}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
                 <label class="block text-sm font-medium text-gray-900 mb-1">Subdomain</label>
@@ -178,12 +179,12 @@
     <div class="lora-card p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
             <h3 class="lora-card-title">
-                <i class="bi bi-currency-dollar text-gray-500"></i> PayPal
+                {% heroicon_outline "currency-dollar" class="size-4 text-gray-500" %} PayPal
                 <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if paypal_status.get_status_color == 'success' %}bg-green-50 text-green-700 ring-green-600/20{% elif paypal_status.get_status_color == 'warning' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif paypal_status.get_status_color == 'error' %}bg-red-50 text-red-700 ring-red-600/10{% elif paypal_status.get_status_color == 'info' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ paypal_status.get_status_display }}</span>
             </h3>
-            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="PAYPAL"><i class="bi bi-activity"></i> Test</button>
+            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="PAYPAL">{% heroicon_outline "bolt" class="size-4" %} Test</button>
         </div>
-        {% if paypal_status.last_error %}<div class="rounded-md p-4 text-sm ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10 mb-4 flex items-center gap-2"><i class="bi bi-exclamation-triangle"></i>{{ paypal_status.last_error|truncatechars:120 }}</div>{% endif %}
+        {% if paypal_status.last_error %}<div class="rounded-md p-4 text-sm ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10 mb-4 flex items-center gap-2">{% heroicon_outline "exclamation-triangle" class="size-4" %}{{ paypal_status.last_error|truncatechars:120 }}</div>{% endif %}
         <div class="mb-4">
             <label class="block text-sm font-medium text-gray-900 mb-1">Environment</label>
             <div class="flex flex-wrap gap-4">
@@ -196,7 +197,7 @@
                     <span class="text-sm font-medium text-amber-600">Live (real money)</span>
                 </label>
             </div>
-            {% if settings.paypal_mode == 'live' %}<span class="lora-meta block text-amber-600 mt-1"><i class="bi bi-exclamation-triangle"></i> Live mode is active — refund/dispute actions move real money.</span>{% endif %}
+            {% if settings.paypal_mode == 'live' %}<span class="lora-meta block text-amber-600 mt-1">{% heroicon_outline "exclamation-triangle" class="size-4" %} Live mode is active — refund/dispute actions move real money.</span>{% endif %}
         </div>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
@@ -220,10 +221,10 @@
     <div class="lora-card p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
             <h3 class="lora-card-title">
-                <i class="bi bi-bag-check text-gray-500"></i> WooCommerce (refunds)
+                {% heroicon_outline "shopping-bag" class="size-4 text-gray-500" %} WooCommerce (refunds)
                 {% if settings.woocommerce_consumer_key %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20">Configured</span>{% else %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">Not set</span>{% endif %}
             </h3>
-            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="WOOCOMMERCE"><i class="bi bi-activity"></i> Test</button>
+            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="WOOCOMMERCE">{% heroicon_outline "bolt" class="size-4" %} Test</button>
         </div>
         <p class="lora-prose mb-6">When LORA issues a refund it asks WooCommerce to refund the order through PayPal. Create a Read/Write key under <span class="font-medium text-gray-700">WooCommerce → Settings → Advanced → REST API</span>.</p>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -248,7 +249,7 @@
     <div class="lora-card p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
             <h3 class="lora-card-title">
-                <i class="bi bi-shield-lock text-gray-500"></i> Zendesk sidebar
+                {% heroicon_outline "shield-check" class="size-4 text-gray-500" %} Zendesk sidebar
                 {% if settings.sidebar_secret_token %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20">Configured</span>{% else %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">Not set</span>{% endif %}
             </h3>
         </div>
@@ -290,13 +291,13 @@
 
     <!-- Save -->
     <div class="flex justify-end">
-        <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500"><i class="bi bi-check-circle"></i> Save settings</button>
+        <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">{% heroicon_outline "check-circle" class="size-4" %} Save settings</button>
     </div>
 </form>
 
 <!-- Security Notice -->
 <div class="rounded-md p-4 text-sm ring-1 ring-inset bg-blue-50 text-blue-700 ring-blue-700/10 flex items-start gap-3 mt-6">
-    <i class="bi bi-shield-check text-lg mt-0.5"></i>
+    {% heroicon_outline "shield-check" class="size-5 mt-0.5" %}
     <div class="text-sm">
         <span class="font-semibold">Security:</span> credentials are encrypted at rest. Password fields are never pre-filled —
         enter a new value only to change them. Connection badges reflect the last <span class="font-medium">Test</span>.
@@ -310,9 +311,9 @@
      position:fixed anchors to the viewport, not the page. -->
 <div class="fixed bottom-4 right-4 z-50">
     <div id="serviceToast" class="flex items-center gap-3 rounded-lg border-l-4 border-l-blue-500 bg-white px-4 py-3 text-sm text-gray-900 shadow-lg ring-1 ring-black/5 opacity-0 pointer-events-none transition-opacity duration-300">
-        <i class="bi bi-bell text-gray-400"></i>
+        {% heroicon_outline "bell" class="size-4 text-gray-400" %}
         <span id="toastMessage"></span>
-        <button type="button" class="text-gray-400 hover:text-gray-600" data-toast-close><i class="bi bi-x-lg"></i></button>
+        <button type="button" class="text-gray-400 hover:text-gray-600" data-toast-close>{% heroicon_outline "x-mark" class="size-4" %}</button>
     </div>
 </div>
 <script src="{% static 'js/service-controls.js' %}"></script>

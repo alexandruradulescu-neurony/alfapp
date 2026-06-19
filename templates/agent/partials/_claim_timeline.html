@@ -1,10 +1,11 @@
+{% load heroicons %}
 {% comment %}
 Status-change Timeline (Zendesk status history → ClaimUpdateTimeline rows).
 Lives in the LEFT column, after Institution replies. Clean Tailwind UI feed:
 a single vertical rail with aligned dots (replaces the old broken markers).
 {% endcomment %}
 <div class="lora-card p-4">
-  <h3 class="lora-card-title mb-3 m-0"><i class="bi bi-clock-history text-gray-500"></i> Timeline</h3>
+  <h3 class="lora-card-title mb-3 m-0">{% heroicon_outline "clock" class="size-4 text-gray-500" %} Timeline</h3>
   {% if claim.updates.all %}
   <ul role="list" class="-mb-6">
     {% for update in claim.updates.all %}
@@ -15,7 +16,7 @@ a single vertical rail with aligned dots (replaces the old broken markers).
         {% endif %}
         <div class="relative flex items-start gap-3">
           <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-indigo-50 ring-4 ring-white">
-            <i class="bi bi-arrow-repeat text-xs text-indigo-600"></i>
+            {% heroicon_outline "arrow-path" class="size-3.5 text-indigo-600" %}
           </span>
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">

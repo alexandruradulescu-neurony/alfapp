@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load heroicons %}
 
 {% block title %}Dashboard{% endblock %}
 
@@ -14,46 +15,46 @@
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
   <a href="{% url 'disputes:dispute_list' %}?view=action" class="group relative flex items-center gap-4 lora-card p-5 transition hover:ring-gray-300">
     <span class="inline-flex size-12 shrink-0 items-center justify-center rounded-lg {% if dispute_due_soon %}bg-red-50{% else %}bg-gray-50{% endif %}">
-      <i class="bi bi-alarm text-xl {% if dispute_due_soon %}text-red-600{% else %}text-gray-400{% endif %}"></i>
+      {% if dispute_due_soon %}{% heroicon_outline "bell-alert" class="size-8 text-red-600" %}{% else %}{% heroicon_outline "bell-alert" class="size-8 text-gray-400" %}{% endif %}
     </span>
     <div class="min-w-0">
       <div class="text-2xl font-semibold {% if dispute_due_soon %}text-red-600{% else %}text-gray-900{% endif %}">{{ dispute_due_soon|default:0 }}</div>
       <div class="lora-label">Disputes due soon</div>
     </div>
-    <i class="bi bi-chevron-right absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 group-hover:text-gray-400"></i>
+    {% heroicon_outline "chevron-right" class="size-4 absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 group-hover:text-gray-400" %}
   </a>
 
   <a href="{% url 'agent_emails' %}?tab=needs_reply" class="group relative flex items-center gap-4 lora-card p-5 transition hover:ring-gray-300">
     <span class="inline-flex size-12 shrink-0 items-center justify-center rounded-lg {% if emails_requiring_attention %}bg-amber-50{% else %}bg-gray-50{% endif %}">
-      <i class="bi bi-envelope-exclamation text-xl {% if emails_requiring_attention %}text-amber-600{% else %}text-gray-400{% endif %}"></i>
+      {% if emails_requiring_attention %}{% heroicon_outline "envelope" class="size-8 text-amber-600" %}{% else %}{% heroicon_outline "envelope" class="size-8 text-gray-400" %}{% endif %}
     </span>
     <div class="min-w-0">
       <div class="text-2xl font-semibold {% if emails_requiring_attention %}text-amber-600{% else %}text-gray-900{% endif %}">{{ emails_requiring_attention|default:0 }}</div>
       <div class="lora-label">Emails to reply</div>
     </div>
-    <i class="bi bi-chevron-right absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 group-hover:text-gray-400"></i>
+    {% heroicon_outline "chevron-right" class="size-4 absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 group-hover:text-gray-400" %}
   </a>
 
   <a href="{% url 'manager_refunds' %}" class="group relative flex items-center gap-4 lora-card p-5 transition hover:ring-gray-300">
     <span class="inline-flex size-12 shrink-0 items-center justify-center rounded-lg {% if refunds_pending_decision %}bg-teal-50{% else %}bg-gray-50{% endif %}">
-      <i class="bi bi-cash-coin text-xl {% if refunds_pending_decision %}text-teal-600{% else %}text-gray-400{% endif %}"></i>
+      {% if refunds_pending_decision %}{% heroicon_outline "banknotes" class="size-8 text-teal-600" %}{% else %}{% heroicon_outline "banknotes" class="size-8 text-gray-400" %}{% endif %}
     </span>
     <div class="min-w-0">
       <div class="text-2xl font-semibold {% if refunds_pending_decision %}text-teal-600{% else %}text-gray-900{% endif %}">{{ refunds_pending_decision|default:0 }}</div>
       <div class="lora-label">Refunds to decide</div>
     </div>
-    <i class="bi bi-chevron-right absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 group-hover:text-gray-400"></i>
+    {% heroicon_outline "chevron-right" class="size-4 absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 group-hover:text-gray-400" %}
   </a>
 
   <a href="{% url 'manager_claims' %}?tab=problems" class="group relative flex items-center gap-4 lora-card p-5 transition hover:ring-gray-300">
     <span class="inline-flex size-12 shrink-0 items-center justify-center rounded-lg {% if claims_attention %}bg-indigo-50{% else %}bg-gray-50{% endif %}">
-      <i class="bi bi-clipboard-data text-xl {% if claims_attention %}text-indigo-600{% else %}text-gray-400{% endif %}"></i>
+      {% if claims_attention %}{% heroicon_outline "clipboard-document-list" class="size-8 text-indigo-600" %}{% else %}{% heroicon_outline "clipboard-document-list" class="size-8 text-gray-400" %}{% endif %}
     </span>
     <div class="min-w-0">
       <div class="text-2xl font-semibold {% if claims_attention %}text-indigo-600{% else %}text-gray-900{% endif %}">{{ claims_attention|default:0 }}</div>
       <div class="lora-label">Claims need attention</div>
     </div>
-    <i class="bi bi-chevron-right absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 group-hover:text-gray-400"></i>
+    {% heroicon_outline "chevron-right" class="size-4 absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 group-hover:text-gray-400" %}
   </a>
 </div>
 

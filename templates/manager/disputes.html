@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load heroicons %}
 
 {% block title %}Disputes{% endblock %}
 
@@ -7,7 +8,7 @@
 <div class="sm:flex sm:items-center sm:justify-between gap-4 mb-6">
   <div>
     <h1 class="lora-page-title flex items-center gap-2">
-      <i class="bi bi-shield-exclamation text-gray-600"></i> Disputes
+      {% heroicon_outline "shield-exclamation" class="size-4 text-gray-600" %} Disputes
     </h1>
     <p class="lora-prose mt-1">PayPal chargebacks linked to claims. Reply before the deadline — a missed deadline auto-loses the case.</p>
   </div>
@@ -16,22 +17,22 @@
           onsubmit="return confirm('Pull current disputes from PayPal and match them to claims? This reads from PayPal and creates any that are missing.');">
       {% csrf_token %}
       <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500">
-        <i class="bi bi-cloud-download"></i> Pull from PayPal
+        {% heroicon_outline "cloud-arrow-down" class="size-4" %} Pull from PayPal
       </button>
     </form>
     <details class="relative inline-block">
       <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer inline-flex items-center rounded-md bg-white px-2.5 py-2 text-gray-500 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="More">
-        <i class="bi bi-three-dots-vertical"></i>
+        {% heroicon_outline "ellipsis-vertical" class="size-4" %}
       </summary>
       <div class="absolute right-0 z-20 mt-2 w-60 origin-top-right rounded-lg bg-white p-2 shadow-lg ring-1 ring-black/5">
         {% if resolved_count %}
         <form method="post" action="{% url 'disputes:dispute_prune_resolved' %}"
               onsubmit="return confirm('Delete {{ resolved_count }} dispute(s) already resolved/closed at PayPal? This cannot be undone.');">
           {% csrf_token %}
-          <button type="submit" class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-red-600 hover:bg-gray-100"><i class="bi bi-trash"></i> Remove {{ resolved_count }} resolved</button>
+          <button type="submit" class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-red-600 hover:bg-gray-100">{% heroicon_outline "trash" class="size-4" %} Remove {{ resolved_count }} resolved</button>
         </form>
         {% endif %}
-        <a href="{% url 'manager_dashboard' %}" class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100"><i class="bi bi-speedometer2"></i> Back to dashboard</a>
+        <a href="{% url 'manager_dashboard' %}" class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-100">{% heroicon_outline "squares-2x2" class="size-4" %} Back to dashboard</a>
       </div>
     </details>
   </div>
@@ -39,7 +40,7 @@
 
 {% if unmatched_count %}
 <a href="?status=RECEIVED" class="flex items-center gap-2 rounded-md bg-yellow-50 p-4 text-sm text-yellow-800 ring-1 ring-inset ring-yellow-600/20 mb-5">
-  <i class="bi bi-link-45deg shrink-0"></i>
+  {% heroicon_outline "link" class="size-4 shrink-0" %}
   <span>{{ unmatched_count }} dispute{{ unmatched_count|pluralize }} not yet linked to a claim — open each and use "Link to claim."</span>
 </a>
 {% endif %}
@@ -67,11 +68,11 @@
   <form method="get" class="lg:ml-auto flex items-center gap-2">
     <input type="hidden" name="view" value="{{ view }}">
     <div class="relative w-full lg:w-72">
-      <i class="bi bi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"></i>
+      {% heroicon_outline "magnifying-glass" class="size-4 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" %}
       <input type="text" name="search" value="{{ search_query|default:'' }}" placeholder="Search buyer, ticket, PayPal ID…"
              class="block w-full rounded-md bg-white py-1.5 pl-9 pr-3 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">
     </div>
-    {% if search_query %}<a href="?view={{ view }}" class="text-gray-400 hover:text-gray-600" title="Clear search"><i class="bi bi-x-lg"></i></a>{% endif %}
+    {% if search_query %}<a href="?view={{ view }}" class="text-gray-400 hover:text-gray-600" title="Clear search">{% heroicon_outline "x-mark" class="size-4" %}</a>{% endif %}
   </form>
 </div>
 
@@ -108,10 +109,10 @@
           </td>
           <td class="px-3 py-4 text-sm text-gray-700 whitespace-nowrap">
             {% if dispute.deadline_state == 'overdue' %}
-            <span class="text-red-600 font-semibold text-sm"><i class="bi bi-exclamation-circle"></i> Overdue</span>
+            <span class="text-red-600 font-semibold text-sm">{% heroicon_outline "exclamation-circle" class="size-4" %} Overdue</span>
             <div class="text-xs text-red-600/70">{{ dispute.seller_response_due|date:"M d" }}</div>
             {% elif dispute.deadline_state == 'soon' %}
-            <span class="text-amber-600 font-medium text-sm"><i class="bi bi-clock"></i> Due {{ dispute.seller_response_due|date:"M d" }}</span>
+            <span class="text-amber-600 font-medium text-sm">{% heroicon_outline "clock" class="size-4" %} Due {{ dispute.seller_response_due|date:"M d" }}</span>
             {% elif dispute.deadline_state == 'ok' %}
             <span class="text-sm text-gray-500">Due {{ dispute.seller_response_due|date:"M d" }}</span>
             {% else %}
@@ -120,16 +121,16 @@
           </td>
           <td class="px-3 py-4 text-sm text-gray-700">
             {% if dispute.zd_ticket_id and zd_subdomain %}
-            <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ dispute.zd_ticket_id }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 font-medium text-indigo-600 hover:text-indigo-500 text-sm whitespace-nowrap">#{{ dispute.zd_ticket_id }} <i class="bi bi-box-arrow-up-right text-xs"></i></a>
+            <a href="https://{{ zd_subdomain }}.zendesk.com/agent/tickets/{{ dispute.zd_ticket_id }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 font-medium text-indigo-600 hover:text-indigo-500 text-sm whitespace-nowrap">#{{ dispute.zd_ticket_id }} {% heroicon_outline "arrow-top-right-on-square" class="size-3.5" %}</a>
             {% else %}<span class="text-gray-400 text-sm">{{ dispute.zd_ticket_id|default:"—" }}</span>{% endif %}
           </td>
           <td class="px-3 py-4 text-sm text-gray-500 whitespace-nowrap">{{ dispute.created_at|date:"M d, Y" }}</td>
-          <td class="px-3 py-4 text-right"><i class="bi bi-chevron-right text-gray-300"></i></td>
+          <td class="px-3 py-4 text-right">{% heroicon_outline "chevron-right" class="size-4 text-gray-300" %}</td>
         </tr>
         {% empty %}
         <tr>
           <td colspan="7" class="px-3 py-16 text-center">
-            <i class="bi bi-shield-check text-4xl text-gray-300"></i>
+            {% heroicon_outline "shield-check" class="size-12 text-gray-300" %}
             <p class="mt-2 text-sm text-gray-500">{% if view == 'action' %}No disputes waiting on a reply.{% else %}No disputes in this view.{% endif %}</p>
             {% if search_query %}<a href="?view={{ view }}" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Clear search</a>{% endif %}
           </td>
@@ -145,10 +146,10 @@
     <p class="hidden text-sm text-gray-700 sm:block">Page <span class="font-medium">{{ page_obj.number }}</span> of <span class="font-medium">{{ page_obj.paginator.num_pages }}</span></p>
     <div class="flex flex-1 justify-between gap-2 sm:justify-end">
       {% if page_obj.has_previous %}
-      <a href="?view={{ view }}&page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}" class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50"><i class="bi bi-chevron-left"></i> Prev</a>
+      <a href="?view={{ view }}&page={{ page_obj.previous_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}" class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">{% heroicon_outline "chevron-left" class="size-4" %} Prev</a>
       {% endif %}
       {% if page_obj.has_next %}
-      <a href="?view={{ view }}&page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}" class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Next <i class="bi bi-chevron-right"></i></a>
+      <a href="?view={{ view }}&page={{ page_obj.next_page_number }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}" class="relative inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Next {% heroicon_outline "chevron-right" class="size-4" %}</a>
       {% endif %}
     </div>
   </nav>

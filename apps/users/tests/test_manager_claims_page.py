@@ -48,7 +48,7 @@ class ManagerClaimsPageTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         html = resp.content.decode()
         self.assertIn('Ana Popescu', html)               # client name leads
-        self.assertIn('envelope-exclamation', html)       # attention: email awaiting reply
+        self.assertIn('Institution emails awaiting a human reply', html)  # attention: email awaiting reply
         self.assertIn('https://testco.zendesk.com/agent/tickets/93001', html)
         self.assertNotIn('Done Client', html)             # solved → not a problem
         self.assertIn('select-all', html)                 # bulk-select kept
