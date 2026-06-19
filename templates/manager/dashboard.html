@@ -1,343 +1,124 @@
 {% extends 'base.html' %}
-{% load static %}
-{% load ui_filters %}
 
-{% block title %}Manager Dashboard{% endblock %}
+{% block title %}Dashboard{% endblock %}
 
 {% block content %}
-<!-- Page Header -->
-<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-    <div>
-        <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <i class="bi bi-speedometer2 text-primary"></i> Manager Dashboard
-        </h2>
-        <p class="text-sm text-base-content/60 mt-1">Operational overview of claims, emails and disputes.</p>
-    </div>
+<!-- Page heading -->
+<div class="mb-6">
+  <h1 class="text-xl font-semibold text-gray-900">Dashboard</h1>
+  <p class="mt-1 text-sm text-gray-600">What needs you today.</p>
 </div>
 
-<!-- Stats Grid -->
-<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6 animate-fade-in">
-    <div class="stat-modern">
-        <div class="stat-icon bg-primary/10">
-            <i class="bi bi-clipboard-data text-2xl text-primary"></i>
-        </div>
-        <div>
-            <div class="stat-label">Total Claims</div>
-            <div class="stat-value text-primary">{{ total_claims }}</div>
-        </div>
+<!-- Needs your attention — the action queues, each links to its filtered list -->
+<h2 class="text-sm font-semibold text-gray-500 mb-3">Needs your attention</h2>
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+  <a href="{% url 'disputes:dispute_list' %}?view=action" class="group relative flex items-center gap-4 rounded-xl bg-white p-5 shadow-sm ring-1 ring-black/5 transition hover:ring-gray-300">
+    <span class="inline-flex size-12 shrink-0 items-center justify-center rounded-lg {% if dispute_due_soon %}bg-red-50{% else %}bg-gray-50{% endif %}">
+      <i class="bi bi-alarm text-xl {% if dispute_due_soon %}text-red-600{% else %}text-gray-400{% endif %}"></i>
+    </span>
+    <div class="min-w-0">
+      <div class="text-2xl font-semibold {% if dispute_due_soon %}text-red-600{% else %}text-gray-900{% endif %}">{{ dispute_due_soon|default:0 }}</div>
+      <div class="text-sm text-gray-600">Disputes due soon</div>
     </div>
+    <i class="bi bi-chevron-right absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 group-hover:text-gray-400"></i>
+  </a>
 
-    <div class="stat-modern">
-        <div class="stat-icon bg-base-200/60">
-            <i class="bi bi-inbox text-2xl text-base-content/60"></i>
-        </div>
-        <div>
-            <div class="stat-label">Active cases</div>
-            <div class="stat-value">{{ active }}</div>
-        </div>
+  <a href="{% url 'agent_emails' %}?tab=needs_reply" class="group relative flex items-center gap-4 rounded-xl bg-white p-5 shadow-sm ring-1 ring-black/5 transition hover:ring-gray-300">
+    <span class="inline-flex size-12 shrink-0 items-center justify-center rounded-lg {% if emails_requiring_attention %}bg-amber-50{% else %}bg-gray-50{% endif %}">
+      <i class="bi bi-envelope-exclamation text-xl {% if emails_requiring_attention %}text-amber-600{% else %}text-gray-400{% endif %}"></i>
+    </span>
+    <div class="min-w-0">
+      <div class="text-2xl font-semibold {% if emails_requiring_attention %}text-amber-600{% else %}text-gray-900{% endif %}">{{ emails_requiring_attention|default:0 }}</div>
+      <div class="text-sm text-gray-600">Emails to reply</div>
     </div>
+    <i class="bi bi-chevron-right absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 group-hover:text-gray-400"></i>
+  </a>
 
-    <div class="stat-modern">
-        <div class="stat-icon bg-secondary/10">
-            <i class="bi bi-search text-2xl text-secondary"></i>
-        </div>
-        <div>
-            <div class="stat-label">Awaiting client</div>
-            <div class="stat-value text-secondary">{{ pending_client }}</div>
-        </div>
+  <a href="{% url 'manager_refunds' %}" class="group relative flex items-center gap-4 rounded-xl bg-white p-5 shadow-sm ring-1 ring-black/5 transition hover:ring-gray-300">
+    <span class="inline-flex size-12 shrink-0 items-center justify-center rounded-lg {% if refunds_pending_decision %}bg-teal-50{% else %}bg-gray-50{% endif %}">
+      <i class="bi bi-cash-coin text-xl {% if refunds_pending_decision %}text-teal-600{% else %}text-gray-400{% endif %}"></i>
+    </span>
+    <div class="min-w-0">
+      <div class="text-2xl font-semibold {% if refunds_pending_decision %}text-teal-600{% else %}text-gray-900{% endif %}">{{ refunds_pending_decision|default:0 }}</div>
+      <div class="text-sm text-gray-600">Refunds to decide</div>
     </div>
+    <i class="bi bi-chevron-right absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 group-hover:text-gray-400"></i>
+  </a>
 
-    <div class="stat-modern">
-        <div class="stat-icon bg-success/10">
-            <i class="bi bi-check-circle text-2xl text-success"></i>
-        </div>
-        <div>
-            <div class="stat-label">Solved</div>
-            <div class="stat-value text-success">{{ solved }}</div>
-        </div>
+  <a href="{% url 'manager_claims' %}?tab=problems" class="group relative flex items-center gap-4 rounded-xl bg-white p-5 shadow-sm ring-1 ring-black/5 transition hover:ring-gray-300">
+    <span class="inline-flex size-12 shrink-0 items-center justify-center rounded-lg {% if claims_attention %}bg-indigo-50{% else %}bg-gray-50{% endif %}">
+      <i class="bi bi-clipboard-data text-xl {% if claims_attention %}text-indigo-600{% else %}text-gray-400{% endif %}"></i>
+    </span>
+    <div class="min-w-0">
+      <div class="text-2xl font-semibold {% if claims_attention %}text-indigo-600{% else %}text-gray-900{% endif %}">{{ claims_attention|default:0 }}</div>
+      <div class="text-sm text-gray-600">Claims need attention</div>
     </div>
-
-    <div class="stat-modern">
-        <div class="stat-icon bg-error/10">
-            <i class="bi bi-exclamation-triangle text-2xl text-error"></i>
-        </div>
-        <div>
-            <div class="stat-label">Open disputes</div>
-            <div class="stat-value text-error">{{ disputed }}</div>
-        </div>
-    </div>
-
-    <div class="stat-modern">
-        <div class="stat-icon bg-warning/10">
-            <i class="bi bi-people text-2xl text-warning"></i>
-        </div>
-        <div>
-            <div class="stat-label">Agents</div>
-            <div class="stat-value text-warning">{{ agents_count }}</div>
-        </div>
-    </div>
+    <i class="bi bi-chevron-right absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 group-hover:text-gray-400"></i>
+  </a>
 </div>
 
-<!-- Email Overview Card -->
-<div class="card-modern p-6 mb-6 animate-fade-in">
-    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-5">
-        <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-            <i class="bi bi-envelope text-primary"></i> Email Overview
-        </h3>
-        <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-outline rounded-xl">
-            View All Emails <i class="bi bi-arrow-right"></i>
+<!-- At a glance — quiet status, not the headline -->
+<dl class="grid grid-cols-1 sm:grid-cols-3 gap-px overflow-hidden rounded-xl bg-gray-200 shadow-sm ring-1 ring-black/5 mb-8">
+  <div class="bg-white px-5 py-4">
+    <dt class="text-sm text-gray-500">Active cases</dt>
+    <dd class="mt-1 text-2xl font-semibold text-gray-900">{{ active|default:0 }}</dd>
+  </div>
+  <div class="bg-white px-5 py-4">
+    <dt class="text-sm text-gray-500">Awaiting client</dt>
+    <dd class="mt-1 text-2xl font-semibold text-gray-900">{{ pending_client|default:0 }}</dd>
+  </div>
+  <div class="bg-white px-5 py-4">
+    <dt class="text-sm text-gray-500">Open disputes</dt>
+    <dd class="mt-1 text-2xl font-semibold text-gray-900">{{ disputed|default:0 }}</dd>
+  </div>
+</dl>
+
+<!-- Recent — least prominent; links into the full lists -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <!-- Recent claims -->
+  <div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
+    <div class="flex items-center justify-between border-b border-gray-200 px-5 py-3">
+      <h3 class="text-sm font-semibold text-gray-900">Recent claims</h3>
+      <a href="{% url 'manager_claims' %}?tab=all" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">View all</a>
+    </div>
+    <ul role="list" class="divide-y divide-gray-200">
+      {% for claim in recent_claims|slice:":6" %}
+      <li>
+        <a href="{% url 'agent_claim_detail' claim.id %}" class="flex items-center justify-between gap-3 px-5 py-3 hover:bg-gray-50">
+          <div class="min-w-0">
+            <div class="truncate text-sm font-medium text-gray-900">{{ claim.client_name|default:claim.client_email }}</div>
+            <div class="font-mono text-xs text-gray-500">{{ claim.alf_claim_id|default:"(no number)" }}</div>
+          </div>
+          <span class="inline-flex shrink-0 items-center rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset {% if 'object found' in claim.status|lower %}bg-green-50 text-green-700 ring-green-600/20{% elif claim.status_category == 'solved' %}bg-gray-50 text-gray-600 ring-gray-500/10{% elif claim.status_category == 'pending' or claim.status_category == 'hold' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% else %}bg-blue-50 text-blue-700 ring-blue-700/10{% endif %}">{{ claim.status|default:"—" }}</span>
         </a>
-    </div>
+      </li>
+      {% empty %}
+      <li class="px-5 py-8 text-center text-sm text-gray-500">No claims yet.</li>
+      {% endfor %}
+    </ul>
+  </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div class="rounded-xl border border-base-200/70 bg-base-100 p-4">
-            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Total Emails</div>
-            <div class="text-3xl font-bold tracking-tight">{{ total_emails|default:0 }}</div>
-        </div>
-        <div class="rounded-xl border border-success/20 bg-success/5 p-4">
-            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Auto-Resolved</div>
-            <div class="text-3xl font-bold tracking-tight text-success">{{ auto_resolved_emails|default:0 }}</div>
-        </div>
-        <div class="rounded-xl border border-error/20 bg-error/5 p-4">
-            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Requires Attention</div>
-            <div class="text-3xl font-bold tracking-tight text-error">{{ emails_requiring_attention|default:0 }}</div>
-        </div>
+  <!-- Recent disputes -->
+  <div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
+    <div class="flex items-center justify-between border-b border-gray-200 px-5 py-3">
+      <h3 class="text-sm font-semibold text-gray-900">Recent disputes</h3>
+      <a href="{% url 'disputes:dispute_list' %}?view=all" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">View all</a>
     </div>
-
-    {% if email_category_stats %}
-    <div class="mt-5 pt-5 border-t border-base-200/70">
-        <div class="text-xs uppercase tracking-wide text-base-content/50 mb-3 font-medium">Category Breakdown</div>
-        <div class="flex flex-wrap gap-2">
-            {% for stat in email_category_stats %}
-            <span class="badge badge-soft-neutral rounded-full">{{ stat.category|humanize_label }}: {{ stat.count }}</span>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-</div>
-
-<!-- Dispute Overview Card -->
-<div class="card-modern p-6 mb-6 animate-fade-in">
-    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-5">
-        <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-            <i class="bi bi-exclamation-triangle text-error"></i> Dispute Overview
-        </h3>
-        <a href="{% url 'disputes:dispute_list' %}" class="btn btn-sm btn-outline rounded-xl">
-            View All Disputes <i class="bi bi-arrow-right"></i>
+    <ul role="list" class="divide-y divide-gray-200">
+      {% for dispute in recent_disputes %}
+      <li>
+        <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="flex items-center justify-between gap-3 px-5 py-3 hover:bg-gray-50">
+          <div class="min-w-0">
+            <div class="truncate text-sm font-medium text-gray-900">{{ dispute.buyer_name|default:dispute.buyer_email }}</div>
+            <div class="text-xs text-gray-500">{% if dispute.dispute_amount %}{{ dispute.dispute_currency }} {{ dispute.dispute_amount }}{% else %}—{% endif %}</div>
+          </div>
+          <span class="inline-flex shrink-0 items-center rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset {% if dispute.status == 'RESOLVED_WON' %}bg-green-50 text-green-700 ring-green-600/20{% elif dispute.status == 'RESOLVED_LOST' %}bg-red-50 text-red-700 ring-red-600/10{% elif dispute.status == 'ACCEPTED' %}bg-gray-50 text-gray-600 ring-gray-500/10{% elif dispute.status == 'UNDER_REVIEW' or dispute.status == 'EVIDENCE_SENT' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% else %}bg-blue-50 text-blue-700 ring-blue-700/10{% endif %}">{{ dispute.get_status_display }}</span>
         </a>
-    </div>
-
-    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-        <div class="rounded-xl border border-base-200/70 bg-base-100 p-3 text-center">
-            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Total</div>
-            <div class="text-xl font-bold tracking-tight">{{ dispute_total|default:0 }}</div>
-        </div>
-        <div class="rounded-xl border border-base-200/70 bg-base-100 p-3 text-center">
-            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Received</div>
-            <div class="text-xl font-bold tracking-tight">{{ dispute_received|default:0 }}</div>
-        </div>
-        <div class="rounded-xl border border-warning/20 bg-warning/5 p-3 text-center">
-            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Gathering</div>
-            <div class="text-xl font-bold tracking-tight text-warning">{{ dispute_gathering_data|default:0 }}</div>
-        </div>
-        <div class="rounded-xl border border-success/20 bg-success/5 p-3 text-center">
-            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Docs Ready</div>
-            <div class="text-xl font-bold tracking-tight text-success">{{ dispute_documents_ready|default:0 }}</div>
-        </div>
-        <div class="rounded-xl border border-info/20 bg-info/5 p-3 text-center">
-            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Review</div>
-            <div class="text-xl font-bold tracking-tight text-info">{{ dispute_under_review|default:0 }}</div>
-        </div>
-        <div class="rounded-xl border border-secondary/20 bg-secondary/5 p-3 text-center">
-            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Sent</div>
-            <div class="text-xl font-bold tracking-tight text-secondary">{{ dispute_evidence_sent|default:0 }}</div>
-        </div>
-        <div class="rounded-xl border border-base-200/70 bg-base-100 p-3 text-center">
-            <div class="text-xs uppercase tracking-wide text-base-content/50 mb-1">Resolved</div>
-            <div class="text-xl font-bold tracking-tight">{{ dispute_resolved|default:0 }}</div>
-        </div>
-    </div>
-</div>
-
-<!-- Recent Activity Grid -->
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-    <!-- Recent Claims -->
-    <div class="card-modern p-0 overflow-hidden animate-fade-in">
-        <div class="flex justify-between items-center gap-4 px-6 py-4 border-b border-base-200/70">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-                <i class="bi bi-clock-history text-base-content/60"></i> Recent Claims
-            </h3>
-            <a href="{% url 'manager_claims' %}" class="btn btn-sm btn-outline rounded-xl">View All</a>
-        </div>
-
-        <div class="overflow-x-auto">
-            <table class="table-modern">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Email</th>
-                        <th>Status</th>
-                        <th class="text-right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for claim in recent_claims %}
-                    <tr>
-                        <td class="font-mono">#{{ claim.id }}</td>
-                        <td>{{ claim.client_email }}</td>
-                        <td>
-                            <div class="badge {% if claim.status_category == 'solved' %}badge-soft-neutral{% elif claim.status_category == 'pending' %}badge-soft-warning{% elif claim.status_category == 'new' %}badge-soft-info{% elif claim.status_category == 'hold' %}badge-ghost{% else %}badge-soft-primary{% endif %} rounded-full">
-                                {{ claim.status }}
-                            </div>
-                        </td>
-                        <td class="text-right">
-                            <a href="{% url 'agent_claim_detail' claim.id %}" class="btn btn-xs btn-ghost rounded-xl">
-                                <i class="bi bi-eye"></i>
-                            </a>
-                        </td>
-                    </tr>
-                    {% empty %}
-                    <tr>
-                        <td colspan="4" class="text-center py-6 text-base-content/60">No claims</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- Recent Emails -->
-    <div class="card-modern p-0 overflow-hidden animate-fade-in">
-        <div class="flex justify-between items-center gap-4 px-6 py-4 border-b border-base-200/70">
-            <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-                <i class="bi bi-envelope text-base-content/60"></i> Recent Emails
-            </h3>
-            <a href="{% url 'agent_emails' %}" class="btn btn-sm btn-outline rounded-xl">View All</a>
-        </div>
-
-        <div class="overflow-x-auto">
-            <table class="table-modern">
-                <thead>
-                    <tr>
-                        <th>Claim</th>
-                        <th>Subject</th>
-                        <th>Category</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for email in recent_emails %}
-                    <tr>
-                        <td class="font-mono">#{{ email.claim.id }}</td>
-                        <td>
-                            <div class="max-w-xs truncate" title="{{ email.subject }}">
-                                {{ email.subject }}
-                            </div>
-                        </td>
-                        <td>
-                            <div class="badge {% if email.action_required %}badge-soft-error{% else %}badge-soft-neutral{% endif %} rounded-full">
-                                {{ email.get_category_display }}
-                            </div>
-                        </td>
-                    </tr>
-                    {% empty %}
-                    <tr>
-                        <td colspan="3" class="text-center py-6 text-base-content/60">No emails</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-
-<!-- Recent Disputes Table -->
-<div class="card-modern p-0 overflow-hidden mb-6 animate-fade-in">
-    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 px-6 py-4 border-b border-base-200/70">
-        <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-            <i class="bi bi-exclamation-triangle text-error"></i> Recent Disputes
-        </h3>
-        <a href="{% url 'disputes:dispute_list' %}" class="btn btn-sm btn-outline rounded-xl">View All</a>
-    </div>
-
-    <div class="overflow-x-auto">
-        <table class="table-modern">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>PayPal ID</th>
-                    <th>Buyer</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                    <th>Zendesk</th>
-                    <th>Created</th>
-                    <th class="text-right">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for dispute in recent_disputes %}
-                <tr>
-                    <td class="font-mono">#{{ dispute.id }}</td>
-                    <td class="font-mono text-xs">{{ dispute.paypal_dispute_id|truncatechars:15 }}</td>
-                    <td>{{ dispute.buyer_email }}</td>
-                    <td>
-                        {% if dispute.dispute_amount %}
-                        <span class="font-semibold">{{ dispute.dispute_currency }} {{ dispute.dispute_amount }}</span>
-                        {% else %}
-                        <span class="text-base-content/60">-</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <div class="badge {% if dispute.status == 'RECEIVED' %}badge-soft-neutral{% elif dispute.status == 'MATCHED' %}badge-soft-info{% elif dispute.status == 'GATHERING_DATA' %}badge-soft-warning{% elif dispute.status == 'DOCUMENTS_READY' %}badge-soft-success{% elif dispute.status == 'UNDER_REVIEW' %}badge-soft-primary{% elif dispute.status == 'EVIDENCE_SENT' %}badge-soft-info{% elif dispute.status == 'RESOLVED_WON' %}badge-soft-success{% elif dispute.status == 'RESOLVED_LOST' %}badge-soft-error{% elif dispute.status == 'ACCEPTED' %}badge-soft-warning{% endif %} rounded-full">
-                            {{ dispute.get_status_display }}
-                        </div>
-                    </td>
-                    <td>
-                        {% if dispute.zd_ticket_id %}
-                        <span class="inline-flex items-center gap-1 text-base-content/80">
-                            <i class="bi bi-ticket-perforated"></i> {{ dispute.zd_ticket_id }}
-                        </span>
-                        {% else %}
-                        <span class="text-base-content/60">Not linked</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-base-content/70 whitespace-nowrap">{{ dispute.created_at|date:"M d, Y" }}</td>
-                    <td class="text-right">
-                        <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="btn btn-xs btn-ghost rounded-xl">
-                            <i class="bi bi-eye"></i> View
-                        </a>
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="8" class="text-center py-10">
-                        <i class="bi bi-inbox text-4xl text-base-content/30"></i>
-                        <p class="text-base-content/60 mt-2">No disputes</p>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- Quick Actions -->
-<div class="card-modern p-6 animate-fade-in">
-    <h3 class="text-lg font-semibold tracking-tight flex items-center gap-2 mb-4">
-        <i class="bi bi-lightning text-warning"></i> Quick Actions
-    </h3>
-    <div class="flex flex-wrap gap-2">
-        <a href="{% url 'disputes:dispute_list' %}" class="btn btn-error rounded-xl">
-            <i class="bi bi-exclamation-triangle"></i> Manage Disputes
-        </a>
-        <a href="{% url 'manager_settings' %}" class="btn btn-primary rounded-xl">
-            <i class="bi bi-gear"></i> System Settings
-        </a>
-        <a href="{% url 'manager_users' %}" class="btn btn-outline rounded-xl">
-            <i class="bi bi-people"></i> Manage Users
-        </a>
-        <a href="{% url 'manager_claims' %}" class="btn btn-outline rounded-xl">
-            <i class="bi bi-clipboard-data"></i> All Claims
-        </a>
-    </div>
+      </li>
+      {% empty %}
+      <li class="px-5 py-8 text-center text-sm text-gray-500">No disputes — good.</li>
+      {% endfor %}
+    </ul>
+  </div>
 </div>
 {% endblock %}

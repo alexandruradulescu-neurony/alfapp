@@ -812,7 +812,23 @@ def manager_dashboard(request):
     recent_emails = EmailLog.objects.select_related('claim').order_by('-received_at')[:10]
     recent_disputes = Dispute.objects.select_related('claim').order_by('-created_at')[:5]
 
+    # Action-triage counts — the dashboard leads with "what needs me now", reusing
+    # the SAME definitions as the list screens so the numbers match their queues:
+    #   - claims needing attention = the claims "Problems" lens (unacknowledged risk
+    #     flag OR an institution email awaiting a human reply)
+    #   - refunds awaiting a decision = claims marked 'Refund Requested' (refunds queue)
+    from django.db.models import Exists, OuterRef
+    _claims_attn = Claim.objects.annotate(
+        _attn_emails=Count('emails', distinct=True,
+                           filter=Q(emails__action_required=True, emails__auto_resolved=False)))
+    claims_attention = _claims_attn.filter(
+        (Q(risk_acknowledged_at__isnull=True) & ~Q(risk_level='none')) | Q(_attn_emails__gt=0)
+    ).distinct().count()
+    refunds_pending_decision = Claim.objects.filter(status='Refund Requested').count()
+
     context = {
+        'claims_attention': claims_attention,
+        'refunds_pending_decision': refunds_pending_decision,
         'total_claims': stats['total'],
         'active': stats['active'],
         'pending_client': stats['pending_client'],
