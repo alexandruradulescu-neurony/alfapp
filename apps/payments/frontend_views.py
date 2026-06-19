@@ -467,6 +467,32 @@ def dispute_detail(request, dispute_id):
                         .filter(dispute=dispute, doc_type=DisputeDocument.DOC_TYPE_EVIDENCE_REPORT)
                         .exclude(file_path='').exists())
 
+    # When PayPal isn't accepting a reply (submit_endpoint == ''), explain WHY in
+    # the manager's terms — a bare "No reply window open" reads like a bug.
+    submit_endpoint = dispute.submit_endpoint
+    reply_window_reason = ''
+    if not submit_endpoint:
+        payload = dispute.raw_webhook_payload or {}
+        pp_status = (payload.get('status') or '').upper()
+        pp_state = (payload.get('dispute_state') or '').upper()
+        stage = (dispute.dispute_life_cycle_stage or '').upper()
+        if dispute.status in Dispute.TERMINAL_STATUSES or 'RESOLVED' in (pp_status, pp_state):
+            reply_window_reason = "This dispute is resolved — there's nothing left to send."
+        elif pp_status == 'WAITING_FOR_BUYER_RESPONSE' or pp_state == 'REQUIRED_OTHER_PARTY_ACTION':
+            reply_window_reason = (
+                "PayPal is waiting for the buyer to respond. Your evidence is already on "
+                "file — there's nothing to send right now. You'll be able to reply again if "
+                "PayPal escalates this to a claim or asks you for more.")
+        elif stage == 'INQUIRY':
+            reply_window_reason = (
+                "This is still a PayPal inquiry (before chargeback). PayPal only accepts a "
+                "formal evidence reply once it escalates to a claim — the reply box opens then. "
+                "To message the buyer meanwhile, use PayPal's Resolution Center directly.")
+        else:
+            reply_window_reason = (
+                "PayPal isn't accepting a reply right now (the case may be mid-review or "
+                "already resolved). You can still draft ahead.")
+
     context = {
         'dispute': dispute,
         'documents': documents,
@@ -476,7 +502,8 @@ def dispute_detail(request, dispute_id):
         'zd_subdomain': zd_subdomain,
         'draft_submission': draft_submission,
         'reply_timeline': build_dispute_reply_timeline(dispute),
-        'submit_endpoint': dispute.submit_endpoint,
+        'submit_endpoint': submit_endpoint,
+        'reply_window_reason': reply_window_reason,
         'has_evidence_pdf': has_evidence_pdf,
         'evidence_type_default': evidence_type_for_reason(dispute.dispute_reason),
         # Soft cap surfaced in the composer's live counter (PayPal caps the notes
