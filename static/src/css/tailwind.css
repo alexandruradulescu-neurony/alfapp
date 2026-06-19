@@ -10,6 +10,28 @@ html {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
+/* ── Typographic system ── one definition per text role, used app-wide, so
+   every card/box shares the SAME hierarchy (page title › card title › value ›
+   label/meta). This is the single source of truth — do not hand-roll ad-hoc
+   text sizes in templates; reach for these roles. ── */
+@layer components {
+  /* Surfaces */
+  .lora-card        { @apply rounded-xl bg-white shadow-sm ring-1 ring-black/5; }
+
+  /* Headings */
+  .lora-page-title  { @apply text-xl font-semibold tracking-tight text-gray-900; }   /* one per page */
+  .lora-card-title  { @apply flex items-center gap-2 text-base font-semibold text-gray-900; } /* every card header */
+  .lora-eyebrow     { @apply text-xs font-semibold uppercase tracking-wide text-gray-500; }   /* label above a title */
+
+  /* Field rows (label + value pairs) */
+  .lora-label       { @apply text-xs font-medium text-gray-500; }   /* the field name */
+  .lora-value       { @apply text-sm text-gray-900; }               /* the field value */
+
+  /* Running text + secondary */
+  .lora-prose       { @apply text-sm leading-relaxed text-gray-700; } /* paragraphs, summaries, messages */
+  .lora-meta        { @apply text-xs text-gray-500; }                 /* timestamps, hints, footnotes */
+}
+
 /* ── Toast notifications ── JS-coupled: Django messages render `.lora-toast`
    server-side and lora-htmx.js `toast()` creates them client-side. Kept as a
    small bespoke component (everything else is plain Tailwind utilities). ── */

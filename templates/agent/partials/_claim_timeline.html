@@ -1,0 +1,41 @@
+{% comment %}
+Status-change Timeline (Zendesk status history → ClaimUpdateTimeline rows).
+Lives in the LEFT column, after Institution replies. Clean Tailwind UI feed:
+a single vertical rail with aligned dots (replaces the old broken markers).
+{% endcomment %}
+<div class="lora-card p-4">
+  <h3 class="lora-card-title mb-3 m-0"><i class="bi bi-clock-history text-gray-500"></i> Timeline</h3>
+  {% if claim.updates.all %}
+  <ul role="list" class="-mb-6">
+    {% for update in claim.updates.all %}
+    <li>
+      <div class="relative pb-6">
+        {% if not forloop.last %}
+        <span aria-hidden="true" class="absolute left-3 top-4 -ml-px h-full w-0.5 bg-gray-200"></span>
+        {% endif %}
+        <div class="relative flex items-start gap-3">
+          <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-indigo-50 ring-4 ring-white">
+            <i class="bi bi-arrow-repeat text-xs text-indigo-600"></i>
+          </span>
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span class="lora-value font-medium">{{ update.get_update_type_display }}</span>
+              <span class="lora-meta">{{ update.created_at|date:"M d, Y H:i" }}</span>
+            </div>
+            {% if update.llm_summary %}<p class="lora-prose mt-0.5 mb-0">{{ update.llm_summary }}</p>{% endif %}
+            {% if update.changes_summary %}
+            <details class="mt-1">
+              <summary class="cursor-pointer text-xs font-medium text-indigo-600 hover:text-indigo-500">View details</summary>
+              <pre class="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-2 text-xs text-gray-700">{{ update.changes_summary }}</pre>
+            </details>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="lora-prose mb-0">No status updates yet. Use "Refresh from Zendesk" (the ··· menu) to pull the latest.</p>
+  {% endif %}
+</div>

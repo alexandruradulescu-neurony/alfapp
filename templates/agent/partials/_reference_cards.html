@@ -8,9 +8,9 @@ id) are demoted in here.
 {% endcomment %}
 
 {# ── Status ── #}
-<details class="rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5">
+<details class="lora-card p-4">
   <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
-    <span class="text-sm font-semibold flex items-center gap-2 text-gray-900"><i class="bi bi-shield-check text-gray-500"></i> Status</span>
+    <span class="lora-card-title"><i class="bi bi-shield-check text-gray-500"></i> Status</span>
     <i class="bi bi-chevron-down text-gray-400"></i>
   </summary>
   <div class="mt-3 space-y-2">
@@ -47,42 +47,42 @@ id) are demoted in here.
 </details>
 
 {# ── Client ── #}
-<details class="rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5">
+<details class="lora-card p-4">
   <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
-    <span class="text-sm font-semibold flex items-center gap-2 text-gray-900"><i class="bi bi-person-circle text-gray-500"></i> Client</span>
+    <span class="lora-card-title"><i class="bi bi-person-circle text-gray-500"></i> Client</span>
     <i class="bi bi-chevron-down text-gray-400"></i>
   </summary>
   <div class="mt-3 space-y-3">
-    <p class="font-semibold mb-0 text-gray-900">{{ claim.client_name|default:"(name not on file)" }}</p>
+    <p class="lora-value font-semibold mb-0">{{ claim.client_name|default:"(name not on file)" }}</p>
     <div>
-      <span class="text-sm text-gray-500">Email</span>
-      <p class="font-medium mt-0.5 mb-0 text-gray-900"><a href="mailto:{{ claim.client_email }}" class="hover:text-indigo-600 transition-colors">{{ claim.client_email }}</a></p>
+      <span class="lora-label">Email</span>
+      <p class="lora-value font-medium mt-0.5 mb-0"><a href="mailto:{{ claim.client_email }}" class="hover:text-indigo-600 transition-colors">{{ claim.client_email }}</a></p>
     </div>
     {% if claim.alternate_email %}
     <div>
-      <span class="text-sm text-gray-500">Alternate email</span>
-      <p class="font-medium mt-0.5 mb-0 text-gray-900">{{ claim.alternate_email }}</p>
+      <span class="lora-label">Alternate email</span>
+      <p class="lora-value font-medium mt-0.5 mb-0">{{ claim.alternate_email }}</p>
     </div>
     {% endif %}
     <div>
-      <span class="text-sm text-gray-500">Phone</span>
-      <p class="font-medium mt-0.5 mb-0 text-gray-900">{% if claim.phone %}<a href="tel:{{ claim.phone }}" class="hover:text-indigo-600 transition-colors">{{ claim.phone }}</a>{% else %}<span class="text-gray-400">—</span>{% endif %}</p>
+      <span class="lora-label">Phone</span>
+      <p class="lora-value font-medium mt-0.5 mb-0">{% if claim.phone %}<a href="tel:{{ claim.phone }}" class="hover:text-indigo-600 transition-colors">{{ claim.phone }}</a>{% else %}<span class="text-gray-400">—</span>{% endif %}</p>
     </div>
     {% if claim.shipping_address %}
     <div>
-      <span class="text-sm text-gray-500">Ship found object to</span>
+      <span class="lora-label">Ship found object to</span>
       <p class="font-medium mt-0.5 mb-0 whitespace-pre-line text-gray-900">{{ claim.shipping_address }}</p>
     </div>
     {% endif %}
     {% if claim.billing_address and claim.billing_address != claim.shipping_address %}
     <div>
-      <span class="text-sm text-gray-500">Billing address</span>
+      <span class="lora-label">Billing address</span>
       <p class="font-medium mt-0.5 mb-0 whitespace-pre-line text-gray-900">{{ claim.billing_address }}</p>
     </div>
     {% endif %}
     {% if claim.email_alias %}
     <div>
-      <span class="text-sm text-gray-500">Case email alias</span>
+      <span class="lora-label">Case email alias</span>
       <p class="font-mono text-sm mt-0.5 mb-0 text-gray-900">{{ claim.email_alias }}</p>
     </div>
     {% endif %}
@@ -90,31 +90,31 @@ id) are demoted in here.
 </details>
 
 {# ── Case facts ── #}
-<details class="rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5">
+<details class="lora-card p-4">
   <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
-    <span class="text-sm font-semibold flex items-center gap-2 text-gray-900"><i class="bi bi-box-seam text-gray-500"></i> Case facts</span>
+    <span class="lora-card-title"><i class="bi bi-box-seam text-gray-500"></i> Case facts</span>
     <i class="bi bi-chevron-down text-gray-400"></i>
   </summary>
   <div class="mt-3 space-y-3">
     <div>
-      <span class="text-sm text-gray-500">Lost object</span>
-      <p class="font-medium mt-0.5 mb-0 text-gray-900">{{ claim.object_description|default:"(no description)" }}</p>
+      <span class="lora-label">Lost object</span>
+      <p class="lora-value font-medium mt-0.5 mb-0">{{ claim.object_description|default:"(no description)" }}</p>
     </div>
     {% if claim.lost_location %}
     <div>
-      <span class="text-sm text-gray-500">Where it was lost</span>
-      <p class="font-medium mt-0.5 mb-0 text-gray-900">{{ claim.lost_location }}</p>
+      <span class="lora-label">Where it was lost</span>
+      <p class="lora-value font-medium mt-0.5 mb-0">{{ claim.lost_location }}</p>
     </div>
     {% endif %}
     {% if claim.incident_details %}
     <div>
-      <span class="text-sm text-gray-500">What happened</span>
+      <span class="lora-label">What happened</span>
       <p class="text-sm mt-0.5 mb-0 text-gray-900">{{ claim.incident_details }}</p>
     </div>
     {% endif %}
     <div>
-      <span class="text-sm text-gray-500">Deadline</span>
-      <p class="font-medium mt-0.5 mb-0 text-gray-900">
+      <span class="lora-label">Deadline</span>
+      <p class="lora-value font-medium mt-0.5 mb-0">
         {% if claim.deadline_show %}
           {{ claim.deadline_show|date:"M d, Y" }}
           {% if claim.deadline_label %}
@@ -125,27 +125,27 @@ id) are demoted in here.
     </div>
     {% if claim.price_paid %}
     <div>
-      <span class="text-sm text-gray-500">Service paid</span>
-      <p class="font-medium mt-0.5 mb-0 text-gray-900">
+      <span class="lora-label">Service paid</span>
+      <p class="lora-value font-medium mt-0.5 mb-0">
         ${{ claim.price_paid|floatformat:2 }}
-        {% if claim.payment_method %}<span class="text-sm text-gray-500">via {{ claim.payment_method }}</span>{% endif %}
+        {% if claim.payment_method %}<span class="lora-label">via {{ claim.payment_method }}</span>{% endif %}
         {% if claim.payment_status %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10 ml-1">{{ claim.payment_status }}</span>{% endif %}
       </p>
     </div>
     {% endif %}
     {% if claim.tracking_info %}
     <div>
-      <span class="text-sm text-gray-500">Shipment tracking</span>
-      <p class="font-medium mt-0.5 mb-0 text-gray-900">{{ claim.tracking_info }}</p>
+      <span class="lora-label">Shipment tracking</span>
+      <p class="lora-value font-medium mt-0.5 mb-0">{{ claim.tracking_info }}</p>
     </div>
     {% endif %}
   </div>
 </details>
 
 {# ── Flight ── #}
-<details class="rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5">
+<details class="lora-card p-4">
   <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
-    <span class="text-sm font-semibold flex items-center gap-2 text-gray-900"><i class="bi bi-airplane text-gray-500"></i> Flight</span>
+    <span class="lora-card-title"><i class="bi bi-airplane text-gray-500"></i> Flight</span>
     <i class="bi bi-chevron-down text-gray-400"></i>
   </summary>
   <div class="mt-3">
@@ -157,7 +157,7 @@ id) are demoted in here.
       </span>
       {% endif %}
       {% endwith %}
-      <p class="font-semibold mb-2 text-gray-900">
+      <p class="lora-value font-semibold mb-2">
         {{ claim.flight_data.number }}
         {% if claim.flight_data.airline %}— {{ claim.flight_data.airline }}{% endif %}
         {% if claim.flight_data.status %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10 ml-1">{{ claim.flight_data.status }}</span>{% endif %}
@@ -203,9 +203,9 @@ id) are demoted in here.
 </details>
 
 {# ── Refunds & evidence ── #}
-<details class="rounded-xl bg-white p-3 shadow-sm ring-1 ring-black/5">
+<details class="lora-card p-4">
   <summary class="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between w-full cursor-pointer">
-    <span class="text-sm font-semibold flex items-center gap-2 text-gray-900"><i class="bi bi-currency-exchange text-gray-500"></i> Refunds &amp; evidence</span>
+    <span class="lora-card-title"><i class="bi bi-currency-exchange text-gray-500"></i> Refunds &amp; evidence</span>
     <i class="bi bi-chevron-down text-gray-400"></i>
   </summary>
   <div class="mt-3">
@@ -214,7 +214,7 @@ id) are demoted in here.
     {% if claim.refunds.exists %}
       <div class="bg-green-50 rounded-xl p-3 mb-3">
         <div class="flex justify-between items-center">
-          <span class="text-sm text-gray-500">Total refunded</span>
+          <span class="lora-label">Total refunded</span>
           <span class="text-xl font-bold text-green-600">${{ claim.refund_total|floatformat:2 }}</span>
         </div>
       </div>

@@ -1,11 +1,11 @@
 {% comment %}
 Institution / office replies. Open (action-required) emails float to the top in
-danger styling; handled + auto-resolved replies collapse behind an Alpine toggle.
+danger styling; handled + auto-resolved replies collapse behind a native <details>.
 Resolve/reopen hit the cross-app JSON endpoint (hx-post + hx-vals, no swap) and
 refresh the body. "Check email" lives in the header.
 {% endcomment %}
-<div class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5">
-  <h3 class="text-base font-semibold flex items-center gap-2 mb-3 m-0 text-gray-900">
+<div class="lora-card p-4">
+  <h3 class="lora-card-title mb-3 m-0">
     <i class="bi bi-envelope"></i> Institution replies
     {% if emails_open %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10">{{ emails_open|length }} need action</span>{% endif %}
   </h3>
@@ -14,7 +14,7 @@ refresh the body. "Check email" lives in the header.
   {% for email in emails_open %}
   <div class="rounded-xl p-4 mb-3 border border-red-200 bg-red-50">
     <div class="flex flex-col sm:flex-row justify-between items-start gap-2 mb-2">
-      <h4 class="font-medium m-0 text-gray-900">{{ email.subject }}</h4>
+      <h4 class="lora-value font-medium m-0">{{ email.subject }}</h4>
       <div class="flex gap-1 flex-wrap">
         <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">{{ email.get_category_display }}</span>
         <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10">Action required</span>
@@ -69,7 +69,7 @@ refresh the body. "Check email" lives in the header.
       {% for email in emails_handled %}
       <div class="rounded-xl p-4 mb-3 border border-gray-200">
         <div class="flex flex-col sm:flex-row justify-between items-start gap-2 mb-2">
-          <h4 class="font-medium m-0 text-gray-600">{{ email.subject }}</h4>
+          <h4 class="lora-value font-medium m-0 text-gray-600">{{ email.subject }}</h4>
           <div class="flex gap-1 flex-wrap">
             <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">{{ email.get_category_display }}</span>
             {% if email.auto_resolved %}
