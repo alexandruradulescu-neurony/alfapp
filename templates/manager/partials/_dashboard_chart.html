@@ -1,0 +1,52 @@
+{% comment %}
+Dashboard trend chart (top of the page). Pure server-rendered CSS bar chart
+(CSP-safe — no charting lib, no eval). The metric (Claims/Income) and range
+(7/14/30 days) toggles HTMX-swap this whole fragment via manager_dashboard_chart.
+{% endcomment %}
+<div id="dashboard-chart" class="lora-card p-5" hx-target="this" hx-swap="outerHTML">
+  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
+    <div>
+      <h3 class="lora-card-title">Activity</h3>
+      <p class="lora-meta mt-0.5">
+        {% if chart_metric == 'income' %}Service fees per day{% else %}Claims per day{% endif %}
+        &middot; last {{ chart_range }} days &middot; {{ chart_total_label }}
+      </p>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="inline-flex rounded-md bg-gray-100 p-0.5">
+        <button type="button" hx-get="{% url 'manager_dashboard_chart' %}?range={{ chart_range }}&metric=claims"
+                class="rounded px-2.5 py-1 text-xs font-medium {% if chart_metric == 'claims' %}bg-white text-gray-900 shadow-xs{% else %}text-gray-500 hover:text-gray-700{% endif %}">Claims</button>
+        <button type="button" hx-get="{% url 'manager_dashboard_chart' %}?range={{ chart_range }}&metric=income"
+                class="rounded px-2.5 py-1 text-xs font-medium {% if chart_metric == 'income' %}bg-white text-gray-900 shadow-xs{% else %}text-gray-500 hover:text-gray-700{% endif %}">Income</button>
+      </div>
+      <div class="inline-flex rounded-md bg-gray-100 p-0.5">
+        <button type="button" hx-get="{% url 'manager_dashboard_chart' %}?range=7&metric={{ chart_metric }}"
+                class="rounded px-2.5 py-1 text-xs font-medium {% if chart_range == 7 %}bg-white text-gray-900 shadow-xs{% else %}text-gray-500 hover:text-gray-700{% endif %}">7d</button>
+        <button type="button" hx-get="{% url 'manager_dashboard_chart' %}?range=14&metric={{ chart_metric }}"
+                class="rounded px-2.5 py-1 text-xs font-medium {% if chart_range == 14 %}bg-white text-gray-900 shadow-xs{% else %}text-gray-500 hover:text-gray-700{% endif %}">14d</button>
+        <button type="button" hx-get="{% url 'manager_dashboard_chart' %}?range=30&metric={{ chart_metric }}"
+                class="rounded px-2.5 py-1 text-xs font-medium {% if chart_range == 30 %}bg-white text-gray-900 shadow-xs{% else %}text-gray-500 hover:text-gray-700{% endif %}">30d</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="relative pl-12">
+    <span class="absolute left-0 top-0 lora-meta">{{ chart_ymax_label }}</span>
+    <span class="absolute left-0 bottom-5 lora-meta">0</span>
+    {% if not chart_has_data %}
+    <div class="absolute inset-0 flex items-center justify-center"><span class="lora-meta">No activity in this period</span></div>
+    {% endif %}
+    <div class="flex items-end gap-px sm:gap-1.5 h-44 border-b border-gray-200">
+      {% for b in chart_bars %}
+      <div class="group relative flex h-full flex-1 flex-col justify-end" title="{{ b.tooltip }}">
+        <div class="w-full rounded-t-sm transition-colors {% if chart_metric == 'income' %}bg-emerald-500/80 group-hover:bg-emerald-600{% else %}bg-indigo-500/80 group-hover:bg-indigo-600{% endif %}" style="height: {{ b.pct }}%"></div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="mt-1 flex gap-px sm:gap-1.5">
+      {% for b in chart_bars %}
+      <div class="flex-1 text-center lora-meta">{% if b.show_label %}{{ b.xlabel }}{% endif %}</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
