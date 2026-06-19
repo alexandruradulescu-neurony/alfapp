@@ -3,38 +3,38 @@
 {% block title %}{{ email.subject|default:"Email" }}{% endblock %}
 
 {% block content %}
-<div class="animate-fade-in max-w-5xl">
+<div class="max-w-5xl">
 
 <!-- Back -->
-<a href="{% url 'agent_emails' %}" class="inline-flex items-center gap-1.5 text-sm text-base-content/60 hover:text-base-content transition-colors mb-4">
+<a href="{% url 'agent_emails' %}" class="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors mb-4">
   <i class="bi bi-arrow-left"></i> Emails
 </a>
 
 <!-- Header: subject is the identity; one category badge + reply state; the action -->
 <div class="flex flex-col lg:flex-row justify-between items-start gap-4 mb-6">
   <div class="min-w-0">
-    <h2 class="text-2xl font-semibold tracking-tight break-words">{{ email.subject|default:"(no subject)" }}</h2>
+    <h1 class="text-xl font-semibold text-gray-900 break-words">{{ email.subject|default:"(no subject)" }}</h1>
     <div class="flex flex-wrap items-center gap-2 mt-2">
-      <span class="badge rounded-full whitespace-nowrap {% if email.category == 'OBJECT_FOUND' %}badge-soft-success{% elif email.category == 'RESUBMISSION_REQUIRED' %}badge-soft-warning{% elif email.category == 'SUBMISSION_CONFIRMATION' %}badge-soft-info{% else %}badge-soft-neutral{% endif %}">
+      <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset whitespace-nowrap {% if email.category == 'OBJECT_FOUND' %}bg-green-50 text-green-700 ring-green-600/20{% elif email.category == 'RESUBMISSION_REQUIRED' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif email.category == 'SUBMISSION_CONFIRMATION' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">
         {{ email.get_category_display }}
       </span>
       {% if email_state == 'needs_reply' %}
-      <span class="badge badge-soft-error rounded-full"><i class="bi bi-exclamation-circle"></i> Needs reply</span>
+      <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/10"><i class="bi bi-exclamation-circle"></i> Needs reply</span>
       {% elif email_state == 'auto' %}
-      <span class="badge badge-soft-neutral rounded-full"><i class="bi bi-robot"></i> Auto-handled</span>
+      <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10"><i class="bi bi-robot"></i> Auto-handled</span>
       {% else %}
-      <span class="badge badge-soft-success rounded-full"><i class="bi bi-check2"></i> Handled</span>
+      <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20"><i class="bi bi-check2"></i> Handled</span>
       {% endif %}
-      <span class="text-sm text-base-content/50">from {{ email.from_email }} &middot; {{ email.received_at|timesince }} ago</span>
+      <span class="text-sm text-gray-500">from {{ email.from_email }} &middot; {{ email.received_at|timesince }} ago</span>
     </div>
   </div>
   <div class="flex flex-wrap gap-2 shrink-0">
     {% if email_state == 'needs_reply' %}
-    <button type="button" class="btn btn-success rounded-xl" onclick="resolveEmail({{ email.id }}, true)">
+    <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-green-500" onclick="resolveEmail({{ email.id }}, true)">
       <i class="bi bi-check2"></i> Mark resolved
     </button>
     {% else %}
-    <button type="button" class="btn btn-outline rounded-xl" onclick="resolveEmail({{ email.id }}, false)">
+    <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" onclick="resolveEmail({{ email.id }}, false)">
       <i class="bi bi-arrow-counterclockwise"></i> Re-open
     </button>
     {% endif %}
@@ -46,21 +46,21 @@
   <div class="lg:col-span-2 space-y-6">
     {% if email.ai_summary %}
     <!-- Lead with the gist — what the office actually said -->
-    <div class="card-modern p-5 border-l-4 border-l-primary/60">
-      <div class="flex items-center gap-2 text-sm font-medium text-base-content/70 mb-2">
-        <i class="bi bi-robot text-primary"></i> What this says
+    <div class="rounded-xl bg-white p-5 shadow-sm ring-1 ring-black/5 border-l-4 border-l-indigo-400">
+      <div class="flex items-center gap-2 text-sm font-medium text-gray-600 mb-2">
+        <i class="bi bi-robot text-indigo-600"></i> What this says
       </div>
-      <p class="text-[15px] leading-relaxed mb-0">{{ email.ai_summary }}</p>
+      <p class="text-[15px] leading-relaxed text-gray-900 mb-0">{{ email.ai_summary }}</p>
     </div>
     {% endif %}
 
     <!-- Full message -->
-    <div class="card-modern p-6">
-      <h3 class="text-sm font-semibold flex items-center gap-2 mb-4 text-base-content/70">
+    <div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+      <h3 class="text-sm font-semibold flex items-center gap-2 mb-4 text-gray-600">
         <i class="bi bi-file-text"></i> Full message
       </h3>
-      <div class="rounded-xl bg-base-200/50 p-4 overflow-x-auto">
-        <pre class="whitespace-pre-wrap font-sans text-sm leading-relaxed">{{ email.body }}</pre>
+      <div class="rounded-xl bg-gray-50 p-4 overflow-x-auto">
+        <pre class="whitespace-pre-wrap font-sans text-sm leading-relaxed text-gray-900">{{ email.body }}</pre>
       </div>
     </div>
   </div>
@@ -68,60 +68,60 @@
   <!-- Right: context -->
   <div class="lg:col-span-1 space-y-6">
     <!-- Claim / client -->
-    <div class="card-modern p-5">
-      <div class="text-xs font-semibold uppercase tracking-wide text-base-content/40 mb-3">Claim</div>
+    <div class="rounded-xl bg-white p-5 shadow-sm ring-1 ring-black/5">
+      <div class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">Claim</div>
       {% if email.claim %}
-      <a href="{% url 'agent_claim_detail' email.claim.id %}" class="font-medium text-primary hover:underline">
+      <a href="{% url 'agent_claim_detail' email.claim.id %}" class="font-medium text-indigo-600 hover:text-indigo-500">
         {{ email.claim.client_name|default:email.claim.client_email }}
       </a>
       <div class="flex items-center gap-2 mt-2 text-sm">
-        <span class="text-base-content/50">Status</span>
-        <span class="badge badge-sm rounded-full {% if 'object found' in email.claim.status|lower %}badge-soft-success{% elif email.claim.status_category == 'solved' %}badge-soft-neutral{% elif email.claim.status_category == 'pending' or email.claim.status_category == 'hold' %}badge-soft-warning{% else %}badge-soft-info{% endif %}">
+        <span class="text-gray-500">Status</span>
+        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if 'object found' in email.claim.status|lower %}bg-green-50 text-green-700 ring-green-600/20{% elif email.claim.status_category == 'solved' %}bg-gray-50 text-gray-600 ring-gray-500/10{% elif email.claim.status_category == 'pending' or email.claim.status_category == 'hold' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% else %}bg-blue-50 text-blue-700 ring-blue-700/10{% endif %}">
           {{ email.claim.status }}
         </span>
       </div>
-      <div class="text-sm text-base-content/50 mt-1 truncate" title="{{ email.claim.client_email }}">{{ email.claim.client_email }}</div>
+      <div class="text-sm text-gray-500 mt-1 truncate" title="{{ email.claim.client_email }}">{{ email.claim.client_email }}</div>
       {% else %}
-      <p class="text-base-content/50 text-sm mb-0">Not linked to a claim.</p>
+      <p class="text-gray-500 text-sm mb-0">Not linked to a claim.</p>
       {% endif %}
     </div>
 
     <!-- Source -->
-    <div class="card-modern p-5">
-      <div class="text-xs font-semibold uppercase tracking-wide text-base-content/40 mb-3">Source</div>
+    <div class="rounded-xl bg-white p-5 shadow-sm ring-1 ring-black/5">
+      <div class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">Source</div>
       <div class="space-y-2 text-sm">
         <div class="flex justify-between gap-3">
-          <span class="text-base-content/50">From</span>
-          <a href="mailto:{{ email.from_email }}" class="text-primary hover:underline text-right break-all">{{ email.from_email }}</a>
+          <span class="text-gray-500">From</span>
+          <a href="mailto:{{ email.from_email }}" class="font-medium text-indigo-600 hover:text-indigo-500 text-right break-all">{{ email.from_email }}</a>
         </div>
         {% if email.zd_ticket_id %}
         <div class="flex justify-between gap-3 items-center">
-          <span class="text-base-content/50">Zendesk</span>
+          <span class="text-gray-500">Zendesk</span>
           <a href="https://{{ settings.zd_subdomain|default:'lora' }}.zendesk.com/agent/tickets/{{ email.zd_ticket_id }}"
-             target="_blank" class="text-primary hover:underline">#{{ email.zd_ticket_id }} <i class="bi bi-box-arrow-up-right text-xs"></i></a>
+             target="_blank" class="font-medium text-indigo-600 hover:text-indigo-500">#{{ email.zd_ticket_id }} <i class="bi bi-box-arrow-up-right text-xs"></i></a>
         </div>
         {% endif %}
         <div class="flex justify-between gap-3">
-          <span class="text-base-content/50">Received</span>
-          <span class="text-right">{{ email.received_at|date:"M d, Y H:i" }}</span>
+          <span class="text-gray-500">Received</span>
+          <span class="text-right text-gray-900">{{ email.received_at|date:"M d, Y H:i" }}</span>
         </div>
       </div>
     </div>
 
     <!-- Technical plumbing, tucked away -->
-    <details class="card-modern lora-disclosure overflow-hidden">
-      <summary class="cursor-pointer select-none px-5 py-3 text-sm font-medium text-base-content/60 flex items-center gap-2">
-        <i class="bi bi-gear text-base-content/40"></i> Delivery &amp; headers
+    <details class="rounded-xl bg-white shadow-sm ring-1 ring-black/5 overflow-hidden">
+      <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none px-5 py-3 text-sm font-medium text-gray-500 flex items-center gap-2">
+        <i class="bi bi-gear text-gray-400"></i> Delivery &amp; headers
       </summary>
       <div class="px-5 pb-5 space-y-2 text-xs">
-        <div class="flex justify-between gap-3"><span class="text-base-content/50">To</span><span class="text-right break-all">{{ email.to_email|default:"—" }}</span></div>
-        {% if email.delivered_to %}<div class="flex justify-between gap-3"><span class="text-base-content/50">Delivered to</span><span class="text-right break-all">{{ email.delivered_to }}</span></div>{% endif %}
-        {% if email.alias_matched %}<div class="flex justify-between gap-3"><span class="text-base-content/50">Alias matched</span><span class="text-right break-all">{{ email.alias_matched }}</span></div>{% endif %}
-        <div class="mt-3 rounded-lg bg-base-200/50 p-3 max-h-80 overflow-y-auto">
+        <div class="flex justify-between gap-3"><span class="text-gray-500">To</span><span class="text-right break-all text-gray-900">{{ email.to_email|default:"—" }}</span></div>
+        {% if email.delivered_to %}<div class="flex justify-between gap-3"><span class="text-gray-500">Delivered to</span><span class="text-right break-all text-gray-900">{{ email.delivered_to }}</span></div>{% endif %}
+        {% if email.alias_matched %}<div class="flex justify-between gap-3"><span class="text-gray-500">Alias matched</span><span class="text-right break-all text-gray-900">{{ email.alias_matched }}</span></div>{% endif %}
+        <div class="mt-3 rounded-lg bg-gray-50 p-3 max-h-80 overflow-y-auto">
           {% if email.raw_headers %}
-          <pre class="text-[11px] font-mono whitespace-pre-wrap leading-relaxed mb-0">{{ email.raw_headers }}</pre>
+          <pre class="text-[11px] font-mono whitespace-pre-wrap leading-relaxed text-gray-900 mb-0">{{ email.raw_headers }}</pre>
           {% else %}
-          <p class="text-base-content/40 mb-0">No raw headers available.</p>
+          <p class="text-gray-400 mb-0">No raw headers available.</p>
           {% endif %}
         </div>
       </div>
