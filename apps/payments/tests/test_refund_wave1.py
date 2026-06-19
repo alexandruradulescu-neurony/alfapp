@@ -226,4 +226,4 @@ class RefundRequestedQueueTests(TestCase):
         ids = [c.alf_claim_id for c in resp.context['refund_requested']]
         self.assertIn('ALF7700001', ids)
         self.assertNotIn('ALF7700002', ids)
-        self.assertContains(resp, 'Awaiting refund decision')
+        self.assertContains(resp, 'Awaiting your decision')

@@ -34,7 +34,7 @@ class EmailScreenResolveTests(TestCase):
     def test_detail_page_shows_reopen_when_not_action_required(self):
         resp = self.web.get(f'/agent/emails/{self.done.id}/')
         html = resp.content.decode()
-        self.assertIn('needs attention', html)
+        self.assertIn('Re-open', html)
         self.assertIn(f'resolveEmail({self.done.id}, false)', html)
 
     def test_list_shows_resolve_on_action_required_rows(self):
