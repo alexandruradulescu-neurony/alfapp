@@ -1,327 +1,140 @@
 {% extends 'base.html' %}
 
-{% block title %}Claims Overview{% endblock %}
+{% block title %}Claims{% endblock %}
 
 {% block content %}
-<!-- Page Header -->
-<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-    <div>
-        <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <i class="bi bi-clipboard-data text-base-content/70"></i> Claims Overview
-        </h2>
-        <p class="text-sm text-base-content/60 mt-1">Every claim in the book, sorted by urgency.</p>
-    </div>
-    <div class="flex gap-2">
-        <button type="button" id="bulk-delete-btn" class="btn btn-error rounded-xl transition-all duration-200"
-                onclick="bulkDeleteClaims()" hidden>
-            <i class="bi bi-trash"></i> Delete selected (<span id="bulk-count">0</span>)
-        </button>
-        <a href="{% url 'manager_dashboard' %}" class="btn btn-outline rounded-xl transition-all duration-200">
-            <i class="bi bi-arrow-left"></i> Back to Dashboard
-        </a>
-    </div>
+<!-- Header -->
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-5">
+  <div>
+    <h2 class="text-2xl font-semibold tracking-tight flex items-center gap-2">
+      <i class="bi bi-clipboard-data text-base-content/70"></i> Claims
+    </h2>
+    <p class="text-sm text-base-content/60 mt-1">Your book, by what needs you.</p>
+  </div>
+  <div class="flex items-center gap-2">
+    <button type="button" id="bulk-delete-btn" class="btn btn-error btn-sm rounded-xl" onclick="bulkDeleteClaims()" hidden>
+      <i class="bi bi-trash"></i> Delete selected (<span id="bulk-count">0</span>)
+    </button>
+    <details class="dropdown dropdown-end">
+      <summary class="lora-disclosure btn btn-ghost btn-sm rounded-xl" title="More"><i class="bi bi-three-dots"></i></summary>
+      <div class="dropdown-content card-modern p-4 w-80 z-50 mt-1">
+        <p class="text-sm font-semibold mb-2 flex items-center gap-2"><i class="bi bi-download text-base-content/60"></i> Import from Zendesk</p>
+        <form method="post" action="{% url 'manager_claims_import' %}" class="flex flex-col gap-2">
+          {% csrf_token %}
+          <p class="text-xs text-base-content/60">Paste Zendesk ticket IDs (any separators). LORA pulls each existing claim in — it never creates one. Up to 100.</p>
+          <textarea name="ticket_ids" rows="3" class="input-modern w-full font-mono text-xs" placeholder="e.g. 53973, 54012"></textarea>
+          <button type="submit" class="btn btn-primary btn-sm rounded-xl"><i class="bi bi-download"></i> Pull into LORA</button>
+        </form>
+        <div class="border-t border-base-200/70 my-3"></div>
+        <a href="{% url 'manager_dashboard' %}" class="btn btn-ghost btn-sm rounded-xl w-full justify-start"><i class="bi bi-arrow-left"></i> Back to dashboard</a>
+      </div>
+    </details>
+  </div>
 </div>
 
-<!-- Manual backlog pull: import existing Zendesk claims into LORA by ticket id -->
-<details class="card-modern p-4 mb-6">
-    <summary class="cursor-pointer font-medium flex items-center gap-2 select-none">
-        <i class="bi bi-download text-base-content/60"></i> Import claims from Zendesk
-    </summary>
-    <form method="post" action="{% url 'manager_claims_import' %}" class="mt-4 flex flex-col gap-3">
-        {% csrf_token %}
-        <p class="text-xs text-base-content/60 max-w-3xl">
-            Paste Zendesk ticket IDs — any separators (commas, spaces, new lines, or pasted ticket links).
-            LORA pulls each <em>existing</em> claim in from Zendesk; it never creates a new one, and skips
-            tickets that aren't claim-form tickets. Up to 100 at a time.
-        </p>
-        <textarea name="ticket_ids" rows="3" class="input-modern w-full font-mono text-sm"
-                  placeholder="e.g. 53973, 54012, 54110"></textarea>
-        <div>
-            <button type="submit" class="btn btn-primary btn-sm rounded-xl">
-                <i class="bi bi-download"></i> Pull into LORA
-            </button>
-        </div>
-    </form>
-</details>
-
-<!-- The state of the book, at a glance -->
-<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 animate-fade-in">
-    <div class="card-modern p-4 flex items-center gap-3">
-        <div class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10 text-primary">
-            <i class="bi bi-folder2-open text-lg"></i>
-        </div>
-        <div>
-            <div class="text-2xl font-semibold leading-none">{{ stats.active }}</div>
-            <div class="text-xs text-base-content/60 mt-1">Active cases</div>
-        </div>
-    </div>
-    <div class="card-modern p-4 flex items-center gap-3">
-        <div class="inline-flex items-center justify-center w-10 h-10 rounded-xl {% if stats.overdue %}bg-error/10 text-error{% else %}bg-base-200/60 text-base-content/40{% endif %}">
-            <i class="bi bi-alarm text-lg"></i>
-        </div>
-        <div>
-            <div class="text-2xl font-semibold leading-none {% if stats.overdue %}text-error{% endif %}">{{ stats.overdue }}</div>
-            <div class="text-xs text-base-content/60 mt-1">Past deadline</div>
-        </div>
-    </div>
-    <div class="card-modern p-4 flex items-center gap-3">
-        <div class="inline-flex items-center justify-center w-10 h-10 rounded-xl {% if stats.attention %}bg-warning/10 text-warning{% else %}bg-base-200/60 text-base-content/40{% endif %}">
-            <i class="bi bi-envelope-exclamation text-lg"></i>
-        </div>
-        <div>
-            <div class="text-2xl font-semibold leading-none {% if stats.attention %}text-warning{% endif %}">{{ stats.attention }}</div>
-            <div class="text-xs text-base-content/60 mt-1">Emails need a reply</div>
-        </div>
-    </div>
-    <div class="card-modern p-4 flex items-center gap-3">
-        <div class="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-base-200/60 text-base-content/40">
-            <i class="bi bi-archive text-lg"></i>
-        </div>
-        <div>
-            <div class="text-2xl font-semibold leading-none">{{ stats.total }}</div>
-            <div class="text-xs text-base-content/60 mt-1">All claims ever</div>
-        </div>
-    </div>
+<!-- Tabs (lenses, with live counts) + search -->
+<div class="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
+  <div class="flex flex-wrap gap-1.5">
+    {% for t in tabs %}
+    <a href="?tab={{ t.key }}{% if search_query %}&search={{ search_query }}{% endif %}"
+       class="btn btn-sm rounded-full {% if t.active %}btn-primary{% else %}btn-ghost{% endif %}">
+      {{ t.label }}
+      {% if t.count %}<span class="badge badge-sm rounded-full {% if not t.active and t.key == 'problems' or not t.active and t.key == 'disputes' %}badge-error{% else %}badge-ghost{% endif %}">{{ t.count }}</span>{% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  <form method="get" class="lg:ml-auto flex items-center gap-2">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="text" name="search" value="{{ search_query|default:'' }}"
+           placeholder="Search name, email, ticket, ALF#…" class="input-modern w-full lg:w-72">
+    {% if search_query %}<a href="?tab={{ tab }}" class="btn btn-ghost btn-sm rounded-xl" title="Clear search"><i class="bi bi-x-lg"></i></a>{% endif %}
+  </form>
 </div>
 
-<!-- Filters -->
-<div class="card-modern p-6 mb-6 animate-fade-in">
-    <h3 class="text-lg font-semibold mb-4">Filters</h3>
-    <!-- Family quick filters -->
-    <div class="flex flex-wrap gap-2 mb-5">
-        <a href="?family=active{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
-           class="btn btn-sm rounded-xl transition-all duration-200 {% if family_filter == 'active' %}btn-primary{% else %}btn-ghost{% endif %}">
-            Active
-        </a>
-        <a href="?family=new{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
-           class="btn btn-sm rounded-xl transition-all duration-200 {% if family_filter == 'new' %}btn-primary{% else %}btn-ghost{% endif %}">
-            New
-        </a>
-        <a href="?family=open{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
-           class="btn btn-sm rounded-xl transition-all duration-200 {% if family_filter == 'open' %}btn-primary{% else %}btn-ghost{% endif %}">
-            Open
-        </a>
-        <a href="?family=pending{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
-           class="btn btn-sm rounded-xl transition-all duration-200 {% if family_filter == 'pending' %}btn-primary{% else %}btn-ghost{% endif %}">
-            Pending
-        </a>
-        <a href="?family=hold{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
-           class="btn btn-sm rounded-xl transition-all duration-200 {% if family_filter == 'hold' %}btn-primary{% else %}btn-ghost{% endif %}">
-            On hold
-        </a>
-        <a href="?family=solved{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
-           class="btn btn-sm rounded-xl transition-all duration-200 {% if family_filter == 'solved' %}btn-primary{% else %}btn-ghost{% endif %}">
-            Solved &amp; closed
-        </a>
-        <a href="?family=all{% if search_query %}&search={{ search_query }}{% endif %}{% if status_filter %}&status={{ status_filter }}{% endif %}"
-           class="btn btn-sm rounded-xl transition-all duration-200 {% if family_filter == 'all' %}btn-primary{% else %}btn-ghost{% endif %}">
-            All
-        </a>
-    </div>
-    <div class="divider my-0 mb-5"></div>
-    <form method="get" class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-        <input type="hidden" name="family" value="{{ family_filter }}">
-        <div class="md:col-span-4">
-            <label class="label pb-1">
-                <span class="label-text font-semibold">Search</span>
-            </label>
-            <input type="text" class="input-modern w-full" name="search"
-                   value="{{ search_query|default:'' }}" placeholder="Name, email, ticket ID, ALF #, flight...">
-        </div>
-        <div class="md:col-span-3">
-            <label class="label pb-1">
-                <span class="label-text font-semibold">Status</span>
-            </label>
-            <select class="select select-bordered w-full rounded-xl" name="status">
-                <option value="">All Statuses</option>
-                {% for value, label in status_choices %}
-                <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>
-                    {{ label }}
-                </option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="md:col-span-2 flex items-end">
-            <label class="label cursor-pointer gap-2">
-              <span class="label-text">At risk only</span>
-              <input type="checkbox" name="risk" value="1" class="checkbox checkbox-error"
-                     {% if risk_filter %}checked{% endif %} onchange="this.form.submit()">
-            </label>
-        </div>
-        <div class="md:col-span-1 flex items-end">
-            <button type="submit" class="btn btn-primary w-full rounded-xl transition-all duration-200">
-                <i class="bi bi-search"></i> Filter
-            </button>
-        </div>
-        <div class="md:col-span-1 flex items-end">
-            <a href="{% url 'manager_claims' %}" class="btn btn-outline w-full rounded-xl transition-all duration-200">
-                <i class="bi bi-x-circle"></i> Clear
-            </a>
-        </div>
-    </form>
-</div>
-
-<!-- Claims Table — sorted by urgency: overdue first, nearest deadline next -->
+<!-- Claims table -->
 <div class="card-modern rounded-2xl overflow-hidden animate-fade-in">
-    <div class="overflow-x-auto">
-        <table class="table-modern">
-            <thead>
-                <tr>
-                    <th class="w-8">
-                        <input type="checkbox" id="select-all" class="checkbox checkbox-sm"
-                               title="Select all claims on this page"
-                               onchange="toggleSelectAll(this)">
-                    </th>
-                    <th>ALF #</th>
-                    <th>Client</th>
-                    <th>Status</th>
-                    <th>Deadline</th>
-                    <th>Attention</th>
-                    <th>Zendesk</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for claim in claims %}
-                <tr>
-                    <td>
-                        <input type="checkbox" class="checkbox checkbox-sm row-check"
-                               value="{{ claim.id }}" onchange="updateBulkButton()">
-                    </td>
-                    <td>
-                        <a href="{% url 'agent_claim_detail' claim.id %}"
-                           class="font-mono font-semibold text-primary hover:underline">
-                            {{ claim.alf_claim_id|default:"(no number)" }}
-                        </a>
-                    </td>
-                    <td>
-                        <div class="font-medium">{{ claim.client_name|default:claim.client_email }}</div>
-                        {% if claim.client_name %}
-                        <div class="text-xs text-base-content/50">{{ claim.client_email }}</div>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <span class="badge {% if claim.status_category == 'solved' %}badge-success{% elif claim.status_category == 'pending' %}badge-warning{% elif claim.status_category == 'new' %}badge-info{% elif claim.status_category == 'hold' %}badge-neutral{% elif claim.status_category == 'open' %}badge-primary{% else %}badge-ghost{% endif %} rounded-full whitespace-nowrap">
-                            {{ claim.status }}
-                        </span>
-                        {% if claim.risk_active %}
-                        {% if claim.risk_level == 'at_risk' %}
-                        <span class="badge badge-error gap-1" title="{{ claim.risk_reason_labels|join:', ' }} — {{ claim.risk_detail }}">⚠ At risk</span>
-                        {% else %}
-                        <span class="badge badge-warning gap-1" title="{{ claim.risk_reason_labels|join:', ' }} — {{ claim.risk_detail }}">⚠ Watch</span>
-                        {% endif %}
-                        {% endif %}
-                        {% if claim.days_in_status is not None and claim.status_category != 'solved' %}
-                        <div class="text-xs mt-1 {% if claim.stuck %}text-error font-semibold{% else %}text-base-content/40{% endif %}"
-                             {% if claim.stuck %}title="In this status for more than two weeks"{% endif %}>
-                            {% if claim.stuck %}<i class="bi bi-exclamation-triangle"></i>{% endif %}
-                            for {{ claim.days_in_status }}d
-                        </div>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if claim.deadline_show %}
-                            <div class="{% if claim.deadline_state == 'overdue' %}text-error font-semibold{% elif claim.deadline_state == 'soon' %}text-warning font-semibold{% elif claim.deadline_state == 'done' %}text-base-content/40{% endif %}">
-                                {{ claim.deadline_show|date:"M d, Y" }}
-                            </div>
-                            {% if claim.deadline_label %}
-                            <div class="text-xs {% if claim.deadline_state == 'overdue' %}text-error{% elif claim.deadline_state == 'soon' %}text-warning{% else %}text-base-content/40{% endif %}">
-                                {{ claim.deadline_label }}
-                            </div>
-                            {% endif %}
-                        {% else %}
-                            <span class="text-base-content/30">—</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if claim.attention_emails %}
-                        <span class="badge badge-error gap-1 rounded-full"
-                              title="Institution emails flagged by the AI as needing a human reply">
-                            <i class="bi bi-envelope-exclamation"></i> {{ claim.attention_emails }}
-                        </span>
-                        {% else %}
-                        <span class="text-base-content/30">—</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if claim.zd_ticket_id and zd_ticket_base %}
-                        <a href="{{ zd_ticket_base }}{{ claim.zd_ticket_id }}" target="_blank" rel="noopener"
-                           class="link link-primary text-sm whitespace-nowrap" title="Open the ticket in Zendesk">
-                            #{{ claim.zd_ticket_id }} <i class="bi bi-box-arrow-up-right text-xs"></i>
-                        </a>
-                        {% else %}
-                        <span class="text-base-content/40">{{ claim.zd_ticket_id|default:"—" }}</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <div class="flex gap-1">
-                            <a href="{% url 'agent_claim_detail' claim.id %}"
-                               class="btn btn-sm btn-outline btn-primary rounded-xl transition-all duration-200" title="View">
-                                <i class="bi bi-eye"></i>
-                            </a>
-                            <a href="{% url 'agent_claim_detail' claim.id %}#proof-of-work"
-                               class="btn btn-sm btn-outline btn-error rounded-xl transition-all duration-200" title="Download PDF">
-                                <i class="bi bi-file-earmark-pdf"></i>
-                            </a>
-                        </div>
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="8" class="text-center py-8">
-                        <i class="bi bi-inbox text-4xl text-base-content/30"></i>
-                        <p class="text-base-content/60 mt-2 mb-0">No claims match these filters.</p>
-                        {% if family_filter != 'all' or status_filter or search_query %}
-                        <a href="{% url 'manager_claims' %}?family=all" class="link link-primary text-sm">Show all claims</a>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Pagination -->
-    {% if page_obj.has_other_pages %}
-    <div class="flex justify-center p-4">
-        <div class="join">
-            {% if page_obj.has_previous %}
-            <a href="?page=1&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
-               class="btn btn-sm join-item rounded-xl transition-all duration-200">
-                <i class="bi bi-chevron-double-left"></i> First
-            </a>
-            <a href="?page={{ page_obj.previous_page_number }}&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
-               class="btn btn-sm join-item rounded-xl transition-all duration-200">
-                <i class="bi bi-chevron-left"></i> Previous
-            </a>
+  <div class="overflow-x-auto">
+    <table class="table-modern">
+      <thead>
+        <tr>
+          <th class="w-8"><input type="checkbox" id="select-all" class="checkbox checkbox-sm" title="Select all on this page" onchange="toggleSelectAll(this)"></th>
+          <th>Claim</th>
+          <th>Status</th>
+          <th>Attention</th>
+          <th>Zendesk</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for claim in claims %}
+        <tr class="hover:bg-base-200/40 transition-colors cursor-pointer"
+            onclick="if(!event.target.closest('a,input,button,details,label')) window.location='{% url 'agent_claim_detail' claim.id %}'">
+          <td><input type="checkbox" class="checkbox checkbox-sm row-check" value="{{ claim.id }}" onchange="updateBulkButton()"></td>
+          <td>
+            <div class="font-mono font-semibold text-primary">{{ claim.alf_claim_id|default:"(no number)" }}</div>
+            <div class="text-sm">{{ claim.client_name|default:claim.client_email }}</div>
+            {% if claim.client_name %}<div class="text-xs text-base-content/50">{{ claim.client_email }}</div>{% endif %}
+          </td>
+          <td>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="badge rounded-full whitespace-nowrap {% if 'object found' in claim.status|lower %}badge-soft-success{% elif claim.status_category == 'solved' %}badge-soft-neutral{% elif claim.status_category == 'pending' or claim.status_category == 'hold' %}badge-soft-warning{% elif claim.status_category == 'new' or claim.status_category == 'open' %}badge-soft-info{% else %}badge-soft-neutral{% endif %}">
+                {{ claim.status|default:"—" }}
+              </span>
+              {% if claim.refund_exists %}<span class="badge badge-refund rounded-full">Refund</span>{% endif %}
+              {% if claim.dispute_exists %}<span class="badge badge-soft-error rounded-full">Dispute</span>{% endif %}
+            </div>
+            {% if claim.days_in_status is not None and claim.status_category != 'solved' %}
+            <div class="text-xs mt-1 {% if claim.stuck %}text-warning{% else %}text-base-content/40{% endif %}">
+              {% if claim.stuck %}<i class="bi bi-hourglass-split"></i> {% endif %}{{ claim.days_in_status }}d in status
+            </div>
             {% endif %}
+          </td>
+          <td>
+            <div class="flex flex-wrap items-center gap-2">
+              {% if claim.risk_active %}
+              <span class="text-error text-sm" title="{{ claim.risk_reason_labels|join:', ' }}">
+                <i class="bi bi-exclamation-triangle-fill"></i> {% if claim.risk_level == 'at_risk' %}At risk{% else %}Watch{% endif %}
+              </span>
+              {% endif %}
+              {% if claim.attention_emails %}
+              <span class="text-base-content/70 text-sm" title="Institution emails awaiting a human reply">
+                <i class="bi bi-envelope-exclamation"></i> {{ claim.attention_emails }}
+              </span>
+              {% endif %}
+              {% if not claim.risk_active and not claim.attention_emails %}<span class="text-base-content/30">—</span>{% endif %}
+            </div>
+          </td>
+          <td>
+            {% if claim.zd_ticket_id and zd_ticket_base %}
+            <a href="{{ zd_ticket_base }}{{ claim.zd_ticket_id }}" target="_blank" rel="noopener"
+               class="link link-primary text-sm whitespace-nowrap" title="Open ticket in Zendesk">#{{ claim.zd_ticket_id }} <i class="bi bi-box-arrow-up-right text-xs"></i></a>
+            {% else %}<span class="text-base-content/40">{{ claim.zd_ticket_id|default:"—" }}</span>{% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-center py-10">
+          <i class="bi bi-inbox text-4xl text-base-content/30"></i>
+          <p class="text-base-content/60 mt-2 mb-0">{% if tab == 'problems' %}Nothing needs attention right now.{% else %}No claims in this view.{% endif %}</p>
+          {% if search_query %}<a href="?tab={{ tab }}" class="link link-primary text-sm">Clear search</a>{% endif %}
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 
-            <button class="btn btn-sm join-item btn-active rounded-xl">
-                Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
-            </button>
-
-            {% if page_obj.has_next %}
-            <a href="?page={{ page_obj.next_page_number }}&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
-               class="btn btn-sm join-item rounded-xl transition-all duration-200">
-                Next <i class="bi bi-chevron-right"></i>
-            </a>
-            <a href="?page={{ page_obj.paginator.num_pages }}&family={{ family_filter }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&search={{ search_query }}{% endif %}{% if risk_filter %}&risk={{ risk_filter }}{% endif %}"
-               class="btn btn-sm join-item rounded-xl transition-all duration-200">
-                Last <i class="bi bi-chevron-double-right"></i>
-            </a>
-            {% endif %}
-        </div>
+  <!-- Pagination -->
+  {% if page_obj.has_other_pages %}
+  <div class="flex justify-center p-4">
+    <div class="join">
+      {% if page_obj.has_previous %}
+      <a href="?tab={{ tab }}&page={{ page_obj.previous_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="btn btn-sm join-item rounded-xl"><i class="bi bi-chevron-left"></i> Prev</a>
+      {% endif %}
+      <button class="btn btn-sm join-item btn-active rounded-xl">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</button>
+      {% if page_obj.has_next %}
+      <a href="?tab={{ tab }}&page={{ page_obj.next_page_number }}{% if search_query %}&search={{ search_query }}{% endif %}" class="btn btn-sm join-item rounded-xl">Next <i class="bi bi-chevron-right"></i></a>
+      {% endif %}
     </div>
-    {% endif %}
-</div>
-
-<!-- PDF Info Box -->
-<div class="rounded-xl border-0 bg-info/10 text-info p-4 flex items-start gap-3 mt-6">
-    <i class="bi bi-info-circle text-lg mt-0.5"></i>
-    <div>
-        <span class="font-semibold">Proof of Work PDF:</span> Click the PDF icon <i class="bi bi-file-earmark-pdf"></i> to download
-        a proof of work document for any claim. This includes claim details, Zendesk comments, and evidence gallery.
-    </div>
+  </div>
+  {% endif %}
 </div>
 
 <script>
@@ -329,7 +142,6 @@ function toggleSelectAll(master) {
     document.querySelectorAll('.row-check').forEach(cb => { cb.checked = master.checked; });
     updateBulkButton();
 }
-
 function updateBulkButton() {
     const checked = document.querySelectorAll('.row-check:checked');
     const btn = document.getElementById('bulk-delete-btn');
@@ -338,7 +150,6 @@ function updateBulkButton() {
     const all = document.querySelectorAll('.row-check');
     document.getElementById('select-all').checked = all.length > 0 && checked.length === all.length;
 }
-
 function bulkDeleteClaims() {
     const ids = Array.from(document.querySelectorAll('.row-check:checked')).map(cb => cb.value);
     if (!ids.length) return;
@@ -352,26 +163,16 @@ function bulkDeleteClaims() {
     btn.disabled = true;
     fetch('/api/claims/claims/bulk-delete/', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            // The CSRF cookie is HttpOnly — the token must be rendered server-side.
-            'X-CSRFToken': '{{ csrf_token }}',
-        },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
         body: JSON.stringify({ ids: ids }),
     })
     .then(response => response.json().then(data => ({ ok: response.ok, data })))
     .then(({ ok, data }) => {
         if (ok) {
             let msg = `${(data.deleted || []).length} claim(s) deleted`;
-            if ((data.blocked || []).length) {
-                msg += `; ${data.blocked.length} skipped (refunds/disputes attached)`;
-            }
-            alert(msg);
-            location.reload();
-        } else {
-            alert(data.detail || 'Bulk delete failed');
-            btn.disabled = false;
-        }
+            if ((data.blocked || []).length) { msg += `; ${data.blocked.length} skipped (refunds/disputes attached)`; }
+            alert(msg); location.reload();
+        } else { alert(data.detail || 'Bulk delete failed'); btn.disabled = false; }
     })
     .catch(() => { alert('Bulk delete failed'); btn.disabled = false; });
 }
