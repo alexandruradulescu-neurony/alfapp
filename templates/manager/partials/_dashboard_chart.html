@@ -1,52 +1,65 @@
 {% comment %}
-Dashboard trend chart (top of the page). Pure server-rendered CSS bar chart
-(CSP-safe — no charting lib, no eval). The metric (Claims/Income) and range
-(7/14/30 days) toggles HTMX-swap this whole fragment via manager_dashboard_chart.
+Dashboard trend chart (top of the page). Server-rendered SVG LINE chart
+(CSP-safe — no charting lib, no eval). Orders + Revenue are independent overlay
+lines, each scaled to its own axis (left=Orders, right=Revenue). The series
+chips and the 7/14/30-day range HTMX-swap this whole fragment.
 {% endcomment %}
 <div id="dashboard-chart" class="lora-card p-5" hx-target="this" hx-swap="outerHTML">
-  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
+  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
     <div>
       <h3 class="lora-card-title">Activity</h3>
-      <p class="lora-meta mt-0.5">
-        {% if chart_metric == 'income' %}Service fees per day{% else %}Claims per day{% endif %}
-        &middot; last {{ chart_range }} days &middot; {{ chart_total_label }}
-      </p>
+      <p class="lora-meta mt-0.5">Last {{ chart_range }} days · {{ chart_subtitle }}</p>
     </div>
     <div class="flex flex-wrap items-center gap-2">
+      {# Series overlay toggles (click to add/remove a line) #}
+      <button type="button" hx-get="{% url 'manager_dashboard_chart' %}{{ claims_toggle_url }}"
+              class="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium ring-1 {% if chart_show_claims %}bg-white text-gray-900 ring-gray-300 shadow-xs{% else %}text-gray-400 ring-gray-200 hover:text-gray-600{% endif %}">
+        <span class="size-2 rounded-full {% if chart_show_claims %}bg-indigo-500{% else %}bg-gray-300{% endif %}"></span> Orders
+      </button>
+      <button type="button" hx-get="{% url 'manager_dashboard_chart' %}{{ income_toggle_url }}"
+              class="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium ring-1 {% if chart_show_income %}bg-white text-gray-900 ring-gray-300 shadow-xs{% else %}text-gray-400 ring-gray-200 hover:text-gray-600{% endif %}">
+        <span class="size-2 rounded-full {% if chart_show_income %}bg-emerald-500{% else %}bg-gray-300{% endif %}"></span> Revenue
+      </button>
+      <span class="mx-1 h-5 w-px bg-gray-200"></span>
       <div class="inline-flex rounded-md bg-gray-100 p-0.5">
-        <button type="button" hx-get="{% url 'manager_dashboard_chart' %}?range={{ chart_range }}&metric=claims"
-                class="rounded px-2.5 py-1 text-xs font-medium {% if chart_metric == 'claims' %}bg-white text-gray-900 shadow-xs{% else %}text-gray-500 hover:text-gray-700{% endif %}">Claims</button>
-        <button type="button" hx-get="{% url 'manager_dashboard_chart' %}?range={{ chart_range }}&metric=income"
-                class="rounded px-2.5 py-1 text-xs font-medium {% if chart_metric == 'income' %}bg-white text-gray-900 shadow-xs{% else %}text-gray-500 hover:text-gray-700{% endif %}">Income</button>
-      </div>
-      <div class="inline-flex rounded-md bg-gray-100 p-0.5">
-        <button type="button" hx-get="{% url 'manager_dashboard_chart' %}?range=7&metric={{ chart_metric }}"
+        <button type="button" hx-get="{% url 'manager_dashboard_chart' %}?range=7&show={{ chart_show_param }}"
                 class="rounded px-2.5 py-1 text-xs font-medium {% if chart_range == 7 %}bg-white text-gray-900 shadow-xs{% else %}text-gray-500 hover:text-gray-700{% endif %}">7d</button>
-        <button type="button" hx-get="{% url 'manager_dashboard_chart' %}?range=14&metric={{ chart_metric }}"
+        <button type="button" hx-get="{% url 'manager_dashboard_chart' %}?range=14&show={{ chart_show_param }}"
                 class="rounded px-2.5 py-1 text-xs font-medium {% if chart_range == 14 %}bg-white text-gray-900 shadow-xs{% else %}text-gray-500 hover:text-gray-700{% endif %}">14d</button>
-        <button type="button" hx-get="{% url 'manager_dashboard_chart' %}?range=30&metric={{ chart_metric }}"
+        <button type="button" hx-get="{% url 'manager_dashboard_chart' %}?range=30&show={{ chart_show_param }}"
                 class="rounded px-2.5 py-1 text-xs font-medium {% if chart_range == 30 %}bg-white text-gray-900 shadow-xs{% else %}text-gray-500 hover:text-gray-700{% endif %}">30d</button>
       </div>
     </div>
   </div>
 
-  <div class="relative pl-12">
-    <span class="absolute left-0 top-0 lora-meta">{{ chart_ymax_label }}</span>
-    <span class="absolute left-0 bottom-5 lora-meta">0</span>
+  <div class="relative">
     {% if not chart_has_data %}
     <div class="absolute inset-0 flex items-center justify-center"><span class="lora-meta">No activity in this period</span></div>
     {% endif %}
-    <div class="flex items-end gap-px sm:gap-1.5 h-44 border-b border-gray-200">
-      {% for b in chart_bars %}
-      <div class="group relative flex h-full flex-1 flex-col justify-end" title="{{ b.tooltip }}">
-        <div class="w-full rounded-t-sm transition-colors {% if chart_metric == 'income' %}bg-emerald-500/80 group-hover:bg-emerald-600{% else %}bg-indigo-500/80 group-hover:bg-indigo-600{% endif %}" style="height: {{ b.pct }}%"></div>
-      </div>
+    <svg viewBox="0 0 {{ chart_w }} {{ chart_h }}" class="w-full" role="img" aria-label="Activity trend">
+      {# gridlines #}
+      {% for gy in chart_grid_ys %}
+      <line x1="{{ chart_grid_x0 }}" y1="{{ gy }}" x2="{{ chart_grid_x1 }}" y2="{{ gy }}" stroke="#f1f5f9" stroke-width="1" />
       {% endfor %}
-    </div>
-    <div class="mt-1 flex gap-px sm:gap-1.5">
-      {% for b in chart_bars %}
-      <div class="flex-1 text-center lora-meta">{% if b.show_label %}{{ b.xlabel }}{% endif %}</div>
+      {# left axis (Orders) #}
+      {% if chart_left_axis %}{% for a in chart_left_axis %}
+      <text x="{{ chart_left_x }}" y="{{ a.y }}" text-anchor="end" dominant-baseline="middle" fill="#6366f1" font-size="11">{{ a.label }}</text>
+      {% endfor %}{% endif %}
+      {# right axis (Revenue) #}
+      {% if chart_right_axis %}{% for a in chart_right_axis %}
+      <text x="{{ chart_right_x }}" y="{{ a.y }}" text-anchor="start" dominant-baseline="middle" fill="#10b981" font-size="11">{{ a.label }}</text>
+      {% endfor %}{% endif %}
+      {# x labels #}
+      {% for xl in chart_x_labels %}{% if xl.show %}
+      <text x="{{ xl.x }}" y="{{ chart_x_label_y }}" text-anchor="middle" fill="#9ca3af" font-size="11">{{ xl.label }}</text>
+      {% endif %}{% endfor %}
+      {# series lines + points #}
+      {% for ln in chart_lines %}
+      <polyline fill="none" stroke="{{ ln.color }}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="{{ ln.points }}" />
+      {% for d in ln.dots %}
+      <circle cx="{{ d.x }}" cy="{{ d.y }}" r="3" fill="#fff" stroke="{{ ln.color }}" stroke-width="2"><title>{{ d.tooltip }}</title></circle>
       {% endfor %}
-    </div>
+      {% endfor %}
+    </svg>
   </div>
 </div>

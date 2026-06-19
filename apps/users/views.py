@@ -851,91 +851,125 @@ def manager_dashboard(request):
         'recent_emails': recent_emails,
         'recent_disputes': recent_disputes,
     }
-    # Trend chart (top of dashboard) — default 14 days, claims/day. Toggles
-    # re-render just the chart fragment via HTMX (manager_dashboard_chart).
-    context.update(_dashboard_chart_data(14, 'claims'))
+    # Trend chart (top of dashboard) — default 14 days, Orders line shown.
+    # Toggles re-render just the chart fragment via HTMX (manager_dashboard_chart).
+    context.update(_dashboard_chart_data(14, ['claims']))
 
     return render(request, 'manager/dashboard.html', context)
 
 
-def _dashboard_chart_data(range_days, metric):
-    """Daily series for the dashboard trend chart — claims/day or income/day —
-    over the last `range_days` days (inclusive of today). Returns the template
-    context: bars with %-heights + labels, totals, and the active toggle state.
-    Income = service fees (Claim.price_paid) bucketed by the claim's created day.
-    """
+# Dashboard trend-chart series. Orders = claims/day; Revenue = service fees
+# (Claim.price_paid) /day, bucketed by the claim's created day. Each line is
+# scaled to its OWN axis (left=Orders, right=Revenue) so both trends read well
+# despite very different scales.
+_CHART_SERIES = {
+    'claims': {'label': 'Orders', 'color': '#6366f1'},   # indigo-500
+    'income': {'label': 'Revenue', 'color': '#10b981'},  # emerald-500
+}
+# SVG geometry (viewBox units)
+_CW, _CH, _CL, _CR, _CT, _CB = 720, 240, 46, 56, 14, 28
+
+
+def _dashboard_chart_data(range_days, show):
+    """Multi-series LINE chart for the dashboard. `show` is the list of active
+    series keys (subset of _CHART_SERIES); Orders is the default. Returns
+    ready-to-draw SVG geometry (polyline points, dots, dual axes, gridlines),
+    so the template does no math."""
     from django.db.models import Sum
     from django.db.models.functions import TruncDate
 
     if range_days not in (7, 14, 30):
         range_days = 14
-    if metric not in ('claims', 'income'):
-        metric = 'claims'
+    show = [s for s in show if s in _CHART_SERIES]
+    if not show:
+        show = ['claims']
+    cur = set(show)
 
     today = timezone.localdate()
     start = today - timedelta(days=range_days - 1)
-
     rows = (Claim.objects.filter(created_at__date__gte=start)
-            .annotate(d=TruncDate('created_at'))
-            .values('d')
+            .annotate(d=TruncDate('created_at')).values('d')
             .annotate(claims=Count('id'), income=Sum('price_paid')))
     by_date = {r['d']: r for r in rows}
 
-    series = []
-    for i in range(range_days):
-        d = start + timedelta(days=i)
+    dates = [start + timedelta(days=i) for i in range(range_days)]
+    data = {'claims': [], 'income': []}
+    for d in dates:
         r = by_date.get(d)
-        series.append({
-            'date': d,
-            'claims': r['claims'] if r else 0,
-            'income': float(r['income']) if r and r['income'] is not None else 0.0,
-        })
+        data['claims'].append(r['claims'] if r else 0)
+        data['income'].append(float(r['income']) if r and r['income'] is not None else 0.0)
 
-    values = [s[metric] for s in series]
-    ymax = max(values) if values else 0
-    total = sum(values)
-    step = 1 if range_days <= 14 else 3  # thin out x-labels on the 30-day view
+    plot_r, plot_b = _CW - _CR, _CH - _CB
+    plot_w, plot_h = plot_r - _CL, plot_b - _CT
+    n = range_days
+    xs = [_CL + (i * plot_w / (n - 1) if n > 1 else 0) for i in range(n)]
+    step = 1 if range_days <= 14 else 3
 
-    bars = []
-    for i, s in enumerate(series):
-        v = s[metric]
-        disp = '${:,.0f}'.format(v) if metric == 'income' else str(int(v))
-        bars.append({
-            'pct': round(v / ymax * 100, 1) if ymax else 0,
-            'value': v,
-            'xlabel': s['date'].day,
-            'show_label': (i % step == 0) or (i == range_days - 1),
-            'tooltip': '{} — {}'.format(s['date'].strftime('%b %d'), disp),
-        })
+    def fmt(metric, v):
+        return '${:,.0f}'.format(v) if metric == 'income' else str(int(v))
 
-    if metric == 'income':
-        total_label = '${:,.0f} in service fees'.format(total)
-        ymax_label = '${:,.0f}'.format(ymax)
-    else:
-        total_label = '{} claim{}'.format(int(total), '' if total == 1 else 's')
-        ymax_label = str(int(ymax))
+    lines = []
+    for key in show:
+        vals = data[key]
+        m = max(vals) or 1
+        pts, dots = [], []
+        for i, v in enumerate(vals):
+            x, y = xs[i], plot_b - (v / m) * plot_h
+            pts.append('{:.1f},{:.1f}'.format(x, y))
+            dots.append({'x': round(x, 1), 'y': round(y, 1),
+                         'tooltip': '{} — {}'.format(dates[i].strftime('%b %d'), fmt(key, v))})
+        lines.append({'key': key, 'label': _CHART_SERIES[key]['label'],
+                      'color': _CHART_SERIES[key]['color'], 'points': ' '.join(pts),
+                      'dots': dots, 'total': fmt(key, sum(vals))})
+
+    grid_ys = [round(_CT, 1), round((_CT + plot_b) / 2, 1), round(plot_b, 1)]
+
+    def axis(metric):
+        m = max(data[metric]) or 0
+        return [{'y': grid_ys[0], 'label': fmt(metric, m)},
+                {'y': grid_ys[1], 'label': fmt(metric, m / 2)},
+                {'y': grid_ys[2], 'label': fmt(metric, 0)}]
+
+    def toggle_url(key):
+        ns = (cur - {key}) if key in cur else (cur | {key})
+        if not ns:
+            ns = {'claims'}
+        return '?range={}&show={}'.format(range_days, ','.join(sorted(ns)))
+
+    subtitle = ' · '.join('{} {}'.format(ln['total'], ln['label'].lower()) for ln in lines)
 
     return {
         'chart_range': range_days,
-        'chart_metric': metric,
-        'chart_bars': bars,
-        'chart_total_label': total_label,
-        'chart_ymax_label': ymax_label,
-        'chart_has_data': total > 0,
+        'chart_subtitle': subtitle,
+        'chart_show_param': ','.join(sorted(cur)),
+        'chart_show_claims': 'claims' in cur,
+        'chart_show_income': 'income' in cur,
+        'chart_w': _CW, 'chart_h': _CH,
+        'chart_grid_ys': grid_ys, 'chart_grid_x0': _CL, 'chart_grid_x1': plot_r,
+        'chart_lines': lines,
+        'chart_left_axis': axis('claims') if 'claims' in cur else None,
+        'chart_right_axis': axis('income') if 'income' in cur else None,
+        'chart_left_x': _CL - 6, 'chart_right_x': plot_r + 6,
+        'chart_x_labels': [{'x': round(xs[i], 1), 'label': dates[i].day,
+                            'show': (i % step == 0) or (i == n - 1)} for i in range(n)],
+        'chart_x_label_y': _CH - 8,
+        'chart_has_data': any(max(data[k]) for k in show),
+        'claims_toggle_url': toggle_url('claims'),
+        'income_toggle_url': toggle_url('income'),
     }
 
 
 @manager_required
 def manager_dashboard_chart(request):
-    """HTMX fragment for the dashboard trend chart — serves the 7/14/30-day and
-    claims/income toggles (?range= & ?metric=)."""
+    """HTMX fragment for the dashboard trend chart — serves the 7/14/30-day
+    range and the per-series overlay toggles (?range= & ?show=claims,income)."""
     try:
         range_days = int(request.GET.get('range', 14))
     except (TypeError, ValueError):
         range_days = 14
-    metric = request.GET.get('metric', 'claims')
+    show = [s.strip() for s in request.GET.get('show', 'claims').split(',') if s.strip()]
     return render(request, 'manager/partials/_dashboard_chart.html',
-                  _dashboard_chart_data(range_days, metric))
+                  _dashboard_chart_data(range_days, show))
 
 
 @manager_required
