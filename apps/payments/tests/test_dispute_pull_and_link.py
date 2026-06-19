@@ -361,3 +361,38 @@ class TestDisputeListViewFilter(TestCase):
         self.assertEqual(vc['review'], 1)
         self.assertEqual(vc['resolved'], 1)
         self.assertEqual(vc['all'], 4)
+
+
+class TestDisputeListRedesign(TestCase):
+    """The redesigned list is a manager snapshot: action-first tabs, the
+    response deadline surfaced, clickable rows → detail, and the old noise
+    (7-card stat strip, status dropdown, internal ID/PayPal-ID columns) gone."""
+    URL = '/manager/disputes/'
+
+    def setUp(self):
+        SystemSettings.get_instance()
+        self.manager = User.objects.create_user(username='dl_redesign', password='x')
+        self.web = Client()
+        self.web.force_login(self.manager)
+        from django.utils import timezone
+        from datetime import timedelta
+        self.overdue = _dispute(
+            paypal_dispute_id='OD1', status='GATHERING_DATA',
+            seller_response_due=timezone.now() - timedelta(days=1),
+            raw_webhook_payload={'status': 'WAITING_FOR_SELLER_RESPONSE'})
+
+    def test_redesign_markers_present_and_old_removed(self):
+        html = self.web.get(self.URL + '?view=all').content.decode()
+        # action-first tabs + search
+        self.assertIn('?view=action', html)
+        self.assertIn('?view=resolved', html)
+        # clickable row → detail
+        self.assertIn(f"/manager/disputes/{self.overdue.id}/", html)
+        self.assertIn('window.location=', html)
+        # deadline is the key signal — overdue surfaced
+        self.assertIn('Overdue', html)
+        # old noise gone
+        self.assertNotIn('Status Summary', html)
+        self.assertNotIn('<th>ID</th>', html)
+        self.assertNotIn('<th>PayPal ID</th>', html)
+        self.assertNotIn('All Statuses', html)   # status dropdown removed
