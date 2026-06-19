@@ -996,12 +996,12 @@ def manager_refunds(request):
         .order_by(F('deadline_at').asc(nulls_last=True), '-status_changed_at')
     )
 
-    refunds = Refund.objects.select_related('claim', 'created_by').order_by('-created_at')
+    base = Refund.objects.select_related('claim', 'created_by').order_by('-created_at')
 
     # Headline stats describe the WHOLE refund landscape — they must NOT change
-    # when the list below is narrowed by the status/source/search tab. Compute
-    # them from the unfiltered set in a single aggregate pass, then filter only
-    # the displayed list.
+    # when the list below is narrowed by a tab/search. Compute them from the
+    # unfiltered set in a single aggregate pass, then filter only the displayed
+    # list. (total_amount = money actually settled, i.e. completed refunds.)
     stats_agg = Refund.objects.aggregate(
         total=Count('id'),
         total_amount=Sum('amount', filter=Q(status=Refund.STATUS_COMPLETED)),
@@ -1017,22 +1017,40 @@ def manager_refunds(request):
         'failed': stats_agg['failed'],
     }
 
-    # Filter the displayed list only (NOT the stats above).
-    status_filter = request.GET.get('status')
-    if status_filter:
-        refunds = refunds.filter(status=status_filter)
+    # Action-first lenses (non-exclusive views over the same list), keyed by ?tab.
+    # "In flight" = anything still moving through the pipeline; "Failed" is the
+    # only refund row that needs the manager to act (re-issue).
+    in_flight_q = Q(status__in=[
+        Refund.STATUS_REQUESTED, Refund.STATUS_PENDING, Refund.STATUS_PROCESSING])
+    lenses = {
+        'all': Q(),
+        'in_flight': in_flight_q,
+        'completed': Q(status=Refund.STATUS_COMPLETED),
+        'failed': Q(status=Refund.STATUS_FAILED),
+    }
+    tab_counts = {key: base.filter(q).count() for key, q in lenses.items()}
 
-    source_filter = request.GET.get('source')
-    if source_filter:
-        refunds = refunds.filter(external_source=source_filter)
+    tab = request.GET.get('tab', 'all')
+    if tab not in lenses:
+        tab = 'all'
+    refunds = base.filter(lenses[tab])
 
     search_query = request.GET.get('search')
     if search_query:
         refunds = refunds.filter(
             Q(claim__client_email__icontains=search_query) |
+            Q(claim__client_name__icontains=search_query) |
+            Q(claim__alf_claim_id__icontains=search_query) |
             Q(paypal_refund_id__icontains=search_query) |
             Q(reason__icontains=search_query)
         )
+
+    tabs = [
+        {'key': 'all', 'label': 'All', 'count': tab_counts['all'], 'active': tab == 'all'},
+        {'key': 'in_flight', 'label': 'In flight', 'count': tab_counts['in_flight'], 'active': tab == 'in_flight'},
+        {'key': 'completed', 'label': 'Completed', 'count': tab_counts['completed'], 'active': tab == 'completed'},
+        {'key': 'failed', 'label': 'Failed', 'count': tab_counts['failed'], 'active': tab == 'failed'},
+    ]
 
     # Pagination
     paginator = Paginator(refunds, LIST_PAGE_SIZE)
@@ -1044,12 +1062,11 @@ def manager_refunds(request):
         'page_obj': page_obj,
         'refunds': page_obj,
         'refund_requested': refund_requested,
-        'status_filter': status_filter,
-        'source_filter': source_filter,
+        'tab': tab,
+        'tabs': tabs,
+        'tab_counts': tab_counts,
         'search_query': search_query,
         'stats': stats,
-        'status_choices': Refund.STATUS_CHOICES,
-        'source_choices': Refund.SOURCE_CHOICES,
         'zd_ticket_base': _zendesk_ticket_base(zd_subdomain),
     }
 
