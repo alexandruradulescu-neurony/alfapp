@@ -91,6 +91,12 @@
   .ident { background:#eff6ff; border:1px solid #bfdbfe; border-left:4px solid #2563eb;
            border-radius:0; padding:9px 12px; margin:0 0 16px; font-size:11.5px; color:#1e3a8a; }
   .ident b { color:#1e3a8a; }
+  .vaccept { background:#ecfdf5; border:1px solid #a7f3d0; border-left:4px solid #059669;
+             border-radius:0; padding:10px 12px; margin:14px 0 16px; font-size:11.5px; color:#064e3b;
+             page-break-inside:avoid; }
+  .vaccept .h { font-weight:700; color:#065f46; font-size:12px; margin-bottom:4px; }
+  .vaccept .q { font-style:italic; color:#065f46; border-left:2px solid #6ee7b7;
+                padding-left:8px; margin:6px 0 0; }
   .tl { margin:0 0 18px; }
   .tl .h { font-weight:700; font-size:12px; color:#374151; margin-bottom:6px; }
   .tl table { width:100%; font-size:11px; border-collapse:collapse; }
@@ -171,6 +177,14 @@
 
 {% if assets.checkout %}<img class="doc-img" src="{{ assets.checkout }}" alt="Annotated checkout showing fee, refund period, terms acceptance and authorisation">
 <p class="cap">Checkout flow — fee, clearly stated refund period, Terms acceptance, and the customer's authorisation to search on their behalf.</p>{% endif %}
+
+{% if recorded_acceptance %}
+<div class="vaccept">
+  <div class="h">Recorded verbal acceptance of our non-refundable terms</div>
+  Beyond accepting our Terms at checkout, the customer also confirmed this verbally on our recorded line{% if recorded_acceptance.minute %} (at minute {{ recorded_acceptance.minute }}){% endif %}: they understood our service and approved proceeding with a non-refundable fee{% if recorded_acceptance.fee %} of {{ recorded_acceptance.fee }}{% endif %}, knowing that recovery of a lost item cannot be guaranteed. This is documented in our call record:
+  <p class="q">&ldquo;{{ recorded_acceptance.statement }}&rdquo;</p>
+</div>
+{% endif %}
 
 <!-- Evidence from the case file, grouped into narrative sections -->
 <div class="sec-h">Service initiation &amp; case record</div>
