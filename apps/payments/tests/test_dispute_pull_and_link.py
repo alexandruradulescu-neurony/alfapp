@@ -396,3 +396,46 @@ class TestDisputeListRedesign(TestCase):
         self.assertNotIn('<th>ID</th>', html)
         self.assertNotIn('<th>PayPal ID</th>', html)
         self.assertNotIn('All Statuses', html)   # status dropdown removed
+
+
+class TestNeedsReplyExcludesUnactionable(TestCase):
+    """Needs reply = only disputes we can still reply to. Overdue (deadline passed)
+    and waiting-on-buyer disputes move out of it into their own lenses."""
+    URL = '/manager/disputes/'
+
+    def setUp(self):
+        from django.utils import timezone
+        from datetime import timedelta
+        SystemSettings.get_instance()
+        self.mgr = User.objects.create_user(username='buckets_mgr', password='x')
+        self.web = Client()
+        self.web.force_login(self.mgr)
+        self.actionable = _dispute(
+            paypal_dispute_id='ACT', seller_response_due=timezone.now() + timedelta(days=3),
+            raw_webhook_payload={'status': 'WAITING_FOR_SELLER_RESPONSE', 'dispute_state': 'REQUIRED_ACTION'})
+        self.overdue = _dispute(
+            paypal_dispute_id='OD', seller_response_due=timezone.now() - timedelta(days=1),
+            raw_webhook_payload={'status': 'WAITING_FOR_SELLER_RESPONSE', 'dispute_state': 'REQUIRED_ACTION'})
+        self.buyer = _dispute(
+            paypal_dispute_id='BUY',
+            raw_webhook_payload={'status': 'WAITING_FOR_BUYER_RESPONSE',
+                                 'dispute_state': 'REQUIRED_OTHER_PARTY_ACTION'})
+
+    def _ids(self, resp):
+        return {d.paypal_dispute_id for d in resp.context['page_obj']}
+
+    def test_needs_reply_excludes_overdue_and_buyer(self):
+        # default view is 'action' (Needs reply) — only the still-repliable one
+        self.assertEqual(self._ids(self.web.get(self.URL)), {'ACT'})
+
+    def test_overdue_lens_shows_overdue_only(self):
+        self.assertEqual(self._ids(self.web.get(self.URL, {'view': 'overdue'})), {'OD'})
+
+    def test_buyer_wait_moves_to_review_lens(self):
+        self.assertIn('BUY', self._ids(self.web.get(self.URL, {'view': 'review'})))
+
+    def test_view_counts_split_correctly(self):
+        vc = self.web.get(self.URL).context['view_counts']
+        self.assertEqual(vc['action'], 1)    # ACT (still repliable)
+        self.assertEqual(vc['overdue'], 1)   # OD (deadline passed)
+        self.assertEqual(vc['review'], 1)    # BUY (awaiting buyer folds into review)
