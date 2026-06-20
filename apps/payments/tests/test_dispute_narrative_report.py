@@ -147,6 +147,48 @@ class TemplateRenderTests(TestCase):
         # conclusion present
         self.assertIn('Conclusion', html)
 
+    def test_intake_panel_rendered_exactly_once(self):
+        # Regression: the intake panel ("Claim submitted by the customer") used to
+        # render twice — once as the case-record lead and again inside the
+        # SERVICE_INITIATION section — printing two identical panels back to back
+        # (worst on "not as described", where that section leads).
+        claim = Claim.objects.create(
+            client_email='b@example.com', client_name='Lee Foley', alf_claim_id='ALF5490789',
+            zd_ticket_id='97001', object_description='iPad', price_paid=Decimal('74.00'))
+        d = _dispute(claim=claim, zd_ticket_id='97001',
+                     dispute_reason='MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED',
+                     dispute_amount=Decimal('74.00'), dispute_currency='USD')
+        with patch.object(ds, '_fetch_zendesk_ticket_full',
+                          return_value={'ticket': {'id': '97001'}, 'comments': COMMENTS}), \
+             patch.object(ds, '_attachment_data_uri', return_value='data:image/png;base64,AAAA'):
+            bundle = ds.build_dispute_evidence_bundle(d, use_ai=False)
+            html = render_to_string(ds.report_template_for(d), bundle)
+        self.assertEqual(html.count('Claim submitted by the customer'), 1)
+
+    def test_abandoned_cart_notice_dropped_from_evidence(self):
+        # Regression: the WooCommerce "abandoned cart" notice predates payment and
+        # is pre-claim noise — it must never appear as case evidence, regardless of
+        # whether/how the AI classifies records.
+        claim = Claim.objects.create(client_email='cust@x.com', client_name='Cust',
+                                     alf_claim_id='ALFAC', zd_ticket_id='97001',
+                                     price_paid=Decimal('74.00'))
+        d = _dispute(claim=claim, zd_ticket_id='97001', dispute_reason='UNAUTHORISED')
+        comments = [
+            {'author': {'name': 'Cust', 'email': 'cust@x.com'}, 'public': True,
+             'body': 'A new abandoned cart has been created for Cust', 'attachments': [],
+             'channel': 'email', 'created_at': '2026-06-13T17:41:00Z'},
+            {'author': {'name': 'Agent', 'email': 'a@alf.com'}, 'public': True,
+             'body': 'searching now', 'attachments': [],
+             'channel': 'email', 'created_at': '2026-06-14T13:00:00Z'},
+        ]
+        with patch.object(ds, '_fetch_zendesk_ticket_full',
+                          return_value={'ticket': {'id': '97001'}, 'comments': comments}):
+            bundle = ds.build_dispute_evidence_bundle(d, use_ai=False)
+            html = render_to_string(ds.report_template_for(d), bundle)
+        self.assertNotIn('abandoned cart', html.lower())
+        self.assertTrue(all('abandoned cart' not in (p.get('body') or '').lower()
+                            for p in bundle['panels']))
+
 
 class PanelFidelityTests(TestCase):
     """Zendesk-faithful panels: call cards, and inbound/outbound/internal direction."""

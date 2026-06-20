@@ -1655,6 +1655,20 @@ def _checkout_context(dispute) -> dict:
     return ctx
 
 
+# WooCommerce/automation posts an "abandoned cart" notice on the ticket BEFORE
+# the customer pays — it predates the paid claim (~2 min) and is pre-claim system
+# noise, never case evidence. Drop it deterministically so it can never leak into
+# the report regardless of how the AI classifies it (the timeline already drops it
+# by time; this makes the case-record panels consistent and model-independent).
+_ABANDONED_CART_RE = re.compile(r'abandoned\s+cart', re.IGNORECASE)
+
+
+def _is_pre_claim_noise(comment: dict) -> bool:
+    """True for automated pre-claim notices (the WooCommerce abandoned-cart note)
+    that predate payment and must never appear as case evidence."""
+    return bool(_ABANDONED_CART_RE.search(comment.get('body') or ''))
+
+
 def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
                                   use_ai: bool = True) -> dict:
     """Gather EVERYTHING an evidence report could need for a dispute, once,
@@ -1669,6 +1683,9 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
     zd_data = _fetch_zendesk_ticket_full(dispute.zd_ticket_id)
     ticket = zd_data.get('ticket', {})
     comments = zd_data.get('comments', [])
+    # Drop pre-claim system noise (the abandoned-cart notice) before it can reach
+    # any consumer — panels, timeline, intake detection, or the AI.
+    comments = [c for c in comments if not _is_pre_claim_noise(c)]
 
     # Fetch the claim's emails ONCE and share them with both the communication
     # history and the identity cross-check (was two queries for the same rows).
@@ -1742,20 +1759,9 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
 
     narrative = _narrate_evidence(dispute, items, dispute.claim) if use_ai else None
     sections = _group_into_sections(items, narrative, reason=dispute.dispute_reason)
-    # The customer's own claim submission opens the service (the template repeats
-    # the intake panel at the top of this section). Guarantee the section exists,
-    # in this reason's priority order, even when the AI placed nothing else there.
-    if intake_panel and not any(s['key'] == 'SERVICE_INITIATION' for s in sections):
-        order = _section_priority_for(dispute.dispute_reason)
-        si_rank = order.index('SERVICE_INITIATION') if 'SERVICE_INITIATION' in order else 0
-        pos = len(sections)
-        for idx, s in enumerate(sections):
-            s_rank = order.index(s['key']) if s['key'] in order else len(order)
-            if s_rank > si_rank:
-                pos = idx
-                break
-        sections.insert(pos, {'key': 'SERVICE_INITIATION',
-                              'title': SECTION_TITLES['SERVICE_INITIATION'], 'items': []})
+    # The customer's own claim submission (intake_panel) renders once as the lead
+    # of the case record in the template — it is NOT repeated inside a section, so
+    # we no longer force an empty SERVICE_INITIATION section just to host it.
 
     identity = _identity_context(dispute, ticket, claim_emails=claim_emails)
     identity['submission_ip_display'] = _fmt_ip(identity.get('submission_ip', ''))
