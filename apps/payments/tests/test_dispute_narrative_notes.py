@@ -85,10 +85,16 @@ class FallbackTests(TestCase):
         claim = _full_claim()
         d = _dispute(claim=claim, zd_ticket_id='97001', dispute_amount=Decimal('74.00'),
                      dispute_currency='USD')
-        ticket = {'created_at': '2026-02-03T21:14:00Z',
+        # Ticket created at 21:10 by the abandoned-cart notice; the customer paid
+        # and the intake note posted at 21:14 — the submission date must follow
+        # the intake note, not the earlier ticket-creation time.
+        intake = {'author': {'name': 'System', 'email': 'sys@alf.com'}, 'public': False,
+                  'created_at': '2026-02-03T21:14:00Z', 'attachments': [],
+                  'body': 'Registration ID: ALF5490789\nName: Lee Foley\nDate/Time: February 3, 2026'}
+        ticket = {'created_at': '2026-02-03T21:10:00Z',
                   'custom_fields': [{'id': ds.SUBMISSION_IP_FIELD_ID, 'value': '203.0.113.7'}]}
         with patch.object(ds, '_fetch_zendesk_ticket_full',
-                          return_value={'ticket': ticket, 'comments': COMMENTS}):
+                          return_value={'ticket': ticket, 'comments': [intake] + COMMENTS}):
             out = ds.build_dispute_narrative_notes(d)
         self.assertEqual(out['source'], 'FALLBACK')
         notes = out['notes']
@@ -97,7 +103,7 @@ class FallbackTests(TestCase):
         self.assertIn('American Airlines', notes)      # flight verified
         self.assertIn('Terms and Conditions', notes)
         self.assertIn('resolve this dispute in our favour', notes)
-        self.assertIn('Feb 03, 2026', notes)           # consent date from ticket creation
+        self.assertIn('Feb 03, 2026 15:14', notes)     # consent date from the intake note (21:14 UTC)
         self.assertIn('203.0.113.7', notes.replace('​', ''))  # IP zero-width-spaced for display
 
     def test_fallback_counts_our_public_updates(self):
