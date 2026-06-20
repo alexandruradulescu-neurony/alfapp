@@ -175,8 +175,11 @@
 
 <p class="narr">The client also expressly authorised us to search for their lost item on their behalf, and accepted our Terms and Conditions{% if consent.when %} when they submitted the claim on {{ consent.when }}{% endif %}{% if consent.ip %}, from IP address {{ consent.ip }}{% endif %} — see the checkout below:</p>
 
-{% if assets.checkout %}<img class="doc-img" src="{{ assets.checkout }}" alt="Annotated checkout showing fee, refund period, terms acceptance and authorisation">
-<p class="cap">Checkout flow — fee, clearly stated refund period, Terms acceptance, and the customer's authorisation to search on their behalf.</p>{% endif %}
+<p class="narr">The reconstruction below is generated from this customer's own order record. The highlighted areas (&#9312;&ndash;&#9316;) mark what the customer was shown and agreed to before paying; only the customer details and the fee change from one case to the next.</p>
+
+{% include 'disputes/_checkout_evidence.html' %}
+
+<p class="cap">What the highlights show &mdash; &#9312; clear explanation of the service &nbsp;&middot;&nbsp; &#9313; refund period clearly stated &nbsp;&middot;&nbsp; &#9314; the service fee &nbsp;&middot;&nbsp; &#9315; the customer accepted the Terms &amp; Conditions before paying &nbsp;&middot;&nbsp; &#9316; the customer authorized us to search on their behalf.</p>
 
 {% if recorded_acceptance %}
 <div class="vaccept">
