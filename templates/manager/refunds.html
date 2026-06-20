@@ -193,6 +193,18 @@
       <div class="flex justify-between gap-4 py-2.5"><dt class="lora-label">Created</dt><dd class="lora-value text-right">{{ refund.created_at|date:"M d, Y H:i" }}{% if refund.created_by %} by {{ refund.created_by.username }}{% endif %}</dd></div>
       {% if refund.processed_at %}<div class="flex justify-between gap-4 py-2.5 last:pb-0"><dt class="lora-label">Processed</dt><dd class="lora-value text-right">{{ refund.processed_at|date:"M d, Y H:i" }}</dd></div>{% endif %}
     </dl>
+
+    {% if refund.status == 'PENDING' and refund.external_source == 'WOOCOMMERCE' %}
+    <div class="mt-4 rounded-xl bg-amber-50 ring-1 ring-inset ring-amber-600/20 p-4">
+      <p class="text-sm font-medium text-amber-800">{% heroicon_outline "exclamation-triangle" class="size-4" %} Refund not confirmed</p>
+      <p class="mt-1 text-xs text-amber-700">{{ refund.metadata.last_error|default:"LORA hasn't received confirmation from WooCommerce for this refund." }}</p>
+      <p class="mt-1 text-xs text-amber-700">The money may already have moved. Re-check pulls the real status from WooCommerce — it never issues a new refund.</p>
+      <button type="button" onclick="reconcileRefund({{ refund.id }}, this)"
+              class="mt-3 inline-flex items-center gap-x-1.5 rounded-md bg-white px-3 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
+        {% heroicon_outline "arrow-path" class="size-4" %} Re-check refund status in WooCommerce
+      </button>
+    </div>
+    {% endif %}
   </div>
   {% endfor %}
 </div>
@@ -255,5 +267,30 @@ document.getElementById('refundForm').addEventListener('submit', async function(
         else { alert('Error: ' + (result.error || 'Failed to process refund')); }
     } catch (error) { alert('Error: ' + error.message); }
 });
+
+async function reconcileRefund(refundId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking WooCommerce…'; }
+    try {
+        const response = await fetch('/api/payments/refunds/' + refundId + '/reconcile/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+        });
+        const result = await response.json();
+        if (response.ok && result.refund) {
+            alert('Confirmed in WooCommerce — this refund is now marked completed.');
+            window.location.reload();
+        } else if (response.ok) {
+            // Reached WooCommerce, but nothing to complete (no match / not found).
+            alert(result.message || 'No matching refund found in WooCommerce.');
+            if (btn) { btn.disabled = false; }
+        } else {
+            alert('Error: ' + (result.error || 'Could not check WooCommerce'));
+            if (btn) { btn.disabled = false; }
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+        if (btn) { btn.disabled = false; }
+    }
+}
 </script>
 {% endblock %}

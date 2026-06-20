@@ -288,6 +288,30 @@ class RefundViewSet(viewsets.ModelViewSet):
         output_serializer = RefundSerializer(refund)
         return Response(output_serializer.data)
     
+    @action(detail=True, methods=['post'])
+    def reconcile(self, request, pk=None):
+        """Reconcile a stuck PENDING WooCommerce refund against WooCommerce.
+
+        POST /api/payments/refunds/{id}/reconcile/
+        Pulls the order's actual refunds from WooCommerce (read-only) and, if one
+        matches this row's amount, marks it COMPLETED — the self-heal for a refund
+        that LORA issued but couldn't confirm (the call timed out). Moves no money.
+        """
+        refund = self.get_object()
+        result = RefundService().reconcile_woocommerce_refund(refund)
+        if not result['success']:
+            code = (status.HTTP_502_BAD_GATEWAY if result.get('indeterminate')
+                    else status.HTTP_400_BAD_REQUEST)
+            return Response({'error': result.get('error', 'Could not reconcile'),
+                             'indeterminate': result.get('indeterminate', False)}, status=code)
+        if result.get('reconciled'):
+            return Response({'message': 'Refund confirmed in WooCommerce and marked completed.',
+                             'refund': RefundSerializer(result['refund']).data})
+        # Reached WooCommerce, but nothing to mark completed — report honestly.
+        return Response({'message': result.get('message', 'No matching WooCommerce refund found.'),
+                         'reconciled': False,
+                         'found': result.get('found', True)}, status=status.HTTP_200_OK)
+
     @action(detail=False, methods=['get'])
     def stats(self, request):
         """
