@@ -521,15 +521,23 @@ class BottomLineAndTimelineTests(TestCase):
         self.assertIn('Jun 11, 2026 07:30', joined)
         self.assertIn('203.0.113.7', joined)
 
-    def test_bundle_consent_from_ticket_creation_time(self):
+    def test_bundle_consent_from_intake_note_not_ticket_creation(self):
+        # The ticket is created at 21:10 by the abandoned-cart notice; the
+        # customer pays and the intake "Registration ID" note posts at 21:14.
+        # Consent (when the claim was submitted & paid) must follow the intake
+        # note, NOT the earlier ticket-creation/abandoned-cart time.
         claim = Claim.objects.create(client_email='b@example.com', zd_ticket_id='97001')
         d = _dispute(claim=claim, zd_ticket_id='97001')
-        ticket = {'created_at': '2026-02-03T21:14:00Z',
+        ticket = {'created_at': '2026-02-03T21:10:00Z',
                   'custom_fields': [{'id': ds.SUBMISSION_IP_FIELD_ID, 'value': '203.0.113.7'}]}
+        comments = [{'author': {}, 'public': False, 'attachments': [],
+                     'created_at': '2026-02-03T21:14:00Z',
+                     'body': 'Registration ID: ALF000\nName: B'}]
         with patch.object(ds, '_fetch_zendesk_ticket_full',
-                          return_value={'ticket': ticket, 'comments': []}):
+                          return_value={'ticket': ticket, 'comments': comments}):
             bundle = ds.build_dispute_evidence_bundle(d, use_ai=False)
-        # 21:14 UTC = 15:14 CST (America/Chicago) — same wall-clock Zendesk shows.
+        # 21:14 UTC = 15:14 CST (America/Chicago) — the intake-note wall-clock,
+        # not 15:10 (the abandoned-cart ticket creation).
         self.assertEqual(bundle['consent']['when'], 'Feb 03, 2026 15:14')
         self.assertEqual(bundle['consent']['ip'].replace('​', ''), '203.0.113.7')  # zero-width-spaced display
 

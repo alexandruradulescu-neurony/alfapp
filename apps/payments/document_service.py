@@ -1065,28 +1065,33 @@ def _parse_dt(value):
         return None
 
 
-def _build_timeline(dispute, comments: list) -> list:
+def _build_timeline(dispute, comments: list, submitted_at=None) -> list:
     """The case as it actually happened, with timestamps and in order, so the
     effort is visible: the claim submission FIRST (the customer files the form on
     our site — we never initiate contact), then every call we made, every update
     we sent, and every reply the customer sent, chronologically, ending with the
-    PayPal dispute. Each entry: {'when': 'Jun 13, 2026 19:43', 'label': ...}."""
+    PayPal dispute. Each entry: {'when': 'Jun 13, 2026 19:43', 'label': ...}.
+
+    `submitted_at` is the authoritative moment the paid claim entered our system
+    (the intake-note time — see build_dispute_evidence_bundle). It anchors both
+    the first event AND the pre-claim cutoff, so the abandoned-cart notice that
+    predates payment is dropped. Falls back to the claim row's creation time."""
     claim = dispute.claim
     client_email = ((claim.client_email if claim else '') or '').strip().lower()
-    claim_created = getattr(claim, 'created_at', None) if claim else None
+    anchor = submitted_at or (getattr(claim, 'created_at', None) if claim else None)
     events = []  # (datetime, label)
 
     # Step 1 — the genuine first step (the customer's own action, with time).
-    if claim_created:
-        events.append((claim_created, 'Claim submitted on our website'))
+    if anchor:
+        events.append((anchor, 'Claim submitted on our website'))
 
     for c in comments:
         when = _parse_dt(c.get('created_at'))
         if when is None:
             continue
         # Nothing happens before the claim is submitted — drop pre-claim noise
-        # (e.g. the abandoned-cart notification that predates the form).
-        if claim_created and when < claim_created:
+        # (e.g. the abandoned-cart notification that predates the payment).
+        if anchor and when < anchor:
             continue
         call = c.get('call')
         if c.get('channel') == 'voice' or call:
@@ -1120,8 +1125,8 @@ def _build_timeline(dispute, comments: list) -> list:
 
 def _consent_clause(consent: dict) -> str:
     """' when they submitted the claim on <date>, from IP <ip>' — built from the
-    Zendesk ticket-creation time (the form is filed the instant it's submitted,
-    so that IS the consent moment) and the submission IP. Blank when unknown."""
+    intake-note time (when the customer paid and the claim entered our system,
+    which IS the consent moment) and the submission IP. Blank when unknown."""
     consent = consent or {}
     when, ip = consent.get('when'), consent.get('ip')
     if when and ip:
@@ -1303,9 +1308,11 @@ def _flight_card(claim) -> Optional[dict]:
     }
 
 
-def _narrative_fields(dispute) -> dict:
+def _narrative_fields(dispute, submitted_at=None) -> dict:
     """The header/narrative values the template slots into the Word-template
-    prose. Missing pieces are left blank — never fabricated."""
+    prose. Missing pieces are left blank — never fabricated. `submitted_at` is
+    the authoritative claim-entry time (intake note); it overrides the claim
+    row's creation time for the displayed submission date."""
     claim = dispute.claim
     fee = None
     if claim and claim.price_paid is not None:
@@ -1329,7 +1336,7 @@ def _narrative_fields(dispute) -> dict:
         'object': object_short,
         'fee': fee,
         'currency': currency,
-        'visit_date': (claim.created_at if claim else dispute.transaction_date),
+        'visit_date': submitted_at or (claim.created_at if claim else dispute.transaction_date),
         'terms_url': TERMS_URL,
     }
 
@@ -1525,6 +1532,20 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
             intake_panel = p
         else:
             rest_panels.append(p)
+
+    # The authoritative "claim submitted & paid" moment is when that intake note
+    # entered Zendesk — NOT the ticket-creation time (that's the earlier
+    # abandoned-cart notification, ~2 min before payment) and NOT our claim row
+    # (sync lag, ~5 min after). Everything that displays a submission time uses
+    # this single value; fall back to the claim row, then the ticket.
+    submitted_dt = None
+    for c in comments:
+        if (c.get('body') or '').lstrip()[:16].lower().startswith('registration id'):
+            submitted_dt = _parse_dt(c.get('created_at'))
+            break
+    if submitted_dt is None:
+        submitted_dt = ((getattr(dispute.claim, 'created_at', None) if dispute.claim else None)
+                        or _parse_dt(ticket.get('created_at')))
     flight_card = _flight_card(dispute.claim)
     framing = CATEGORY_FRAMING.get(dispute.dispute_reason, DEFAULT_FRAMING)
 
@@ -1556,14 +1577,29 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
 
     narrative = _narrate_evidence(dispute, items, dispute.claim) if use_ai else None
     sections = _group_into_sections(items, narrative, reason=dispute.dispute_reason)
+    # The customer's own claim submission opens the service (the template repeats
+    # the intake panel at the top of this section). Guarantee the section exists,
+    # in this reason's priority order, even when the AI placed nothing else there.
+    if intake_panel and not any(s['key'] == 'SERVICE_INITIATION' for s in sections):
+        order = _section_priority_for(dispute.dispute_reason)
+        si_rank = order.index('SERVICE_INITIATION') if 'SERVICE_INITIATION' in order else 0
+        pos = len(sections)
+        for idx, s in enumerate(sections):
+            s_rank = order.index(s['key']) if s['key'] in order else len(order)
+            if s_rank > si_rank:
+                pos = idx
+                break
+        sections.insert(pos, {'key': 'SERVICE_INITIATION',
+                              'title': SECTION_TITLES['SERVICE_INITIATION'], 'items': []})
 
     identity = _identity_context(dispute, ticket, claim_emails=claim_emails)
     identity['submission_ip_display'] = _fmt_ip(identity.get('submission_ip', ''))
     claim = dispute.claim
-    # The Zendesk ticket is created the instant the form is submitted, so its
-    # creation time is the consent moment; pair it with the submission IP
+    # The consent moment is when the customer paid and the claim entered our
+    # system (the intake-note time computed above), NOT the ticket-creation time
+    # (that is the earlier abandoned-cart notice). Pair it with the submission IP
     # (display-formatted so a viewer can't read it as a phone number).
-    consent = {'when': _fmt_zd_time(ticket.get('created_at')),
+    consent = {'when': _fmt_zd_time(submitted_dt),
                'ip': _fmt_ip(identity.get('submission_ip', ''))}
 
     # The claim filer and the payer can be different names on the same account
@@ -1585,12 +1621,12 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
         'intake_panel': intake_panel,
         'flight_card': flight_card,
         'sections': sections,
-        'narrative': _narrative_fields(dispute),
+        'narrative': _narrative_fields(dispute, submitted_at=submitted_dt),
         'framing': framing,
         'bottom_line': _bottom_line(dispute, identity, consent),
         'claims_response': _claims_response(dispute, comments, claim, consent),
         'name_reconciliation': name_reconciliation,
-        'timeline': _build_timeline(dispute, comments),
+        'timeline': _build_timeline(dispute, comments, submitted_at=submitted_dt),
         'identity': identity,
         'consent': consent,
         'alias_used': bool(getattr(claim, 'email_alias', '')) if claim else False,

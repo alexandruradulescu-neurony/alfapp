@@ -185,6 +185,12 @@
 
 {% for section in sections %}
   {% if section.title != 'Case record' %}<div class="sub-h">{{ section.title }}</div>{% endif %}
+  {% if section.key == 'SERVICE_INITIATION' and intake_panel %}
+  <div class="zd-panel">
+    <div class="zd-head"><span class="zd-avatar">&#9787;</span><span class="zd-name">Claim submitted by the customer</span><span class="zd-badge internal">Submission</span><span class="zd-time">&middot; {{ intake_panel.created_at }}</span></div>
+    <div class="zd-body internal">{{ intake_panel.body|escape|linebreaks }}{% for img in intake_panel.images %}<img class="zd-att" src="{{ img.data_uri }}" alt="{{ img.file_name }}">{% endfor %}</div>
+  </div>
+  {% endif %}
   {% for item in section.items %}
     {% if item.explanation %}<div class="why"><b>Why this matters:</b> {{ item.explanation }}</div>{% endif %}
     {% if item.flight_card %}
