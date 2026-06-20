@@ -408,3 +408,96 @@ class ZendeskClaimWebhookView(APIView):
                              'status': result['status']}, status=status.HTTP_200_OK)
         return Response({'message': 'Status updated', 'claim_id': result['claim_id'],
                          'status': result['status']}, status=status.HTTP_200_OK)
+
+
+def _latest_public_comment_author(comments) -> str:
+    """Email (lowercased) of the author of the most recent PUBLIC comment, or ''
+    when there is no public comment or no author email. Comments arrive in
+    chronological order, so the last public one is the newest."""
+    for c in reversed(comments or []):
+        if c.get('public'):
+            return ((c.get('author') or {}).get('email') or '').strip().lower()
+    return ''
+
+
+def assess_client_reply(claim) -> dict:
+    """Re-read the live Zendesk thread for a claim and re-run the EXISTING summary
+    + risk assessment, because the client just replied INSIDE Zendesk — the one
+    ticket event no other trigger reacts to.
+
+    Reuses refresh_claim_summary, which rewrites the at-a-glance summary AND
+    re-scores risk (hostile_language / refund_demanded / dispute_risk /
+    negative_sentiment, plus the chargeback/lawyer/BBB keyword backstop). So an
+    upset reply raises the at-risk flag — which already pauses automated client
+    updates — while a normal reply just refreshes the summary.
+
+    Stores nothing new: the reply is read live and assessed, never mirrored into
+    the DB. Guard: only acts when the newest public comment is actually the
+    client's (the Zendesk trigger is the primary filter; this defends against a
+    misfire). Returns an outcome dict and never raises (the webhook must not make
+    Zendesk retry)."""
+    if not claim.zd_ticket_id:
+        return {'outcome': 'no_ticket'}
+    ticket_data = fetch_zendesk_ticket(claim.zd_ticket_id)
+    if not ticket_data:
+        return {'outcome': 'fetch_failed'}
+    comments = fetch_zendesk_comments(claim.zd_ticket_id) or []
+    ticket_data['comments'] = comments
+    client_email = (claim.client_email or '').strip().lower()
+    author = _latest_public_comment_author(comments)
+    # Skip when the newest public comment is clearly NOT the client (an agent or
+    # institution reply). If the author email is unknown, proceed rather than risk
+    # dropping a real client reply.
+    if author and client_email and author != client_email:
+        return {'outcome': 'not_client_reply'}
+    try:
+        refresh_claim_summary(claim, ticket_data)
+    except Exception as e:
+        logger.error("Client-reply assessment failed for claim #%s: %s", claim.id, e)
+        return {'outcome': 'assess_failed', 'claim_id': claim.id}
+    return {'outcome': 'assessed', 'claim_id': claim.id,
+            'risk_level': claim.risk_level, 'risk_active': claim.risk_active}
+
+
+class ZendeskClientReplyWebhookView(APIView):
+    """Webhook fired by a Zendesk trigger the moment the CLIENT (requester) posts a
+    public reply — the one ticket event no other trigger reacts to. LORA re-reads
+    the thread and re-runs the existing sentiment/risk assessment, so an upset
+    reply is flagged at-risk (which pauses automated client updates) and the
+    summary reflects the reply. Nothing is mirrored into the DB.
+
+    Auth: the same X-Webhook-Secret shared secret as the other webhooks.
+    Body: {"ticket_id": "<id>"}.
+    """
+
+    permission_classes = [AllowAny]  # Webhook secret verification
+
+    def post(self, request):
+        try:
+            secret_error = verify_webhook_secret(request, context='client-reply webhook')
+            if secret_error:
+                return secret_error
+
+            data = request.data if isinstance(request.data, dict) else {}
+            detail_data = data.get('detail') if isinstance(data.get('detail'), dict) else {}
+            ticket_id = detail_data.get('id') or data.get('ticket_id')
+            if not ticket_id:
+                return Response({'error': 'Missing required field: ticket_id'},
+                                status=status.HTTP_400_BAD_REQUEST)
+            ticket_id = str(ticket_id)
+
+            claim = Claim.objects.filter(zd_ticket_id=ticket_id).first()
+            if not claim:
+                # No claim for this ticket — nothing to assess. 200 so Zendesk
+                # does not retry.
+                return Response({'message': 'Ignored: no claim for ticket',
+                                 'ticket_id': ticket_id}, status=status.HTTP_200_OK)
+
+            result = assess_client_reply(claim)
+            return Response({'message': 'Client reply assessed', **result},
+                            status=status.HTTP_200_OK)
+        except Exception as e:
+            # A best-effort risk check must never trigger a Zendesk retry storm.
+            logger.error("Client-reply webhook failed: %s", e)
+            return Response({'message': 'Error handled', 'error': str(e)},
+                            status=status.HTTP_200_OK)
