@@ -606,6 +606,52 @@ class RecordedAcceptanceTests(TestCase):
         self.assertNotIn('Recorded verbal acceptance', html)
 
 
+class CheckoutEvidenceTests(TestCase):
+    """The checkout page is generated from the order record (real customer + fee)
+    and embedded in the report, replacing the old fixed $55/Australian screenshot.
+    The five highlights stay on the page; the explanatory text is in the report."""
+
+    def test_split_address_common_us_format(self):
+        out = ds._split_address('County Road 1140, Cooper, TX 75432, United States')
+        self.assertEqual(out['street'], 'County Road 1140')
+        self.assertEqual(out['suburb'], 'Cooper')
+        self.assertEqual(out['state'], 'TX')
+        self.assertEqual(out['postcode'], '75432')
+        self.assertEqual(out['country'], 'United States')
+
+    def test_split_address_degrades_safely(self):
+        self.assertEqual(ds._split_address('')['street'], '')          # empty is safe
+        two = ds._split_address('Main St, Springfield')
+        self.assertEqual(two['street'], 'Main St')
+
+    def test_checkout_context_price_and_address(self):
+        claim = Claim.objects.create(client_email='b@e.com', price_paid=Decimal('65.00'),
+                                     billing_address='County Road 1140, Cooper, TX 75432, United States')
+        d = _dispute(claim=claim, dispute_currency='USD', dispute_amount=Decimal('65.00'))
+        ctx = ds._checkout_context(d)
+        self.assertEqual(ctx['price'], '65')        # 65.00 -> 65
+        self.assertEqual(ctx['currency'], 'USD')
+        self.assertEqual(ctx['suburb'], 'Cooper')
+
+    def test_report_embeds_generated_checkout_not_static(self):
+        claim = Claim.objects.create(client_email='b@e.com', zd_ticket_id='97001',
+                                     price_paid=Decimal('65.00'),
+                                     billing_address='County Road 1140, Cooper, TX 75432, United States')
+        d = _dispute(claim=claim, zd_ticket_id='97001', dispute_currency='USD',
+                     dispute_reason='MERCHANDISE_OR_SERVICE_NOT_RECEIVED')
+        ticket = {'created_at': '2026-02-03T21:14:00Z', 'custom_fields': []}
+        with patch.object(ds, '_fetch_zendesk_ticket_full',
+                          return_value={'ticket': ticket, 'comments': []}):
+            bundle = ds.build_dispute_evidence_bundle(d, use_ai=False)
+            html = render_to_string(ds.report_template_for(d), bundle)
+        self.assertIn('class="cko"', html)                        # generated checkout present
+        self.assertIn('$65', html)                                 # the case fee
+        self.assertIn('Cooper', html)                              # the customer's address
+        self.assertEqual(html.count('class="pin"'), 5)             # the five highlights
+        self.assertNotIn('Annotated checkout showing fee', html)   # old static image gone
+        self.assertIn('What the highlights show', html)            # legend lives in the report
+
+
 class SectionOrderingTests(TestCase):
     def test_unauthorised_leads_with_service_initiation(self):
         order = ds._section_priority_for('UNAUTHORISED')

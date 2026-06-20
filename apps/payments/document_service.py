@@ -1544,6 +1544,52 @@ def report_template_for(dispute) -> str:
     return CATEGORY_REPORT_TEMPLATES.get(dispute.dispute_reason, GENERIC_EVIDENCE_TEMPLATE)
 
 
+def _split_address(addr: str) -> dict:
+    """Best-effort split of the single stored billing-address string into the
+    checkout's structured fields. Handles the common 'Street, City, State ZIP,
+    Country' shape and degrades gracefully (always safe, never raises). The full
+    string is shown verbatim regardless; these only fill the sub-fields."""
+    out = {'street': '', 'suburb': '', 'state': '', 'postcode': '', 'country': ''}
+    parts = [p.strip() for p in (addr or '').replace('\n', ', ').split(',') if p.strip()]
+    if not parts:
+        return out
+    out['street'] = parts[0]
+    if len(parts) == 2:
+        out['country'] = parts[1]
+    elif len(parts) == 3:
+        out['suburb'], out['country'] = parts[1], parts[2]
+    elif len(parts) >= 4:
+        out['suburb'], out['country'] = parts[1], parts[-1]
+        mid = parts[-2]                      # usually "State ZIP" / "State POSTCODE"
+        toks = mid.split()
+        if len(toks) >= 2 and any(c.isdigit() for c in toks[-1]):
+            out['postcode'], out['state'] = toks[-1], ' '.join(toks[:-1])
+        else:
+            out['state'] = mid
+    return out
+
+
+def _checkout_context(dispute) -> dict:
+    """Per-case values for the generated checkout-evidence page: the fee, the
+    currency, and the customer's billing address (the layout/copy is fixed in
+    the template). Replaces the old fixed checkout screenshot so the page shows
+    THIS customer and THIS fee."""
+    claim = dispute.claim
+    price = None
+    if claim and claim.price_paid is not None:
+        price = claim.price_paid
+    elif dispute.dispute_amount is not None:
+        price = dispute.dispute_amount
+    price_str = ''
+    if price is not None:
+        price_str = f"{price:.2f}".rstrip('0').rstrip('.')   # 65.00 -> 65, 65.50 -> 65.5
+    addr = ((getattr(claim, 'billing_address', '') or '').strip()) if claim else ''
+    ctx = {'price': price_str, 'currency': (dispute.dispute_currency or 'USD'),
+           'full_address': addr}
+    ctx.update(_split_address(addr))
+    return ctx
+
+
 def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
                                   use_ai: bool = True) -> dict:
     """Gather EVERYTHING an evidence report could need for a dispute, once,
@@ -1684,8 +1730,8 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
         'alias_used': bool(getattr(claim, 'email_alias', '')) if claim else False,
         'assets': {
             'homepage': _asset_data_uri('homepage.jpg'),
-            'checkout': _asset_data_uri('checkout_annotated.jpg'),
         },
+        'checkout': _checkout_context(dispute),
         'claim_evidence': evidence_list,
         'communication_history': communication_history,
         'category': dispute.dispute_reason,
