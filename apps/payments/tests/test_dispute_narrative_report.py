@@ -619,6 +619,25 @@ class CheckoutEvidenceTests(TestCase):
         self.assertEqual(out['postcode'], '75432')
         self.assertEqual(out['country'], 'United States')
 
+    def test_split_address_labeled_format(self):
+        # The form we actually store: labels, no commas.
+        out = ds._split_address('Street Address: 110 Horseshoe Drive City: Cooper State: TX Zip: 75432 Country: US')
+        self.assertEqual(out['street'], '110 Horseshoe Drive')
+        self.assertEqual(out['suburb'], 'Cooper')
+        self.assertEqual(out['state'], 'TX')
+        self.assertEqual(out['postcode'], '75432')
+        self.assertEqual(out['country'], 'US')
+
+    def test_checkout_full_address_is_clean_not_labeled(self):
+        claim = Claim.objects.create(
+            client_email='b@e.com', price_paid=Decimal('65.00'),
+            billing_address='Street Address: 110 Horseshoe Drive City: Cooper State: TX Zip: 75432 Country: US')
+        d = _dispute(claim=claim, dispute_currency='USD')
+        ctx = ds._checkout_context(d)
+        self.assertEqual(ctx['full_address'], '110 Horseshoe Drive, Cooper, TX 75432, US')
+        self.assertNotIn('Street Address:', ctx['full_address'])   # no labeled blob leaks
+        self.assertEqual(ctx['street'], '110 Horseshoe Drive')
+
     def test_split_address_degrades_safely(self):
         self.assertEqual(ds._split_address('')['street'], '')          # empty is safe
         two = ds._split_address('Main St, Springfield')

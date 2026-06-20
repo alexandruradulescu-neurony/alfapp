@@ -1544,13 +1544,39 @@ def report_template_for(dispute) -> str:
     return CATEGORY_REPORT_TEMPLATES.get(dispute.dispute_reason, GENERIC_EVIDENCE_TEMPLATE)
 
 
+_ADDR_LABELS = {
+    'street address': 'street', 'street': 'street', 'address': 'street',
+    'city': 'suburb', 'town': 'suburb', 'suburb': 'suburb',
+    'state': 'state', 'province': 'state', 'region': 'state',
+    'zip code': 'postcode', 'zip': 'postcode', 'postal code': 'postcode', 'postcode': 'postcode',
+    'country': 'country',
+}
+# Longer labels first so "Street Address" wins over "Street", "Zip Code" over "Zip".
+_ADDR_LABEL_RE = re.compile(
+    r'\b(street address|street|address|city|town|suburb|state|province|region|'
+    r'zip code|zip|postal code|postcode|country)\s*:', re.I)
+
+
 def _split_address(addr: str) -> dict:
-    """Best-effort split of the single stored billing-address string into the
-    checkout's structured fields. Handles the common 'Street, City, State ZIP,
-    Country' shape and degrades gracefully (always safe, never raises). The full
-    string is shown verbatim regardless; these only fill the sub-fields."""
+    """Split the single stored billing-address string into structured fields.
+    Handles the LABELED form we actually store ("Street Address: X City: Y
+    State: Z Zip: W Country: V") by parsing each label's value up to the next
+    label, and falls back to the comma form ("Street, City, State ZIP,
+    Country"). Always safe, never raises; unknown shapes leave fields blank."""
     out = {'street': '', 'suburb': '', 'state': '', 'postcode': '', 'country': ''}
-    parts = [p.strip() for p in (addr or '').replace('\n', ', ').split(',') if p.strip()]
+    addr = (addr or '').strip()
+    if not addr:
+        return out
+    markers = list(_ADDR_LABEL_RE.finditer(addr))
+    if markers:                                  # labeled form (what we store)
+        for i, m in enumerate(markers):
+            field = _ADDR_LABELS.get(m.group(1).lower())
+            end = markers[i + 1].start() if i + 1 < len(markers) else len(addr)
+            val = addr[m.end():end].strip().strip(',').strip()
+            if field and val and not out[field]:
+                out[field] = val
+        return out
+    parts = [p.strip() for p in addr.replace('\n', ', ').split(',') if p.strip()]
     if not parts:
         return out
     out['street'] = parts[0]
@@ -1560,12 +1586,11 @@ def _split_address(addr: str) -> dict:
         out['suburb'], out['country'] = parts[1], parts[2]
     elif len(parts) >= 4:
         out['suburb'], out['country'] = parts[1], parts[-1]
-        mid = parts[-2]                      # usually "State ZIP" / "State POSTCODE"
-        toks = mid.split()
+        toks = parts[-2].split()                 # usually "State ZIP"
         if len(toks) >= 2 and any(c.isdigit() for c in toks[-1]):
             out['postcode'], out['state'] = toks[-1], ' '.join(toks[:-1])
         else:
-            out['state'] = mid
+            out['state'] = parts[-2]
     return out
 
 
@@ -1573,7 +1598,8 @@ def _checkout_context(dispute) -> dict:
     """Per-case values for the generated checkout-evidence page: the fee, the
     currency, and the customer's billing address (the layout/copy is fixed in
     the template). Replaces the old fixed checkout screenshot so the page shows
-    THIS customer and THIS fee."""
+    THIS customer and THIS fee. `full_address` is rebuilt CLEAN from the parsed
+    parts (so the labeled raw string never leaks into the field)."""
     claim = dispute.claim
     price = None
     if claim and claim.price_paid is not None:
@@ -1584,9 +1610,12 @@ def _checkout_context(dispute) -> dict:
     if price is not None:
         price_str = f"{price:.2f}".rstrip('0').rstrip('.')   # 65.00 -> 65, 65.50 -> 65.5
     addr = ((getattr(claim, 'billing_address', '') or '').strip()) if claim else ''
+    parts = _split_address(addr)
+    state_zip = ' '.join(x for x in (parts['state'], parts['postcode']) if x).strip()
+    clean = ', '.join(x for x in (parts['street'], parts['suburb'], state_zip, parts['country']) if x)
     ctx = {'price': price_str, 'currency': (dispute.dispute_currency or 'USD'),
-           'full_address': addr}
-    ctx.update(_split_address(addr))
+           'full_address': clean or addr}
+    ctx.update(parts)
     return ctx
 
 
