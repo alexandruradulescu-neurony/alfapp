@@ -172,6 +172,22 @@ class BuildFilesTests(TestCase):
         sub = DisputeSubmission.objects.create(dispute=d, notes='n', attach_evidence_pdf=False)
         self.assertEqual(pds._build_submission_files(sub), [])
 
+    def test_uploaded_pdf_attachment_sent_as_pdf(self):
+        # A manager-uploaded PDF (stored as a submission "image") must go to
+        # PayPal with the application/pdf content type, alongside the report.
+        d = _dispute()
+        doc = DisputeDocument.objects.create(dispute=d, doc_type='EVIDENCE_REPORT',
+                                             status='DRAFT', generated_by='MANUAL', version=1)
+        doc.file_path.save('report.pdf', ContentFile(b'%PDF-1.4'), save=True)
+        sub = DisputeSubmission.objects.create(dispute=d, notes='n', attach_evidence_pdf=True)
+        extra = DisputeSubmissionImage.objects.create(submission=sub)
+        extra.file.save('terms.pdf', ContentFile(b'%PDF-1.7 terms'), save=True)
+
+        files = pds._build_submission_files(sub)
+        self.assertEqual(len(files), 2)                                   # report + uploaded PDF
+        self.assertEqual({f['content_type'] for f in files}, {'application/pdf'})
+        self.assertEqual(sum(1 for f in files if f['filename'].endswith('.pdf')), 2)
+
 
 class SubmitOrchestrationTests(TestCase):
     def setUp(self):

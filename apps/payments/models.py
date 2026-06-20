@@ -692,6 +692,16 @@ class DisputeSubmissionImage(models.Model):
     def __str__(self):
         return f"Image #{self.id} for Submission #{self.submission_id}"
 
+    @property
+    def filename(self) -> str:
+        """Bare filename (no upload path) for display."""
+        return self.file.name.rsplit('/', 1)[-1] if self.file else ''
+
+    @property
+    def is_pdf(self) -> bool:
+        """A PDF attachment renders as a document chip, not an <img> thumbnail."""
+        return self.filename.lower().endswith('.pdf')
+
 
 class ProcessedWebhookEvent(models.Model):
     """

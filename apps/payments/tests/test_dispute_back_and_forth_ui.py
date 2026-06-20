@@ -173,6 +173,41 @@ class PrepareSubmissionTests(_UITestBase):
                       {'action': 'save', 'notes': 'x', 'images': bad})
         self.assertEqual(DisputeSubmissionImage.objects.count(), 0)
 
+    def test_save_attaches_pdf_document(self):
+        d = _dispute()
+        DisputeSubmission.objects.create(dispute=d, notes='x', source='MANUAL', status='DRAFT')
+        pdf = SimpleUploadedFile('terms.pdf', b'%PDF-1.7\n...', content_type='application/pdf')
+        resp = self.web.post(reverse('disputes:dispute_prepare_submission', args=[d.id]),
+                             {'action': 'save', 'notes': 'x', 'images': pdf})
+        self.assertEqual(resp.status_code, 302)
+        draft = d.submissions.get()
+        self.assertEqual(draft.images.count(), 1)
+        att = draft.images.get()
+        self.assertTrue(att.is_pdf)                       # rendered as a PDF chip, not <img>
+        self.assertTrue(att.filename.endswith('.pdf'))
+
+    def test_save_attaches_pdf_and_image_together(self):
+        d = _dispute()
+        DisputeSubmission.objects.create(dispute=d, notes='x', source='MANUAL', status='DRAFT')
+        import io
+        from PIL import Image
+        _b = io.BytesIO(); Image.new('RGB', (10, 10), 'white').save(_b, format='PNG')
+        png = SimpleUploadedFile('shot.png', _b.getvalue(), content_type='image/png')
+        pdf = SimpleUploadedFile('doc.pdf', b'%PDF-1.4 stuff', content_type='application/pdf')
+        self.web.post(reverse('disputes:dispute_prepare_submission', args=[d.id]),
+                      {'action': 'save', 'notes': 'x', 'images': [png, pdf]})
+        draft = d.submissions.get()
+        self.assertEqual(draft.images.count(), 2)         # both ride the same reply
+        self.assertEqual(sum(1 for a in draft.images.all() if a.is_pdf), 1)
+
+    def test_save_rejects_pdf_with_fake_bytes(self):
+        d = _dispute()
+        DisputeSubmission.objects.create(dispute=d, notes='x', source='MANUAL', status='DRAFT')
+        fake = SimpleUploadedFile('evil.pdf', b'NOTPDF', content_type='application/pdf')
+        self.web.post(reverse('disputes:dispute_prepare_submission', args=[d.id]),
+                      {'action': 'save', 'notes': 'x', 'images': fake})
+        self.assertEqual(DisputeSubmissionImage.objects.count(), 0)  # extension spoofing blocked
+
 
 class SubmitToPayPalTests(_UITestBase):
     def test_submit_calls_orchestration_on_success(self):

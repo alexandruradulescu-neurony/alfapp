@@ -30,7 +30,7 @@ from django.core.exceptions import ValidationError
 
 from apps.users.decorators import manager_required
 from apps.claims.models import Claim
-from apps.claims.services import validate_evidence_image
+from apps.claims.services import validate_evidence_attachment
 from apps.payments.models import (Dispute, DisputeDocument, DisputeActivityLog,
                                   DisputeSubmission, DisputeSubmissionImage)
 from apps.payments.document_service import (generate_evidence_report,
@@ -764,10 +764,11 @@ def dispute_prepare_submission(request, dispute_id):
     for f in request.FILES.getlist('images'):
         if not f:
             continue
-        # Validate server-side (size + extension) — don't trust the client's
-        # content_type. Reuses the shared claim-evidence validator.
+        # Validate server-side (size + type) — don't trust the client's
+        # content_type. Dispute attachments allow images AND PDFs (claim
+        # evidence stays image-only).
         try:
-            validate_evidence_image(f)
+            validate_evidence_attachment(f)
         except ValidationError as e:
             messages.error(request, f"{f.name}: {'; '.join(e.messages)}")
             continue
@@ -775,7 +776,7 @@ def dispute_prepare_submission(request, dispute_id):
         saved += 1
     msg = "Submission draft saved."
     if saved:
-        msg += f" {saved} image{'s' if saved != 1 else ''} attached."
+        msg += f" {saved} file{'s' if saved != 1 else ''} attached."
     messages.success(request, msg)
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
