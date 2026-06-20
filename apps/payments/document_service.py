@@ -791,14 +791,65 @@ def _inline_image_data_uri(url: str) -> Optional[str]:
     return _embed_image_data_uri(_fetch_zendesk_image_bytes(url))
 
 
+def _fmt_call_duration(seconds) -> str:
+    """Seconds -> '30 seconds' / '2m 29s'. '' when unknown."""
+    try:
+        s = int(seconds)
+    except (TypeError, ValueError):
+        return ''
+    if s < 0:
+        return ''
+    if s < 60:
+        return f'{s} second{"s" if s != 1 else ""}'
+    return f'{s // 60}m {s % 60}s'
+
+
 def _zendesk_comment_panels(comments: list, embed_images: bool = True,
-                            max_images: int = 14) -> list:
-    """Turn Zendesk comments into 'simulated screenshot' panels: author,
-    public/internal flag, timestamp, body text, and embedded attachment images
-    (the pasted airline confirmations, lost-&-found forms, etc.)."""
+                            max_images: int = 14, client_email: str = '') -> list:
+    """Turn Zendesk comments into 'simulated screenshot' panels that mirror what
+    the ticket looks like in Zendesk:
+      - kind 'call'  -> a phone-call card (from/to/time/length/answered-by);
+      - kind 'note'  -> a comment panel with a direction:
+          'internal' (private note, peach), 'inbound' (the customer wrote in,
+          teal), or 'outbound' (we emailed the customer, white).
+    Timestamps are kept on every panel. Attachment + inline images are embedded
+    as before."""
+    client_email = (client_email or '').strip().lower()
     panels = []
     embedded = 0
     for c in comments:
+        author = c.get('author', {}) or {}
+        public = c.get('public', False)
+        name = author.get('name') or ''
+
+        # Voice call → a structured call card (no body text; it duplicates the
+        # card and carries phone numbers we render only here, never to the AI).
+        call = c.get('call')
+        if (c.get('channel') == 'voice') or call:
+            call = call or {}
+            inbound = 'inbound' in (call.get('direction') or '').lower()
+            frm = ' · '.join(p for p in (call.get('from_name'), call.get('from_phone')) if p)
+            to = ' · '.join(p for p in (call.get('to_name'), call.get('to_phone')) if p)
+            panels.append({
+                'kind': 'call',
+                'author': name or 'Airport Lost & Found team',
+                'author_email': author.get('email', ''),
+                'public': public,
+                'direction': 'internal',
+                'created_at': _fmt_zd_time(call.get('started_at') or c.get('created_at')),
+                'body': '',
+                'images': [],
+                'call': {
+                    'label': 'Inbound call' if inbound else 'Outbound call',
+                    'from': frm, 'to': to,
+                    'when': _fmt_zd_time(call.get('started_at') or c.get('created_at')),
+                    'length': _fmt_call_duration(call.get('duration')),
+                    'answered_by': call.get('answered_by', ''),
+                    'recorded': call.get('recorded', False),
+                },
+            })
+            continue
+
         images = []
         if embed_images:
             for att in c.get('attachments', []):
@@ -820,15 +871,23 @@ def _zendesk_comment_panels(comments: list, embed_images: bool = True,
                 if uri:
                     images.append({'data_uri': uri, 'file_name': ''})
                     embedded += 1
-        author = c.get('author', {}) or {}
-        public = c.get('public', False)
-        name = author.get('name') or ''
+        # Direction: private note (internal), the customer writing in (inbound),
+        # or us replying to the customer (outbound). Matches Zendesk's colours.
+        if not public:
+            direction = 'internal'
+        elif client_email and (author.get('email') or '').strip().lower() == client_email:
+            direction = 'inbound'
+        else:
+            direction = 'outbound'
         if not name or name == 'Unknown':
-            name = 'Support agent' if public else 'Airport Lost & Found team'
+            name = ('the customer' if direction == 'inbound'
+                    else 'Support agent' if public else 'Airport Lost & Found team')
         panels.append({
+            'kind': 'note',
             'author': name,
             'author_email': author.get('email', ''),
             'public': public,
+            'direction': direction,
             'created_at': _fmt_zd_time(c.get('created_at')),
             'body': _clean_comment_body(c.get('body', '')),
             'images': images,
@@ -1275,7 +1334,9 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
 
     evidence_list = _fetch_claim_evidence_base64(dispute.claim) if dispute.claim else []
     communication_history = _fetch_communication_history(dispute, claim_emails=claim_emails)
-    panels = _zendesk_comment_panels(comments, embed_images=embed_attachments)
+    panels = _zendesk_comment_panels(
+        comments, embed_images=embed_attachments,
+        client_email=(dispute.claim.client_email if dispute.claim else ''))
     flight_card = _flight_card(dispute.claim)
     framing = CATEGORY_FRAMING.get(dispute.dispute_reason, DEFAULT_FRAMING)
 
@@ -1291,11 +1352,19 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
             'flight_card': flight_card,
         })
     for i, p in enumerate(panels, start=1):
-        items.append({
-            'index': i, 'kind': 'comment',
-            'channel': 'public' if p['public'] else 'internal',
-            'has_image': bool(p['images']), 'text': (p['body'] or '')[:_EVIDENCE_RECORD_TEXT_CHARS], 'panel': p,
-        })
+        if p.get('kind') == 'call':
+            cc = p['call']
+            # PII-free descriptor for the AI — NEVER the phone numbers or the
+            # customer's name (those render only in the deterministic card).
+            txt = f"{cc['label']} with the customer" + (f" lasting {cc['length']}" if cc['length'] else '') + '.'
+            items.append({'index': i, 'kind': 'call', 'channel': 'internal',
+                          'has_image': False, 'text': txt, 'panel': p})
+        else:
+            items.append({
+                'index': i, 'kind': 'comment',
+                'channel': 'public' if p['public'] else 'internal',
+                'has_image': bool(p['images']), 'text': (p['body'] or '')[:_EVIDENCE_RECORD_TEXT_CHARS], 'panel': p,
+            })
 
     narrative = _narrate_evidence(dispute, items, dispute.claim) if use_ai else None
     sections = _group_into_sections(items, narrative, reason=dispute.dispute_reason)

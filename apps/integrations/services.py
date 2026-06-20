@@ -245,6 +245,28 @@ def fetch_zendesk_comments(zd_ticket_id: str) -> List[Dict[str, Any]]:
                     'size': att.get('size'),
                     'inline': att.get('inline', False),
                 })
+            via = comment.get('via') or {}
+            via_source = via.get('source') or {}
+            channel = via.get('channel', '')
+            # Zendesk Talk voice comment → carry the call card data (from/to,
+            # duration, who answered, when). Phone numbers are PII; the report
+            # places these deterministically and never sends them to the AI.
+            call = None
+            if channel == 'voice':
+                cdata = comment.get('data') or {}
+                frm = via_source.get('from') or {}
+                to = via_source.get('to') or {}
+                call = {
+                    'direction': via_source.get('rel') or '',  # voice_outbound / voice_inbound / outbound
+                    'from_name': frm.get('name', ''),
+                    'from_phone': frm.get('formatted_phone') or frm.get('phone', ''),
+                    'to_name': to.get('name', ''),
+                    'to_phone': to.get('formatted_phone') or to.get('phone', ''),
+                    'started_at': cdata.get('started_at') or comment.get('created_at'),
+                    'duration': cdata.get('call_duration'),  # seconds (int) or None
+                    'answered_by': cdata.get('answered_by_name', ''),
+                    'recorded': bool(cdata.get('recorded')),
+                }
             comments.append({
                 'id': comment.get('id'),
                 'author': {
@@ -257,7 +279,8 @@ def fetch_zendesk_comments(zd_ticket_id: str) -> List[Dict[str, Any]]:
                 'public': comment.get('public', False),
                 'created_at': comment.get('created_at'),
                 'attachments': attachments,
-                'channel': (comment.get('via') or {}).get('channel', ''),
+                'channel': channel,
+                'call': call,
             })
 
         logger.info("Fetched %s comments from ticket %s", len(comments), zd_ticket_id)

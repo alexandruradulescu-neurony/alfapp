@@ -139,12 +139,68 @@ class TemplateRenderTests(TestCase):
         # simulated panels + badges
         self.assertIn('Mark Johnson', html)
         self.assertIn('Internal note', html)
-        self.assertIn('Public reply', html)
+        # public reply from a non-client author → an outbound-to-customer panel
+        self.assertIn('Email to the customer', html)
         # flight card rebuilt from data
         self.assertIn('American Airlines', html)
         self.assertIn('CLT', html)
         # conclusion present
         self.assertIn('Conclusion', html)
+
+
+class PanelFidelityTests(TestCase):
+    """Zendesk-faithful panels: call cards, and inbound/outbound/internal direction."""
+
+    def _voice(self, duration=30, direction='outbound'):
+        return {'author': {'name': 'Mark Johnson', 'email': 'm@alf.com'}, 'public': False,
+                'body': 'Outbound call to +1 (425) 652-8782 ...', 'attachments': [],
+                'channel': 'voice', 'created_at': '2026-06-14T17:00:32Z',
+                'call': {'direction': direction, 'from_name': 'Airport Lost Found',
+                         'from_phone': '+1 (831) 273-4817', 'to_name': 'Elizabeth',
+                         'to_phone': '+1 (425) 652-8782', 'started_at': '2026-06-14T17:00:32Z',
+                         'duration': duration, 'answered_by': 'Mark Johnson', 'recorded': True}}
+
+    def test_voice_comment_becomes_a_call_card(self):
+        p = ds._zendesk_comment_panels([self._voice()], embed_images=False, client_email='e@x.com')[0]
+        self.assertEqual(p['kind'], 'call')
+        self.assertEqual(p['call']['label'], 'Outbound call')
+        self.assertEqual(p['call']['length'], '30 seconds')
+        self.assertEqual(p['call']['answered_by'], 'Mark Johnson')
+        self.assertIn('+1 (425) 652-8782', p['call']['to'])
+        self.assertTrue(p['call']['recorded'])
+
+    def test_inbound_outbound_internal_classification(self):
+        comments = [
+            {'author': {'name': 'Cust', 'email': 'cust@x.com'}, 'public': True, 'body': 'lost it',
+             'attachments': [], 'channel': 'email', 'created_at': '2026-06-14T12:00:00Z'},
+            {'author': {'name': 'Agent', 'email': 'a@alf.com'}, 'public': True, 'body': 'searching',
+             'attachments': [], 'channel': 'email', 'created_at': '2026-06-14T13:00:00Z'},
+            {'author': {'name': 'Agent', 'email': 'a@alf.com'}, 'public': False, 'body': 'note',
+             'attachments': [], 'channel': 'web', 'created_at': '2026-06-14T14:00:00Z'},
+        ]
+        dirs = [p['direction'] for p in ds._zendesk_comment_panels(
+            comments, embed_images=False, client_email='cust@x.com')]
+        self.assertEqual(dirs, ['inbound', 'outbound', 'internal'])
+
+    def test_duration_formatting(self):
+        self.assertEqual(ds._fmt_call_duration(30), '30 seconds')
+        self.assertEqual(ds._fmt_call_duration(1), '1 second')
+        self.assertEqual(ds._fmt_call_duration(149), '2m 29s')
+        self.assertEqual(ds._fmt_call_duration(None), '')
+
+    def test_call_card_renders_with_all_fields(self):
+        claim = Claim.objects.create(client_email='cust@x.com', client_name='Cust',
+                                     alf_claim_id='ALFCALL', zd_ticket_id='97001',
+                                     price_paid=Decimal('74.00'))
+        d = _dispute(claim=claim, zd_ticket_id='97001', dispute_reason='UNAUTHORISED')
+        with patch.object(ds, '_fetch_zendesk_ticket_full',
+                          return_value={'ticket': {'id': '97001'}, 'comments': [self._voice(duration=149)]}):
+            bundle = ds.build_dispute_evidence_bundle(d, use_ai=False)
+            html = render_to_string(ds.report_template_for(d), bundle)
+        self.assertIn('Outbound call', html)
+        self.assertIn('2m 29s', html)              # length
+        self.assertIn('+1 (425) 652-8782', html)   # to number shown on the card
+        self.assertIn('Answered by', html)
 
 
 class TransientDisputePreviewTests(TestCase):
