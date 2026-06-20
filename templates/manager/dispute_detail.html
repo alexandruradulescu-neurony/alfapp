@@ -225,7 +225,8 @@
             {% if not has_invoice %}
             <span class="lora-meta mt-1 block">No WooCommerce order on this claim, so the invoice can't be fetched.</span>
             {% else %}
-            <span class="lora-meta mt-1 block">Fetched from the order when you send (the Oblio invoice).</span>
+            <span class="lora-meta mt-1 block">Fetched from the order when you send.
+              <a href="{% url 'disputes:dispute_preview_invoice' dispute.id %}" target="_blank" rel="noopener" class="text-indigo-600 hover:underline">Preview invoice</a> to confirm it pulls in before sending.</span>
             {% endif %}
             <div class="mt-2">
               <input type="file" name="images" multiple accept="image/*,application/pdf,.pdf"

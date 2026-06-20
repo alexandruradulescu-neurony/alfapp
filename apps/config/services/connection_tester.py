@@ -340,6 +340,46 @@ class ConnectionTester:
             return self._update_status(
                 'WOOCOMMERCE', 'error', success=False, message=str(e))
 
+    def test_oblio(self) -> Dict[str, Any]:
+        """Test the Oblio API credentials (authorize only — fetches no document).
+        Oblio is only the FALLBACK for the customer invoice (the primary path
+        reads the link off the WooCommerce order), so this validates the API
+        login, not the per-order link."""
+        try:
+            settings = SystemSettings.get_instance()
+            email = (settings.oblio_email or '').strip()
+            secret = (settings.oblio_secret or '').strip()
+            if not (email and secret):
+                return self._update_status(
+                    'OBLIO', 'disconnected', success=False,
+                    message='Oblio email and secret not configured')
+            response = requests.post(
+                'https://www.oblio.eu/api/authorize/token',
+                data={'client_id': email, 'client_secret': secret},
+                timeout=self.timeout,
+            )
+            if response.status_code == 200:
+                try:
+                    has_token = bool((response.json() or {}).get('access_token'))
+                except ValueError:
+                    has_token = False
+                if has_token:
+                    return self._update_status(
+                        'OBLIO', 'connected', success=True,
+                        message='Oblio connection successful')
+                return self._update_status(
+                    'OBLIO', 'error', success=False,
+                    message='Oblio authorised but returned no token — check the credentials')
+            if response.status_code in (400, 401, 403):
+                return self._update_status(
+                    'OBLIO', 'error', success=False,
+                    message='Oblio rejected the credentials — check the email and secret')
+            return self._update_status(
+                'OBLIO', 'error', success=False,
+                message=f'Oblio API error: HTTP {response.status_code}')
+        except requests.RequestException as e:
+            return self._update_status('OBLIO', 'error', success=False, message=str(e))
+
     def test_all_services(self) -> Dict[str, Dict[str, Any]]:
         """Test all services and return results."""
         results = {

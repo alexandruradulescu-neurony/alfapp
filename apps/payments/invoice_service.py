@@ -66,32 +66,68 @@ def _oblio_api_link(series, number) -> Optional[str]:
         return None
 
 
-def fetch_invoice_pdf_for_claim(claim) -> Optional[Dict[str, Any]]:
-    """Return a multipart-ready file dict {name, filename, content, content_type}
-    for the claim's customer invoice, or None. Tries the link stored on the
-    WooCommerce order first, then the Oblio API."""
-    order_id = str(getattr(claim, 'woocommerce_id', '') or '').strip()
-    if not order_id:
-        return None
-    try:
-        meta = get_woocommerce_order_meta(order_id)
-    except WooCommerceNotConfigured as e:
-        logger.warning("Invoice fetch: WooCommerce not configured: %s", e)
-        return None
+def _oblio_configured() -> bool:
+    ss = SystemSettings.get_instance()
+    return bool((ss.oblio_email or '').strip() and (ss.oblio_secret or '').strip()
+                and (ss.oblio_cif or '').strip())
 
-    # Primary: the link already saved on the order.
-    pdf = _download_pdf(str(meta.get('oblio_invoice_link') or '').strip())
-    # Fallback: the Oblio API.
-    if not pdf:
-        pdf = _download_pdf(_oblio_api_link(meta.get('oblio_invoice_series_name'),
-                                            meta.get('oblio_invoice_number')))
 
-    if not pdf:
-        logger.warning("No invoice PDF obtained for order %s (claim #%s)",
-                       order_id, getattr(claim, 'id', '?'))
-        return None
-    if not pdf[:5].startswith(b'%PDF'):
-        logger.warning("Invoice for order %s did not look like a PDF; skipping", order_id)
-        return None
+def _as_file(order_id: str, pdf: bytes) -> Dict[str, Any]:
     name = f'invoice_{order_id}.pdf'
     return {'name': name, 'filename': name, 'content': pdf, 'content_type': 'application/pdf'}
+
+
+def fetch_invoice_for_claim(claim) -> Dict[str, Any]:
+    """Fetch the claim's customer invoice and report exactly what happened, so
+    the manager can VERIFY it (not blind-tick a box). Tries the link stored on
+    the WooCommerce order first, then the Oblio API.
+
+    Returns {'ok': bool, 'file': <multipart dict|None>, 'source': str, 'reason': str}.
+    'source' (on success) names where it came from; 'reason' (on failure) is a
+    plain-English explanation safe to show the manager.
+    """
+    order_id = str(getattr(claim, 'woocommerce_id', '') or '').strip()
+    if not order_id:
+        return {'ok': False, 'file': None, 'source': '',
+                'reason': 'This claim has no WooCommerce order id, so there is no invoice to fetch.'}
+    try:
+        meta = get_woocommerce_order_meta(order_id)
+    except WooCommerceNotConfigured:
+        return {'ok': False, 'file': None, 'source': '',
+                'reason': 'WooCommerce is not configured in Settings.'}
+
+    link = str(meta.get('oblio_invoice_link') or '').strip()
+    if link:
+        pdf = _download_pdf(link)
+        if pdf and pdf[:5].startswith(b'%PDF'):
+            return {'ok': True, 'file': _as_file(order_id, pdf), 'reason': '',
+                    'source': "the invoice link saved on the WooCommerce order"}
+
+    api_link = _oblio_api_link(meta.get('oblio_invoice_series_name'),
+                               meta.get('oblio_invoice_number'))
+    if api_link:
+        pdf = _download_pdf(api_link)
+        if pdf and pdf[:5].startswith(b'%PDF'):
+            return {'ok': True, 'file': _as_file(order_id, pdf), 'reason': '',
+                    'source': "the Oblio API"}
+
+    # Build a precise failure reason.
+    if not link and not _oblio_configured():
+        reason = ("No invoice link is saved on this WooCommerce order, and Oblio API "
+                  "credentials aren't set in Settings — add them to enable the fallback.")
+    elif link:
+        reason = ("The invoice link on the order didn't return a usable PDF"
+                  + (", and the Oblio API fallback didn't either."
+                     if _oblio_configured() else " (no Oblio fallback is configured)."))
+    else:
+        reason = ("Couldn't fetch the invoice from Oblio — check the email/secret/CIF and "
+                  "that this order has an invoice series & number.")
+    logger.warning("Invoice fetch failed for order %s (claim #%s): %s",
+                   order_id, getattr(claim, 'id', '?'), reason)
+    return {'ok': False, 'file': None, 'source': '', 'reason': reason}
+
+
+def fetch_invoice_pdf_for_claim(claim) -> Optional[Dict[str, Any]]:
+    """Multipart-ready invoice file dict for the claim, or None. Thin wrapper
+    over fetch_invoice_for_claim (used by the submission file builder)."""
+    return fetch_invoice_for_claim(claim).get('file')

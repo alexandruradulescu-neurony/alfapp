@@ -23,6 +23,7 @@ from apps.payments.frontend_views import (
     dispute_prepare_submission,
     dispute_submit_to_paypal,
     dispute_delete_submission_image,
+    dispute_preview_invoice,
 )
 
 app_name = 'disputes'
@@ -45,6 +46,7 @@ urlpatterns = [
     # Back-and-forth submissions (compose → save draft → send → conversation thread)
     path('<int:dispute_id>/prepare-submission/', dispute_prepare_submission, name='dispute_prepare_submission'),
     path('<int:dispute_id>/submit-to-paypal/', dispute_submit_to_paypal, name='dispute_submit_to_paypal'),
+    path('<int:dispute_id>/preview-invoice/', dispute_preview_invoice, name='dispute_preview_invoice'),
     path('submission-images/<int:image_id>/delete/', dispute_delete_submission_image, name='dispute_delete_submission_image'),
 
     # Document actions (separate URL namespace for documents)

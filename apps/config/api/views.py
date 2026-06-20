@@ -54,6 +54,7 @@ def test_connection(request, service):
         'ZENDESK': tester.test_zendesk,
         'PAYPAL': tester.test_paypal,
         'WOOCOMMERCE': tester.test_woocommerce,
+        'OBLIO': tester.test_oblio,
         'SCHEDULER': tester.get_scheduler_status,
     }
     

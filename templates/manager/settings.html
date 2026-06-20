@@ -279,8 +279,11 @@
         </div>
 
         <div class="border-t border-gray-200 my-5"></div>
-        <p class="lora-eyebrow mb-1">Invoice fallback (Oblio)</p>
-        <p class="lora-meta mb-3 max-w-xl">Optional. The invoice is normally read straight from the WooCommerce order's stored link, so these are only used as a fallback when that link is missing. Provide your Oblio API credentials + company CIF to enable it.</p>
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+            <p class="lora-eyebrow">Invoice fallback (Oblio)</p>
+            <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" data-test="OBLIO">{% heroicon_outline "bolt" class="size-4" %} Test</button>
+        </div>
+        <p class="lora-meta mb-3 max-w-xl">Optional. The invoice is normally read straight from the WooCommerce order's stored link, so these are only used as a fallback when that link is missing. Provide your Oblio API credentials + company CIF to enable it. <span class="text-gray-400">Save first, then Test.</span></p>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl">
             <div>
                 <label class="block text-sm font-medium text-gray-900 mb-1">Oblio email (client id)</label>
