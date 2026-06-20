@@ -4,7 +4,9 @@ link-on-the-order first, Oblio API fallback, and how it rides _build_submission_
 from datetime import datetime, timezone as dt_tz
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.contrib.auth import get_user_model
+from django.test import Client, TestCase
+from django.urls import reverse
 
 from apps.claims.models import Claim
 from apps.payments import invoice_service as inv
@@ -45,7 +47,7 @@ class InvoiceFetchTests(TestCase):
                           return_value={'oblio_invoice_series_name': 'ALF',
                                         'oblio_invoice_number': '14556'}), \
              patch.object(inv, '_oblio_api_link', return_value='https://oblio.eu/api.pdf') as api, \
-             patch.object(inv, '_download_pdf', side_effect=[None, b'%PDF-1.7 api']):
+             patch.object(inv, '_download_pdf', return_value=b'%PDF-1.7 api'):
             f = inv.fetch_invoice_pdf_for_claim(_claim())
         self.assertIsNotNone(f)
         self.assertEqual(f['content_type'], 'application/pdf')
@@ -86,3 +88,96 @@ class BuildFilesInvoiceTests(TestCase):
         sub = self._sub(attach_invoice=True)
         with patch('apps.payments.invoice_service.fetch_invoice_pdf_for_claim', return_value=None):
             self.assertEqual(pds._build_submission_files(sub), [])   # no crash, nothing attached
+
+
+class FetchResultTests(TestCase):
+    """fetch_invoice_for_claim reports ok + source, or a precise reason."""
+
+    def test_ok_names_the_source(self):
+        with patch.object(inv, 'get_woocommerce_order_meta',
+                          return_value={'oblio_invoice_link': 'https://oblio.eu/x.pdf'}), \
+             patch.object(inv, '_download_pdf', return_value=b'%PDF-1.4'):
+            r = inv.fetch_invoice_for_claim(_claim())
+        self.assertTrue(r['ok'])
+        self.assertIsNotNone(r['file'])
+        self.assertIn('order', r['source'])
+
+    def test_no_order_id_reason(self):
+        r = inv.fetch_invoice_for_claim(_claim(woo=''))
+        self.assertFalse(r['ok'])
+        self.assertIn('order id', r['reason'])
+
+    def test_no_link_no_oblio_reason(self):
+        with patch.object(inv, 'get_woocommerce_order_meta', return_value={}), \
+             patch.object(inv, '_oblio_configured', return_value=False), \
+             patch.object(inv, '_oblio_api_link', return_value=None):
+            r = inv.fetch_invoice_for_claim(_claim())
+        self.assertFalse(r['ok'])
+        self.assertIn('Oblio', r['reason'])
+
+
+class PreviewViewTests(TestCase):
+    def setUp(self):
+        self.web = Client()
+        self.web.force_login(get_user_model().objects.create_user(username='prev_mgr', password='x'))
+
+    def test_streams_pdf_on_success(self):
+        d = _dispute(_claim())
+        ok = {'ok': True, 'file': {'filename': 'invoice_37874.pdf', 'content': b'%PDF-1.4 x',
+                                   'content_type': 'application/pdf'}, 'source': 'x', 'reason': ''}
+        with patch('apps.payments.invoice_service.fetch_invoice_for_claim', return_value=ok):
+            resp = self.web.get(reverse('disputes:dispute_preview_invoice', args=[d.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp['Content-Type'], 'application/pdf')
+
+    def test_shows_reason_on_failure(self):
+        d = _dispute(_claim())
+        bad = {'ok': False, 'file': None, 'source': '', 'reason': 'No invoice link on the order yet.'}
+        with patch('apps.payments.invoice_service.fetch_invoice_for_claim', return_value=bad):
+            resp = self.web.get(reverse('disputes:dispute_preview_invoice', args=[d.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('No invoice link on the order yet.', resp.content.decode())
+
+    def test_no_claim_is_400(self):
+        d = Dispute.objects.create(
+            paypal_dispute_id='PP-NC', buyer_email='b@e.com', transaction_id='TX',
+            transaction_date=datetime(2026, 6, 1, tzinfo=dt_tz.utc), dispute_reason='UNAUTHORISED',
+            status='RECEIVED', raw_webhook_payload={})
+        resp = self.web.get(reverse('disputes:dispute_preview_invoice', args=[d.id]))
+        self.assertEqual(resp.status_code, 400)
+
+
+class OblioConnectionTestTests(TestCase):
+    def test_not_configured(self):
+        from apps.config.services.connection_tester import ConnectionTester
+        r = ConnectionTester().test_oblio()
+        self.assertFalse(r['success'])
+        self.assertIn('not configured', r['message'])
+
+    def test_success_with_token(self):
+        from apps.config.models import SystemSettings
+        from apps.config.services import connection_tester as ct
+        ss = SystemSettings.get_instance()
+        ss.oblio_email, ss.oblio_secret, ss.oblio_cif = 'e@x.com', 's', 'RO1'
+        ss.save()
+
+        class _R:
+            status_code = 200
+            def json(self): return {'access_token': 'tok'}
+        with patch.object(ct.requests, 'post', return_value=_R()):
+            r = ct.ConnectionTester().test_oblio()
+        self.assertTrue(r['success'])
+
+    def test_rejected_credentials(self):
+        from apps.config.models import SystemSettings
+        from apps.config.services import connection_tester as ct
+        ss = SystemSettings.get_instance()
+        ss.oblio_email, ss.oblio_secret = 'e@x.com', 's'
+        ss.save()
+
+        class _R:
+            status_code = 401
+            def json(self): return {}
+        with patch.object(ct.requests, 'post', return_value=_R()):
+            r = ct.ConnectionTester().test_oblio()
+        self.assertFalse(r['success'])

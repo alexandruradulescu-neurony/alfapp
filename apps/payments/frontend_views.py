@@ -16,6 +16,8 @@ Provides UI views for managing PayPal disputes:
 import json
 import logging
 from django.shortcuts import render, get_object_or_404, redirect
+from django.http import HttpResponse
+from django.utils.html import escape
 from django.contrib import messages
 from django.db.models import Q, Count
 from django.core.paginator import Paginator
@@ -929,3 +931,39 @@ def dispute_accept_claim(request, dispute_id):
         dispute.release_outbound()
 
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
+
+@manager_required
+def dispute_preview_invoice(request, dispute_id):
+    """Fetch the customer invoice for this dispute NOW and show it, so the
+    manager can VERIFY it before ticking "Attach invoice" (not blind-trust it).
+    On success the PDF opens inline; on failure a short page explains why."""
+    dispute = get_object_or_404(Dispute, pk=dispute_id)
+    if not dispute.claim:
+        return HttpResponse('No claim is linked to this dispute, so there is no invoice to fetch.',
+                            content_type='text/plain', status=400)
+    from apps.payments.invoice_service import fetch_invoice_for_claim
+    try:
+        result = fetch_invoice_for_claim(dispute.claim)
+    except Exception as e:
+        logger.error(f"Invoice preview failed for dispute #{dispute_id}: {e}")
+        result = {'ok': False, 'reason': f'Unexpected error: {e}'}
+
+    if result.get('ok') and result.get('file'):
+        f = result['file']
+        resp = HttpResponse(f['content'], content_type='application/pdf')
+        resp['Content-Disposition'] = f'inline; filename="{f["filename"]}"'
+        return resp
+
+    html = (
+        "<!doctype html><html><head><meta charset='utf-8'><title>Invoice preview</title></head>"
+        "<body style='font-family:system-ui,sans-serif;max-width:42rem;margin:3rem auto;padding:0 1rem;color:#111'>"
+        "<h2 style='margin:0 0 .5rem'>Invoice preview</h2>"
+        "<p style='color:#b91c1c;font-weight:600'>This invoice could NOT be fetched.</p>"
+        f"<p><b>Why:</b> {escape(result.get('reason') or 'Unknown error.')}</p>"
+        "<p style='color:#555'>LORA tries the invoice link saved on the WooCommerce order first, "
+        "then the Oblio API. Fix the cause above, then preview again. If you send the reply with "
+        "the invoice ticked while this is failing, the invoice simply won't be attached.</p>"
+        "</body></html>"
+    )
+    return HttpResponse(html, content_type='text/html', status=200)
