@@ -880,19 +880,31 @@ def _clean_comment_body(body: str) -> str:
     return text.strip()
 
 
+def _to_local(dt):
+    """Convert an aware datetime into the app's display timezone (which matches
+    Zendesk). Zendesk's API returns UTC; without this the report prints hours
+    ahead of what the agent sees in Zendesk. Naive/None pass through unchanged."""
+    if dt and dj_timezone.is_aware(dt):
+        return dj_timezone.localtime(dt)
+    return dt
+
+
 def _fmt_zd_time(value) -> str:
-    """Format a Zendesk ISO timestamp ('2026-06-11T07:30:46Z') as 'Jun 11, 2026 07:30'."""
+    """Format a Zendesk ISO timestamp ('2026-06-11T07:30:46Z') as 'Jun 11, 2026 07:30'
+    in the app's DISPLAY timezone (same wall-clock Zendesk shows the agent)."""
     if not value:
         return ''
-    if not isinstance(value, str):
+    if isinstance(value, str):
         try:
-            return value.strftime('%b %d, %Y %H:%M')
+            dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
         except Exception:
-            return str(value)
+            return value
+    else:
+        dt = value
     try:
-        return datetime.fromisoformat(value.replace('Z', '+00:00')).strftime('%b %d, %Y %H:%M')
+        return _to_local(dt).strftime('%b %d, %Y %H:%M')
     except Exception:
-        return value
+        return str(value)
 
 
 # Zendesk "Customer IP Address" — the website submission IP (docs/ZENDESK_FIELDS.md).
@@ -985,7 +997,7 @@ def _build_timeline(dispute, comments: list) -> list:
         events.append((dispute.created_at, 'PayPal dispute received'))
     events = [(t, label) for (t, label) in events if t is not None]
     events.sort(key=lambda e: e[0])
-    return [{'when': t.strftime('%b %d, %Y'), 'label': label} for t, label in events]
+    return [{'when': _to_local(t).strftime('%b %d, %Y'), 'label': label} for t, label in events]
 
 
 def _consent_clause(consent: dict) -> str:

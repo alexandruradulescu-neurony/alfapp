@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, List, Dict, Any, Optional
 from dataclasses import dataclass
 
 from django.db.models import Q
+from django.utils import timezone
 
 if TYPE_CHECKING:
     from apps.claims.models import Claim
@@ -366,7 +367,7 @@ class AgentChatService:
                     'object_description': claim.object_description or 'Not provided',
                     'phone': claim.phone or 'Not provided',
                     'alternate_email': claim.alternate_email or 'Not provided',
-                    'created_at': claim.created_at.strftime('%B %d, %Y'),
+                    'created_at': timezone.localtime(claim.created_at).strftime('%B %d, %Y'),
                     'ai_summary': claim.ai_summary or 'No AI summary available',
                 }
                 context['claims'].append(claim_data)
@@ -377,7 +378,7 @@ class AgentChatService:
                 context['emails'][alf_id] = [
                     {
                         'subject': e.subject,
-                        'received_at': e.received_at.strftime('%B %d, %Y at %I:%M %p'),
+                        'received_at': timezone.localtime(e.received_at).strftime('%B %d, %Y at %I:%M %p'),
                         'ai_summary': e.ai_summary or 'No summary',
                         'category': e.get_category_display(),
                         'action_required': 'Yes' if e.action_required else 'No',
@@ -396,7 +397,7 @@ class AgentChatService:
                         'status': r.get_status_display(),
                         'refund_type': r.get_refund_type_display(),
                         'external_source': r.get_external_source_display(),
-                        'created_at': r.created_at.strftime('%B %d, %Y'),
+                        'created_at': timezone.localtime(r.created_at).strftime('%B %d, %Y'),
                         'reason': r.reason or 'No reason provided',
                     }
                     for r in refunds
