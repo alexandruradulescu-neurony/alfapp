@@ -132,3 +132,34 @@ def test_opus_omits_temperature(settings_with_claude):
     body = mock_post.call_args.kwargs['json']
     assert body['model'] == 'claude-opus-4-8'
     assert 'temperature' not in body                    # Opus 4.7+ rejects it
+
+
+@pytest.mark.django_db
+def test_vision_attaches_image_blocks_on_claude(settings_with_claude):
+    with patch('apps.ai.client.requests.post',
+               return_value=_anthropic_http(json.dumps({"summary": "ok"}))) as mock_post, \
+         patch('apps.ai.client.OpenAI'):
+        AIClient.complete(
+            system_prompt="Classify the screenshot. Return JSON: {\"summary\": ...}",
+            trusted={"dispute_reason": "not_as_described"}, untrusted={},
+            response_schema=_Out, call_site="dispute_evidence_vision",
+            images=["data:image/png;base64,QUJD"],
+        )
+    content = mock_post.call_args.kwargs['json']['messages'][-1]['content']
+    assert isinstance(content, list)                    # user message is text + image blocks
+    blocks = [b for b in content if b.get('type') == 'image']
+    assert blocks and blocks[0]['source']['data'] == 'QUJD'
+    assert blocks[0]['source']['media_type'] == 'image/png'
+
+
+@pytest.mark.django_db
+def test_vision_rejected_on_default_provider(settings_with_claude):
+    settings_with_claude.anthropic_api_key = ''          # no key -> default (text-only) route
+    settings_with_claude.save()
+    from apps.ai.exceptions import AIClientError
+    with patch('apps.ai.client.requests.post'), patch('apps.ai.client.OpenAI'):
+        with pytest.raises(AIClientError):
+            AIClient.complete(
+                system_prompt="x", untrusted={"email_body": "y"}, response_schema=_Out,
+                call_site="dispute_evidence_vision", images=["data:image/png;base64,QUJD"],
+            )

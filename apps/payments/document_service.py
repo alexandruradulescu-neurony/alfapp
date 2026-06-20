@@ -1557,6 +1557,30 @@ EVIDENCE_NARRATIVE_SYSTEM_PROMPT = DISPUTE_BUSINESS_CONTEXT + ZENDESK_OPERATIONS
 )
 
 
+EVIDENCE_IMAGE_PROMPT = DISPUTE_BUSINESS_CONTEXT + ZENDESK_OPERATIONS_CONTEXT + (
+    "You are shown a SINGLE screenshot that one of our agents posted on the "
+    "support ticket as evidence. The note had little or no typed text, so the "
+    "PICTURE is the evidence — read it. Decide which section it belongs to and "
+    "write ONE confident first-person sentence (we/our/us; call the buyer 'the "
+    "customer') describing what it shows and why it supports us.\n"
+    "It is almost always one of two things — tell them apart by what the image "
+    "actually SHOWS, never by an airline/airport name alone:\n"
+    "- FLIGHT_IDENTIFICATION: a flight-status / flight-details page (e.g. "
+    "FlightAware or an airline's flight page) showing a flight, its route and "
+    "times — us verifying the flight to locate where the item was lost.\n"
+    "- SUBMISSIONS: a confirmation that we filed a lost-item report with an "
+    "airport, airline, TSA or lost-and-found office or a rental-car desk — a "
+    "report/claim form, a submission or confirmation page, a reference/report "
+    "number. A page that merely NAMES an airline (e.g. a Frontier lost-item "
+    "report) is a SUBMISSION, not flight identification.\n"
+    "Use another section only if the image clearly fits it (INTERACTIONS, "
+    "CLAIM_UPDATES, SERVICE_INITIATION, OTHER), and EXCLUDE only if it is clearly "
+    "not evidence (a logo or icon). Base it ONLY on what the image actually shows; "
+    "never invent text, numbers or names you cannot see. "
+    "Return JSON: {\"section\": <enum>, \"explanation\": <str>}."
+)
+
+
 def _known_pii_for(claim) -> dict:
     """PII strings to force-mask before the LLM sees any evidence text — the
     client's name and addresses (not regex-detectable) plus alias/email/phone."""
@@ -1618,6 +1642,68 @@ def _narrate_evidence(dispute, items: list, claim) -> Optional[dict]:
         logger.warning(f"Evidence narrative AI unavailable; using ungrouped fallback: {e}")
         return None
     return {p.index: {'section': p.section, 'explanation': p.explanation} for p in result.items}
+
+
+# A note whose PICTURE carries the content: it has an embedded image but its text
+# is empty or just a short label (e.g. "FRONTIER") — too little for the text
+# classifier, which is blind to images, to tell a flight screenshot from an
+# office-submission screenshot. Only THESE go to Claude's vision; every note with
+# real text stays text-only. Scoped to agent-posted INTERNAL notes (the low-PII
+# flight/submission proofs).
+_IMAGE_ONLY_TEXT_MAX = 25
+
+
+def _is_image_only_note(item: dict) -> bool:
+    return bool(item.get('kind') == 'comment'
+                and item.get('channel') == 'internal'
+                and item.get('has_image')
+                and len((item.get('text') or '').strip()) < _IMAGE_ONLY_TEXT_MAX)
+
+
+def _narrate_image_evidence(dispute, image_items: list, claim) -> Optional[dict]:
+    """Classify image-only internal notes by SHOWING Claude the screenshot — the
+    text classifier cannot see images. Returns {index: {'section','explanation'}}
+    or None.
+
+    Vision needs the multimodal provider (Claude); when no Anthropic key is set
+    (DeepSeek is text-only) this returns None and the notes fall back to
+    'Additional case records' — nothing breaks. The screenshot bytes are sent to
+    the provider RAW (our PII masking only covers text), which is why this is
+    limited to agent-posted internal proof screenshots that lack text."""
+    if not image_items:
+        return None
+    try:
+        ss = SystemSettings.get_instance()
+        from apps.ai.client import AIClient, _anthropic_enabled_for
+        from apps.ai.schemas import EvidenceImagePlacement
+    except Exception:
+        return None
+    if not _anthropic_enabled_for('dispute_evidence_vision', ss):
+        return None
+    out = {}
+    for it in image_items:
+        uris = [img.get('data_uri') for img in (it.get('panel') or {}).get('images', [])
+                if img.get('data_uri')]
+        if not uris:
+            continue
+        label = (it.get('text') or '').strip()
+        try:
+            result = AIClient.complete(
+                system_prompt=EVIDENCE_IMAGE_PROMPT,
+                trusted={'dispute_reason': dispute.dispute_reason or 'uncategorised'},
+                untrusted={'zendesk_comment': [label]} if label else {},
+                known_pii=_known_pii_for(claim),
+                response_schema=EvidenceImagePlacement,
+                call_site='dispute_evidence_vision',
+                images=uris[:4],
+                temperature=0.2,
+                max_tokens=4096,
+            )
+            out[it['index']] = {'section': result.section, 'explanation': result.explanation}
+        except Exception as e:
+            logger.warning(f"Vision classification failed for evidence item {it.get('index')}: {e}")
+            continue
+    return out or None
 
 
 def _item_entry(item: dict, explanation: str = '') -> dict:
@@ -1835,7 +1921,20 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
                 'has_image': bool(p['images']), 'text': (p['body'] or '')[:_EVIDENCE_RECORD_TEXT_CHARS], 'panel': p,
             })
 
-    narrative = _narrate_evidence(dispute, items, dispute.claim) if use_ai else None
+    # Hybrid classification: notes with real text go to the text classifier; notes
+    # whose picture IS the content (image-only) go to Claude's vision, which can
+    # actually read the screenshot. Merge the two into one placement map.
+    if use_ai:
+        image_items = [it for it in items if _is_image_only_note(it)]
+        text_items = [it for it in items if not _is_image_only_note(it)]
+        text_part = _narrate_evidence(dispute, text_items, dispute.claim) if text_items else {}
+        if text_part is None:
+            narrative = None  # text AI errored — fall back to the ungrouped view
+        else:
+            narrative = dict(text_part)
+            narrative.update(_narrate_image_evidence(dispute, image_items, dispute.claim) or {})
+    else:
+        narrative = None
     sections = _group_into_sections(items, narrative, reason=dispute.dispute_reason)
     # The customer's own claim submission (intake_panel) renders once as the lead
     # of the case record in the template — it is NOT repeated inside a section, so
