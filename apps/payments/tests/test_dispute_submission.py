@@ -254,3 +254,48 @@ class SubmitOrchestrationTests(TestCase):
         self.assertFalse(result)
         self.assertEqual(sub.status, 'FAILED')
         self.assertEqual(sub.paypal_response, {'error': 'no_submit_endpoint'})
+
+
+class ServiceDeclarationTests(TestCase):
+    """Every INITIAL response (provide-evidence) must declare the transaction is
+    an intangible service, not a product — PayPal has no structured field for it."""
+
+    def _capture_body(self, fn, *args, **kwargs):
+        captured = {}
+
+        def fake_urlopen(request, timeout=None):
+            captured['body'] = request.data
+            return _FakeResponse(b'{}')
+
+        with patch.object(pds, 'get_paypal_access_token', return_value='tok'), \
+             patch('urllib.request.urlopen', side_effect=fake_urlopen):
+            fn(*args, **kwargs)
+        return captured['body'].decode('utf-8', 'replace')
+
+    def test_helper_prepends_declaration(self):
+        out = pds._lead_with_service_declaration('our specific argument')
+        self.assertIn(pds.SERVICE_NOT_PRODUCT_MARKER, out.lower())
+        self.assertIn('our specific argument', out)            # body preserved
+        self.assertTrue(out.startswith(pds.SERVICE_NOT_PRODUCT_DECLARATION))
+
+    def test_helper_is_idempotent(self):
+        already = pds.SERVICE_NOT_PRODUCT_DECLARATION + "\n\nmore detail"
+        out = pds._lead_with_service_declaration(already)
+        self.assertEqual(out.lower().count(pds.SERVICE_NOT_PRODUCT_MARKER), 1)
+
+    def test_helper_handles_empty_notes(self):
+        self.assertEqual(pds._lead_with_service_declaration(''),
+                         pds.SERVICE_NOT_PRODUCT_DECLARATION)
+
+    def test_initial_response_includes_declaration(self):
+        body = self._capture_body(pds.provide_evidence_files, 'PP-D-X', 'our case', [])
+        self.assertIn(pds.SERVICE_NOT_PRODUCT_MARKER, body.lower())
+        self.assertIn('not a', body.lower())                   # "...not a physical product"
+        self.assertIn('our case', body)
+
+    def test_followup_does_not_add_declaration(self):
+        # The back-and-forth channel (provide-supporting-info) is NOT the initial
+        # request, so it must not inject the declaration.
+        body = self._capture_body(pds.provide_supporting_info, 'PP-D-X', 'follow-up note', [])
+        self.assertNotIn(pds.SERVICE_NOT_PRODUCT_MARKER, body.lower())
+        self.assertIn('follow-up note', body)

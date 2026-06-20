@@ -69,6 +69,30 @@ def evidence_type_for_reason(reason: str) -> str:
     return EVIDENCE_TYPE_BY_REASON.get(reason or '', DEFAULT_EVIDENCE_TYPE)
 
 
+# PayPal's seller-evidence API has no structured "service vs product" field, so
+# we assert it in the evidence text the reviewer reads. Every INITIAL response
+# (provide-evidence) leads with this fixed declaration that the transaction was
+# an intangible service, not a physical product — so it can never be omitted,
+# whatever the AI/manager wrote in the body. (A marker string keeps it idempotent
+# if a draft already contains it.)
+SERVICE_NOT_PRODUCT_MARKER = 'intangible lost-item recovery service'
+SERVICE_NOT_PRODUCT_DECLARATION = (
+    "This transaction was for an intangible lost-item recovery service, not a "
+    "physical product. No goods were sold or shipped; the customer paid a service "
+    "fee for the search and recovery work we performed on their behalf. Please "
+    "assess this dispute as a service, not as merchandise."
+)
+
+
+def _lead_with_service_declaration(notes: str) -> str:
+    """Prepend the service-not-product declaration to evidence notes, unless the
+    text already states it (idempotent)."""
+    body = (notes or '').strip()
+    if SERVICE_NOT_PRODUCT_MARKER in body.lower():
+        return body
+    return f"{SERVICE_NOT_PRODUCT_DECLARATION}\n\n{body}" if body else SERVICE_NOT_PRODUCT_DECLARATION
+
+
 def paypal_api_base() -> str:
     """Base REST URL for the configured PayPal environment (sandbox by default)."""
     mode = (SystemSettings.get_instance().paypal_mode or 'sandbox').strip().lower()
@@ -586,7 +610,9 @@ def provide_evidence_files(dispute_id: str, notes: str, files: Optional[List[dic
     returns (ok, response)."""
     input_json = {"evidences": [{
         "evidence_type": evidence_type or DEFAULT_EVIDENCE_TYPE,
-        "notes": notes or '',
+        # Always lead with the service-not-product declaration on the first
+        # response (PayPal has no structured field for it).
+        "notes": _lead_with_service_declaration(notes),
         "document_ids": [f['filename'] for f in (files or [])],
     }]}
     return _post_dispute_action_multipart(dispute_id, 'provide-evidence', input_json, files)
