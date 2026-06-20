@@ -186,7 +186,7 @@
         <span class="zd-avatar">&#9787;</span><span class="zd-name">{{ item.panel.author }}</span><span class="zd-badge internal">Phone call</span><span class="zd-time">&middot; {{ item.panel.created_at }}</span>
       </div>
       <div class="zd-body internal">
-        <span class="call-lbl">&#9742; {{ item.panel.call.label }}</span>
+        <span class="call-lbl">{{ item.panel.call.label }}</span>
         <table class="call-tbl">
           {% if item.panel.call.from %}<tr><td class="k">From</td><td>{{ item.panel.call.from }}</td></tr>{% endif %}
           {% if item.panel.call.to %}<tr><td class="k">To</td><td>{{ item.panel.call.to }}</td></tr>{% endif %}

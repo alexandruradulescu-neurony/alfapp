@@ -907,15 +907,35 @@ _MD_IMAGE_RE = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
 # <img src="..."> in a comment's html_body — how Zendesk represents an image
 # pasted into the agent editor (the plain body keeps only the typed text).
 _HTML_IMG_RE = re.compile(r'<img\b[^>]*?\bsrc=["\']([^"\']+)["\']', re.IGNORECASE)
+# Some notes (merged tickets / MMS forwards) put HTML in the PLAIN body, e.g. an
+# image attachment as <a href="...mms_attachment...jpeg">name</a> (not an <img>).
+_HTML_BR_RE = re.compile(r'<br\s*/?>', re.IGNORECASE)
+_HTML_TAG_RE = re.compile(r'<[^>]+>')
+_HTML_ANCHOR_RE = re.compile(r'<a\b[^>]*?\bhref=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+                             re.IGNORECASE | re.DOTALL)
+_IMG_EXT_RE = re.compile(r'\.(?:jpe?g|png|gif|webp)\b', re.IGNORECASE)
+
+
+def _looks_like_image_url(url: str) -> bool:
+    """A link that points to an image — by extension (in the path or a ?name=
+    query) or because it's a Zendesk attachment-token URL."""
+    u = (url or '').lower()
+    return bool(_IMG_EXT_RE.search(u)) or '/attachments/token/' in u
 
 
 def _comment_inline_image_urls(comment: dict) -> list:
-    """Inline-pasted image URLs for a comment, from BOTH the plain-body markdown
-    (``![](url)`` — API/markdown comments) and the html_body ``<img src>`` (agent
-    paste). De-duped, order preserved. Host/auth filtering and the
-    tracking-pixel/icon size cut happen downstream at fetch/embed time."""
-    urls = list(_MD_IMAGE_RE.findall(comment.get('body', '') or ''))
-    urls += list(_HTML_IMG_RE.findall(comment.get('html_body', '') or ''))
+    """Inline image URLs for a comment, from the plain-body markdown (``![](url)``),
+    the html_body ``<img src>`` (agent paste), AND ``<a href>`` links that point to
+    an image (merged-ticket / MMS attachments). De-duped, order preserved. Host/auth
+    filtering and the tracking-pixel/icon size cut happen downstream at fetch time."""
+    body = comment.get('body', '') or ''
+    html = comment.get('html_body', '') or ''
+    urls = list(_MD_IMAGE_RE.findall(body))
+    urls += list(_HTML_IMG_RE.findall(html))
+    for src in (body, html):
+        for href, _text in _HTML_ANCHOR_RE.findall(src):
+            if _looks_like_image_url(href):
+                urls.append(href)
     seen, out = set(), []
     for u in urls:
         u = (u or '').strip()
@@ -926,11 +946,18 @@ def _comment_inline_image_urls(comment: dict) -> list:
 
 
 def _clean_comment_body(body: str) -> str:
-    """Make a Zendesk comment body presentable in a client-facing PDF: drop the
-    internal AI-analysis trailer, markdown bold/HR markers, and envelope icons."""
+    """Make a Zendesk comment body presentable in the PDF: render any inline HTML
+    as text (some merged/MMS notes carry HTML in the plain body), drop the internal
+    AI-analysis trailer, markdown bold/HR markers, and envelope icons."""
     if not body:
         return ''
     text = _AI_TRAILER_RE.split(body, maxsplit=1)[0]
+    # HTML embedded in the plain body: <br> -> newline; drop image links (the image
+    # is embedded separately) but keep other link text; strip any remaining tags.
+    text = _HTML_BR_RE.sub('\n', text)
+    text = _HTML_ANCHOR_RE.sub(
+        lambda m: '' if _looks_like_image_url(m.group(1)) else m.group(2), text)
+    text = _HTML_TAG_RE.sub('', text)
     text = _MD_IMAGE_RE.sub('', text)  # inline images are embedded separately
     text = text.replace('**', '').replace('__', '')
     text = _HR_LINE_RE.sub('', text)
