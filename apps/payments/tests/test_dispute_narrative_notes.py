@@ -98,7 +98,7 @@ class FallbackTests(TestCase):
         self.assertIn('Terms and Conditions', notes)
         self.assertIn('resolve this dispute in our favour', notes)
         self.assertIn('Feb 03, 2026', notes)           # consent date from ticket creation
-        self.assertIn('203.0.113.7', notes)            # submission IP in consent clause
+        self.assertIn('203.0.113.7', notes.replace('​', ''))  # IP zero-width-spaced for display
 
     def test_fallback_counts_our_public_updates(self):
         claim = _full_claim()

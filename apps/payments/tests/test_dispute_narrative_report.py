@@ -89,12 +89,12 @@ class NarrativeFieldsTests(TestCase):
     def test_fee_prefers_price_paid_and_first_object_line(self):
         claim = Claim.objects.create(
             client_email='b@example.com', client_name='Lee Foley', alf_claim_id='ALF5490789',
-            object_description='iPad Tablet\nred hard case', price_paid=Decimal('74.00'))
+            object_description='Tablet\nApple iPad Pro 11-inch', price_paid=Decimal('74.00'))
         d = _dispute(claim=claim, dispute_amount=Decimal('100.00'))
         nf = ds._narrative_fields(d)
         self.assertEqual(nf['client_name'], 'Lee Foley')
         self.assertEqual(nf['alf_id'], 'ALF5490789')
-        self.assertEqual(nf['object'], 'iPad Tablet')      # first line only
+        self.assertEqual(nf['object'], 'Apple iPad Pro 11-inch')  # specific item, not the generic category
         self.assertEqual(nf['fee'], Decimal('74.00'))      # price_paid wins over dispute_amount
 
     def test_fee_falls_back_to_dispute_amount_and_buyer_name(self):
@@ -137,8 +137,8 @@ class TemplateRenderTests(TestCase):
         # category framing
         self.assertIn(ds.CATEGORY_FRAMING['UNAUTHORISED']['headline'], html)
         # simulated panels + badges
-        self.assertIn('Mark Johnson', html)
-        self.assertIn('Internal note', html)
+        # the "Registration ID…" note is pinned as the lead of the case record
+        self.assertIn('Claim submitted by the customer', html)
         # public reply from a non-client author → an outbound-to-customer panel
         self.assertIn('Email to the customer', html)
         # flight card rebuilt from data
@@ -498,7 +498,8 @@ class BottomLineAndTimelineTests(TestCase):
         bl = ds._bottom_line(d, {'matched': True, 'submission_ip': '203.0.113.7', 'client_msg_count': 2})
         joined = ' '.join(bl)
         self.assertIn('Lee Foley', joined)
-        self.assertIn('203.0.113.7', joined)
+        # IP is zero-width-spaced for display (anti phone-autodetect) — strip to compare
+        self.assertIn('203.0.113.7', joined.replace('​', ''))
 
     def test_bottom_line_not_received_is_about_service(self):
         d = _dispute(claim=None, buyer_name='Jane', dispute_reason='MERCHANDISE_OR_SERVICE_NOT_RECEIVED')
@@ -530,7 +531,7 @@ class BottomLineAndTimelineTests(TestCase):
             bundle = ds.build_dispute_evidence_bundle(d, use_ai=False)
         # 21:14 UTC = 15:14 CST (America/Chicago) — same wall-clock Zendesk shows.
         self.assertEqual(bundle['consent']['when'], 'Feb 03, 2026 15:14')
-        self.assertEqual(bundle['consent']['ip'], '203.0.113.7')
+        self.assertEqual(bundle['consent']['ip'].replace('​', ''), '203.0.113.7')  # zero-width-spaced display
 
 
 class SectionOrderingTests(TestCase):
@@ -652,10 +653,11 @@ class GroupedTemplateRenderTests(TestCase):
         claim = Claim.objects.create(client_email='b@example.com', client_name='Lee Foley',
                                      zd_ticket_id='97001', flight_data=FLIGHT_DATA)
         d = _dispute(claim=claim, zd_ticket_id='97001')
+        # COMMENTS[0] ("Registration ID…") is pinned as the intake lead, so the
+        # AI-grouped items are the flight card (0) and Joe's public reply (1).
         narrative = {
             0: {'section': 'FLIGHT_IDENTIFICATION', 'explanation': 'Confirms the route and arrival.'},
-            1: {'section': 'SERVICE_INITIATION', 'explanation': 'The customer filed this claim themselves.'},
-            2: {'section': 'INTERACTIONS', 'explanation': 'We kept the customer updated.'},
+            1: {'section': 'INTERACTIONS', 'explanation': 'We kept the customer updated.'},
         }
         with patch.object(ds, '_fetch_zendesk_ticket_full',
                           return_value={'ticket': {}, 'comments': COMMENTS}), \
@@ -663,11 +665,11 @@ class GroupedTemplateRenderTests(TestCase):
              patch.object(ds, '_narrate_evidence', return_value=narrative):
             bundle = ds.build_dispute_evidence_bundle(d)
             html = render_to_string(ds.report_template_for(d), bundle)
-        self.assertIn('Service initiation', html)
+        self.assertIn('Claim submitted by the customer', html)   # intake pinned as lead
         self.assertIn('Flight identification', html)
         self.assertIn('Interactions with the client', html)
         self.assertIn('Why this matters:', html)
-        self.assertIn('The customer filed this claim themselves.', html)
+        self.assertIn('We kept the customer updated.', html)
         # new blocks
         self.assertIn('In summary', html)        # bottom-line box
         self.assertIn('Case timeline', html)     # timeline
@@ -685,5 +687,5 @@ class GroupedTemplateRenderTests(TestCase):
             html = render_to_string(ds.report_template_for(d), bundle)
         self.assertTrue(bundle['identity']['matched'])
         self.assertIn('Identity confirmed', html)        # identity callout
-        self.assertIn('203.0.113.7', html)
+        self.assertIn('203.0.113.7', html.replace('​', ''))  # IP zero-width-spaced for display
         self.assertIn('dedicated email address', html)   # alias paragraph
