@@ -45,7 +45,7 @@ from apps.integrations.services import (
 logger = logging.getLogger(__name__)
 
 FOLLOWUP_SYSTEM_PROMPT = (
-    "You are a support agent at Airport Lost & Found writing a brief, warm progress "
+    "You are a support agent at Airport Lost Found writing a brief, warm progress "
     "update to a client about the ongoing search for their lost item. You are given "
     "the replies received so far from the lost-and-found offices / airlines we "
     "contacted on the client's behalf.\n"

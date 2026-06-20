@@ -19,12 +19,12 @@ SUBMISSIONS_EXTRACT_SYSTEM_PROMPT = (
 )
 
 CLIENT_REPORT_SYSTEM_PROMPT = (
-    "You are a support agent at Airport Lost & Found, a paid lost-item recovery "
+    "You are a support agent at Airport Lost Found, a paid lost-item recovery "
     "service. Polish the following client update message so it reads warm, "
     "reassuring, professional and concise. Rules: keep EVERY fact exactly as "
     "given; do NOT add any new facts or claims; NEVER promise, guarantee or "
     "imply that the item will be found or recovered; keep a greeting and a "
-    "sign-off from 'The Airport Lost & Found team'. Return only the final "
+    "sign-off from 'The Airport Lost Found team'. Return only the final "
     "message body."
 )
 
@@ -99,7 +99,7 @@ def build_client_update_template(claim, submissions=None) -> str:
     lines = [
         f"Dear {name},",
         "",
-        f"Thank you for trusting Airport Lost & Found with the search for your {obj}. "
+        f"Thank you for trusting Airport Lost Found with the search for your {obj}. "
         "We wanted to update you on the work we have completed so far.",
         "",
         f"• We reviewed the details you provided and confirmed the specifics of your case{flight}.",
@@ -122,7 +122,7 @@ def build_client_update_template(claim, submissions=None) -> str:
         "details can help our search.",
         "",
         "Kind regards,",
-        "The Airport Lost & Found team",
+        "The Airport Lost Found team",
     ]
     return "\n".join(lines)
 

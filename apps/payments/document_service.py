@@ -832,7 +832,7 @@ def _zendesk_comment_panels(comments: list, embed_images: bool = True,
             to = ' · '.join(p for p in (call.get('to_name'), call.get('to_phone')) if p)
             panels.append({
                 'kind': 'call',
-                'author': name or 'Airport Lost & Found team',
+                'author': name or 'Airport Lost Found team',
                 'author_email': author.get('email', ''),
                 'public': public,
                 'direction': 'internal',
@@ -881,7 +881,7 @@ def _zendesk_comment_panels(comments: list, embed_images: bool = True,
             direction = 'outbound'
         if not name or name == 'Unknown':
             name = ('the customer' if direction == 'inbound'
-                    else 'Support agent' if public else 'Airport Lost & Found team')
+                    else 'Support agent' if public else 'Airport Lost Found team')
         panels.append({
             'kind': 'note',
             'author': name,
@@ -1419,7 +1419,7 @@ def _section_priority_for(reason: str) -> list:
     return SECTION_PRIORITY_BY_REASON.get(reason, _DEFAULT_SECTION_PRIORITY)
 
 EVIDENCE_NARRATIVE_SYSTEM_PROMPT = (
-    "You are an employee of Airport Lost & Found (ALF), a paid lost-item "
+    "You are an employee of Airport Lost Found (ALF), a paid lost-item "
     "recovery service, preparing ALF's own evidence for a PayPal dispute. You "
     "are given numbered evidence records from our support system for one case. "
     "For EACH record, decide:\n"
@@ -1746,7 +1746,7 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
 PAYPAL_NOTES_MAX_CHARS = 2000
 
 EVIDENCE_NOTES_SYSTEM_PROMPT = (
-    "You are an employee of Airport Lost & Found (ALF), a paid lost-item "
+    "You are an employee of Airport Lost Found (ALF), a paid lost-item "
     "recovery service, writing ALF's own evidence narrative for a PayPal "
     "dispute. PayPal's dispute reviewer reads this text to decide the case in "
     "our favour or the customer's, so write a confident, factual, first-person "
@@ -2043,7 +2043,7 @@ def build_dispute_reply_timeline(dispute) -> list:
         else:
             title = _SUB_TITLES.get(s.kind, 'Submission')
         entries.append({
-            'when': when, 'when_str': _fmt_zd_time(when), 'actor': 'Airport Lost & Found',
+            'when': when, 'when_str': _fmt_zd_time(when), 'actor': 'Airport Lost Found',
             'kind': 'submission', 'title': title, 'status': s.status,
             'source': s.get_source_display(), 'text': (s.notes or '')[:_CASE_LOG_TEXT_DISPLAY_CHARS],
             'image_count': s.images.count(), 'attached_pdf': s.attach_evidence_pdf,
@@ -2055,7 +2055,7 @@ def build_dispute_reply_timeline(dispute) -> list:
     # CREATE evidence AND as a buyer message[] — identical text and time. Collect
     # the buyer messages first so that duplicate evidence can be dropped (and the
     # buyer's words are NEVER mislabelled as ours, which is what made the buyer's
-    # "this website is a scam" complaint show under "Airport Lost & Found").
+    # "this website is a scam" complaint show under "Airport Lost Found").
     def _norm(t):
         return ' '.join((t or '').split())
     _buyer_msg_texts = {_norm(m.get('content'))
@@ -2098,7 +2098,7 @@ def build_dispute_reply_timeline(dispute) -> list:
         elif src == 'SUBMITTED_BY_SELLER':
             # We submitted this — say so plainly (the old 'On file at PayPal'
             # left the manager unsure whether it had actually been sent).
-            actor, title = 'Airport Lost & Found', 'Submitted to PayPal'
+            actor, title = 'Airport Lost Found', 'Submitted to PayPal'
         else:
             # Unknown/other source: recorded at PayPal but not clearly ours —
             # never claim it under our name.
@@ -2136,7 +2136,7 @@ def build_dispute_reply_timeline(dispute) -> list:
         by = (m.get('posted_by') or '').upper()
         actor = ('Buyer' if by == 'BUYER'
                  else 'PayPal' if by in ('ARBITER', 'PAYPAL')
-                 else 'Airport Lost & Found')
+                 else 'Airport Lost Found')
         when = _parse_dt(m.get('time_posted') or m.get('create_time'))
         entries.append({
             'when': when, 'when_str': _fmt_zd_time(when), 'actor': actor,

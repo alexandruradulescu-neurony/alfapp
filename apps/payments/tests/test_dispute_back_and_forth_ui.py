@@ -42,7 +42,7 @@ class TimelineBuilderTests(TestCase):
         self.assertEqual(len(tl), 3)
         actors = [e['actor'] for e in tl]
         # chronological: buyer message (Jun 1) → PayPal evidence (Jun 2) → our submission (Jun 3)
-        self.assertEqual(actors, ['Buyer', 'Airport Lost & Found', 'Airport Lost & Found'])
+        self.assertEqual(actors, ['Buyer', 'Airport Lost Found', 'Airport Lost Found'])
         self.assertEqual(tl[0]['kind'], 'paypal_message')
         self.assertEqual(tl[2]['kind'], 'submission')
         self.assertEqual(tl[2]['status'], 'SUBMITTED')
@@ -58,7 +58,7 @@ class TimelineBuilderTests(TestCase):
         """Regression (Angelina Solano dispute): PayPal records the buyer's
         opening complaint BOTH as a SUBMITTED_BY_BUYER/CREATE evidence and as a
         buyer message — same text, same time. The evidence must be attributed to
-        the Buyer (never 'Airport Lost & Found'), and the duplicate of the
+        the Buyer (never 'Airport Lost Found'), and the duplicate of the
         buyer's message must not be shown twice."""
         scam = 'This website is a scam but I had already paid them before finding out'
         d = _dispute(payload={
@@ -83,7 +83,7 @@ class TimelineBuilderTests(TestCase):
         self.assertEqual(shown, 1, f'buyer complaint shown {shown}x, expected once')
         # Our own seller-submitted evidence is still attributed to us.
         ours = [e for e in tl if 'our case on file' in (e['text'] or '')]
-        self.assertEqual(ours[0]['actor'], 'Airport Lost & Found')
+        self.assertEqual(ours[0]['actor'], 'Airport Lost Found')
 
     def test_seller_evidence_reads_as_submitted_and_a_bare_other_request_is_described(self):
         """Our SUBMITTED_BY_SELLER evidence must read as clearly *sent* (not the
@@ -97,7 +97,7 @@ class TimelineBuilderTests(TestCase):
              'date': '2026-06-09T07:34:00Z'},  # no notes
         ]})
         tl = ds.build_dispute_reply_timeline(d)
-        seller = next(e for e in tl if e['actor'] == 'Airport Lost & Found')
+        seller = next(e for e in tl if e['actor'] == 'Airport Lost Found')
         self.assertIn('submitted', seller['title'].lower())          # clearly sent
         self.assertEqual(seller['source'], 'PROOF_OF_FULFILLMENT')   # informative type kept
         paypal = next(e for e in tl if e['actor'] == 'PayPal')

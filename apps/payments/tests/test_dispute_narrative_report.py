@@ -354,7 +354,7 @@ class CommentCleanupTests(TestCase):
             {'author': {}, 'public': True, 'body': 'y', 'attachments': []},
         ]
         panels = ds._zendesk_comment_panels(comments, embed_images=False)
-        self.assertEqual(panels[0]['author'], 'Airport Lost & Found team')  # internal
+        self.assertEqual(panels[0]['author'], 'Airport Lost Found team')  # internal
         self.assertEqual(panels[1]['author'], 'Support agent')              # public
 
 

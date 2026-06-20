@@ -563,7 +563,7 @@ Expected: `System check identified no issues`.
 ```json
 {
   "name": "LORA Claim Assistant",
-  "author": { "name": "Airport Lost & Found", "email": "alexandru.radulescu@neurony.ro" },
+  "author": { "name": "Airport Lost Found", "email": "alexandru.radulescu@neurony.ro" },
   "defaultLocale": "en",
   "private": true,
   "location": { "support": { "ticket_sidebar": "assets/iframe.html" } },
