@@ -75,7 +75,7 @@
 </div>
 
 <!-- ============================ CONNECTIONS + SETTINGS (saved) ============================ -->
-<form method="post">
+<form method="post" enctype="multipart/form-data">
     {% csrf_token %}
 
     <h2 class="lora-eyebrow mb-3 mt-2">Connections</h2>
@@ -257,6 +257,25 @@
             <label class="block text-sm font-medium text-gray-900 mb-1">Sidebar secret token
                 <span class="block text-xs font-normal text-gray-500">Authenticates the Zendesk sidebar widget's requests. Leave blank to keep current.</span></label>
             <input type="password" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="sidebar_secret_token" placeholder="{% if settings.sidebar_secret_token %}••••••••••••{% endif %}" autocomplete="off">
+        </div>
+    </div>
+
+    <!-- Dispute documents -->
+    <div class="lora-card p-6 lg:p-8 mb-6">
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+            <h3 class="lora-card-title">
+                {% heroicon_outline "document-text" class="size-4 text-gray-500" %} Dispute documents
+                {% if settings.terms_conditions_pdf %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20">Uploaded</span>{% else %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">Not set</span>{% endif %}
+            </h3>
+        </div>
+        <div class="max-w-md">
+            <label class="block text-sm font-medium text-gray-900 mb-1">Terms &amp; Conditions PDF
+                <span class="block text-xs font-normal text-gray-500">Attached to PayPal dispute first responses (tick "Attach Terms &amp; Conditions" on the reply). Uploading a new file replaces the current one.</span></label>
+            {% if settings.terms_conditions_pdf %}
+            <p class="mb-2 text-sm"><a href="{{ settings.terms_conditions_pdf.url }}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-500">{% heroicon_outline "paper-clip" class="size-4" %} Current file</a></p>
+            {% endif %}
+            <input type="file" name="terms_conditions_pdf" accept="application/pdf,.pdf"
+                   class="block w-full text-sm text-gray-500 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-indigo-600 hover:file:bg-indigo-100">
         </div>
     </div>
 

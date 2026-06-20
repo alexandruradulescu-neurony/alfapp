@@ -632,6 +632,10 @@ class DisputeSubmission(models.Model):
         default=False,
         help_text='Whether to attach the latest evidence-report PDF to this submission',
     )
+    attach_terms = models.BooleanField(
+        default=True,
+        help_text='Attach the stored Terms & Conditions PDF (always-required on a first response)',
+    )
     status = models.CharField(
         max_length=10,
         choices=STATUS_CHOICES,

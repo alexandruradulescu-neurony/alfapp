@@ -309,6 +309,14 @@ Please analyze this claim and provide:
         help_text='WooCommerce REST API consumer secret (cs_…; encrypted at rest)'
     )
 
+    # Dispute documents
+    terms_conditions_pdf = models.FileField(
+        upload_to='settings/',
+        blank=True,
+        null=True,
+        help_text='Terms & Conditions PDF, attached to PayPal dispute first responses'
+    )
+
     # Email Configuration
     email_domain = models.CharField(
         max_length=255,

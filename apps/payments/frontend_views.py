@@ -466,6 +466,7 @@ def dispute_detail(request, dispute_id):
     has_evidence_pdf = (DisputeDocument.objects
                         .filter(dispute=dispute, doc_type=DisputeDocument.DOC_TYPE_EVIDENCE_REPORT)
                         .exclude(file_path='').exists())
+    has_terms_pdf = bool(SystemSettings.get_instance().terms_conditions_pdf)
 
     # When PayPal isn't accepting a reply (submit_endpoint == ''), explain WHY in
     # the manager's terms — a bare "No reply window open" reads like a bug.
@@ -505,6 +506,7 @@ def dispute_detail(request, dispute_id):
         'submit_endpoint': submit_endpoint,
         'reply_window_reason': reply_window_reason,
         'has_evidence_pdf': has_evidence_pdf,
+        'has_terms_pdf': has_terms_pdf,
         'evidence_type_default': evidence_type_for_reason(dispute.dispute_reason),
         # Soft cap surfaced in the composer's live counter (PayPal caps the notes
         # field near here; the service also warns past it).
@@ -754,6 +756,7 @@ def dispute_prepare_submission(request, dispute_id):
     draft.notes = notes
     draft.manager_note = manager_note
     draft.attach_evidence_pdf = request.POST.get('attach_evidence_pdf') == 'on'
+    draft.attach_terms = request.POST.get('attach_terms') == 'on'
     evidence_type = (request.POST.get('evidence_type') or '').strip()
     if evidence_type:
         draft.evidence_type = evidence_type
