@@ -84,22 +84,58 @@ def _pp_under_review_q():
             Q(raw_webhook_payload__dispute_state='UNDER_PAYPAL_REVIEW'))
 
 
+def _pp_awaiting_buyer_q():
+    """Dispute is waiting on the BUYER / other party — by EITHER payload key. It
+    is NOT our turn to reply, so it belongs with the under-review lens, never in
+    Needs reply."""
+    return (Q(raw_webhook_payload__status='WAITING_FOR_BUYER_RESPONSE') |
+            Q(raw_webhook_payload__dispute_state='REQUIRED_OTHER_PARTY_ACTION'))
+
+
+def _pp_with_paypal_or_buyer_q():
+    """The 'Under review' lens: in PayPal's hands OR awaiting the buyer — either
+    way there is nothing for us to do right now."""
+    return _pp_under_review_q() | _pp_awaiting_buyer_q()
+
+
 def _pp_resolved_q():
     """Dispute is resolved/closed at PayPal — by EITHER payload key."""
     return (Q(raw_webhook_payload__status='RESOLVED') |
             Q(raw_webhook_payload__dispute_state='RESOLVED'))
 
 
-def _needs_action_qs(qs):
-    """Disputes still needing a reply: not dormant at PayPal (under review OR
-    resolved, by either key) and not in a LORA terminal state. has_key-safe so
-    payload-less (manually created) disputes aren't dropped by the
-    SQL-NULL-in-exclude trap."""
+# PayPal states where it is NOT our turn to reply: under review, resolved, or
+# awaiting the buyer/other party (matched on EITHER payload key).
+_PP_NOT_OUR_TURN_STATUS = ['UNDER_REVIEW', 'RESOLVED', 'WAITING_FOR_BUYER_RESPONSE']
+_PP_NOT_OUR_TURN_STATE = ['UNDER_PAYPAL_REVIEW', 'RESOLVED', 'REQUIRED_OTHER_PARTY_ACTION']
+
+
+def _our_court_qs(qs):
+    """Disputes where the reply is (or was) OURS to make: not in PayPal's hands or
+    the buyer's, and not in a LORA terminal state. has_key-safe so payload-less
+    (manually created) disputes aren't dropped by the SQL-NULL-in-exclude trap.
+    Split downstream into Needs-reply (deadline still open) vs Overdue."""
     status_ok = (~Q(raw_webhook_payload__has_key='status') |
-                 ~Q(raw_webhook_payload__status__in=['UNDER_REVIEW', 'RESOLVED']))
+                 ~Q(raw_webhook_payload__status__in=_PP_NOT_OUR_TURN_STATUS))
     state_ok = (~Q(raw_webhook_payload__has_key='dispute_state') |
-                ~Q(raw_webhook_payload__dispute_state__in=['UNDER_PAYPAL_REVIEW', 'RESOLVED']))
+                ~Q(raw_webhook_payload__dispute_state__in=_PP_NOT_OUR_TURN_STATE))
     return qs.filter(status_ok & state_ok).exclude(status__in=Dispute.TERMINAL_STATUSES)
+
+
+def _needs_action_qs(qs):
+    """Disputes we can AND must still reply to: it's our court and the response
+    deadline has not passed (a missing deadline counts as still-open). Overdue
+    ones move to the Overdue lens — PayPal no longer accepts our evidence, so
+    they don't belong in the actionable queue."""
+    not_overdue = Q(seller_response_due__isnull=True) | Q(seller_response_due__gte=timezone.now())
+    return _our_court_qs(qs).filter(not_overdue)
+
+
+def _overdue_qs(qs):
+    """Disputes that were ours to reply to but whose PayPal deadline has passed —
+    no longer actionable, surfaced in their own lens so they stay visible without
+    cluttering Needs reply (they flow on to Resolved once PayPal decides)."""
+    return _our_court_qs(qs).filter(seller_response_due__lt=timezone.now())
 
 
 def _parse_due(raw: str):
@@ -230,7 +266,9 @@ def dispute_list(request):
     if status_filter:
         disputes = disputes.filter(status=status_filter)
     elif view == 'review':
-        disputes = disputes.filter(_pp_under_review_q())
+        disputes = disputes.filter(_pp_with_paypal_or_buyer_q())
+    elif view == 'overdue':
+        disputes = _overdue_qs(disputes)
     elif view == 'resolved':
         disputes = disputes.filter(_pp_resolved_q() | Q(status__in=Dispute.TERMINAL_STATUSES))
     elif view == 'all':
@@ -263,7 +301,8 @@ def dispute_list(request):
     _all = Dispute.objects.all()
     view_counts = {
         'action': _needs_action_qs(_all).count(),
-        'review': _all.filter(_pp_under_review_q()).count(),
+        'overdue': _overdue_qs(_all).count(),
+        'review': _all.filter(_pp_with_paypal_or_buyer_q()).count(),
         'resolved': _all.filter(_pp_resolved_q() | Q(status__in=Dispute.TERMINAL_STATUSES)).count(),
         'all': _all.count(),
     }

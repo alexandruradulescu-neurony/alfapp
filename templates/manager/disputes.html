@@ -52,9 +52,13 @@
        class="inline-flex items-center gap-x-1.5 rounded-md px-3 py-1.5 text-sm font-medium {% if view == 'action' and not status_filter %}bg-indigo-600 text-white{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">
       Needs reply {% if view_counts.action %}<span class="rounded-full px-1.5 text-xs font-semibold {% if view == 'action' %}bg-white/20 text-white{% else %}bg-red-100 text-red-700{% endif %}">{{ view_counts.action }}</span>{% endif %}
     </a>
+    <a href="?view=overdue{% if search_query %}&search={{ search_query }}{% endif %}"
+       class="inline-flex items-center gap-x-1.5 rounded-md px-3 py-1.5 text-sm font-medium {% if view == 'overdue' %}bg-indigo-600 text-white{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">
+      Overdue {% if view_counts.overdue %}<span class="rounded-full px-1.5 text-xs font-semibold {% if view == 'overdue' %}bg-white/20 text-white{% else %}bg-red-100 text-red-700{% endif %}">{{ view_counts.overdue }}</span>{% endif %}
+    </a>
     <a href="?view=review{% if search_query %}&search={{ search_query }}{% endif %}"
        class="inline-flex items-center gap-x-1.5 rounded-md px-3 py-1.5 text-sm font-medium {% if view == 'review' %}bg-indigo-600 text-white{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">
-      Under PayPal review {% if view_counts.review %}<span class="rounded-full px-1.5 text-xs font-semibold {% if view == 'review' %}bg-white/20 text-white{% else %}bg-gray-100 text-gray-600{% endif %}">{{ view_counts.review }}</span>{% endif %}
+      With PayPal / buyer {% if view_counts.review %}<span class="rounded-full px-1.5 text-xs font-semibold {% if view == 'review' %}bg-white/20 text-white{% else %}bg-gray-100 text-gray-600{% endif %}">{{ view_counts.review }}</span>{% endif %}
     </a>
     <a href="?view=resolved{% if search_query %}&search={{ search_query }}{% endif %}"
        class="inline-flex items-center gap-x-1.5 rounded-md px-3 py-1.5 text-sm font-medium {% if view == 'resolved' %}bg-indigo-600 text-white{% else %}text-gray-600 hover:bg-gray-100 hover:text-gray-900{% endif %}">
