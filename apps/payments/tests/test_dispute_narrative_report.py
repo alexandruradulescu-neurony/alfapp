@@ -833,3 +833,33 @@ class GroupedTemplateRenderTests(TestCase):
         self.assertIn('Identity confirmed', html)        # identity callout
         self.assertIn('203.0.113.7', html.replace('​', ''))  # IP zero-width-spaced for display
         self.assertIn('dedicated email address', html)   # alias paragraph
+
+
+class ClaimsResponsePhoneTests(TestCase):
+    """We only assert a phone-reachability contradiction where one is DUE.
+    Our outbound calls don't prove the customer could reach US, so unanswered
+    calls must concede the point and pivot — never claim 'records show the
+    opposite' (which both reads as a non-sequitur and is false on voicemail)."""
+
+    def _dispute(self):
+        claim = Claim.objects.create(client_email='c@e.com', client_name='T', alf_claim_id='ALFX')
+        # Blank buyer statement -> every theme fires (incl. the phone point).
+        return _dispute(claim=claim, dispute_reason='MERCHANDISE_OR_SERVICE_NOT_RECEIVED',
+                        raw_webhook_payload={}), claim
+
+    def test_unanswered_calls_concede_and_pivot_no_false_contradiction(self):
+        d, claim = self._dispute()
+        comments = [{'channel': 'voice', 'call': {'duration': 33}},      # voicemail (no answered_by_name)
+                    {'channel': 'voice', 'call': {'duration': 7}},
+                    {'public': True, 'author': {'email': 'a@alf.com'}, 'body': 'update'}]
+        point = ds._claims_response(d, comments, claim, {})['points'][0]
+        self.assertNotIn('show the opposite', point)     # no fake contradiction
+        self.assertNotIn('telephoned', point)
+        self.assertIn('do not dispute', point)           # honest concession
+        self.assertIn('does not depend on telephone', point)   # pivot to service
+
+    def test_answered_call_asserts_the_contradiction(self):
+        d, claim = self._dispute()
+        comments = [{'channel': 'voice', 'call': {'duration': 120, 'answered_by_name': 'Mark'}}]
+        point = ds._claims_response(d, comments, claim, {})['points'][0]
+        self.assertIn('connected with the customer by phone', point)
