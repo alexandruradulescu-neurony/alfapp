@@ -542,6 +542,70 @@ class BottomLineAndTimelineTests(TestCase):
         self.assertEqual(bundle['consent']['ip'].replace('​', ''), '203.0.113.7')  # zero-width-spaced display
 
 
+# A real recorded-acceptance internal note (ticket 54239), with the incident
+# detail lines that precede the acceptance text on the same note.
+_ACCEPT_NOTE = (
+    'on a chair.\nSwitch 2.\nblack case - red tag\n50-60 games\n\n'
+    'The client was called and informed of the call being recorded for quality '
+    'and training purposes to what Client agreed and approved.\n\n'
+    'At minute  6:00   on our recorded line, Client approved to move forward with '
+    'a non refundable fee of $65.00 as Client understood our service and agreed to '
+    'move forward knowing no guarantees can be provided on lost items.')
+
+
+class RecordedAcceptanceTests(TestCase):
+    """The customer's verbal acceptance of the non-refundable fee on a recorded
+    call is decisive dispute evidence — detected deterministically, never left
+    to the AI, and surfaced prominently."""
+
+    def _note(self, body, public=False):
+        return {'author': {'name': 'Mark Johnson', 'email': 'm@alf.com'}, 'public': public,
+                'created_at': '2026-02-03T22:05:00Z', 'body': body, 'attachments': []}
+
+    def test_detects_minute_fee_and_strips_incident_lines(self):
+        ra = ds._recorded_acceptance([self._note(_ACCEPT_NOTE)])
+        self.assertIsNotNone(ra)
+        self.assertEqual(ra['minute'], '6:00')
+        self.assertEqual(ra['fee'], '$65.00')
+        self.assertIn('non refundable fee', ra['statement'])
+        self.assertIn('no guarantees can be provided', ra['statement'])
+        self.assertNotIn('on a chair', ra['statement'].lower())  # incident junk dropped
+
+    def test_ignores_public_notes_and_passing_refund_mentions(self):
+        # A public update that merely mentions "refund" must NOT trigger it.
+        self.assertIsNone(ds._recorded_acceptance(
+            [self._note('Dear customer, our refund policy is on our website.', public=True)]))
+        # An internal note about refunds but with no recorded acceptance phrase.
+        self.assertIsNone(ds._recorded_acceptance(
+            [self._note('Reviewed the refund request; no recording mentioned.')]))
+
+    def test_surfaces_in_bundle_bottomline_and_report_html(self):
+        claim = Claim.objects.create(client_email='b@example.com', client_name='Lee Foley',
+                                     zd_ticket_id='97001', price_paid=Decimal('65.00'))
+        d = _dispute(claim=claim, zd_ticket_id='97001', dispute_reason='MERCHANDISE_OR_SERVICE_NOT_RECEIVED')
+        ticket = {'created_at': '2026-02-03T21:10:00Z', 'custom_fields': []}
+        comments = [self._note('Registration ID: ALF1\nName: Lee'), self._note(_ACCEPT_NOTE)]
+        with patch.object(ds, '_fetch_zendesk_ticket_full',
+                          return_value={'ticket': ticket, 'comments': comments}):
+            bundle = ds.build_dispute_evidence_bundle(d, use_ai=False)
+            html = render_to_string(ds.report_template_for(d), bundle)
+        self.assertIsNotNone(bundle['recorded_acceptance'])
+        self.assertTrue(bundle['bottom_line'][0].startswith('On a recorded call'))  # leads the summary
+        self.assertIn('Recorded verbal acceptance of our non-refundable terms', html)  # the callout
+        self.assertIn('no guarantees can be provided on lost items', html)            # verbatim quote
+
+    def test_absent_when_no_such_note(self):
+        claim = Claim.objects.create(client_email='b@example.com', zd_ticket_id='97001')
+        d = _dispute(claim=claim, zd_ticket_id='97001')
+        ticket = {'created_at': '2026-02-03T21:10:00Z', 'custom_fields': []}
+        with patch.object(ds, '_fetch_zendesk_ticket_full',
+                          return_value={'ticket': ticket, 'comments': [self._note('Registration ID: ALF1')]}):
+            bundle = ds.build_dispute_evidence_bundle(d, use_ai=False)
+            html = render_to_string(ds.report_template_for(d), bundle)
+        self.assertIsNone(bundle['recorded_acceptance'])
+        self.assertNotIn('Recorded verbal acceptance', html)
+
+
 class SectionOrderingTests(TestCase):
     def test_unauthorised_leads_with_service_initiation(self):
         order = ds._section_priority_for('UNAUTHORISED')

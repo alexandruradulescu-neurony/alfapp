@@ -1250,7 +1250,45 @@ def _claims_response(dispute, comments: list, claim, consent: dict) -> Optional[
             'points': points}
 
 
-def _bottom_line(dispute, identity: dict, consent: Optional[dict] = None) -> list:
+# An internal call note recording that the customer, on a recorded line,
+# verbally accepted our NON-REFUNDABLE fee and agreed to proceed. Detection
+# requires a "recorded" mention AND an explicit non-refundable / move-forward
+# acceptance phrase (so a passing mention of "refund" can't trigger it).
+_ACCEPT_TRIGGERS = ('non refundable', 'non-refundable', 'nonrefundable', 'no refund',
+                    'approved to move forward', 'agreed to move forward')
+_ACCEPT_PARA_KW = _ACCEPT_TRIGGERS + ('record', 'no guarantee', 'understood our service',
+                                      'move forward', 'quality and training')
+
+
+def _recorded_acceptance(comments: list) -> Optional[dict]:
+    """Find the internal note where the customer, on a recorded line, verbally
+    accepted our non-refundable fee and agreed to proceed knowing recovery is
+    not guaranteed. This is decisive dispute evidence, so it is detected
+    deterministically and surfaced explicitly — never left for the AI to notice.
+    Returns {'minute','fee','statement'} (statement = the verbatim note text,
+    incident-detail lines stripped) or None. Internal notes only."""
+    for c in comments or []:
+        if c.get('public'):
+            continue
+        body = (c.get('body') or '')
+        low = body.lower()
+        if 'record' not in low or not any(t in low for t in _ACCEPT_TRIGGERS):
+            continue
+        # Keep only the acceptance paragraph(s); drop incident-detail lines
+        # (e.g. "on a chair.\nSwitch 2.\n50-60 games").
+        paras = [p.strip() for p in re.split(r'\n\s*\n', body) if p.strip()]
+        keep = [p for p in paras if any(k in p.lower() for k in _ACCEPT_PARA_KW)]
+        statement = re.sub(r'\s{2,}', ' ', ' '.join(keep) or body).strip()
+        minute = re.search(r'minute\s+(\d{1,2}:\d{2})', low)
+        fee = re.search(r'\$\s?[\d,]+(?:\.\d{2})?', body)
+        return {'minute': minute.group(1) if minute else '',
+                'fee': fee.group(0).replace(' ', '') if fee else '',
+                'statement': statement[:600]}
+    return None
+
+
+def _bottom_line(dispute, identity: dict, consent: Optional[dict] = None,
+                 recorded_acceptance: Optional[dict] = None) -> list:
     """Reason-specific 'bottom line up front' bullets — the single strongest
     argument for THIS dispute reason, stated plainly for a skimming reviewer."""
     claim = dispute.claim
@@ -1258,6 +1296,15 @@ def _bottom_line(dispute, identity: dict, consent: Optional[dict] = None) -> lis
     reason = dispute.dispute_reason
     clause = _consent_clause(consent)
     bullets = []
+    # The strongest fact, when we have it: a recorded verbal acceptance of the
+    # non-refundable fee. Lead with it regardless of reason.
+    if recorded_acceptance:
+        ra = recorded_acceptance
+        at = f", at minute {ra['minute']}," if ra.get('minute') else ''
+        feetxt = f" of {ra['fee']}" if ra.get('fee') else ''
+        bullets.append(f"On a recorded call{at} the customer verbally accepted our non-refundable "
+                       f"fee{feetxt} and agreed to proceed, acknowledging that recovery of a lost "
+                       "item cannot be guaranteed.")
     if reason == 'UNAUTHORISED':
         bullets.append(f"{name} submitted this claim themselves on our website, providing their own "
                        "flight, contact and lost-item details.")
@@ -1602,6 +1649,10 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
     consent = {'when': _fmt_zd_time(submitted_dt),
                'ip': _fmt_ip(identity.get('submission_ip', ''))}
 
+    # Decisive evidence when present: the customer verbally accepted our
+    # non-refundable fee on a recorded call. Detected deterministically.
+    recorded_acceptance = _recorded_acceptance(comments)
+
     # The claim filer and the payer can be different names on the same account
     # (e.g. spouse paid). Reconcile so the report doesn't read as inconsistent.
     buyer_name = (dispute.buyer_name or '').strip()
@@ -1623,8 +1674,9 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
         'sections': sections,
         'narrative': _narrative_fields(dispute, submitted_at=submitted_dt),
         'framing': framing,
-        'bottom_line': _bottom_line(dispute, identity, consent),
+        'bottom_line': _bottom_line(dispute, identity, consent, recorded_acceptance),
         'claims_response': _claims_response(dispute, comments, claim, consent),
+        'recorded_acceptance': recorded_acceptance,
         'name_reconciliation': name_reconciliation,
         'timeline': _build_timeline(dispute, comments, submitted_at=submitted_dt),
         'identity': identity,
@@ -1758,6 +1810,14 @@ def _dispute_narrative_facts(dispute, bundle: dict, *, manager_note: str = '') -
         'updates_we_sent': str(sum(1 for p in bundle.get('panels', []) if p.get('public'))),
         'strongest_points': ' '.join(bundle.get('bottom_line', [])),
     }
+    ra = bundle.get('recorded_acceptance')
+    if ra:
+        at = f" at minute {ra['minute']}" if ra.get('minute') else ''
+        feetxt = f" of {ra['fee']}" if ra.get('fee') else ''
+        facts['recorded_verbal_acceptance'] = (
+            f"On a recorded call{at}, the customer verbally accepted our non-refundable fee{feetxt} "
+            "and agreed to proceed, acknowledging recovery of a lost item cannot be guaranteed. "
+            f"Our call note records: \"{ra['statement']}\"")
     if (manager_note or '').strip():
         facts['manager_emphasis'] = manager_note.strip()
     return facts
@@ -1791,6 +1851,13 @@ def _fallback_narrative_sections(dispute, bundle: dict) -> dict:
                     "their flight, where the item was lost, and a description of the item.")
     auth.append("In submitting the claim, the customer accepted our Terms and Conditions and "
                 f"refund window ({nf['terms_url']}).")
+    ra = bundle.get('recorded_acceptance')
+    if ra:
+        at = f" at minute {ra['minute']}" if ra.get('minute') else ''
+        feetxt = f" of {ra['fee']}" if ra.get('fee') else ''
+        auth.append(f"On a recorded call{at}, the customer also verbally accepted our non-refundable "
+                    f"fee{feetxt} and agreed to proceed, acknowledging that recovery of a lost item "
+                    "cannot be guaranteed.")
     if identity.get('matched'):
         auth.append("The customer later contacted us from the very same IP address used to submit "
                     f"the claim ({identity['submission_ip']}), confirming this was the same person.")
