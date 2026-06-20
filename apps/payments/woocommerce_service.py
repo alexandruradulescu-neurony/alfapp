@@ -116,3 +116,54 @@ def create_woocommerce_refund(
                 'error': 'Could not confirm the refund with WooCommerce. Check the '
                          'order in WooCommerce before retrying.',
                 'indeterminate': True}
+
+
+def list_woocommerce_refunds(order_id: str, timeout: int = 15) -> Dict[str, Any]:
+    """Read the refunds WooCommerce has recorded against an order (read-only).
+
+    GET {store}/wp-json/wc/v3/orders/{order_id}/refunds
+
+    This is the pull side of the reverse flow: when LORA's refund call timed out
+    (indeterminate) and left a row PENDING, this lets LORA ask WooCommerce what
+    actually happened and reconcile against the truth — no money is moved.
+
+    Returns:
+        {'success': True, 'refunds': [{'id', 'amount', 'reason'}, ...]} on success
+            (amount is a positive string as WooCommerce returns it);
+        {'success': False, 'error': ...} on a definite failure;
+        {'success': False, 'error': ..., 'indeterminate': True} on timeout/network.
+
+    Raises:
+        WooCommerceNotConfigured when credentials are absent.
+    """
+    base_url, key, secret = _wc_credentials()
+    url = f"{base_url}/wp-json/wc/v3/orders/{order_id}/refunds"
+    token = base64.b64encode(f"{key}:{secret}".encode('utf-8')).decode('ascii')
+    req = urllib.request.Request(
+        url,
+        headers={'Authorization': f'Basic {token}', 'User-Agent': 'LORA-refunds/1.0'},
+        method='GET',
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = json.loads(resp.read().decode('utf-8'))
+        refunds = [
+            {'id': str(r.get('id')), 'amount': str(r.get('amount') or '0'),
+             'reason': r.get('reason') or ''}
+            for r in (body or []) if r.get('id') is not None
+        ]
+        logger.info(f"WooCommerce order {order_id} has {len(refunds)} refund(s)")
+        return {'success': True, 'refunds': refunds}
+    except urllib.error.HTTPError as e:
+        try:
+            detail = json.loads(e.read().decode('utf-8')).get('message', '')
+        except Exception:
+            detail = ''
+        msg = f"WooCommerce could not list refunds (HTTP {e.code}){': ' + detail if detail else ''}"
+        logger.error(f"List refunds failed for order {order_id}: {msg}")
+        return {'success': False, 'error': msg}
+    except Exception as e:
+        logger.error(f"List refunds indeterminate for order {order_id}: {e}", exc_info=True)
+        return {'success': False,
+                'error': 'Could not reach WooCommerce to check the refund. Try again shortly.',
+                'indeterminate': True}

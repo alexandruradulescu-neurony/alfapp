@@ -254,3 +254,126 @@ class IssueEndpointTests(TestCase):
                 'refund_type': 'FULL', 'reason': 'x'}, format='json')
         self.assertEqual(resp.status_code, 502)
         self.assertTrue(resp.data['indeterminate'])
+
+
+# ---- list_woocommerce_refunds (the pull side) ----
+
+class ListWooCommerceRefundsTests(TestCase):
+    def setUp(self):
+        _configure_wc()
+
+    def test_parses_refunds_array(self):
+        from apps.payments import woocommerce_service as wc
+
+        class FakeResp:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self):
+                return b'[{"id": 9100, "amount": "25.00", "reason": "x"}, {"id": 9101, "amount": "5.00"}]'
+
+        captured = {}
+
+        def fake_urlopen(req, timeout=15):
+            captured['url'] = req.full_url
+            captured['method'] = req.get_method()
+            return FakeResp()
+
+        with patch('urllib.request.urlopen', side_effect=fake_urlopen):
+            result = wc.list_woocommerce_refunds('5001')
+        self.assertTrue(result['success'])
+        self.assertEqual(len(result['refunds']), 2)
+        self.assertEqual(result['refunds'][0], {'id': '9100', 'amount': '25.00', 'reason': 'x'})
+        self.assertTrue(captured['url'].endswith('/wp-json/wc/v3/orders/5001/refunds'))
+        self.assertEqual(captured['method'], 'GET')
+
+    def test_timeout_is_indeterminate(self):
+        from apps.payments import woocommerce_service as wc
+        with patch('urllib.request.urlopen', side_effect=TimeoutError('slow')):
+            result = wc.list_woocommerce_refunds('5001')
+        self.assertFalse(result['success'])
+        self.assertTrue(result['indeterminate'])
+
+
+# ---- reconcile_woocommerce_refund (self-heal a stuck PENDING row) ----
+
+class ReconcileWooCommerceRefundTests(TestCase):
+    def setUp(self):
+        _configure_wc()
+        self.user = User.objects.create_user(username='rec_mgr', password='x')
+        self.claim = _claim()
+        self.svc = RefundService()
+
+    def _pending(self, amount='25.00'):
+        return Refund.objects.create(
+            claim=self.claim, paypal_refund_id='WC-PENDING-abc123',
+            amount=Decimal(amount), currency='USD', status=Refund.STATUS_PENDING,
+            refund_type=Refund.TYPE_FULL, external_source=Refund.SOURCE_WOOCOMMERCE,
+            metadata={'woocommerce_order_id': '5001', 'last_error': 'Could not confirm.'})
+
+    def test_matching_amount_marks_completed(self):
+        r = self._pending('25.00')
+        with patch('apps.payments.refund_service.list_woocommerce_refunds',
+                   return_value={'success': True, 'refunds': [{'id': '9100', 'amount': '25.00'}]}):
+            result = self.svc.reconcile_woocommerce_refund(r)
+        self.assertTrue(result['success'])
+        self.assertTrue(result['reconciled'])
+        r.refresh_from_db()
+        self.assertEqual(r.status, Refund.STATUS_COMPLETED)
+        self.assertEqual(r.paypal_refund_id, 'WC-9100')          # adopted the real WC id
+        self.assertIsNotNone(r.processed_at)
+
+    def test_no_woocommerce_refund_means_not_done(self):
+        r = self._pending('25.00')
+        with patch('apps.payments.refund_service.list_woocommerce_refunds',
+                   return_value={'success': True, 'refunds': []}):
+            result = self.svc.reconcile_woocommerce_refund(r)
+        self.assertTrue(result['success'])
+        self.assertFalse(result['reconciled'])
+        self.assertFalse(result['found'])
+        r.refresh_from_db()
+        self.assertEqual(r.status, Refund.STATUS_PENDING)        # left untouched — no money moved
+
+    def test_amount_mismatch_is_ambiguous(self):
+        r = self._pending('25.00')
+        with patch('apps.payments.refund_service.list_woocommerce_refunds',
+                   return_value={'success': True, 'refunds': [{'id': '9100', 'amount': '99.00'}]}):
+            result = self.svc.reconcile_woocommerce_refund(r)
+        self.assertTrue(result['success'])
+        self.assertFalse(result['reconciled'])
+        self.assertTrue(result['ambiguous'])
+        r.refresh_from_db()
+        self.assertEqual(r.status, Refund.STATUS_PENDING)
+
+    def test_skips_wc_id_already_adopted_by_another_row(self):
+        # An earlier reconciled row already owns WC-9100; a second pending row of
+        # the same amount must not double-adopt it.
+        Refund.objects.create(
+            claim=self.claim, paypal_refund_id='WC-9100', amount=Decimal('25.00'),
+            currency='USD', status=Refund.STATUS_COMPLETED, refund_type=Refund.TYPE_FULL,
+            external_source=Refund.SOURCE_WOOCOMMERCE)
+        r = self._pending('25.00')
+        with patch('apps.payments.refund_service.list_woocommerce_refunds',
+                   return_value={'success': True, 'refunds': [{'id': '9100', 'amount': '25.00'}]}):
+            result = self.svc.reconcile_woocommerce_refund(r)
+        self.assertFalse(result['reconciled'])                   # only WC refund is taken
+        r.refresh_from_db()
+        self.assertEqual(r.status, Refund.STATUS_PENDING)
+
+    def test_rejects_non_pending(self):
+        r = self._pending()
+        r.status = Refund.STATUS_COMPLETED
+        r.save(update_fields=['status'])
+        result = self.svc.reconcile_woocommerce_refund(r)
+        self.assertFalse(result['success'])
+
+    def test_endpoint_reconciles(self):
+        r = self._pending('25.00')
+        api = APIClient()
+        api.force_login(self.user)
+        with patch('apps.payments.refund_service.list_woocommerce_refunds',
+                   return_value={'success': True, 'refunds': [{'id': '9100', 'amount': '25.00'}]}):
+            resp = api.post(f'/api/payments/refunds/{r.id}/reconcile/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('refund', resp.data)
+        r.refresh_from_db()
+        self.assertEqual(r.status, Refund.STATUS_COMPLETED)

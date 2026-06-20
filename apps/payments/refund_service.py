@@ -24,6 +24,7 @@ from apps.payments.paypal_disputes_service import (
 from apps.payments.woocommerce_service import (
     WooCommerceNotConfigured,
     create_woocommerce_refund,
+    list_woocommerce_refunds,
 )
 
 logger = logging.getLogger(__name__)
@@ -264,6 +265,66 @@ class RefundService:
         refund.metadata['woocommerce_refund_id'] = wc_refund_id
         refund.save(update_fields=['paypal_refund_id', 'status',
                                    'processed_at', 'metadata', 'updated_at'])
+
+    def reconcile_woocommerce_refund(self, refund) -> Dict[str, Any]:
+        """Pull the truth from WooCommerce for a stuck PENDING WooCommerce refund
+        and reconcile the LORA row against it. NO money is moved — this only reads
+        WooCommerce's recorded refunds and updates our record.
+
+        The self-heal for an indeterminate timeout: LORA's refund call can come
+        back unconfirmed (leaving the row PENDING) even though WooCommerce/PayPal
+        completed it. This asks WooCommerce what actually happened.
+
+        Outcomes:
+          {'success': True,  'reconciled': True,  'refund': r}      matched a WC refund -> marked COMPLETED
+          {'success': True,  'reconciled': False, 'found': False}   WooCommerce shows NO refund (it didn't happen)
+          {'success': True,  'reconciled': False, 'ambiguous': True} WC has refunds but none match the amount
+          {'success': False, 'error': ...}                          can't act / couldn't reach WooCommerce
+        """
+        if refund.external_source != Refund.SOURCE_WOOCOMMERCE:
+            return {'success': False, 'error': 'Only WooCommerce refunds can be reconciled here.'}
+        if refund.status not in (Refund.STATUS_PENDING, Refund.STATUS_PROCESSING):
+            return {'success': False, 'error': f'Refund is already {refund.get_status_display()}.'}
+        order_id = str((refund.metadata or {}).get('woocommerce_order_id')
+                       or (refund.claim.woocommerce_id if refund.claim else '') or '').strip()
+        if not order_id:
+            return {'success': False, 'error': 'No WooCommerce order id on this refund to check against.'}
+
+        try:
+            result = list_woocommerce_refunds(order_id)
+        except WooCommerceNotConfigured as e:
+            return {'success': False, 'error': str(e)}
+        if not result.get('success'):
+            return {'success': False, 'error': result.get('error'),
+                    'indeterminate': result.get('indeterminate', False)}
+
+        wc_refunds = result.get('refunds') or []
+        if not wc_refunds:
+            return {'success': True, 'reconciled': False, 'found': False,
+                    'message': 'WooCommerce shows no refund on this order — it has not gone through.'}
+
+        # Never adopt a WC refund another LORA row already claimed.
+        used_ids = set(
+            Refund.objects.filter(claim=refund.claim, status=Refund.STATUS_COMPLETED,
+                                  paypal_refund_id__startswith=Refund.WC_PREFIX)
+            .exclude(pk=refund.pk)
+            .values_list('paypal_refund_id', flat=True))
+        target = refund.amount
+        for wc in wc_refunds:
+            if f"{Refund.WC_PREFIX}{wc['id']}" in used_ids:
+                continue
+            try:
+                amt = abs(Decimal(str(wc['amount'])))
+            except (InvalidOperation, TypeError, ValueError):
+                continue
+            if amt == target:
+                self._complete_woocommerce_refund(refund, wc['id'])
+                logger.info(f"Reconciled refund #{refund.id} to WooCommerce refund {wc['id']}")
+                return {'success': True, 'reconciled': True, 'refund': refund}
+
+        return {'success': True, 'reconciled': False, 'ambiguous': True,
+                'message': ('WooCommerce has refunds on this order, but none match this '
+                            f'amount ({target}). Review the order in WooCommerce.')}
 
     def _reserve_refund(self, claim, amount, *, external_source, reason, user,
                         pending_prefix, paypal_capture_id='', currency='USD',
