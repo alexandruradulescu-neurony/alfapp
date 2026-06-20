@@ -113,6 +113,30 @@ class SystemSettings(models.Model):
         default='deepseek-chat',
         help_text='AI model name (e.g., deepseek-chat, qwen-plus)'
     )
+    # Anthropic (Claude) — used ONLY for the dispute zone (better understanding of
+    # the case). Everything else stays on the default provider above. When the
+    # key is blank, disputes fall back to the default provider too.
+    anthropic_api_base = models.CharField(
+        max_length=255,
+        default='https://api.anthropic.com',
+        help_text='Anthropic API base URL (rarely changed)'
+    )
+    anthropic_api_key = EncryptedCharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Anthropic (Claude) API key — used only for dispute reports (encrypted at rest)'
+    )
+    anthropic_model = models.CharField(
+        max_length=100,
+        default='claude-sonnet-4-6',
+        choices=[
+            ('claude-sonnet-4-6', 'Claude Sonnet 4.6 (recommended for disputes)'),
+            ('claude-opus-4-8', 'Claude Opus 4.8 (most capable)'),
+            ('claude-haiku-4-5', 'Claude Haiku 4.5 (fastest, cheapest)'),
+        ],
+        help_text='Claude model used for dispute report generation'
+    )
     pii_tokenization_salt = EncryptedCharField(
         # 4580 is the user-facing (plaintext) limit; EncryptedCharField inflates
         # the actual DB column to hold the larger Fernet ciphertext. It's sized
