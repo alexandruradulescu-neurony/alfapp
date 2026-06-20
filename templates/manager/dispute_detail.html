@@ -163,7 +163,7 @@
 
       <!-- Compose: generate / save (multipart for images) -->
       <form method="post" action="{% url 'disputes:dispute_prepare_submission' dispute.id %}"
-            enctype="multipart/form-data" class="space-y-4">
+            enctype="multipart/form-data" class="space-y-4" data-block>
         {% csrf_token %}
         <div>
           <label class="block text-sm font-medium text-gray-900 mb-1">What to emphasise (feeds the AI)</label>
@@ -269,7 +269,7 @@
 
       <!-- Send to PayPal (outward, money-relevant — confirm). Channel auto-picked by stage. -->
       <div class="my-5 border-t border-gray-200"></div>
-      <form method="post" action="{% url 'disputes:dispute_submit_to_paypal' dispute.id %}"
+      <form method="post" action="{% url 'disputes:dispute_submit_to_paypal' dispute.id %}" data-block
             onsubmit="return confirm('Send this reply to PayPal now? This sends your message and any attachments.');">
         {% csrf_token %}
         <button type="submit" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -292,7 +292,7 @@
         </span>
       </summary>
       <div class="px-6 pb-6">
-        <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" class="mb-4">
+        <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" class="mb-4" data-block>
           {% csrf_token %}
           <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                   {% if not dispute.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
@@ -418,7 +418,7 @@
       <div class="my-5 border-t border-gray-200"></div>
 
       <!-- Generate evidence report -->
-      <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}">
+      <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" data-block>
         {% csrf_token %}
         <button type="submit" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed" {% if not dispute.zd_ticket_id %}disabled{% endif %}>
           {% heroicon_outline "sparkles" class="size-4" %} Generate evidence report
@@ -466,7 +466,32 @@
 </div>
 </div>
 
+<style>
+  .btn-spin { display:inline-block; width:14px; height:14px; margin-right:2px; vertical-align:-2px;
+              border:2px solid currentColor; border-right-color:transparent; border-radius:50%;
+              animation: btnspin .6s linear infinite; }
+  @keyframes btnspin { to { transform: rotate(360deg); } }
+</style>
 <script>
+// Block double-submit + show a spinner on the slow dispute actions (generate
+// report, draft with AI, submit to PayPal) — same lock as the refund button.
+// CSP-safe: no eval, no inline on* beyond the existing confirm().
+document.querySelectorAll('form[data-block]').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+        if (e.defaultPrevented) return;                          // confirm() was cancelled
+        if (form.dataset.busy) { e.preventDefault(); return; }   // block double-submit
+        var btn = e.submitter || form.querySelector('button[type="submit"]');
+        if (!btn) return;
+        form.dataset.busy = '1';
+        var txt = (btn.textContent || 'Working').trim();
+        // Defer so the clicked button's name/value is still sent with the POST.
+        setTimeout(function () {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="btn-spin" aria-hidden="true"></span> ' + txt;
+        }, 0);
+    });
+});
+
 // Composer live char counter — PayPal caps the reply/notes field near
 // paypal_notes_max; the service also warns past it server-side.
 (function () {
