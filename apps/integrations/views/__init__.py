@@ -13,7 +13,9 @@ from apps.integrations.views.assist import (
 )
 from apps.integrations.views.sync import ZendeskTicketSyncView
 from apps.integrations.views.flight import ZendeskFlightLookupView
-from apps.integrations.views.webhooks import RefundWebhookView, ZendeskClaimWebhookView
+from apps.integrations.views.webhooks import (
+    RefundWebhookView, ZendeskClaimWebhookView, ZendeskClientReplyWebhookView,
+)
 from apps.integrations.views.email import ZendeskEmailCheckView, ZendeskTicketEmailsView
 from apps.integrations.views.client_updates import ZendeskClientUpdatesView
 
@@ -27,6 +29,7 @@ __all__ = [
     'ZendeskFlightLookupView',
     'RefundWebhookView',
     'ZendeskClaimWebhookView',
+    'ZendeskClientReplyWebhookView',
     'ZendeskEmailCheckView',
     'ZendeskTicketEmailsView',
     'ZendeskClientUpdatesView',
