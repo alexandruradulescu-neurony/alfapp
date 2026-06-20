@@ -467,6 +467,8 @@ def dispute_detail(request, dispute_id):
                         .filter(dispute=dispute, doc_type=DisputeDocument.DOC_TYPE_EVIDENCE_REPORT)
                         .exclude(file_path='').exists())
     has_terms_pdf = bool(SystemSettings.get_instance().terms_conditions_pdf)
+    # Invoice is fetchable when the linked claim has a WooCommerce order id.
+    has_invoice = bool(dispute.claim and (dispute.claim.woocommerce_id or '').strip())
 
     # When PayPal isn't accepting a reply (submit_endpoint == ''), explain WHY in
     # the manager's terms — a bare "No reply window open" reads like a bug.
@@ -507,6 +509,7 @@ def dispute_detail(request, dispute_id):
         'reply_window_reason': reply_window_reason,
         'has_evidence_pdf': has_evidence_pdf,
         'has_terms_pdf': has_terms_pdf,
+        'has_invoice': has_invoice,
         'evidence_type_default': evidence_type_for_reason(dispute.dispute_reason),
         # Soft cap surfaced in the composer's live counter (PayPal caps the notes
         # field near here; the service also warns past it).
@@ -757,6 +760,7 @@ def dispute_prepare_submission(request, dispute_id):
     draft.manager_note = manager_note
     draft.attach_evidence_pdf = request.POST.get('attach_evidence_pdf') == 'on'
     draft.attach_terms = request.POST.get('attach_terms') == 'on'
+    draft.attach_invoice = request.POST.get('attach_invoice') == 'on'
     evidence_type = (request.POST.get('evidence_type') or '').strip()
     if evidence_type:
         draft.evidence_type = evidence_type

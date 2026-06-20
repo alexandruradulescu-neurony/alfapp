@@ -167,3 +167,26 @@ def list_woocommerce_refunds(order_id: str, timeout: int = 15) -> Dict[str, Any]
         return {'success': False,
                 'error': 'Could not reach WooCommerce to check the refund. Try again shortly.',
                 'indeterminate': True}
+
+
+def get_woocommerce_order_meta(order_id: str, timeout: int = 15) -> Dict[str, Any]:
+    """Read an order's meta_data from WooCommerce as a flat {key: value} dict
+    (read-only). Returns {} on any failure. Raises WooCommerceNotConfigured."""
+    base_url, key, secret = _wc_credentials()
+    url = f"{base_url}/wp-json/wc/v3/orders/{order_id}"
+    token = base64.b64encode(f"{key}:{secret}".encode('utf-8')).decode('ascii')
+    req = urllib.request.Request(
+        url, headers={'Authorization': f'Basic {token}', 'User-Agent': 'LORA-refunds/1.0'},
+        method='GET')
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = json.loads(resp.read().decode('utf-8'))
+    except Exception as e:
+        logger.error(f"Could not fetch WooCommerce order {order_id}: {e}")
+        return {}
+    meta = {}
+    for m in (body.get('meta_data') or []):
+        k = m.get('key')
+        if k is not None and str(k) not in meta:
+            meta[str(k)] = m.get('value')
+    return meta

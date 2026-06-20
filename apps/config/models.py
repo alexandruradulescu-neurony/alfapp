@@ -317,6 +317,22 @@ Please analyze this claim and provide:
         help_text='Terms & Conditions PDF, attached to PayPal dispute first responses'
     )
 
+    # Oblio invoicing (fallback for fetching the customer invoice when the
+    # WooCommerce order has no stored invoice link). All optional — the primary
+    # path reads the link already saved on the WooCommerce order.
+    oblio_email = models.CharField(
+        max_length=255, blank=True, default='',
+        help_text='Oblio API client id (the account email)'
+    )
+    oblio_secret = EncryptedCharField(
+        max_length=255, blank=True, default='',
+        help_text='Oblio API secret (encrypted at rest)'
+    )
+    oblio_cif = models.CharField(
+        max_length=32, blank=True, default='',
+        help_text='Your company tax id / CIF, required by the Oblio invoice API'
+    )
+
     # Email Configuration
     email_domain = models.CharField(
         max_length=255,

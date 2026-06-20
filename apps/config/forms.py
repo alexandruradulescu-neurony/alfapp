@@ -39,6 +39,7 @@ class SystemSettingsForm(forms.ModelForm):
         'sidebar_secret_token',
         'woocommerce_consumer_key',
         'woocommerce_consumer_secret',
+        'oblio_secret',
     ]
 
     class Meta:
@@ -68,6 +69,9 @@ class SystemSettingsForm(forms.ModelForm):
             'paypal_mode',
             # WooCommerce (non-sensitive part)
             'woocommerce_store_url',
+            # Oblio invoicing (non-sensitive part; secret is in SENSITIVE_FIELDS)
+            'oblio_email',
+            'oblio_cif',
             # Client update automation
             'client_report_trigger_status',
             'client_report_trigger_status_id',
