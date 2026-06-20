@@ -46,6 +46,27 @@ COMMENTS = [
 ]
 
 
+class DisputeBusinessUnderstandingTests(TestCase):
+    """The dispute AI must understand ALF's business to argue a case, and must
+    see the buyer's own complaint so it rebuts the specific reasons given."""
+
+    def test_both_prompts_carry_business_context(self):
+        for prompt in (ds.EVIDENCE_NARRATIVE_SYSTEM_PROMPT, ds.EVIDENCE_NOTES_SYSTEM_PROMPT):
+            self.assertIn('paid concierge service', prompt)
+            self.assertIn('NON-REFUNDABLE', prompt)
+            self.assertIn('authorise', prompt.lower())
+
+    def test_buyer_complaint_reaches_notes_ai_as_untrusted(self):
+        from apps.ai.prompt_fence import ALLOWED_TAGS
+        self.assertIn('buyer_dispute_statement', ALLOWED_TAGS)
+        d = _dispute(raw_webhook_payload={'evidences': [
+            {'source': 'SUBMITTED_BY_BUYER',
+             'notes': 'This company is a scam, I never authorised this.'}]})
+        u = ds._narrative_untrusted({'dispute': d, 'panels': []})
+        self.assertIn('buyer_dispute_statement', u)
+        self.assertIn('never authorised', u['buyer_dispute_statement'])
+
+
 class PanelBuilderTests(TestCase):
     def test_internal_vs_public_and_image_embed(self):
         with patch.object(ds, '_attachment_data_uri', return_value='data:image/png;base64,AAAA'):
