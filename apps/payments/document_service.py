@@ -1569,6 +1569,34 @@ def build_dispute_narrative_notes(dispute, *, manager_note: str = '', use_ai: bo
 
 _TIMELINE_MIN_DT = datetime.min.replace(tzinfo=_std_timezone.utc)
 
+# PayPal sends each acceptable evidence TYPE for a single request as its own
+# REQUESTED_FROM_SELLER entry (all at the same timestamp) and gives NO
+# description — just the enum. We add plain-English guidance, service-aware
+# (ALF performs a recovery service; there is no shipped product).
+_REQUESTED_EVIDENCE_LABELS = {
+    'PROOF_OF_FULFILLMENT': 'Proof of fulfilment',
+    'PROOF_OF_REFUND': 'Proof of refund',
+    'PROOF_OF_DELIVERY_SIGNATURE': 'Proof of delivery signature',
+    'PROOF_FOR_SOFTWARE_OR_SERVICE_DELIVERED': 'Proof the service was delivered',
+    'PROOF_OF_RETURN': 'Proof of return',
+    'OTHER': 'Other supporting evidence',
+}
+_REQUESTED_EVIDENCE_DESCRIPTIONS = {
+    'PROOF_OF_FULFILLMENT': 'evidence the goods or service were delivered — for us, the case record showing the recovery service was performed (search started, updates sent, work done)',
+    'PROOF_OF_REFUND': 'evidence you already refunded the buyer for this transaction (refund id and date)',
+    'PROOF_OF_DELIVERY_SIGNATURE': "delivery confirmation including the recipient's signature",
+    'PROOF_FOR_SOFTWARE_OR_SERVICE_DELIVERED': 'compelling proof the service was delivered as described — transaction id, dates, and what was performed',
+    'PROOF_OF_RETURN': 'evidence the item was returned (tracking or confirmation)',
+    'OTHER': "any other supporting evidence relevant to the dispute (e.g. our terms, the customer's own messages)",
+}
+
+
+def _describe_requested_type(etype: str) -> str:
+    """A 'Label — what to send' line for one PayPal-requested evidence type."""
+    label = _REQUESTED_EVIDENCE_LABELS.get(etype, (etype or '').replace('_', ' ').title())
+    desc = _REQUESTED_EVIDENCE_DESCRIPTIONS.get(etype, '')
+    return f"{label} — {desc}" if desc else label
+
 
 def build_dispute_reply_timeline(dispute) -> list:
     """Chronological back-and-forth for the dispute page (feature D).
@@ -1612,10 +1640,32 @@ def build_dispute_reply_timeline(dispute) -> list:
                         for m in (payload.get('messages') or [])
                         if (m.get('posted_by') or '').upper() == 'BUYER'}
 
+    # PayPal also tells us how else we may respond (e.g. accept the claim by
+    # refunding). Surface it on the request card rather than ignoring it.
+    _aro = payload.get('allowed_response_options') or {}
+    accept_refund = 'REFUND' in [
+        str(t).upper()
+        for t in ((_aro.get('accept_claim') or {}).get('accept_claim_types') or [])]
+
+    requested_groups = {}  # one PayPal request -> its acceptable evidence types
     for ev in (payload.get('evidences') or []):
         src = (ev.get('source') or '').upper()
         etype = (ev.get('evidence_type') or '').upper()
         notes = ev.get('notes') or ''
+        if src == 'REQUESTED_FROM_SELLER':
+            # PayPal lists EACH acceptable evidence type as its own entry, all
+            # stamped with the same time — it is ONE request offering options,
+            # not several requests. Group them (keyed by time) so the page shows
+            # a single request, and never drop the bare 'OTHER' as a blank card.
+            key = ev.get('date') or ev.get('create_time') or ''
+            grp = requested_groups.setdefault(
+                key, {'when': _parse_dt(ev.get('date') or ev.get('create_time')),
+                      'types': [], 'notes': []})
+            if etype and etype not in grp['types']:
+                grp['types'].append(etype)
+            if _norm(notes):
+                grp['notes'].append(notes)
+            continue
         if src in ('SUBMITTED_BY_BUYER', 'REQUESTED_FROM_BUYER'):
             # The buyer's own words. Skip it if the message thread already carries
             # the same text (the opening complaint), else show it as the Buyer.
@@ -1623,8 +1673,6 @@ def build_dispute_reply_timeline(dispute) -> list:
                 continue
             actor = 'Buyer'
             title = 'Buyer opened the dispute' if etype == 'CREATE' else 'Buyer submitted to PayPal'
-        elif src == 'REQUESTED_FROM_SELLER':
-            actor, title = 'PayPal', 'PayPal requested information'
         elif src == 'SUBMITTED_BY_SELLER':
             # We submitted this — say so plainly (the old 'On file at PayPal'
             # left the manager unsure whether it had actually been sent).
@@ -1637,15 +1685,29 @@ def build_dispute_reply_timeline(dispute) -> list:
         docs = ev.get('documents')
         if not isinstance(docs, list):
             docs = (ev.get('evidence_info') or {}).get('documents') or []
-        # PayPal's bookkeeping types CREATE (dispute-open) and OTHER (a bare
-        # request) carry no meaning to a human — showing them rendered an empty,
-        # cryptic "OTHER" card. Only surface an informative evidence type.
+        # CREATE (dispute-open) / OTHER (bare request) carry no meaning to a
+        # human; only surface an informative evidence type.
         shown_type = '' if etype in ('', 'OTHER', 'CREATE') else ev.get('evidence_type', '')
         entries.append({
             'when': when, 'when_str': _fmt_zd_time(when), 'actor': actor,
             'kind': 'paypal_evidence', 'title': title, 'status': '',
             'source': shown_type, 'text': notes[:_CASE_LOG_TEXT_DISPLAY_CHARS],
             'doc_count': len(docs) if isinstance(docs, list) else 0,
+        })
+
+    # One card per PayPal request, listing every acceptable evidence type with
+    # plain-English guidance on what to send (PayPal sends only the enum, and
+    # often several options for the SAME request).
+    for grp in requested_groups.values():
+        lines = ['Send any ONE of these to PayPal:']
+        lines += ['• ' + _describe_requested_type(t) for t in grp['types']]
+        lines += grp['notes']
+        if accept_refund:
+            lines.append('PayPal will also accept resolving this by refunding the buyer.')
+        entries.append({
+            'when': grp['when'], 'when_str': _fmt_zd_time(grp['when']), 'actor': 'PayPal',
+            'kind': 'paypal_request', 'title': 'PayPal requested information', 'status': '',
+            'source': '', 'text': '\n'.join(lines),
         })
 
     for m in (payload.get('messages') or []):
