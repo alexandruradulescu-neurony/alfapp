@@ -93,7 +93,7 @@ _STANDARD_DISCLAIMER = (
     "recovery points."
 )
 
-_SIGN_OFF = "Warm regards,\nThe Airport Lost & Found team"
+_SIGN_OFF = "Warm regards,\nThe Airport Lost Found team"
 
 
 def _final_disclaimer(period_days: int) -> str:

@@ -101,7 +101,7 @@ class TestDAY2Content:
     def test_sign_off_present(self):
         claim = _fake_claim()
         msg = milestone_message(claim, 'DAY_2', _full_ticket_data(), 30)
-        assert 'The Airport Lost & Found team' in msg
+        assert 'The Airport Lost Found team' in msg
 
 
 # ---------------------------------------------------------------------------

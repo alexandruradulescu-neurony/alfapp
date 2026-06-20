@@ -28,7 +28,7 @@ class ClientReportTemplateTests(TestCase):
         self.assertIn('iPad Tablet', msg)
         self.assertIn('ALF1', msg)
         self.assertIn('American Airlines AA3196', msg)
-        self.assertIn('Airport Lost & Found team', msg)
+        self.assertIn('Airport Lost Found team', msg)
 
     def test_template_never_promises_recovery(self):
         low = client_report.build_client_update_template(self._claim()).lower()
