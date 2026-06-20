@@ -121,9 +121,6 @@
   <span><b>PayPal case:</b> {{ dispute.paypal_dispute_id }}</span>
   {% if dispute.dispute_amount %}<span><b>Amount:</b> {{ dispute.dispute_amount }} {{ dispute.dispute_currency|default:"USD" }}</span>{% endif %}
   <span><b>Reason:</b> {{ dispute.get_dispute_reason_display|default:"Not categorised" }}</span>
-  {% if dispute.seller_response_due %}
-  <span class="{{ dispute.deadline_state }}"><b>Respond by:</b> {{ dispute.seller_response_due|date:"M j, Y H:i" }}{% if dispute.deadline_state == 'overdue' %} (OVERDUE){% elif dispute.deadline_state == 'soon' %} (due soon){% endif %}</span>
-  {% endif %}
 </div>
 
 <div class="framing">
@@ -177,11 +174,9 @@
 
 <p class="narr">The client also expressly authorised us to search for their lost item on their behalf, and accepted our Terms and Conditions{% if consent.when %} when they submitted the claim on {{ consent.when }}{% endif %}{% if consent.ip %}, from IP address {{ consent.ip }}{% endif %} — see the checkout below:</p>
 
-<p class="narr">The reconstruction below is generated from this customer's own order record. The highlighted areas (1&ndash;5) mark what the customer was shown and agreed to before paying; only the customer details and the fee change from one case to the next.</p>
+<p class="cap" style="margin-top:6px;">What the highlights show &mdash; <span class="lgnum">1</span> clear explanation of the service &nbsp;&middot;&nbsp; <span class="lgnum">2</span> refund period clearly stated &nbsp;&middot;&nbsp; <span class="lgnum">3</span> the service fee &nbsp;&middot;&nbsp; <span class="lgnum">4</span> the customer accepted the Terms &amp; Conditions before paying &nbsp;&middot;&nbsp; <span class="lgnum">5</span> the customer authorized us to search on their behalf.</p>
 
 {% include 'disputes/_checkout_evidence.html' %}
-
-<p class="cap">What the highlights show &mdash; <span class="lgnum">1</span> clear explanation of the service &nbsp;&middot;&nbsp; <span class="lgnum">2</span> refund period clearly stated &nbsp;&middot;&nbsp; <span class="lgnum">3</span> the service fee &nbsp;&middot;&nbsp; <span class="lgnum">4</span> the customer accepted the Terms &amp; Conditions before paying &nbsp;&middot;&nbsp; <span class="lgnum">5</span> the customer authorized us to search on their behalf.</p>
 
 {% if recorded_acceptance %}
 <div class="vaccept">
@@ -284,7 +279,7 @@
 </div>
 
 <div class="footer">
-  Prepared by Dragos Gruita for {{ narrative.client_name }} &mdash; PayPal dispute {{ dispute.paypal_dispute_id }} &mdash; generated {{ generated_at }}
+  Prepared by the ALF Complaint Resolution Team for {{ narrative.client_name }} &mdash; PayPal dispute {{ dispute.paypal_dispute_id }} &mdash; generated {{ generated_at }}
 </div>
 
 </body>

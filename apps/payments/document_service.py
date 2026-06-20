@@ -503,8 +503,9 @@ def _persist_document(dispute, *, doc_type: str, generated_by: str, content_html
         version = (DisputeDocument.objects
                    .filter(dispute=dispute, doc_type=doc_type)
                    .aggregate(m=Max('version'))['m'] or 0) + 1
-        filename = (f"{slug}_dispute_{dispute.pk}_v{version}_"
-                    f"{dj_timezone.now().strftime('%Y%m%d_%H%M%S')}.pdf")
+        # User-facing report name; Django appends a short suffix if a prior
+        # version's file already uses this name (keeps each version distinct).
+        filename = f"Dispute Settlement Report {dispute.paypal_dispute_id or dispute.pk}.pdf"
         document = DisputeDocument.objects.create(
             dispute=dispute,
             doc_type=doc_type,
@@ -845,6 +846,9 @@ def _zendesk_comment_panels(comments: list, embed_images: bool = True,
                     'when': _fmt_zd_time(call.get('started_at') or c.get('created_at')),
                     'length': _fmt_call_duration(call.get('duration')),
                     'answered_by': call.get('answered_by', ''),
+                    # Zendesk sets answered_by_name only when the call connected;
+                    # absent = no answer / voicemail (we did NOT speak with them).
+                    'answered': bool(call.get('answered_by_name')),
                     'recorded': call.get('recorded', False),
                 },
             })
@@ -1146,6 +1150,17 @@ def _fmt_ip(ip: str) -> str:
     return ip.replace('.', '.​') if ip else ''
 
 
+_IP_RE = re.compile(r'(?<!\d)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?!\d)')
+
+
+def _dephone_ips(text: str) -> str:
+    """Re-apply the no-phone-autodetect spacing to any IP in already-built text
+    (e.g. AI-generated notes that dropped the zero-width spaces). Idempotent —
+    an already-spaced IP won't match, since the zero-width space breaks the
+    consecutive-digit run the pattern looks for."""
+    return _IP_RE.sub(lambda m: _fmt_ip(m.group(1)), text or '')
+
+
 def _buyer_statement(dispute) -> str:
     """The buyer's own opening complaint text from the stored PayPal payload."""
     payload = getattr(dispute, 'raw_webhook_payload', None) or {}
@@ -1442,6 +1457,11 @@ EVIDENCE_NARRATIVE_SYSTEM_PROMPT = (
     "was NOT found does not help our defence — prefer EXCLUDE, or include it "
     "only where it clearly shows the effort we made, and never imply we failed "
     "to deliver our service.\n"
+    "PHONE CALLS: a record that says a call was NOT answered means it went to "
+    "voicemail / no answer. For such records, say only that we CALLED or "
+    "ATTEMPTED TO REACH the customer (or left a message). NEVER state or imply "
+    "the customer answered, that we spoke with / talked to / reached them, or "
+    "what was said, unless the record explicitly says the call was answered.\n"
     "Return JSON: {\"items\": [{\"index\": <int>, \"section\": <enum>, "
     "\"explanation\": <str>}, ...]} with one entry per record."
 )
@@ -1687,7 +1707,14 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
             cc = p['call']
             # PII-free descriptor for the AI — NEVER the phone numbers or the
             # customer's name (those render only in the deterministic card).
-            txt = f"{cc['label']} with the customer" + (f" lasting {cc['length']}" if cc['length'] else '') + '.'
+            # State whether the call connected so the AI never claims we "spoke
+            # with" the customer on a call that actually went to voicemail.
+            length = f" lasting {cc['length']}" if cc['length'] else ''
+            if cc.get('answered'):
+                txt = f"{cc['label']} we placed to the customer{length} (answered)."
+            else:
+                txt = (f"{cc['label']} we placed to the customer{length} — NOT answered "
+                       "(no answer / voicemail); we did not speak with the customer on this call.")
             items.append({'index': i, 'kind': 'call', 'channel': 'internal',
                           'has_image': False, 'text': txt, 'panel': p})
         else:
@@ -1802,6 +1829,10 @@ EVIDENCE_NOTES_SYSTEM_PROMPT = (
     "NEVER invent a fact, date, name, amount, flight, or action; if a value is "
     "missing or marked unknown, leave it out rather than guess. If a "
     "'manager_emphasis' note is provided, weave its point in where it fits. "
+    "PHONE CALLS: describe calls only as calls WE placed or attempted; a call "
+    "marked NOT answered went to voicemail — NEVER say we spoke with, talked "
+    "to, or reached the customer, or repeat what they said, unless a record "
+    "states the call was answered. "
     "Keep each section tight and free of padding. Return JSON: {\"opening\": "
     "<str>, \"authorization\": <str>, \"service_delivery\": <str>, "
     "\"closing\": <str>}."
@@ -1935,7 +1966,7 @@ def _fallback_narrative_sections(dispute, bundle: dict) -> dict:
                     "cannot be guaranteed.")
     if identity.get('matched'):
         auth.append("The customer later contacted us from the very same IP address used to submit "
-                    f"the claim ({identity['submission_ip']}), confirming this was the same person.")
+                    f"the claim ({_fmt_ip(identity['submission_ip'])}), confirming this was the same person.")
     elif identity.get('client_msg_count'):
         auth.append("The customer corresponded with us from their own email afterwards — behaviour "
                     "inconsistent with an unauthorised transaction.")
@@ -2009,6 +2040,7 @@ def build_dispute_narrative_notes(dispute, *, manager_note: str = '', use_ai: bo
         source = 'FALLBACK'
 
     notes = _assemble_narrative_notes(sections, reason=dispute.dispute_reason)
+    notes = _dephone_ips(notes)   # survive the AI dropping the zero-width spaces on any IP
     if len(notes) > PAYPAL_NOTES_MAX_CHARS:
         logger.warning(
             "Dispute #%s narrative is %d chars — PayPal caps dispute notes near %d; "

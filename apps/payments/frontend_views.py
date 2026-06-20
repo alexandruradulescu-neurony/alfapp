@@ -623,8 +623,8 @@ def dispute_edit_document(request, document_id):
                 pdf_bytes = _render_to_pdf(
                     strip_active_html(content_html),
                     f"Dispute #{document.dispute_id} Evidence Report (edited)")
-                filename = (f"evidence_report_dispute_{document.dispute_id}"
-                            f"_v{document.version}_edited.pdf")
+                filename = (f"Dispute Settlement Report "
+                            f"{document.dispute.paypal_dispute_id or document.dispute_id}.pdf")
                 if pdf_bytes:
                     document.file_path.save(filename, ContentFile(pdf_bytes), save=True)
                     regenerated = True

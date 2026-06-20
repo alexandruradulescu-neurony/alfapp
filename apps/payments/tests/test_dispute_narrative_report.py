@@ -643,6 +643,13 @@ class CheckoutEvidenceTests(TestCase):
         two = ds._split_address('Main St, Springfield')
         self.assertEqual(two['street'], 'Main St')
 
+    def test_dephone_ips_spaces_each_dot_and_is_idempotent(self):
+        # An IP must never reach the PDF/PayPal as 10 plain digits (phone-detect).
+        self.assertEqual(ds._dephone_ips('from IP 9.8.7.6 ok'), 'from IP 9.​8.​7.​6 ok')
+        once = ds._dephone_ips('IP 73.14.22.190')
+        self.assertEqual(ds._dephone_ips(once), once)              # idempotent
+        self.assertNotIn('9.8.7.6', ds._dephone_ips('9.8.7.6'))    # raw run is broken up
+
     def test_checkout_context_price_and_address(self):
         claim = Claim.objects.create(client_email='b@e.com', price_paid=Decimal('65.00'),
                                      billing_address='County Road 1140, Cooper, TX 75432, United States')
