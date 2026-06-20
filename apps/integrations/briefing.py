@@ -73,7 +73,7 @@ MAX_THREAD_COMMENTS = 30
 # AI-tuning defaults for the claim-summary call (kept named so summary behaviour
 # is tweaked in one place).
 SUMMARY_TEMPERATURE = 0.4
-SUMMARY_MAX_TOKENS = 500
+SUMMARY_MAX_TOKENS = 4096
 
 STATUS_VOCABULARY = (
     "Zendesk workflow statuses (the claim's status uses these exact names): "

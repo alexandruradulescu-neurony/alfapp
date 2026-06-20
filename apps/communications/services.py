@@ -339,7 +339,7 @@ def call_qwen_ai(prompt: str, email_body: str, subject: str = '',
             response_schema=EmailCategorization,
             call_site="email_categorizer",
             temperature=0.3,
-            max_tokens=500,
+            max_tokens=4096,
         )
     except AIResponseValidationError as e:
         # Surface to caller in the same shape the existing parser expects on failure.
@@ -377,7 +377,7 @@ def call_qwen_ai_for_ticket_extraction(
             response_schema=TicketExtraction,
             call_site="zendesk_extractor",
             temperature=0.3,
-            max_tokens=600,
+            max_tokens=4096,
         )
     except AIResponseValidationError as e:
         return {"raw_response": e.raw_reply, "validation_failed": True}
