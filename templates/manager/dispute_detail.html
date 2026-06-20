@@ -216,6 +216,17 @@
             {% if not has_terms_pdf %}
             <span class="lora-meta mt-1 block">Upload a Terms &amp; Conditions PDF in Settings to enable this.</span>
             {% endif %}
+            <label class="flex items-center gap-2 text-sm mt-1.5 {% if not has_invoice %}opacity-50{% endif %}">
+              <input type="checkbox" name="attach_invoice" class="size-4 rounded border-gray-300 accent-indigo-600"
+                     {% if not draft_submission or draft_submission.attach_invoice %}checked{% endif %}
+                     {% if not has_invoice %}disabled{% endif %}>
+              Attach invoice/bill
+            </label>
+            {% if not has_invoice %}
+            <span class="lora-meta mt-1 block">No WooCommerce order on this claim, so the invoice can't be fetched.</span>
+            {% else %}
+            <span class="lora-meta mt-1 block">Fetched from the order when you send (the Oblio invoice).</span>
+            {% endif %}
             <div class="mt-2">
               <input type="file" name="images" multiple accept="image/*,application/pdf,.pdf"
                      class="block w-full text-sm text-gray-500 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-indigo-600 hover:file:bg-indigo-100">

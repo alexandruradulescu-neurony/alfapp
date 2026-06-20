@@ -636,6 +636,10 @@ class DisputeSubmission(models.Model):
         default=True,
         help_text='Attach the stored Terms & Conditions PDF (always-required on a first response)',
     )
+    attach_invoice = models.BooleanField(
+        default=True,
+        help_text='Attach the customer invoice fetched from the order (always-required on a first response)',
+    )
     status = models.CharField(
         max_length=10,
         choices=STATUS_CHOICES,

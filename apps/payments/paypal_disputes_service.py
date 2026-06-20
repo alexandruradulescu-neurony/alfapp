@@ -669,6 +669,15 @@ def _build_submission_files(submission: DisputeSubmission) -> List[dict]:
         else:
             logger.warning(f"attach_terms set but no Terms & Conditions PDF uploaded "
                            f"(dispute #{submission.dispute_id})")
+    if getattr(submission, 'attach_invoice', False):
+        from apps.payments.invoice_service import fetch_invoice_pdf_for_claim
+        claim = submission.dispute.claim
+        inv = fetch_invoice_pdf_for_claim(claim) if claim else None
+        if inv:
+            files.append(inv)
+        else:
+            logger.warning(f"attach_invoice set but no invoice could be fetched "
+                           f"(dispute #{submission.dispute_id})")
     for img in submission.images.all():
         f = _read_file_field(img.file)
         if f:

@@ -277,6 +277,24 @@
             <input type="file" name="terms_conditions_pdf" accept="application/pdf,.pdf"
                    class="block w-full text-sm text-gray-500 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-indigo-600 hover:file:bg-indigo-100">
         </div>
+
+        <div class="border-t border-gray-200 my-5"></div>
+        <p class="lora-eyebrow mb-1">Invoice fallback (Oblio)</p>
+        <p class="lora-meta mb-3 max-w-xl">Optional. The invoice is normally read straight from the WooCommerce order's stored link, so these are only used as a fallback when that link is missing. Provide your Oblio API credentials + company CIF to enable it.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl">
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Oblio email (client id)</label>
+                <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="oblio_email" value="{{ settings.oblio_email }}" autocomplete="off">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Oblio secret <span class="block text-xs font-normal text-gray-500">Leave blank to keep current</span></label>
+                <input type="password" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="oblio_secret" placeholder="{% if settings.oblio_secret %}••••••••••••{% endif %}" autocomplete="off">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-900 mb-1">Company CIF</label>
+                <input type="text" class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600" name="oblio_cif" value="{{ settings.oblio_cif }}" placeholder="RO12345678" autocomplete="off">
+            </div>
+        </div>
     </div>
 
     <h2 class="lora-eyebrow mb-3 mt-8">Client updates</h2>
