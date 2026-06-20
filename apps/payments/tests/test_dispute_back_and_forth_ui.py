@@ -85,11 +85,11 @@ class TimelineBuilderTests(TestCase):
         ours = [e for e in tl if 'our case on file' in (e['text'] or '')]
         self.assertEqual(ours[0]['actor'], 'Airport Lost & Found')
 
-    def test_seller_evidence_reads_as_submitted_and_hides_cryptic_type(self):
+    def test_seller_evidence_reads_as_submitted_and_a_bare_other_request_is_described(self):
         """Our SUBMITTED_BY_SELLER evidence must read as clearly *sent* (not the
-        vague 'On file at PayPal'), informative evidence types are kept, and the
-        cryptic 'OTHER' on a PayPal request is suppressed (it rendered an empty,
-        confusing card)."""
+        vague 'On file at PayPal') and keep its informative type. A bare 'OTHER'
+        PayPal request is no longer dropped as a blank card — it's surfaced as a
+        described option ('Other supporting evidence')."""
         d = _dispute(payload={'evidences': [
             {'evidence_type': 'PROOF_OF_FULFILLMENT', 'notes': 'our proof',
              'source': 'SUBMITTED_BY_SELLER', 'date': '2026-06-09T07:33:00Z'},
@@ -101,7 +101,31 @@ class TimelineBuilderTests(TestCase):
         self.assertIn('submitted', seller['title'].lower())          # clearly sent
         self.assertEqual(seller['source'], 'PROOF_OF_FULFILLMENT')   # informative type kept
         paypal = next(e for e in tl if e['actor'] == 'PayPal')
-        self.assertEqual(paypal['source'], '')                       # cryptic 'OTHER' suppressed
+        self.assertIn('requested', paypal['title'].lower())
+        self.assertIn('other supporting evidence', paypal['text'].lower())  # not a blank card
+
+    def test_one_request_with_many_types_is_a_single_described_card(self):
+        """PayPal lists each acceptable evidence type as its own same-timestamp
+        entry — it is ONE request. The page must show a single card listing every
+        option with guidance (including 'Other'), plus the accept-by-refund route
+        from allowed_response_options. Regression for dispute #138."""
+        ts = '2026-06-20T05:53:30.444Z'
+        d = _dispute(payload={
+            'evidences': [
+                {'source': 'REQUESTED_FROM_SELLER', 'evidence_type': 'PROOF_OF_FULFILLMENT', 'date': ts},
+                {'source': 'REQUESTED_FROM_SELLER', 'evidence_type': 'PROOF_OF_REFUND', 'date': ts},
+                {'source': 'REQUESTED_FROM_SELLER', 'evidence_type': 'OTHER', 'date': ts},
+            ],
+            'allowed_response_options': {'accept_claim': {'accept_claim_types': ['REFUND']}},
+        })
+        tl = ds.build_dispute_reply_timeline(d)
+        requests = [e for e in tl if e['actor'] == 'PayPal' and 'requested' in e['title'].lower()]
+        self.assertEqual(len(requests), 1)                       # ONE card, not three
+        body = requests[0]['text'].lower()
+        self.assertIn('proof of fulfilment', body)               # all three options described
+        self.assertIn('proof of refund', body)
+        self.assertIn('other supporting evidence', body)         # OTHER no longer dropped
+        self.assertIn('refunding the buyer', body)               # accept-by-refund surfaced
 
     def test_empty_when_nothing(self):
         self.assertEqual(ds.build_dispute_reply_timeline(_dispute()), [])
