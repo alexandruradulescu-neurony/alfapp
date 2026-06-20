@@ -342,6 +342,24 @@ class RefundService:
         try:
             with transaction.atomic():
                 locked = Claim.objects.select_for_update().get(pk=claim.pk)
+
+                # Duplicate-submission guard (defense in depth beyond the
+                # over-refund cap, which does NOT catch repeated PARTIAL refunds
+                # that each fit under the remaining amount): refuse a second
+                # identical refund while an unconfirmed one is already in flight.
+                # The row lock above makes this race-safe against button-mashing
+                # and concurrent requests — only the first gets through.
+                if locked.refunds.filter(
+                    external_source=external_source, amount=amount,
+                    status__in=(Refund.STATUS_PENDING, Refund.STATUS_PROCESSING),
+                ).exists():
+                    return None, {
+                        'success': False,
+                        'error': (f'A refund of {amount} for this claim is already in '
+                                  'progress and not yet confirmed. Re-check its status '
+                                  'before issuing another.'),
+                    }
+
                 reserved = locked.refunds.filter(
                     status__in=self.RESERVING_STATUSES
                 ).aggregate(t=Sum('amount'))['t'] or Decimal('0')

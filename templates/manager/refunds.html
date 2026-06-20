@@ -256,6 +256,11 @@ function viewRefundDetails(refundId) {
 document.getElementById('refundForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(this));
+    const btn = this.querySelector('button[type="submit"]');
+    if (btn.disabled) return;                 // block double-submit / button mashing
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Issuing refund… (up to 30s)';
     try {
         const response = await fetch('/api/payments/refunds/issue/', {
             method: 'POST',
@@ -263,9 +268,18 @@ document.getElementById('refundForm').addEventListener('submit', async function(
             body: JSON.stringify(data)
         });
         const result = await response.json();
-        if (response.ok) { alert('Refund processed successfully!'); window.location.reload(); }
-        else { alert('Error: ' + (result.error || 'Failed to process refund')); }
-    } catch (error) { alert('Error: ' + error.message); }
+        if (response.ok) { alert('Refund processed successfully!'); window.location.reload(); return; }
+        // 502 = WooCommerce didn't confirm; the money may have moved — do NOT imply retry is safe.
+        if (response.status === 502) {
+            alert(result.error || 'Could not confirm the refund — check WooCommerce before retrying.');
+        } else {
+            alert('Error: ' + (result.error || 'Failed to process refund'));
+        }
+    } catch (error) {
+        alert('Error: ' + error.message + ' — check WooCommerce before retrying.');
+    }
+    btn.disabled = false;                     // re-enable only on a non-redirect outcome
+    btn.textContent = label;
 });
 
 async function reconcileRefund(refundId, btn) {
