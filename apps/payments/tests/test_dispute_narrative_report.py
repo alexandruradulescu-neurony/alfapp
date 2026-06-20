@@ -203,6 +203,34 @@ class PanelFidelityTests(TestCase):
         self.assertIn('Answered by', html)
 
 
+class CommentHtmlCleanupTests(TestCase):
+    """Merged-ticket / MMS notes carry HTML in the plain body; render it as clean
+    text and embed the linked image (don't print raw <br>/<a href> markup)."""
+
+    MMS_BODY = ('Request #54240 "Message from: Dionna Bassham" was closed and merged.\n'
+                'Dionna Bassham has sent the following MMS:<br/><br/>Attachments:<br/>'
+                '<a href="https://airportlf.zendesk.com/attachments/token/abc/?name=mms_x.jpeg" '
+                'target="_blank">mms_x.jpeg</a><br/>')
+
+    def test_html_body_rendered_as_text(self):
+        out = ds._clean_comment_body(self.MMS_BODY)
+        self.assertNotIn('<br', out)
+        self.assertNotIn('<a ', out)
+        self.assertNotIn('href=', out)
+        self.assertNotIn('mms_x.jpeg', out)        # image link dropped (embedded separately)
+        self.assertIn('Attachments:', out)         # surrounding text kept
+
+    def test_anchor_image_url_is_extracted_for_embedding(self):
+        urls = ds._comment_inline_image_urls({'body': self.MMS_BODY, 'html_body': ''})
+        self.assertTrue(any('/attachments/token/' in u for u in urls))
+
+    def test_non_image_anchor_keeps_its_text(self):
+        out = ds._clean_comment_body('Read <a href="https://x.com/terms">our terms</a> here.')
+        self.assertIn('our terms', out)
+        self.assertIn('here.', out)
+        self.assertNotIn('<a', out)
+
+
 class TransientDisputePreviewTests(TestCase):
     """--zd-ticket preview builds an UNSAVED dispute; the bundle must not try to
     query related screenshots by it (Django rejects unsaved related filters)."""
