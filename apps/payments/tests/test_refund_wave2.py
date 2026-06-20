@@ -157,9 +157,11 @@ class IssueWooCommerceRefundTests(TestCase):
         self.assertFalse(r['success'])
         self.assertTrue(r['indeterminate'])
         self.assertEqual(r['refund'].status, 'PENDING')
-        # The pending reservation still counts → a second full refund is blocked
+        # The pending reservation still counts toward the cap → a further refund
+        # that would exceed the remaining amount is blocked. (A *different*
+        # amount, so this exercises the cap, not the identical-refund guard.)
         with patch('apps.payments.refund_service.create_woocommerce_refund') as call:
-            r2 = self.svc.issue_woocommerce_refund(self.claim, Decimal('100'), 'x', self.user)
+            r2 = self.svc.issue_woocommerce_refund(self.claim, Decimal('50'), 'x', self.user)
         self.assertFalse(r2['success'])
         self.assertIn('exceeds', r2['error'])
         call.assert_not_called()
@@ -377,3 +379,42 @@ class ReconcileWooCommerceRefundTests(TestCase):
         self.assertIn('refund', resp.data)
         r.refresh_from_db()
         self.assertEqual(r.status, Refund.STATUS_COMPLETED)
+
+
+# ---- duplicate-submission guard (button-mashing / concurrent clicks) ----
+
+class DuplicateRefundGuardTests(TestCase):
+    def setUp(self):
+        _configure_wc()
+        self.user = User.objects.create_user(username='dup_mgr', password='x')
+        self.claim = _claim()                      # price_paid = 100.00
+        self.svc = RefundService()
+
+    def test_identical_in_flight_partial_refund_is_blocked(self):
+        # A PARTIAL refund the over-refund cap would NOT catch (25 < 100, twice
+        # still < 100). First attempt times out and stays PENDING.
+        with patch('apps.payments.refund_service.create_woocommerce_refund',
+                   return_value={'success': False, 'indeterminate': True, 'error': 'timeout'}):
+            r1 = self.svc.issue_woocommerce_refund(self.claim, Decimal('25'), 'x', self.user)
+        self.assertTrue(r1.get('indeterminate'))
+        self.assertEqual(Refund.objects.filter(claim=self.claim).count(), 1)
+
+        # Second identical click must be refused WITHOUT calling WooCommerce again.
+        with patch('apps.payments.refund_service.create_woocommerce_refund') as call:
+            r2 = self.svc.issue_woocommerce_refund(self.claim, Decimal('25'), 'x', self.user)
+        self.assertFalse(r2['success'])
+        self.assertIn('already in progress', r2['error'])
+        call.assert_not_called()                    # no second money movement
+        self.assertEqual(Refund.objects.filter(claim=self.claim).count(), 1)  # no duplicate row
+
+    def test_guard_does_not_block_after_the_pending_one_resolves(self):
+        # Once the in-flight refund is no longer PENDING/PROCESSING, a new one is allowed.
+        with patch('apps.payments.refund_service.create_woocommerce_refund',
+                   return_value={'success': True, 'refund_id': '9001'}):
+            r1 = self.svc.issue_woocommerce_refund(self.claim, Decimal('25'), 'x', self.user)
+        self.assertTrue(r1['success'])              # completed, not pending
+        with patch('apps.payments.refund_service.create_woocommerce_refund',
+                   return_value={'success': True, 'refund_id': '9002'}):
+            r2 = self.svc.issue_woocommerce_refund(self.claim, Decimal('25'), 'y', self.user)
+        self.assertTrue(r2['success'])              # a distinct, legitimate refund
+        self.assertEqual(Refund.objects.filter(claim=self.claim).count(), 2)

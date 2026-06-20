@@ -317,6 +317,7 @@ showModal(); the data-* attributes drive refresh/toast/close via lora-htmx.js
 
     <form hx-post="/api/payments/refunds/issue/" hx-swap="none"
           data-claim-action data-close-dialog="refundModal"
+          data-busy-label="Issuing refund… (up to 30s)"
           data-refresh-body="{% url 'agent_claim_detail_body' claim.id %}"
           data-toast-ok="Refund issued via WooCommerce"
           data-toast-indeterminate="Could not confirm the refund — verify it in WooCommerce before retrying"
