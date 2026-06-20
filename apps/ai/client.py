@@ -14,6 +14,7 @@ import re
 import time
 from typing import TypeVar, Type
 
+import requests
 from django.conf import settings
 from openai import OpenAI
 from pydantic import BaseModel, ValidationError
@@ -36,6 +37,15 @@ T = TypeVar("T", bound=BaseModel)
 # ceiling sized for the JSON schemas these call sites return.
 DEFAULT_TEMPERATURE: float = 0.3
 DEFAULT_MAX_TOKENS: int = 600
+
+# Disputes are resolved with Anthropic/Claude (better case understanding) when an
+# Anthropic key is configured; every other call site stays on the default
+# provider, and disputes fall back to it too when no Anthropic key is set.
+DISPUTE_CALL_SITE_PREFIX = "dispute"
+ANTHROPIC_VERSION = "2023-06-01"
+# Claude models that reject sampling params (temperature/top_p/top_k) — Opus 4.7+
+# and the Fable family. Sonnet 4.6 / Haiku 4.5 accept them.
+_ANTHROPIC_NO_SAMPLING = ("claude-opus-4-7", "claude-opus-4-8", "claude-fable", "claude-mythos")
 
 
 def _resolve_salt() -> bytes:
@@ -107,6 +117,58 @@ def _build_openai_client() -> OpenAI:
     )
 
 
+def _anthropic_enabled_for(call_site: str, ss: SystemSettings) -> bool:
+    """Route the dispute zone to Claude when an Anthropic key is configured;
+    every other call site (and disputes with no key) uses the default provider."""
+    if not (call_site or "").startswith(DISPUTE_CALL_SITE_PREFIX):
+        return False
+    key = getattr(ss, "anthropic_api_key", "")
+    return bool(key) and not is_decryption_failure(key)
+
+
+def _anthropic_complete(ss: SystemSettings, messages: list[dict[str, str]],
+                        temperature: float, max_tokens: int) -> tuple[str, dict]:
+    """Call the Anthropic Messages API over raw HTTP (no new dependency) and
+    return (reply_text, {'in','out'}). PII is already tokenized in `messages`.
+
+    Mirrors the default path: the system prompt already instructs the model to
+    return JSON, so we just return the text and let complete() validate it
+    against the caller's schema — no provider-specific structured-output config."""
+    api_key = ss.anthropic_api_key
+    if not api_key or is_decryption_failure(api_key):
+        raise AIClientError(
+            "Anthropic API key is not configured or could not be decrypted — "
+            "refusing to call Claude without a usable key.")
+    # OpenAI-style [system, user, ...] -> Anthropic `system` field + `messages`.
+    system_text = "\n".join(m["content"] for m in messages if m.get("role") == "system")
+    chat = [{"role": m["role"], "content": m["content"]}
+            for m in messages if m.get("role") != "system"]
+    model = ss.anthropic_model or "claude-sonnet-4-6"
+    body: dict = {"model": model, "max_tokens": max_tokens, "messages": chat}
+    if system_text:
+        body["system"] = system_text
+    # Opus 4.7+/Fable reject temperature; Sonnet 4.6 / Haiku 4.5 accept it.
+    if not any(model.startswith(p) for p in _ANTHROPIC_NO_SAMPLING):
+        body["temperature"] = temperature
+    base = (ss.anthropic_api_base or "https://api.anthropic.com").rstrip("/")
+    resp = requests.post(
+        f"{base}/v1/messages",
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": ANTHROPIC_VERSION,
+            "content-type": "application/json",
+        },
+        json=body,
+        timeout=settings.AI_TIMEOUT,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    text = "".join(b.get("text", "") for b in (data.get("content") or [])
+                   if b.get("type") == "text")
+    usage = data.get("usage") or {}
+    return text, {"in": usage.get("input_tokens"), "out": usage.get("output_tokens")}
+
+
 class AIClient:
     """Singleton-style public API. Use `AIClient.complete(...)` from any call site."""
 
@@ -157,25 +219,36 @@ class AIClient:
         )
 
         ss = SystemSettings.get_instance()
-        client = _build_openai_client()
+        use_anthropic = _anthropic_enabled_for(call_site, ss)
+        provider = "anthropic" if use_anthropic else "default"
 
         start = time.monotonic()
+        usage_in = usage_out = None
         try:
-            completion = client.chat.completions.create(
-                model=ss.ai_api_model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+            if use_anthropic:
+                raw_text, usage = _anthropic_complete(ss, messages, temperature, max_tokens)
+                usage_in, usage_out = usage.get("in"), usage.get("out")
+            else:
+                completion = _build_openai_client().chat.completions.create(
+                    model=ss.ai_api_model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                raw_text = completion.choices[0].message.content or ""
+                u = getattr(completion, "usage", None)
+                if u is not None:
+                    usage_in = getattr(u, "prompt_tokens", None)
+                    usage_out = getattr(u, "completion_tokens", None)
         except Exception as e:
             logger.error(
-                "AIClient[%s] LLM call failed after %dms: %s",
-                call_site, int((time.monotonic() - start) * 1000), e,
+                "AIClient[%s] %s LLM call failed after %dms: %s",
+                call_site, provider, int((time.monotonic() - start) * 1000), e,
             )
             raise AIClientError(f"LLM call failed: {e}") from e
 
         latency_ms = int((time.monotonic() - start) * 1000)
-        raw_reply = _strip_code_fence(completion.choices[0].message.content or "")
+        raw_reply = _strip_code_fence(raw_text)
 
         # Validate against the caller's schema.
         try:
@@ -209,24 +282,13 @@ class AIClient:
         # Un-tokenize every string field in the validated response.
         untokenized = _untokenize_model(validated, tokenizer, mapping)
 
-        # Prefer the provider's real token usage; fall back to character counts
-        # (clearly labelled) when the response doesn't expose a usage object —
-        # don't report character lengths under "tokens_*" names.
-        usage = getattr(completion, "usage", None)
-        if usage is not None:
-            logger.info(
-                "AIClient[%s] OK latency=%dms tokens_in=%s tokens_out=%s",
-                call_site, latency_ms,
-                getattr(usage, "prompt_tokens", "?"),
-                getattr(usage, "completion_tokens", "?"),
-            )
-        else:
-            logger.info(
-                "AIClient[%s] OK latency=%dms chars_in=%d chars_out=%d",
-                call_site, latency_ms,
-                len(messages[1]["content"]) if len(messages) > 1 else 0,
-                len(raw_reply),
-            )
+        # Provider token usage, normalised across providers (None -> "?").
+        logger.info(
+            "AIClient[%s] OK provider=%s latency=%dms tokens_in=%s tokens_out=%s",
+            call_site, provider, latency_ms,
+            usage_in if usage_in is not None else "?",
+            usage_out if usage_out is not None else "?",
+        )
         return untokenized
 
 

@@ -33,6 +33,7 @@ class SystemSettingsForm(forms.ModelForm):
     # They are handled separately in the view to preserve values
     SENSITIVE_FIELDS = [
         'ai_api_key',
+        'anthropic_api_key',
         'imap_pass',
         'zd_token',
         'paypal_secret',
@@ -55,6 +56,7 @@ class SystemSettingsForm(forms.ModelForm):
             'ai_provider',
             'ai_api_base',
             'ai_api_model',
+            'anthropic_model',
             # Email / IMAP (non-sensitive)
             'imap_host',
             'imap_user',
@@ -83,6 +85,9 @@ class SystemSettingsForm(forms.ModelForm):
             'ai_api_base': forms.TextInput(attrs={'class': 'form-control'}),
             'ai_api_key': forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'off', 'placeholder': '••••••••••••'}),
             'ai_api_model': forms.TextInput(attrs={'class': 'form-control'}),
+            # Anthropic (Claude) — disputes only
+            'anthropic_model': forms.Select(attrs={'class': 'form-control'}),
+            'anthropic_api_key': forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'off', 'placeholder': '••••••••••••'}),
             # Password fields for sensitive data
             'imap_pass': forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'off', 'placeholder': '••••••••••••'}),
             'zd_token': forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'off', 'placeholder': '••••••••••••'}),
