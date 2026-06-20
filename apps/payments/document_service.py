@@ -1220,16 +1220,16 @@ def _claims_response(dispute, comments: list, claim, consent: dict) -> Optional[
     """Point-by-point rebuttal of the buyer's stated reasons, grounded ONLY in
     real facts from the case (no fabrication, no AI). The buyer's own words pick
     WHICH points to make; the facts come from the ticket. Returns
-    {'intro', 'points': [...]} or None when there is nothing to respond to."""
+    {'intro', 'points': [...]} or None when there is nothing to respond to.
+
+    PRINCIPLE: only assert a contradiction where one is genuinely DUE. Some buyer
+    claims can be true at the same time as our facts (e.g. the customer could not
+    reach US by phone AND we tried to call THEM) — for those we concede the point
+    as immaterial and pivot, rather than fake an "our records show the opposite"."""
     statement = _buyer_statement(dispute).lower()
     calls = [c for c in comments if c.get('channel') == 'voice' or c.get('call')]
     n_calls = len(calls)
-    longest_secs = 0
-    for c in calls:
-        secs = (c.get('call') or {}).get('duration') or 0
-        if isinstance(secs, int) and secs > longest_secs:
-            longest_secs = secs
-    longest = _fmt_call_duration(longest_secs) if longest_secs else ''
+    n_answered = sum(1 for c in calls if (c.get('call') or {}).get('answered_by_name'))
     client_email = ((claim.client_email if claim else '') or '').strip().lower()
     n_updates = sum(1 for c in comments if c.get('public') and not (c.get('call'))
                     and ((c.get('author') or {}).get('email') or '').strip().lower() != client_email)
@@ -1238,12 +1238,28 @@ def _claims_response(dispute, comments: list, claim, consent: dict) -> Optional[
     blank = not statement  # no buyer text → make the universal points
 
     points = []
-    if n_calls and (blank or any(w in statement for w in
-                    ('call', 'voicemail', 'voice mail', 'phone', 'contact', 'reach'))):
-        points.append(
-            "The customer suggests we could not be reached by phone. Our own call records show the "
-            f"opposite: we telephoned the customer {n_calls} time{'s' if n_calls != 1 else ''}"
-            + (f", including a {longest} call" if longest else '') + ".")
+    phone_theme = blank or any(w in statement for w in
+                               ('call', 'voicemail', 'voice mail', 'phone', 'contact', 'reach'))
+    if n_calls and phone_theme:
+        # Our OUTBOUND calls do not prove the customer could reach US. Only claim a
+        # contradiction if a call actually connected (or we have the recorded
+        # acceptance); otherwise concede it is immaterial and pivot to what the
+        # record does show — that we were engaged and the service is not phone-bound.
+        if n_answered or _recorded_acceptance(comments) is not None:
+            points.append(
+                "The customer suggests we could not be reached by phone. The record shows "
+                "otherwise: we connected with the customer by phone and discussed the case.")
+        else:
+            engaged = f"we placed {n_calls} call{'s' if n_calls != 1 else ''} to the customer ourselves"
+            if n_updates:
+                engaged += (f" and sent {n_updates} written update{'s' if n_updates != 1 else ''} "
+                            "the customer could reply to at any time")
+            points.append(
+                "The customer raises difficulty reaching us by phone. We do not dispute that a "
+                "call may not have connected at a particular moment — but it does not bear on this "
+                f"dispute. We were the party actively making contact: {engaged}. The service the "
+                "customer paid for is the search we carried out on their behalf, which does not "
+                "depend on telephone contact.")
     if blank or any(w in statement for w in ('scam', 'need', 'authori', 'fraud', "didn")):
         points.append(
             "The customer chose to purchase our service and expressly authorised us to act on their "
