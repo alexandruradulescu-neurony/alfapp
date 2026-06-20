@@ -1478,7 +1478,53 @@ DISPUTE_BUSINESS_CONTEXT = (
     "other fact) only when a record in this case actually shows it.\n\n"
 )
 
-EVIDENCE_NARRATIVE_SYSTEM_PROMPT = DISPUTE_BUSINESS_CONTEXT + (
+# How ALF's human agents actually run a ticket — so the dispute AI can correctly
+# tell what each record IS (intake vs update vs office filing vs institution
+# reply vs abandoned-cart noise) when it reads the case log. Grounded in the real
+# operation; the AI still judges ONLY from the records actually present.
+ZENDESK_OPERATIONS_CONTEXT = (
+    "HOW OUR TEAM RUNS A CASE ON THE SUPPORT TICKET (use this to recognise what "
+    "each record is):\n"
+    "- A ticket OPENS as an automated abandoned-cart/checkout notice. That is only "
+    "how a case enters the system — it is NEVER evidence and never a customer "
+    "action.\n"
+    "- INTAKE: the customer's paid claim from our web form (a 'Registration ID...' "
+    "note) — the customer's own submission and the moment they authorised us to "
+    "act for them.\n"
+    "- RESEARCH (before we call): we confirm the flight exists and its route "
+    "(origin, destination, where it landed, any connection) to pinpoint where the "
+    "item was lost, and we assess identifying details (colour, markings, serial "
+    "number, a device's lock-screen). When the flight matches we post FLIGHT PROOF "
+    "as a note — a LORA lookup or a screenshot from the web.\n"
+    "- THE RECORDED CALL: we tell the customer the call is recorded and they must "
+    "agree to proceed; we make clear (in almost every case) that ALF is a private "
+    "paid service, NOT the airport, and they may proceed or take a refund. We "
+    "gather every detail — these calls can run 30 minutes.\n"
+    "- FILING WITH THE OFFICES (our core work): we report the loss to TSA, airport "
+    "and airline lost-and-found offices and rental-car desks — as many as the case "
+    "needs. We file FROM OUR OWN ALF EMAIL, never the customer's, ON PURPOSE: so "
+    "every reply comes back to us to manage (a customer who got an automated 'not "
+    "found' would wrongly think we did nothing and charge back). We keep PROOF of "
+    "each filing — a screenshot on the ticket, or the office's confirmation email "
+    "itself when it arrives here.\n"
+    "- INSTITUTION CORRESPONDENCE (airports, airlines, TSA, lost-and-found, "
+    "rental-car desks) arrives on the ticket as INTERNAL NOTES. An internal note "
+    "carrying an office email is proof we engaged that office — not a throwaway "
+    "memo.\n"
+    "- CUSTOMER CONTACT: we email the customer for missing details and send status "
+    "updates on a cadence (around days 2, 5, 11 and 21). The customer replies; "
+    "emails they send to our address are merged into the same ticket.\n"
+    "- WHEN AN ITEM IS FOUND: we notify the customer and personally coordinate the "
+    "handover between the office and the customer — pickup or delivery, "
+    "instructions and a tracking number — then follow it to delivery and call to "
+    "confirm it arrived. A completed return is the strongest evidence of all.\n"
+    "- IF THE CUSTOMER TAKES A REFUND: it is recorded on the ticket and the ticket "
+    "is closed.\n"
+    "Not every ticket has every step. Judge ONLY from the records actually present "
+    "for THIS case, and never assume a step that no record shows.\n\n"
+)
+
+EVIDENCE_NARRATIVE_SYSTEM_PROMPT = DISPUTE_BUSINESS_CONTEXT + ZENDESK_OPERATIONS_CONTEXT + (
     "You are preparing ALF's own evidence for a PayPal dispute. You "
     "are given numbered evidence records from our support system for one case. "
     "For EACH record, decide:\n"
@@ -1855,7 +1901,7 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
 # and the manager reviews/edits before submitting) — we warn past this length.
 PAYPAL_NOTES_MAX_CHARS = 2000
 
-EVIDENCE_NOTES_SYSTEM_PROMPT = DISPUTE_BUSINESS_CONTEXT + (
+EVIDENCE_NOTES_SYSTEM_PROMPT = DISPUTE_BUSINESS_CONTEXT + ZENDESK_OPERATIONS_CONTEXT + (
     "You are writing ALF's own evidence narrative for a PayPal "
     "dispute. PayPal's dispute reviewer reads this text to decide the case in "
     "our favour or the customer's, so write a confident, factual, first-person "
