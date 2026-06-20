@@ -76,6 +76,65 @@ class DisputeBusinessUnderstandingTests(TestCase):
         self.assertIn('never authorised', u['buyer_dispute_statement'])
 
 
+class HybridVisionClassificationTests(TestCase):
+    """Notes with real text go to the text classifier; image-only notes (the
+    picture IS the content) go to Claude's vision, since the text classifier is
+    blind to images. The two are merged."""
+
+    def test_is_image_only_note_detection(self):
+        img = {'kind': 'comment', 'channel': 'internal', 'has_image': True, 'text': 'FRONTIER'}
+        txt = {'kind': 'comment', 'channel': 'internal', 'has_image': True,
+               'text': 'We submitted the report to the airline and continue searching.'}
+        noimg = {'kind': 'comment', 'channel': 'internal', 'has_image': False, 'text': ''}
+        pub = {'kind': 'comment', 'channel': 'public', 'has_image': True, 'text': ''}
+        self.assertTrue(ds._is_image_only_note(img))
+        self.assertFalse(ds._is_image_only_note(txt))    # has real text -> text classifier
+        self.assertFalse(ds._is_image_only_note(noimg))  # no image
+        self.assertFalse(ds._is_image_only_note(pub))    # not an internal agent note
+
+    def test_image_only_note_goes_to_vision_text_note_stays_text(self):
+        claim = Claim.objects.create(client_email='c@x.com', client_name='C',
+                                     alf_claim_id='ALFV', zd_ticket_id='97001',
+                                     price_paid=Decimal('74.00'))
+        d = _dispute(claim=claim, zd_ticket_id='97001',
+                     dispute_reason='MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED')
+        comments = [
+            # image-only internal note (bare label + screenshot) -> vision
+            {'author': {'name': 'Mark', 'email': 'm@alf.com'}, 'public': False,
+             'created_at': '2026-05-13T14:39:00Z', 'body': 'FRONTIER',
+             'attachments': [{'content_type': 'image/png',
+                              'content_url': 'https://zd/f.png', 'file_name': 'f.png'}]},
+            # text note -> text classifier
+            {'author': {'name': 'Gaby', 'email': 'g@alf.com'}, 'public': True,
+             'created_at': '2026-05-16T14:59:00Z', 'attachments': [],
+             'body': 'Dear customer, we submitted your report to several offices and keep searching.'},
+        ]
+        seen = {}
+
+        def fake_text(dispute_, items_, claim_):
+            seen['text_indexes'] = [it['index'] for it in items_]
+            return {it['index']: {'section': 'CLAIM_UPDATES', 'explanation': 'update'} for it in items_}
+
+        def fake_vision(dispute_, image_items_, claim_):
+            seen['vision_indexes'] = [it['index'] for it in image_items_]
+            return {it['index']: {'section': 'SUBMISSIONS', 'explanation': 'We reported to Frontier.'}
+                    for it in image_items_}
+
+        with patch.object(ds, '_fetch_zendesk_ticket_full',
+                          return_value={'ticket': {'id': '97001'}, 'comments': comments}), \
+             patch.object(ds, '_attachment_data_uri', return_value='data:image/png;base64,AAAA'), \
+             patch.object(ds, '_narrate_evidence', side_effect=fake_text), \
+             patch.object(ds, '_narrate_image_evidence', side_effect=fake_vision):
+            bundle = ds.build_dispute_evidence_bundle(d, use_ai=True)
+        secs = {s['key']: s for s in bundle['sections']}
+        # the FRONTIER image-only note was classified by VISION -> SUBMISSIONS (not flight ID)
+        self.assertIn('SUBMISSIONS', secs)
+        self.assertNotIn('FLIGHT_IDENTIFICATION', secs)
+        # the image-only note (index 1) went to vision, NOT the text classifier
+        self.assertEqual(seen['vision_indexes'], [1])
+        self.assertNotIn(1, seen['text_indexes'])
+
+
 class PanelBuilderTests(TestCase):
     def test_internal_vs_public_and_image_embed(self):
         with patch.object(ds, '_attachment_data_uri', return_value='data:image/png;base64,AAAA'):

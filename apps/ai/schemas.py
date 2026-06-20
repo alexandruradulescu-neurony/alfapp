@@ -84,6 +84,29 @@ class EvidenceNarrative(BaseModel):
     items: list[EvidencePlacement] = Field(default_factory=list)
 
 
+class EvidenceImagePlacement(BaseModel):
+    """Schema for VISION classification of an image-only evidence note in
+    payments/document_service.py — Claude is shown one screenshot (the note had no
+    usable text) and returns its section + a one-line note. Same sections as
+    EvidencePlacement; no index (one image per call)."""
+
+    section: Literal[
+        "SERVICE_INITIATION",
+        "FLIGHT_IDENTIFICATION",
+        "INTERACTIONS",
+        "SUBMISSIONS",
+        "CLAIM_UPDATES",
+        "OTHER",
+        "EXCLUDE",
+    ]
+    explanation: str = ""
+
+    @field_validator("explanation")
+    @classmethod
+    def _cap_explanation(cls, value: str) -> str:
+        return _trim(value, 280)
+
+
 class DisputeNarrative(BaseModel):
     """Schema for `build_dispute_narrative_notes` in payments/document_service.py.
 

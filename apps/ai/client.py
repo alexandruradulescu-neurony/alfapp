@@ -129,8 +129,19 @@ def _anthropic_enabled_for(call_site: str, ss: SystemSettings) -> bool:
     return bool(key) and not is_decryption_failure(key)
 
 
+def _parse_data_uri(uri: str) -> tuple[str | None, str | None]:
+    """Split a 'data:image/png;base64,XXXX' URI into (media_type, base64). Returns
+    (None, None) for anything that is not a base64 data URI."""
+    if not uri or not uri.startswith("data:") or "," not in uri:
+        return None, None
+    header, b64 = uri.split(",", 1)
+    media_type = header[5:].split(";")[0] or "image/png"
+    return media_type, b64
+
+
 def _anthropic_complete(ss: SystemSettings, messages: list[dict[str, str]],
-                        temperature: float, max_tokens: int) -> tuple[str, dict]:
+                        temperature: float, max_tokens: int,
+                        images: list[str] | None = None) -> tuple[str, dict]:
     """Call the Anthropic Messages API over raw HTTP (no new dependency) and
     return (reply_text, {'in','out'}). PII is already tokenized in `messages`.
 
@@ -146,6 +157,24 @@ def _anthropic_complete(ss: SystemSettings, messages: list[dict[str, str]],
     system_text = "\n".join(m["content"] for m in messages if m.get("role") == "system")
     chat = [{"role": m["role"], "content": m["content"]}
             for m in messages if m.get("role") != "system"]
+    if images:
+        # Vision: attach image blocks to the last user message (its content becomes
+        # a [text, image, ...] list). NOTE: image bytes are sent RAW — the PII
+        # tokenizer only masks text, so callers must pass only images they have
+        # judged acceptable to send to the provider.
+        blocks = []
+        for uri in images:
+            media_type, b64 = _parse_data_uri(uri)
+            if b64:
+                blocks.append({"type": "image",
+                               "source": {"type": "base64", "media_type": media_type, "data": b64}})
+        if blocks:
+            target = next((m for m in reversed(chat) if m["role"] == "user"), None)
+            if target is None:
+                target = {"role": "user", "content": ""}
+                chat.append(target)
+            text_part = [{"type": "text", "text": target["content"]}] if target.get("content") else []
+            target["content"] = text_part + blocks
     model = ss.anthropic_model or "claude-sonnet-4-6"
     body: dict = {"model": model, "max_tokens": max_tokens, "messages": chat}
     if system_text:
@@ -186,6 +215,7 @@ class AIClient:
         call_site: str,
         temperature: float = DEFAULT_TEMPERATURE,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        images: list[str] | None = None,
     ) -> T:
         """Send a prompt to the LLM and return a validated Pydantic object.
 
@@ -229,9 +259,13 @@ class AIClient:
         usage_in = usage_out = None
         try:
             if use_anthropic:
-                raw_text, usage = _anthropic_complete(ss, messages, temperature, max_tokens)
+                raw_text, usage = _anthropic_complete(ss, messages, temperature, max_tokens, images=images)
                 usage_in, usage_out = usage.get("in"), usage.get("out")
             else:
+                if images:
+                    raise AIClientError(
+                        "image input requires the Anthropic provider; the default "
+                        "provider is text-only")
                 completion = _build_openai_client().chat.completions.create(
                     model=ss.ai_api_model,
                     messages=messages,
