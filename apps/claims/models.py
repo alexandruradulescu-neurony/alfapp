@@ -300,6 +300,18 @@ class Claim(models.Model):
         return self.risk_level != 'none' and self.risk_acknowledged_at is None
 
     @property
+    def has_exited(self) -> bool:
+        """True once the claim has genuinely left active handling — a Solved or
+        Closed Zendesk status. A 'Refund-Denied' ticket sits in the Solved FAMILY
+        at Zendesk but is still being worked until it is actually closed, so it is
+        NOT counted as exited (it keeps an active badge and stays in the active
+        lenses). Mirrors the queryset filter in manager_claims so the badge and the
+        lists always agree."""
+        if self.status_category not in ('solved', 'closed'):
+            return False
+        return 'denied' not in (self.status or '').lower()
+
+    @property
     def risk_reason_labels(self) -> list:
         """Human-readable labels for risk_reasons (raw tags -> display strings)."""
         return [RISK_REASON_LABELS.get(r, r) for r in (self.risk_reasons or [])]

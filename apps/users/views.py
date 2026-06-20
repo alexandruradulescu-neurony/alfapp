@@ -997,13 +997,21 @@ def manager_claims(request):
     )
 
     flagged_q = Q(risk_acknowledged_at__isnull=True) & ~Q(risk_level='none')
+    # "Exited the system" = genuinely done (Solved/Closed). A 'Refund-Denied' ticket
+    # is in the Solved FAMILY at Zendesk but is still being worked until it is
+    # actually closed, so it does NOT count as exited — it stays in the active
+    # lenses. Mirrors Claim.has_exited so the lists and the badge always agree.
+    exited_q = Q(status_category__in=['solved', 'closed']) & ~Q(status__icontains='denied')
+    active_q = ~exited_q
     lenses = {
-        'problems': flagged_q | Q(attention_emails__gt=0),
-        'object_found': Q(status__icontains='object found'),
-        'refunds': Q(refund_exists=True),
-        'disputes': Q(dispute_exists=True),
-        'open': ~Q(status_category='solved'),
-        'solved': Q(status_category='solved'),
+        # Action lenses show only still-active claims — a solved/closed ticket has
+        # nothing left to act on, so it never belongs in problems/found/refunds/disputes.
+        'problems': (flagged_q | Q(attention_emails__gt=0)) & active_q,
+        'object_found': Q(status__icontains='object found') & active_q,
+        'refunds': Q(refund_exists=True) & active_q,
+        'disputes': Q(dispute_exists=True) & active_q,
+        'open': active_q,
+        'solved': exited_q,
         'all': Q(),
     }
     tab = request.GET.get('tab') or 'problems'

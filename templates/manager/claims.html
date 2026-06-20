@@ -92,7 +92,7 @@
           </td>
           <td class="px-3 py-4">
             <div class="flex flex-wrap items-center gap-1.5">
-              <span class="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset {% if 'object found' in claim.status|lower %}bg-green-50 text-green-700 ring-green-600/20{% elif claim.status_category == 'solved' %}bg-gray-50 text-gray-600 ring-gray-500/10{% elif claim.status_category == 'pending' or claim.status_category == 'hold' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif claim.status_category == 'new' or claim.status_category == 'open' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">
+              <span class="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset {% if 'object found' in claim.status|lower %}bg-green-50 text-green-700 ring-green-600/20{% elif claim.has_exited %}bg-gray-50 text-gray-600 ring-gray-500/10{% elif claim.status_category == 'pending' or claim.status_category == 'hold' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% elif claim.status_category == 'new' or claim.status_category == 'open' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-amber-50 text-amber-800 ring-amber-600/20{% endif %}">
                 {{ claim.status|default:"—" }}
               </span>
               {% if claim.refund_exists %}<span class="inline-flex items-center rounded-full bg-teal-50 px-2 py-1 text-xs font-medium text-teal-700 ring-1 ring-inset ring-teal-600/20">Refund</span>{% endif %}

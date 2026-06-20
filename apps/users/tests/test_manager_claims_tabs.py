@@ -97,3 +97,53 @@ class ManagerClaimsTabsTests(TestCase):
         self.assertNotIn('Deadline', html)
         self.assertNotIn('bi-file-earmark-pdf', html)
         self.assertNotIn('All claims ever', html)
+
+
+class ManagerClaimsExitedFilterTests(TestCase):
+    """Action lenses show only claims that have NOT exited the system (Solved /
+    Closed). 'Refund-Denied' sits in the Solved family at Zendesk but stays ACTIVE
+    until the ticket is closed, so it is kept in the active lenses and out of Solved."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='exit_user', password='x')
+        self.web = Client()
+        self.web.force_login(self.user)
+
+        def mk(alf, status, cat, refund=False):
+            c = Claim.objects.create(client_email=f'{alf}@e.com', alf_claim_id=alf,
+                                     status=status, status_category=cat)
+            if refund:
+                Refund.objects.create(claim=c, paypal_refund_id=f'PP-{alf}',
+                                      amount=Decimal('10.00'), refund_type='FULL', reason='t')
+            return c
+
+        self.open_found = mk('OFOUND', 'Object Found', 'open')
+        self.solved_found = mk('SFOUND', 'Solved - Object Found', 'solved')
+        self.open_refund = mk('OREF', 'Investigation initiated', 'open', refund=True)
+        self.closed_refund = mk('CREF', 'Closed - Refunded', 'solved', refund=True)
+        self.denied_refund = mk('DENIED', 'Refund-Denied', 'solved', refund=True)
+
+    def _ids(self, tab):
+        resp = self.web.get(reverse('manager_claims') + f'?tab={tab}')
+        return {c.id for c in resp.context['claims']}
+
+    def test_object_found_excludes_solved_object_found(self):
+        ids = self._ids('object_found')
+        self.assertIn(self.open_found.id, ids)
+        self.assertNotIn(self.solved_found.id, ids)    # exited → out of the action lens
+
+    def test_refunds_excludes_closed_but_keeps_refund_denied(self):
+        ids = self._ids('refunds')
+        self.assertIn(self.open_refund.id, ids)
+        self.assertNotIn(self.closed_refund.id, ids)   # closed/exited → out
+        self.assertIn(self.denied_refund.id, ids)      # refund-denied is still active
+
+    def test_refund_denied_counts_as_open_not_solved(self):
+        self.assertIn(self.denied_refund.id, self._ids('open'))
+        self.assertNotIn(self.denied_refund.id, self._ids('solved'))
+
+    def test_has_exited_property(self):
+        self.assertTrue(self.solved_found.has_exited)
+        self.assertTrue(self.closed_refund.has_exited)
+        self.assertFalse(self.denied_refund.has_exited)   # solved family, but still active
+        self.assertFalse(self.open_found.has_exited)
