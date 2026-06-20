@@ -1066,24 +1066,50 @@ def _parse_dt(value):
 
 
 def _build_timeline(dispute, comments: list) -> list:
-    """Chronological case milestones — [{'when': 'Feb 03, 2026', 'label': ...}]."""
+    """The case as it actually happened, with timestamps and in order, so the
+    effort is visible: the claim submission FIRST (the customer files the form on
+    our site — we never initiate contact), then every call we made, every update
+    we sent, and every reply the customer sent, chronologically, ending with the
+    PayPal dispute. Each entry: {'when': 'Jun 13, 2026 19:43', 'label': ...}."""
     claim = dispute.claim
-    events = []
-    if claim and getattr(claim, 'created_at', None):
-        events.append((claim.created_at, 'Claim submitted by the customer on our website'))
-    if dispute.transaction_date:
-        events.append((dispute.transaction_date, 'Payment made and service authorised'))
-    public_times = [_parse_dt(c.get('created_at')) for c in comments if c.get('public')]
-    public_times = [t for t in public_times if t]
-    if public_times:
-        events.append((min(public_times), 'First contacted the customer'))
-        if max(public_times) != min(public_times):
-            events.append((max(public_times), 'Most recent update sent to the customer'))
+    client_email = ((claim.client_email if claim else '') or '').strip().lower()
+    claim_created = getattr(claim, 'created_at', None) if claim else None
+    events = []  # (datetime, label)
+
+    # Step 1 — the genuine first step (the customer's own action, with time).
+    if claim_created:
+        events.append((claim_created, 'Claim submitted on our website'))
+
+    for c in comments:
+        when = _parse_dt(c.get('created_at'))
+        if when is None:
+            continue
+        # Nothing happens before the claim is submitted — drop pre-claim noise
+        # (e.g. the abandoned-cart notification that predates the form).
+        if claim_created and when < claim_created:
+            continue
+        call = c.get('call')
+        if c.get('channel') == 'voice' or call:
+            call = call or {}
+            inbound = 'inbound' in (call.get('direction') or '').lower()
+            dur = _fmt_call_duration(call.get('duration'))
+            label = ('The customer called us' if inbound else 'We called the customer')
+            events.append((when, label + (f' ({dur})' if dur else '')))
+            continue
+        if not c.get('public'):
+            continue  # internal notes aren't a customer-facing milestone
+        author_email = ((c.get('author') or {}).get('email') or '').strip().lower()
+        if client_email and author_email == client_email:
+            events.append((when, 'The customer replied to us'))
+        else:
+            events.append((when, 'We emailed the customer an update'))
+
     if dispute.pk and dispute.created_at:
         events.append((dispute.created_at, 'PayPal dispute received'))
+
     events = [(t, label) for (t, label) in events if t is not None]
     events.sort(key=lambda e: e[0])
-    return [{'when': _to_local(t).strftime('%b %d, %Y'), 'label': label} for t, label in events]
+    return [{'when': _fmt_zd_time(t), 'label': label} for t, label in events]
 
 
 def _consent_clause(consent: dict) -> str:
