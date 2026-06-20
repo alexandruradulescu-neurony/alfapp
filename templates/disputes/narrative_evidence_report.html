@@ -38,12 +38,23 @@
   .zd-name { font-weight:700; color:#2f3941; vertical-align:middle; }
   .zd-badge { font-size:10px; font-weight:600; padding:1px 6px; border-radius:3px; vertical-align:middle; margin-left:6px; }
   .zd-badge.internal { background:#fdf0d5; color:#ad5e00; }
-  .zd-badge.public { background:#dbeafe; color:#1e40af; }
+  .zd-badge.outbound { background:#eef1f4; color:#3b4a54; }
+  .zd-badge.inbound { background:#d3eee9; color:#0b6e63; }
+  .zd-badge.public { background:#dbeafe; color:#1e40af; }  /* legacy */
   .zd-time { color:#68737d; vertical-align:middle; margin-left:6px; }
   .zd-body { border-radius:6px; padding:11px 13px; font-size:11px; line-height:1.5; }
+  /* Mirror Zendesk's colours: private note=peach, customer inbound=teal, our reply=white. */
   .zd-body.internal { background:#fff8ec; border:1px solid #f2e2c4; }
-  .zd-body.public { background:#f4f7f9; border:1px solid #e3e9ed; color:#3b4a54; }
+  .zd-body.outbound { background:#ffffff; border:1px solid #e3e9ed; color:#3b4a54; }
+  .zd-body.inbound  { background:#e9f7f4; border:1px solid #c7e8e1; color:#274b46; }
+  .zd-body.public { background:#f4f7f9; border:1px solid #e3e9ed; color:#3b4a54; }  /* legacy */
   .zd-att { max-width:100%; height:auto; border:1px solid #d7dde2; border-radius:5px; margin:8px 0 0; }
+
+  /* ---- phone-call card (Zendesk Talk voice comment) ---- */
+  .call-tbl { width:100%; border-collapse:collapse; margin-top:6px; font-size:11px; }
+  .call-tbl td { padding:4px 8px; border-top:1px solid #f2e2c4; vertical-align:top; }
+  .call-tbl td.k { color:#8a6d3b; font-weight:600; width:95px; }
+  .call-lbl { font-weight:700; color:#7a4f00; }
 
   /* ---- flight card (tables, no flex) ---- */
   .fcard { background:#fff; border:1px solid #e3e9ed; border-radius:8px; padding:14px 16px; max-width:440px; }
@@ -169,12 +180,29 @@
       </div>
     </div>
     {% endif %}
-    {% if item.panel %}
+    {% if item.panel.kind == 'call' %}
     <div class="zd-panel">
       <div class="zd-head">
-        <span class="zd-avatar">&#9787;</span><span class="zd-name">{{ item.panel.author }}</span>{% if item.panel.public %}<span class="zd-badge public">Public reply</span>{% else %}<span class="zd-badge internal">Internal note</span>{% endif %}<span class="zd-time">&middot; {{ item.panel.created_at }}</span>
+        <span class="zd-avatar">&#9787;</span><span class="zd-name">{{ item.panel.author }}</span><span class="zd-badge internal">Phone call</span><span class="zd-time">&middot; {{ item.panel.created_at }}</span>
       </div>
-      <div class="zd-body {% if item.panel.public %}public{% else %}internal{% endif %}">
+      <div class="zd-body internal">
+        <span class="call-lbl">&#9742; {{ item.panel.call.label }}</span>
+        <table class="call-tbl">
+          {% if item.panel.call.from %}<tr><td class="k">From</td><td>{{ item.panel.call.from }}</td></tr>{% endif %}
+          {% if item.panel.call.to %}<tr><td class="k">To</td><td>{{ item.panel.call.to }}</td></tr>{% endif %}
+          {% if item.panel.call.when %}<tr><td class="k">Time</td><td>{{ item.panel.call.when }}</td></tr>{% endif %}
+          {% if item.panel.call.length %}<tr><td class="k">Length</td><td>{{ item.panel.call.length }}</td></tr>{% endif %}
+          {% if item.panel.call.answered_by %}<tr><td class="k">Answered by</td><td>{{ item.panel.call.answered_by }}</td></tr>{% endif %}
+          {% if item.panel.call.recorded %}<tr><td class="k">Recording</td><td>On file in our support system</td></tr>{% endif %}
+        </table>
+      </div>
+    </div>
+    {% elif item.panel %}
+    <div class="zd-panel">
+      <div class="zd-head">
+        <span class="zd-avatar">&#9787;</span><span class="zd-name">{{ item.panel.author }}</span>{% if item.panel.direction == 'inbound' %}<span class="zd-badge inbound">From the customer</span>{% elif item.panel.direction == 'outbound' %}<span class="zd-badge outbound">Email to the customer</span>{% else %}<span class="zd-badge internal">Internal note</span>{% endif %}<span class="zd-time">&middot; {{ item.panel.created_at }}</span>
+      </div>
+      <div class="zd-body {{ item.panel.direction|default:'internal' }}">
         {{ item.panel.body|escape|linebreaks }}
         {% for img in item.panel.images %}<img class="zd-att" src="{{ img.data_uri }}" alt="{{ img.file_name }}">{% endfor %}
       </div>
