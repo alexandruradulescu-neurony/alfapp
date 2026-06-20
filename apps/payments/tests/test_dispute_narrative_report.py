@@ -203,6 +203,42 @@ class PanelFidelityTests(TestCase):
         self.assertIn('Answered by', html)
 
 
+class TimelineTests(TestCase):
+    """The case timeline starts with the claim submission (with date+time), lists
+    our actions + customer replies chronologically, and drops pre-claim noise."""
+
+    def test_ordered_timestamped_and_drops_pre_claim_noise(self):
+        claim = Claim.objects.create(client_email='cust@x.com', alf_claim_id='ALFTL')
+        Claim.objects.filter(pk=claim.pk).update(
+            created_at=datetime(2026, 6, 13, 17, 43, tzinfo=dt_tz.utc))
+        claim.refresh_from_db()
+        d = _dispute(claim=claim)
+        Dispute.objects.filter(pk=d.pk).update(
+            created_at=datetime(2026, 6, 20, 12, 0, tzinfo=dt_tz.utc))
+        d.refresh_from_db()
+        comments = [
+            {'author': {'email': 'cust@x.com'}, 'public': True, 'channel': 'email',
+             'created_at': '2026-06-13T17:41:00Z', 'body': 'A new abandoned cart has been created'},
+            {'author': {'email': 'a@alf.com'}, 'public': False, 'channel': 'voice',
+             'created_at': '2026-06-13T17:57:00Z', 'body': '',
+             'call': {'direction': 'outbound', 'duration': 401, 'started_at': '2026-06-13T17:57:00Z'}},
+            {'author': {'email': 'a@alf.com'}, 'public': True, 'channel': 'email',
+             'created_at': '2026-06-16T17:02:00Z', 'body': 'update'},
+            {'author': {'email': 'cust@x.com'}, 'public': True, 'channel': 'email',
+             'created_at': '2026-06-17T09:00:00Z', 'body': 'thanks'},
+        ]
+        tl = ds._build_timeline(d, comments)
+        labels = [e['label'] for e in tl]
+        self.assertEqual(labels[0], 'Claim submitted on our website')   # genuine first step
+        self.assertEqual(labels[-1], 'PayPal dispute received')
+        self.assertIn('We called the customer (6m 41s)', labels)
+        self.assertIn('We emailed the customer an update', labels)
+        self.assertIn('The customer replied to us', labels)
+        self.assertNotIn('abandoned cart', ' '.join(labels).lower())     # pre-claim noise dropped
+        self.assertNotIn('First contacted the customer', labels)         # we never initiate
+        self.assertRegex(tl[0]['when'], r'\d{1,2}:\d{2}')                 # has a timestamp
+
+
 class CommentHtmlCleanupTests(TestCase):
     """Merged-ticket / MMS notes carry HTML in the plain body; render it as clean
     text and embed the linked image (don't print raw <br>/<a href> markup)."""
