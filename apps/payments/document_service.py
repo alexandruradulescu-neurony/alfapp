@@ -225,7 +225,7 @@ def _render_to_pdf(html_string: str, filename_hint: str) -> Optional[bytes]:
                     color: #666;
                 }
                 @bottom-left {
-                    content: "LORA Dispute Document";
+                    content: "ALF Dispute Document";
                     font-size: 9pt;
                     color: #888;
                 }
@@ -1096,8 +1096,14 @@ def _build_timeline(dispute, comments: list) -> list:
             label = ('The customer called us' if inbound else 'We called the customer')
             events.append((when, label + (f' ({dur})' if dur else '')))
             continue
+        # Reporting the loss to an airline/airport/TSA office is a key step — show
+        # it even though the record is an internal note.
+        target = _submission_target(c)
+        if target:
+            events.append((when, f'We reported the loss to {target}'))
+            continue
         if not c.get('public'):
-            continue  # internal notes aren't a customer-facing milestone
+            continue  # other internal notes aren't a customer-facing milestone
         author_email = ((c.get('author') or {}).get('email') or '').strip().lower()
         if client_email and author_email == client_email:
             events.append((when, 'The customer replied to us'))
@@ -1127,6 +1133,118 @@ def _consent_clause(consent: dict) -> str:
     return ""
 
 
+def _fmt_ip(ip: str) -> str:
+    """An IP for DISPLAY only — zero-width spaces after each dot so a PDF
+    viewer's phone-number auto-detector can't mistake 174.202.5.124 (digits
+    '1742025124') for a US phone number. Visually identical."""
+    ip = (ip or '').strip()
+    return ip.replace('.', '.​') if ip else ''
+
+
+def _buyer_statement(dispute) -> str:
+    """The buyer's own opening complaint text from the stored PayPal payload."""
+    payload = getattr(dispute, 'raw_webhook_payload', None) or {}
+    for ev in (payload.get('evidences') or []):
+        if (ev.get('source') or '').upper() == 'SUBMITTED_BY_BUYER' and (ev.get('notes') or '').strip():
+            return ev['notes'].strip()
+    return ''
+
+
+# Markers that an INTERNAL note records reporting the loss to an airline /
+# airport / TSA lost-and-found office (the core service we perform).
+_SUBMISSION_MARKERS = ('report submitted', 'lost report id', 'report id:', 'complaint detail',
+                       'submission values', 'successfully submitted', 'via e-mail', 'via email')
+
+
+def _clean_target(label: str) -> str:
+    """Tidy an agent's shorthand submission label into something readable:
+    drop the 'VIA E-MAIL' delivery-method noise, keep short all-caps tokens
+    (airline/airport codes like TSA, HNL, WN) uppercase, title-case the rest.
+    'HNL VIA E-MAIL' -> 'HNL'; 'SOUTHWEST' -> 'Southwest'; 'TSA HNL' -> 'TSA HNL'."""
+    label = re.sub(r'\bvia\s+e-?mail\b', '', label, flags=re.IGNORECASE).strip(' -:|')
+    words = []
+    for w in label.split():
+        words.append(w if (len(w) <= 4 and w.isupper()) else w.title())
+    return ' '.join(words) or 'a lost & found office'
+
+
+def _submission_target(comment: dict) -> Optional[str]:
+    """If an internal note records a submission to an airline/airport/TSA office,
+    return a clean destination label for the timeline (e.g. 'Southwest', 'TSA
+    HNL'); else None. Best-effort: matches submission markers anywhere in the
+    note, OR a note whose FIRST LINE is a short office label and which carries a
+    confirmation screenshot (the common 'SOUTHWEST\\n![photo]' shape)."""
+    if comment.get('public'):
+        return None
+    body = (comment.get('body') or '').strip()
+    html = comment.get('html_body') or ''
+    low = (body + ' ' + html).lower()
+    first_line = ''
+    for line in body.splitlines():
+        line = line.strip()
+        if line:
+            first_line = line
+            break
+    # Never mistake the intake submission (pinned separately) for an office report.
+    if first_line.lower().startswith('registration id'):
+        return None
+    has_marker = any(m in low for m in _SUBMISSION_MARKERS)
+    has_image = bool(comment.get('attachments')) or '<img' in html.lower() or '![' in body
+    short_label = bool(first_line) and len(first_line) <= 30 and not first_line.startswith('!')
+    if not (has_marker or (short_label and has_image)):
+        return None
+    return _clean_target(first_line) if first_line else 'a lost & found office'
+
+
+def _claims_response(dispute, comments: list, claim, consent: dict) -> Optional[dict]:
+    """Point-by-point rebuttal of the buyer's stated reasons, grounded ONLY in
+    real facts from the case (no fabrication, no AI). The buyer's own words pick
+    WHICH points to make; the facts come from the ticket. Returns
+    {'intro', 'points': [...]} or None when there is nothing to respond to."""
+    statement = _buyer_statement(dispute).lower()
+    calls = [c for c in comments if c.get('channel') == 'voice' or c.get('call')]
+    n_calls = len(calls)
+    longest_secs = 0
+    for c in calls:
+        secs = (c.get('call') or {}).get('duration') or 0
+        if isinstance(secs, int) and secs > longest_secs:
+            longest_secs = secs
+    longest = _fmt_call_duration(longest_secs) if longest_secs else ''
+    client_email = ((claim.client_email if claim else '') or '').strip().lower()
+    n_updates = sum(1 for c in comments if c.get('public') and not (c.get('call'))
+                    and ((c.get('author') or {}).get('email') or '').strip().lower() != client_email)
+    reported = any(_submission_target(c) for c in comments)
+    clause = _consent_clause(consent)
+    blank = not statement  # no buyer text → make the universal points
+
+    points = []
+    if n_calls and (blank or any(w in statement for w in
+                    ('call', 'voicemail', 'voice mail', 'phone', 'contact', 'reach'))):
+        points.append(
+            "The customer suggests we could not be reached by phone. Our own call records show the "
+            f"opposite: we telephoned the customer {n_calls} time{'s' if n_calls != 1 else ''}"
+            + (f", including a {longest} call" if longest else '') + ".")
+    if blank or any(w in statement for w in ('scam', 'need', 'authori', 'fraud', "didn")):
+        points.append(
+            "The customer chose to purchase our service and expressly authorised us to act on their "
+            f"behalf{clause}. This was a service they requested, not an unsolicited charge.")
+    if blank or any(w in statement for w in ('resolv', 'receiv', 'never', 'service', 'found', 'help')):
+        svc = "We performed the search service they paid for"
+        if reported:
+            svc += " — reporting the loss to the airline and the airport lost-and-found offices"
+        if n_updates:
+            svc += f" and sending {n_updates} update{'s' if n_updates != 1 else ''} to the customer"
+        svc += (". Our fee covers the search carried out on their behalf, per the Terms accepted at "
+                "checkout — not a guaranteed recovery of the item.")
+        points.append(svc)
+
+    if not points:
+        return None
+    return {'intro': "The customer's dispute alleges we did not provide the service. The case record "
+                     "shows otherwise:",
+            'points': points}
+
+
 def _bottom_line(dispute, identity: dict, consent: Optional[dict] = None) -> list:
     """Reason-specific 'bottom line up front' bullets — the single strongest
     argument for THIS dispute reason, stated plainly for a skimming reviewer."""
@@ -1141,7 +1259,7 @@ def _bottom_line(dispute, identity: dict, consent: Optional[dict] = None) -> lis
         bullets.append(f"They accepted our Terms & Conditions and the 24-hour refund window{clause}.")
         if identity.get('matched'):
             bullets.append("They later contacted us from the very same IP address used to submit the "
-                           f"claim ({identity['submission_ip']}) — confirming this was the same person.")
+                           f"claim ({_fmt_ip(identity['submission_ip'])}) — confirming this was the same person.")
         elif identity.get('client_msg_count'):
             bullets.append("They corresponded with us afterwards from their own email — behaviour "
                            "inconsistent with an unauthorised transaction.")
@@ -1197,7 +1315,14 @@ def _narrative_fields(dispute) -> dict:
     currency = dispute.dispute_currency or 'USD'
     object_short = ''
     if claim and claim.object_description:
-        object_short = claim.object_description.strip().splitlines()[0][:120]
+        # The description is "{generic category}\n{specific item + details}".
+        # Prefer the specific item (line 2, first clause) over the bare category
+        # (e.g. "Nintendo switch 2 with multiple games" rather than "Gamepad").
+        lines = [ln.strip() for ln in claim.object_description.strip().splitlines() if ln.strip()]
+        if len(lines) >= 2:
+            object_short = lines[1].split(',')[0].strip()[:80]
+        elif lines:
+            object_short = lines[0][:80]
     return {
         'client_name': (claim.client_name if claim else '') or dispute.buyer_name or 'the customer',
         'alf_id': (claim.alf_claim_id if claim else '') or '',
@@ -1390,6 +1515,16 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
     panels = _zendesk_comment_panels(
         comments, embed_images=embed_attachments,
         client_email=(dispute.claim.client_email if dispute.claim else ''))
+    # Pin the customer's intake submission (the "Registration ID…" note) as the
+    # lead of the case record, and keep it OUT of the AI grouping (no dup).
+    intake_panel = None
+    rest_panels = []
+    for p in panels:
+        if (intake_panel is None and p.get('kind') == 'note'
+                and (p.get('body') or '').lstrip()[:16].lower().startswith('registration id')):
+            intake_panel = p
+        else:
+            rest_panels.append(p)
     flight_card = _flight_card(dispute.claim)
     framing = CATEGORY_FRAMING.get(dispute.dispute_reason, DEFAULT_FRAMING)
 
@@ -1404,7 +1539,7 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
                      f"status {flight_card['status']}."),
             'flight_card': flight_card,
         })
-    for i, p in enumerate(panels, start=1):
+    for i, p in enumerate(rest_panels, start=1):
         if p.get('kind') == 'call':
             cc = p['call']
             # PII-free descriptor for the AI — NEVER the phone numbers or the
@@ -1423,10 +1558,23 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
     sections = _group_into_sections(items, narrative, reason=dispute.dispute_reason)
 
     identity = _identity_context(dispute, ticket, claim_emails=claim_emails)
+    identity['submission_ip_display'] = _fmt_ip(identity.get('submission_ip', ''))
     claim = dispute.claim
     # The Zendesk ticket is created the instant the form is submitted, so its
-    # creation time is the consent moment; pair it with the submission IP.
-    consent = {'when': _fmt_zd_time(ticket.get('created_at')), 'ip': identity.get('submission_ip', '')}
+    # creation time is the consent moment; pair it with the submission IP
+    # (display-formatted so a viewer can't read it as a phone number).
+    consent = {'when': _fmt_zd_time(ticket.get('created_at')),
+               'ip': _fmt_ip(identity.get('submission_ip', ''))}
+
+    # The claim filer and the payer can be different names on the same account
+    # (e.g. spouse paid). Reconcile so the report doesn't read as inconsistent.
+    buyer_name = (dispute.buyer_name or '').strip()
+    filer_name = (claim.client_name if claim else '') or ''
+    name_reconciliation = ''
+    if buyer_name and filer_name and buyer_name.lower() != filer_name.lower():
+        name_reconciliation = (
+            f"This claim was filed by {filer_name}; the payment was made by {buyer_name}. "
+            "Both belong to the same account (same email address on file).")
 
     return {
         'dispute': dispute,
@@ -1434,11 +1582,14 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
         'ticket': ticket,
         'comments': comments,
         'panels': panels,
+        'intake_panel': intake_panel,
         'flight_card': flight_card,
         'sections': sections,
         'narrative': _narrative_fields(dispute),
         'framing': framing,
         'bottom_line': _bottom_line(dispute, identity, consent),
+        'claims_response': _claims_response(dispute, comments, claim, consent),
+        'name_reconciliation': name_reconciliation,
         'timeline': _build_timeline(dispute, comments),
         'identity': identity,
         'consent': consent,

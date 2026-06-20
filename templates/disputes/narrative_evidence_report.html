@@ -24,10 +24,12 @@
 
   .narr { margin:12px 0; }
   .narr b { font-weight:700; }
-  .sec-h { font-weight:700; font-size:13.5px; margin:24px 0 8px; color:#111827;
-           border-bottom:2px solid #0070d2; padding-bottom:4px; }
+  .sec-h { font-weight:700; font-size:17px; margin:30px 0 10px; color:#111827;
+           border-bottom:2px solid #0070d2; padding-bottom:5px; }
+  .recon { font-size:11px; color:#6b7280; font-style:italic; margin:0 0 10px; }
 
-  .doc-img { max-width:100%; height:auto; border:1px solid #e5e7eb; border-radius:6px; margin:8px 0; }
+  /* Images must fit a page — never spread across pages. */
+  .doc-img { max-width:100%; max-height:760px; height:auto; border:1px solid #e5e7eb; border-radius:6px; margin:8px 0; }
   .cap { font-size:10.5px; color:#6b7280; margin-bottom:10px; }
 
   /* ---- simulated Zendesk panel (block, indented; avatar is inline in header) ---- */
@@ -48,7 +50,7 @@
   .zd-body.outbound { background:#ffffff; border:1px solid #e3e9ed; color:#3b4a54; }
   .zd-body.inbound  { background:#e9f7f4; border:1px solid #c7e8e1; color:#274b46; }
   .zd-body.public { background:#f4f7f9; border:1px solid #e3e9ed; color:#3b4a54; }  /* legacy */
-  .zd-att { max-width:100%; height:auto; border:1px solid #d7dde2; border-radius:5px; margin:8px 0 0; }
+  .zd-att { max-width:100%; max-height:720px; height:auto; border:1px solid #d7dde2; border-radius:5px; margin:8px 0 0; }
 
   /* ---- phone-call card (Zendesk Talk voice comment) ---- */
   .call-tbl { width:100%; border-collapse:collapse; margin-top:6px; font-size:11px; }
@@ -69,7 +71,8 @@
   .ftime { color:#137333; font-weight:700; font-size:13px; }
 
   /* ---- narrative sub-section heading + AI relevance note ---- */
-  .sub-h { font-weight:700; font-size:12.5px; margin:20px 0 4px; color:#0070d2; }
+  .sub-h { font-weight:700; font-size:14.5px; margin:24px 0 8px; color:#0070d2;
+           border-bottom:1px solid #c9dcee; padding-bottom:3px; }
   .why { font-size:11px; color:#374151; background:#f0f6ff; border-left:3px solid #0070d2;
          border-radius:0; padding:6px 10px; margin:12px 0 4px; }
   .why b { color:#0c447c; }
@@ -79,6 +82,12 @@
   .bl .h { font-weight:700; color:#065f46; font-size:12px; margin-bottom:6px; }
   .bl ul { margin:0; padding-left:18px; }
   .bl li { font-size:12px; color:#064e3b; margin:3px 0; }
+  /* "Responding to the customer's claims" — rebuttal box */
+  .claims { background:#fff7ed; border:1px solid #fed7aa; border-radius:6px; padding:12px 14px; margin:0 0 16px; }
+  .claims .h { font-weight:700; color:#9a3412; font-size:12px; margin-bottom:6px; }
+  .claims .lead { font-size:11.5px; color:#7c2d12; margin:0 0 6px; }
+  .claims ul { margin:0; padding-left:18px; }
+  .claims li { font-size:11.5px; color:#7c2d12; margin:4px 0; }
   .ident { background:#eff6ff; border:1px solid #bfdbfe; border-left:4px solid #2563eb;
            border-radius:0; padding:9px 12px; margin:0 0 16px; font-size:11.5px; color:#1e3a8a; }
   .ident b { color:#1e3a8a; }
@@ -98,6 +107,7 @@
 <h1>Dispute Settlement Support Information</h1>
 <p class="meta"><span class="lab">Client's name:</span> {{ narrative.client_name }}</p>
 {% if narrative.alf_id %}<p class="meta"><span class="lab">Internal Registration ID:</span> {{ narrative.alf_id }}</p>{% endif %}
+{% if name_reconciliation %}<p class="recon">{{ name_reconciliation }}</p>{% endif %}
 
 <div class="stakes">
   <span><b>PayPal case:</b> {{ dispute.paypal_dispute_id }}</span>
@@ -120,9 +130,17 @@
 </div>
 {% endif %}
 
+{% if claims_response %}
+<div class="claims">
+  <div class="h">Responding to the customer's claims</div>
+  <p class="lead">{{ claims_response.intro }}</p>
+  <ul>{% for p in claims_response.points %}<li>{{ p }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
 {% if identity.matched %}
 <div class="ident">
-  <b>Identity confirmed:</b> the claim was submitted from IP address {{ identity.submission_ip }}, and the customer later corresponded with us from the same IP — confirming this was the genuine account holder, not an unauthorised third party.
+  <b>Identity confirmed:</b> the claim was submitted from IP address {{ identity.submission_ip_display }}, and the customer later corresponded with us from the same IP — confirming this was the genuine account holder, not an unauthorised third party.
 </div>
 {% endif %}
 
@@ -147,7 +165,7 @@
 <!-- Fee + authorization -->
 <p class="narr">During the process of filing the claim, the client reached the final step where they were informed about:</p>
 <p class="narr" style="margin-left:14px;">&bull; the fee for our service{% if narrative.fee %} ({{ narrative.fee }} {{ narrative.currency }}){% endif %}<br>
-&bull; that they could request a refund within the first 24 hours under our Refund Policy (per our Terms and Conditions, linked in the footer of every page): <span style="color:#0070d2;">{{ narrative.terms_url }}</span></p>
+&bull; our Refund Policy: a refund within the first 24 hours is available only where the case was not worked on, or the item was not found within that window due to our involvement with third-party collaborators (per our Terms and Conditions, linked in the footer of every page): <span style="color:#0070d2;">{{ narrative.terms_url }}</span></p>
 
 <p class="narr">The client also expressly authorised us to search for their lost item on their behalf, and accepted our Terms and Conditions{% if consent.when %} when they submitted the claim on {{ consent.when }}{% endif %}{% if consent.ip %}, from IP address {{ consent.ip }}{% endif %} — see the checkout below:</p>
 
@@ -157,6 +175,13 @@
 <!-- Evidence from the case file, grouped into narrative sections -->
 <div class="sec-h">Service initiation &amp; case record</div>
 <p class="narr">After payment, a ticket was automatically opened on our support platform and the client received a confirmation email that the search had started. The records below are taken directly from our support system, grouped by their role in the case.</p>
+
+{% if intake_panel %}
+<div class="zd-panel">
+  <div class="zd-head"><span class="zd-avatar">&#9787;</span><span class="zd-name">Claim submitted by the customer</span><span class="zd-badge internal">Submission</span><span class="zd-time">&middot; {{ intake_panel.created_at }}</span></div>
+  <div class="zd-body internal">{{ intake_panel.body|escape|linebreaks }}{% for img in intake_panel.images %}<img class="zd-att" src="{{ img.data_uri }}" alt="{{ img.file_name }}">{% endfor %}</div>
+</div>
+{% endif %}
 
 {% for section in sections %}
   {% if section.title != 'Case record' %}<div class="sub-h">{{ section.title }}</div>{% endif %}
@@ -234,7 +259,7 @@
 </div>
 
 <div class="footer">
-  Prepared by LORA for {{ narrative.client_name }} &mdash; PayPal dispute {{ dispute.paypal_dispute_id }} &mdash; generated {{ generated_at }}
+  Prepared by Dragos Gruita for {{ narrative.client_name }} &mdash; PayPal dispute {{ dispute.paypal_dispute_id }} &mdash; generated {{ generated_at }}
 </div>
 
 </body>
