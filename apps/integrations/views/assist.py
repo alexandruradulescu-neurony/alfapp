@@ -148,7 +148,7 @@ class ZendeskBriefingView(APIView):
                 response_schema=schema,
                 call_site='zendesk_briefing',
                 temperature=0.4,
-                max_tokens=500,
+                max_tokens=4096,
             )
         except AIResponseValidationError as e:
             logger.warning("Briefing AI validation failed for ticket %s (mode=%s): %s", ticket_id, mode, e)
@@ -246,7 +246,7 @@ class ZendeskDraftView(APIView):
                 response_schema=EmailDraft,
                 call_site='zendesk_draft',
                 temperature=0.5,
-                max_tokens=1200,
+                max_tokens=4096,
             )
         except AIResponseValidationError as e:
             logger.warning("Draft AI validation failed for ticket %s (%s): %s", ticket_id, draft_type, e)
@@ -350,7 +350,7 @@ class ZendeskChatView(APIView):
                 response_schema=ChatAnswer,
                 call_site='zendesk_ticket_chat',
                 temperature=0.7,
-                max_tokens=1000,
+                max_tokens=4096,
             )
         except AIResponseValidationError as e:
             logger.warning("Ticket-only chat AI validation failed for ticket %s: %s", ticket_id, e)

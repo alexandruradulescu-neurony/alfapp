@@ -1534,7 +1534,11 @@ def _narrate_evidence(dispute, items: list, claim) -> Optional[dict]:
             response_schema=EvidenceNarrative,
             call_site='dispute_evidence_narrative',
             temperature=0.2,
-            max_tokens=900,
+            # Generous ceiling: a large case log (many records) must never be
+            # truncated into invalid JSON and silently fall back to the ungrouped,
+            # no-"why this matters" report. Routes to Claude; 8192 is also the most
+            # DeepSeek accepts.
+            max_tokens=8192,
         )
     except Exception as e:
         logger.warning(f"Evidence narrative AI unavailable; using ungrouped fallback: {e}")
@@ -2044,7 +2048,7 @@ def build_dispute_narrative_notes(dispute, *, manager_note: str = '', use_ai: bo
                     response_schema=DisputeNarrative,
                     call_site='dispute_narrative_notes',
                     temperature=0.4,
-                    max_tokens=1200,
+                    max_tokens=8192,
                 )
                 sections = {
                     'opening': result.opening,

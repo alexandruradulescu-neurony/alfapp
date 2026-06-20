@@ -32,11 +32,14 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-# Default LLM sampling knobs for AIClient.complete(). Tuned for the briefing/chat
-# call sites: low temperature for deterministic structured output, a modest token
-# ceiling sized for the JSON schemas these call sites return.
+# Default LLM sampling knobs for AIClient.complete(). Low temperature for
+# deterministic structured output. max_tokens is only a CEILING — you pay for the
+# tokens actually generated, not the cap — so keep it generous: a reply that runs
+# longer than expected must never be silently truncated into invalid JSON (that
+# is what dropped the dispute report to its ungrouped fallback). 4096 is DeepSeek's
+# own default and well within its 8192 hard maximum; Claude handles far more.
 DEFAULT_TEMPERATURE: float = 0.3
-DEFAULT_MAX_TOKENS: int = 600
+DEFAULT_MAX_TOKENS: int = 4096
 
 # Disputes are resolved with Anthropic/Claude (better case understanding) when an
 # Anthropic key is configured; every other call site stays on the default

@@ -536,7 +536,7 @@ def _draft_follow_up(claim, replies, ss=None, *, fallback_body: str = '') -> tup
             response_schema=EmailDraft,
             call_site='client_followup',
             temperature=0.4,
-            max_tokens=900,
+            max_tokens=4096,
         )
         body = (result.body or '').strip()
         return (body or fallback_body), True

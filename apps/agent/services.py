@@ -45,7 +45,7 @@ class AgentChatService:
 
     # Chat-tuning knobs for the LLM call (see process_message).
     CHAT_TEMPERATURE = 0.7
-    CHAT_MAX_TOKENS = 2000
+    CHAT_MAX_TOKENS = 4096
 
     # Context-window bounds (how much history/data we feed the LLM per message).
     # How many recent history turns to scan for a prior claim ID (process_message).

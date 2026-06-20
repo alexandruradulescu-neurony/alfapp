@@ -155,7 +155,7 @@ def extract_submissions(claim) -> list:
             response_schema=SubmissionList,
             call_site='submissions_extract',
             temperature=0.2,
-            max_tokens=400,
+            max_tokens=4096,
         )
         return [
             {'office': s.office, 'date': s.date}
@@ -210,7 +210,7 @@ def build_client_update_message(claim, polish: bool = True) -> str:
             response_schema=EmailDraft,
             call_site='client_update',
             temperature=0.4,
-            max_tokens=900,
+            max_tokens=4096,
         )
         body = (result.body or '').strip()
         return body or template

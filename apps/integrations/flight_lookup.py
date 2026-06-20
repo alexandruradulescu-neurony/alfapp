@@ -45,7 +45,7 @@ RATE_LIMIT_RETRY_PAUSE = 1.3
 # AI-tuning defaults for the single flight cross-check call (named so the
 # behaviour is tweaked in one place rather than as inline literals).
 FLIGHT_CHECK_TEMPERATURE = 0.3
-FLIGHT_CHECK_MAX_TOKENS = 400
+FLIGHT_CHECK_MAX_TOKENS = 4096
 
 # Sentinel returned by _provider_call when the provider/transport actually failed
 # (as opposed to a legitimate empty/no-data answer). Lets callers map an error to
