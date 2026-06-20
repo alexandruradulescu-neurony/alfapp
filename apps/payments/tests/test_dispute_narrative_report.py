@@ -56,6 +56,15 @@ class DisputeBusinessUnderstandingTests(TestCase):
             self.assertIn('NON-REFUNDABLE', prompt)
             self.assertIn('authorise', prompt.lower())
 
+    def test_both_prompts_carry_operations_context(self):
+        # The AI must understand how agents run a ticket to judge each record:
+        # office emails are internal notes, filing uses ALF's own address, and a
+        # found item runs through retrieval to delivery.
+        for prompt in (ds.EVIDENCE_NARRATIVE_SYSTEM_PROMPT, ds.EVIDENCE_NOTES_SYSTEM_PROMPT):
+            self.assertIn('INSTITUTION CORRESPONDENCE', prompt)
+            self.assertIn('FROM OUR OWN ALF EMAIL', prompt)
+            self.assertIn('tracking number', prompt)
+
     def test_buyer_complaint_reaches_notes_ai_as_untrusted(self):
         from apps.ai.prompt_fence import ALLOWED_TAGS
         self.assertIn('buyer_dispute_statement', ALLOWED_TAGS)
