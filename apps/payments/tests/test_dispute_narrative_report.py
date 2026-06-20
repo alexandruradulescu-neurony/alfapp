@@ -223,7 +223,9 @@ class CommentCleanupTests(TestCase):
         fetch.assert_not_called()
 
     def test_time_format(self):
-        self.assertEqual(ds._fmt_zd_time('2026-02-03T21:14:00Z'), 'Feb 03, 2026 21:14')
+        # Rendered in the app's display zone (America/Chicago) like Zendesk:
+        # 21:14 UTC on Feb 3 = 15:14 CST (UTC-6).
+        self.assertEqual(ds._fmt_zd_time('2026-02-03T21:14:00Z'), 'Feb 03, 2026 15:14')
         self.assertEqual(ds._fmt_zd_time(''), '')
 
     def test_author_fallback_when_unknown(self):
@@ -406,7 +408,8 @@ class BottomLineAndTimelineTests(TestCase):
         with patch.object(ds, '_fetch_zendesk_ticket_full',
                           return_value={'ticket': ticket, 'comments': []}):
             bundle = ds.build_dispute_evidence_bundle(d, use_ai=False)
-        self.assertEqual(bundle['consent']['when'], 'Feb 03, 2026 21:14')
+        # 21:14 UTC = 15:14 CST (America/Chicago) — same wall-clock Zendesk shows.
+        self.assertEqual(bundle['consent']['when'], 'Feb 03, 2026 15:14')
         self.assertEqual(bundle['consent']['ip'], '203.0.113.7')
 
 

@@ -6,12 +6,12 @@ Includes PDF generation for proof of work documents.
 import base64
 import logging
 import os
-from datetime import datetime
 from typing import List, Optional
 
 from django.conf import settings
 from django.core.exceptions import SuspiciousFileOperation
 from django.template.loader import render_to_string
+from django.utils import timezone
 
 from apps.claims.models import Claim
 
@@ -203,7 +203,7 @@ def generate_proof_of_work_pdf(claim: Claim) -> Optional[bytes]:
         # d) Prepare context for template
         context = {
             'claim': claim,
-            'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'generated_at': timezone.localtime().strftime('%Y-%m-%d %H:%M:%S'),
             'evidence_list': evidence_list,
             'zendesk_comments': zendesk_comments,
             'evidence_count': len(evidence_list),

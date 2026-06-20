@@ -156,7 +156,12 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # Internationalization
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+# Display timezone — must match the Zendesk account zone (Central Time, US &
+# Canada) so LORA shows and prints the same wall-clock time Zendesk shows.
+# Timestamps are still STORED in UTC (USE_TZ=True); this only affects display
+# (templates auto-localize; report formatting localizes explicitly). America/
+# Chicago is DST-aware (UTC-5 in summer, UTC-6 in winter), matching Zendesk.
+TIME_ZONE = 'America/Chicago'
 USE_I18N = True
 USE_TZ = True
 
