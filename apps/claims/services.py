@@ -8,6 +8,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 # acceptable image is (the API path previously did no validation at all).
 EVIDENCE_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 EVIDENCE_ALLOWED_EXTENSIONS = ('jpg', 'jpeg', 'png', 'gif', 'webp')
+# Dispute submissions may also ship PDF documents to PayPal (claim evidence
+# stays image-only — see validate_evidence_image vs validate_evidence_attachment).
+EVIDENCE_DOC_ALLOWED_EXTENSIONS = EVIDENCE_ALLOWED_EXTENSIONS + ('pdf',)
 
 
 def validate_evidence_image(image) -> None:
@@ -39,6 +42,42 @@ def validate_evidence_image(image) -> None:
             image.seek(0)
         except Exception:
             pass
+
+
+def validate_evidence_attachment(f) -> None:
+    """Size + type validation for a DISPUTE-submission attachment: the evidence
+    images PayPal accepts PLUS PDF documents. Image extensions go through the
+    full image-decode check (via validate_evidence_image); a PDF is checked by
+    size, extension and a %PDF magic-byte sniff (don't trust the name). Raises
+    django.core.exceptions.ValidationError on failure. Pure (no model imports).
+
+    Claim evidence stays image-only (validate_evidence_image); only disputes
+    need to send PDFs onward to PayPal."""
+    from django.core.exceptions import ValidationError
+    if f is None:
+        raise ValidationError('A file is required.')
+    if f.size > EVIDENCE_MAX_BYTES:
+        raise ValidationError(f'File must be under {EVIDENCE_MAX_BYTES // 1024 // 1024}MB.')
+    ext = f.name.rsplit('.', 1)[-1].lower() if '.' in (f.name or '') else ''
+    if ext not in EVIDENCE_DOC_ALLOWED_EXTENSIONS:
+        raise ValidationError(
+            f'Invalid file type. Allowed: {", ".join(EVIDENCE_DOC_ALLOWED_EXTENSIONS)}.')
+    if ext != 'pdf':
+        validate_evidence_image(f)  # images: full decode verification
+        return
+    # PDF: confirm the bytes actually start with the PDF marker.
+    try:
+        f.seek(0)
+        head = f.read(5)
+    except Exception:
+        head = b''
+    finally:
+        try:
+            f.seek(0)
+        except Exception:
+            pass
+    if not head.startswith(b'%PDF'):
+        raise ValidationError('File is not a valid PDF (it could not be read as one).')
 
 # Common human-typed abbreviations -> IANA zone. Fallback is UTC; precision
 # beyond "right day" is best-effort by design (see spec §6).
