@@ -1255,6 +1255,12 @@ def manager_settings(request):
                     if new_value:
                         setattr(settings, field_name, new_value)
 
+                # Terms & Conditions PDF — only replace when a new file is
+                # uploaded; an empty field leaves the existing document in place.
+                tc = request.FILES.get('terms_conditions_pdf')
+                if tc:
+                    settings.terms_conditions_pdf = tc
+
                 settings.save()
             messages.success(request, 'Settings saved successfully.')
         else:

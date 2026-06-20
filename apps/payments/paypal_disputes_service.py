@@ -643,8 +643,9 @@ def _read_file_field(field, default_ct: str = 'application/octet-stream'):
 
 def _build_submission_files(submission: DisputeSubmission) -> List[dict]:
     """The files to upload with a submission: the manager's images, plus the
-    latest evidence-report PDF when attach_evidence_pdf is ticked. Unreadable
-    files are skipped (logged), never crashing the submit."""
+    latest evidence-report PDF when attach_evidence_pdf is ticked, plus the
+    stored Terms & Conditions PDF when attach_terms is ticked. Unreadable files
+    are skipped (logged), never crashing the submit."""
     files = []
     if submission.attach_evidence_pdf:
         doc = (DisputeDocument.objects
@@ -658,6 +659,16 @@ def _build_submission_files(submission: DisputeSubmission) -> List[dict]:
         else:
             logger.warning(f"attach_evidence_pdf set but no evidence-report PDF found "
                            f"for dispute #{submission.dispute_id}")
+    if getattr(submission, 'attach_terms', False):
+        from apps.config.models import SystemSettings
+        terms = SystemSettings.get_instance().terms_conditions_pdf
+        if terms:
+            f = _read_file_field(terms, default_ct='application/pdf')
+            if f:
+                files.append(f)
+        else:
+            logger.warning(f"attach_terms set but no Terms & Conditions PDF uploaded "
+                           f"(dispute #{submission.dispute_id})")
     for img in submission.images.all():
         f = _read_file_field(img.file)
         if f:

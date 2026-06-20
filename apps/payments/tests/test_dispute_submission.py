@@ -188,6 +188,33 @@ class BuildFilesTests(TestCase):
         self.assertEqual({f['content_type'] for f in files}, {'application/pdf'})
         self.assertEqual(sum(1 for f in files if f['filename'].endswith('.pdf')), 2)
 
+    def test_attach_terms_defaults_on(self):
+        sub = DisputeSubmission.objects.create(dispute=_dispute(), notes='n')
+        self.assertTrue(sub.attach_terms)   # T&C is always-required on a first response
+
+    def test_terms_pdf_attached_when_ticked(self):
+        from apps.config.models import SystemSettings
+        ss = SystemSettings.get_instance()
+        ss.terms_conditions_pdf.save('terms.pdf', ContentFile(b'%PDF-1.4 terms'), save=True)
+        sub = DisputeSubmission.objects.create(dispute=_dispute(), notes='n',
+                                               attach_terms=True, attach_evidence_pdf=False)
+        files = pds._build_submission_files(sub)
+        self.assertEqual(len(files), 1)
+        self.assertEqual(files[0]['content_type'], 'application/pdf')
+
+    def test_terms_not_attached_when_unticked(self):
+        from apps.config.models import SystemSettings
+        ss = SystemSettings.get_instance()
+        ss.terms_conditions_pdf.save('terms.pdf', ContentFile(b'%PDF'), save=True)
+        sub = DisputeSubmission.objects.create(dispute=_dispute(), notes='n',
+                                               attach_terms=False, attach_evidence_pdf=False)
+        self.assertEqual(pds._build_submission_files(sub), [])
+
+    def test_terms_ticked_but_none_uploaded_is_safe(self):
+        sub = DisputeSubmission.objects.create(dispute=_dispute(), notes='n',
+                                               attach_terms=True, attach_evidence_pdf=False)
+        self.assertEqual(pds._build_submission_files(sub), [])   # no crash, nothing attached
+
 
 class SubmitOrchestrationTests(TestCase):
     def setUp(self):
