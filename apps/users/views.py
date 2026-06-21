@@ -822,15 +822,17 @@ def manager_dashboard(request):
         evidence_sent=Count(Case(When(status=Dispute.STATUS_EVIDENCE_SENT, then=1), output_field=IntegerField())),
         resolved=Count(Case(When(status__in=Dispute.TERMINAL_STATUSES, then=1), output_field=IntegerField())),
     )
-    # "Disputes due soon" — the act-now number. It MUST match the queue the card
-    # opens (?view=action): disputes still ours to reply to (not in PayPal's or the
-    # buyer's hands, not terminal, not overdue) whose deadline lands within 3 days.
-    # Reuses the disputes-list query so the count can never exceed the list, and
-    # never counts an overdue dispute we can no longer reply to.
+    # "Disputes due soon" — the act-now number. Counts ONLY disputes still ours to
+    # reply to (not in PayPal's or the buyer's hands, not terminal, not overdue)
+    # whose deadline lands within the next 7 days. Reuses the disputes-list query so
+    # the count is always a subset of the list the card opens (?view=action). The
+    # window is whole-calendar-day based (NOT "7 days from this exact second") so a
+    # deadline a few minutes either side of the cutoff doesn't flicker the number
+    # with the time of day.
     from apps.payments.frontend_views import _needs_action_qs
     dispute_stats['due_soon'] = _needs_action_qs(Dispute.objects.all()).filter(
         seller_response_due__isnull=False,
-        seller_response_due__lte=timezone.now() + timedelta(days=3),
+        seller_response_due__date__lte=timezone.localdate() + timedelta(days=DEADLINE_SOON_DAYS),
     ).count()
 
     # Recent activity (optimized with select_related)
