@@ -196,41 +196,6 @@ document.getElementById('btn-next-steps').onclick = async () => {
   }
 };
 
-// --- email drafts ---
-function nl2brEscaped(text) {
-  return escapeHtml(text).replace(/\n/g, '<br>');
-}
-
-async function draftEmail(draftType, btn) {
-  const statusEl = document.getElementById('draft-status');
-  btn.disabled = true;
-  statusEl.className = '';
-  statusEl.textContent = 'Writing draft…';
-  try {
-    const ctx = await ticketContext();
-    const resp = await loraRequest('/api/integrations/zd/draft/',
-      Object.assign({}, ctx, { draft_type: draftType }));
-    const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
-    if (data.body) {
-      // Insert into the ticket's reply composer — the agent reviews and sends.
-      await client.invoke('ticket.editor.insert', nl2brEscaped(data.body));
-      statusEl.className = 'ok';
-      statusEl.textContent = '✓ Draft inserted in the reply box — review and edit before sending.';
-    } else {
-      statusEl.className = 'err';
-      statusEl.textContent = 'Draft unavailable right now — try again.';
-    }
-  } catch (e) {
-    statusEl.className = 'err';
-    statusEl.textContent = diagnose(e);
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-document.getElementById('btn-draft-client').onclick = (e) => draftEmail('client_update', e.currentTarget);
-document.getElementById('btn-draft-inst').onclick = (e) => draftEmail('institution_reply', e.currentTarget);
-
 // --- chat suggestion chips ---
 document.querySelectorAll('.chip').forEach(ch => {
   ch.onclick = () => {
