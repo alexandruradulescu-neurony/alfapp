@@ -61,3 +61,22 @@ class DashboardChartTests(TestCase):
 
     def test_chart_requires_login(self):
         self.assertEqual(Client().get(reverse('manager_dashboard_chart')).status_code, 302)
+
+    def test_hover_columns_one_per_day_with_value_tooltip(self):
+        """Each day gets a hover band + a tooltip listing the date and one line per
+        active series, so hovering anywhere in a day's column shows its values."""
+        r = self.web.get(reverse('manager_dashboard_chart') + '?range=7&show=claims,income')
+        cols = r.context['chart_cols']
+        self.assertEqual(len(cols), 7)                       # one band per day
+        for c in cols:
+            self.assertGreater(c['hw'], 0)                   # the band has width to hover
+        today = cols[-1]                                     # setUp put 2 claims / $60 today
+        texts = [ln['text'] for ln in today['lines']]
+        self.assertEqual(len(texts), 3)                      # date + Orders + Revenue
+        self.assertIn('Orders 2', texts)
+        self.assertIn('Revenue $60', texts)
+
+    def test_hover_reveal_is_wired_in_fragment(self):
+        """The fragment uses a pure-CSS hover reveal (CSP-safe — no JS/eval)."""
+        html = self.web.get(reverse('manager_dashboard_chart')).content.decode()
+        self.assertIn('group-hover:opacity-100', html)
