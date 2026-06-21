@@ -61,7 +61,7 @@
         {% heroicon_outline "document-text" class="size-5" %} Full message
       </h3>
       <div class="rounded-xl bg-gray-50 p-4 overflow-x-auto">
-        <pre class="whitespace-pre-wrap font-sans text-sm leading-relaxed text-gray-900">{{ email.body }}</pre>
+        <pre class="whitespace-pre-wrap font-sans text-sm leading-relaxed text-gray-900">{{ email.body|urlize }}</pre>
       </div>
     </div>
   </div>
