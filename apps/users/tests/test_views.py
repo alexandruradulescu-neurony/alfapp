@@ -804,6 +804,75 @@ class TestManagerDashboard:
         # And the three claims this test created are all active (family 'open')
         assert response.context['active'] >= 3
 
+
+@pytest.mark.django_db
+class TestDashboardActionCountsMatchQueues:
+    """Each 'Needs your attention' card must count exactly what the list it opens
+    shows. Regression for the counts drifting from their queues: overdue / in-PayPal
+    disputes were counted but not listed, and solved-but-flagged claims were counted
+    but hidden by the Problems tab."""
+
+    def _mgr_client(self):
+        User.objects.create_user(username='dash_parity_mgr', password='x')
+        c = Client()
+        c.login(username='dash_parity_mgr', password='x')
+        return c
+
+    def test_disputes_due_soon_excludes_overdue_and_in_paypal(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from apps.payments.models import Dispute
+        from apps.payments.frontend_views import _needs_action_qs
+
+        now = timezone.now()
+
+        def mk(ppid, due, payload):
+            return Dispute.objects.create(
+                paypal_dispute_id=ppid, zd_ticket_id=ppid, status='RECEIVED',
+                dispute_reason='MERCHANDISE_OR_SERVICE_NOT_RECEIVED',
+                dispute_amount='100.00', dispute_currency='USD',
+                buyer_email='b@e.com', buyer_name='B',
+                transaction_id='TXN-' + ppid, transaction_date='2026-03-15T10:00:00Z',
+                seller_response_due=due, raw_webhook_payload=payload)
+
+        ours_soon = mk('D-SOON', now + timedelta(days=1), {})              # counts
+        mk('D-OVERDUE', now - timedelta(days=1), {})                       # overdue → out
+        mk('D-REVIEW', now + timedelta(days=1), {'status': 'UNDER_REVIEW'})  # PayPal's court → out
+        mk('D-FAR', now + timedelta(days=10), {})                          # actionable but not soon
+
+        client = self._mgr_client()
+        resp = client.get('/manager/')
+        expected = _needs_action_qs(Dispute.objects.all()).filter(
+            seller_response_due__isnull=False,
+            seller_response_due__lte=now + timedelta(days=3)).count()
+        assert resp.context['dispute_due_soon'] == expected == 1
+
+        # Every counted dispute is reachable in the list the card opens.
+        action_ids = {d.id for d in client.get('/manager/disputes/?view=action').context['page_obj']}
+        assert ours_soon.id in action_ids
+
+    def test_claims_attention_matches_problems_lens(self):
+        from apps.claims.models import Claim
+        from apps.communications.models import EmailLog
+
+        Claim.objects.create(client_email='a@e.com', alf_claim_id='CA1',
+                             status='Investigation initiated', status_category='open',
+                             risk_level='at_risk')                          # active + flagged → counts
+        Claim.objects.create(client_email='s@e.com', alf_claim_id='CA2',
+                             status='Solved', status_category='solved',
+                             risk_level='at_risk')                          # exited → must NOT count
+        email_claim = Claim.objects.create(client_email='e@e.com', alf_claim_id='CA3',
+                                           status='Claim submitted', status_category='open')
+        EmailLog.objects.create(claim=email_claim, subject='s', body='b',
+                                action_required=True, auto_resolved=False)  # active + email → counts
+
+        client = self._mgr_client()
+        resp = client.get('/manager/')
+        problems = client.get('/manager/claims/?tab=problems')
+        assert resp.context['claims_attention'] == 2
+        assert resp.context['claims_attention'] == problems.context['tab_counts']['problems']
+
+
 @pytest.mark.django_db
 class TestManagerClaims:
     """Tests for manager_claims view."""

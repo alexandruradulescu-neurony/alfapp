@@ -57,8 +57,22 @@ chips and the 7/14/30-day range HTMX-swap this whole fragment.
       {% for ln in chart_lines %}
       <polyline fill="none" stroke="{{ ln.color }}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="{{ ln.points }}" />
       {% for d in ln.dots %}
-      <circle cx="{{ d.x }}" cy="{{ d.y }}" r="3" fill="#fff" stroke="{{ ln.color }}" stroke-width="2"><title>{{ d.tooltip }}</title></circle>
+      <circle cx="{{ d.x }}" cy="{{ d.y }}" r="3" fill="#fff" stroke="{{ ln.color }}" stroke-width="2" />
       {% endfor %}
+      {% endfor %}
+      {# per-day hover columns: hover anywhere in a day's band to reveal a guide
+         line + a card with that day's values. Pure CSS (no JS/eval) — CSP-safe. #}
+      {% for c in chart_cols %}
+      <g class="group">
+        <rect x="{{ c.hx }}" y="{{ c.hy }}" width="{{ c.hw }}" height="{{ c.hh }}" fill="transparent" />
+        <g class="opacity-0 transition-opacity duration-150 group-hover:opacity-100" pointer-events="none">
+          <line x1="{{ c.gx }}" y1="{{ c.gy0 }}" x2="{{ c.gx }}" y2="{{ c.gy1 }}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="3 3" />
+          <rect x="{{ c.bx }}" y="0" width="{{ c.bw }}" height="{{ c.bh }}" rx="6" fill="#ffffff" stroke="#e5e7eb" stroke-width="1" />
+          {% for tl in c.lines %}
+          <text x="{{ c.tx }}" y="{{ tl.y }}" fill="{{ tl.fill }}" font-size="11" font-weight="{{ tl.weight }}">{{ tl.text }}</text>
+          {% endfor %}
+        </g>
+      </g>
       {% endfor %}
     </svg>
   </div>

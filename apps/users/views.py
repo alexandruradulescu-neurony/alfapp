@@ -750,6 +750,29 @@ def agent_email_detail(request, email_id):
 
 # ============== Manager Views ==============
 
+# --- Shared claim-queue predicates ---------------------------------------------
+# A number on a dashboard card must equal the list that card opens. These two
+# predicates are the single source of truth for "has this claim left the
+# workqueue" and "is this claim a problem", used by BOTH manager_dashboard and
+# manager_claims so the card counts and the list lenses can never drift apart.
+
+def _claim_exited_q():
+    """A claim has left the active workqueue once it is genuinely done — the
+    Solved/Closed family — EXCEPT 'Refund-Denied', which sits in that family at
+    Zendesk but is still worked until the ticket is truly closed. Mirrors
+    Claim.has_exited and the claims-list 'exited' filter."""
+    return Q(status_category__in=['solved', 'closed']) & ~Q(status__icontains='denied')
+
+
+def _claim_problems_q():
+    """The 'Problems' lens: an unacknowledged risk flag OR an institution email
+    awaiting a human reply — and the claim is still active. Expects the queryset
+    to be annotated with attention_emails (count of action-required, unresolved
+    emails)."""
+    flagged = Q(risk_acknowledged_at__isnull=True) & ~Q(risk_level='none')
+    return (flagged | Q(attention_emails__gt=0)) & ~_claim_exited_q()
+
+
 @manager_required
 def manager_dashboard(request):
     """Manager dashboard with overview stats.
@@ -799,12 +822,14 @@ def manager_dashboard(request):
         evidence_sent=Count(Case(When(status=Dispute.STATUS_EVIDENCE_SENT, then=1), output_field=IntegerField())),
         resolved=Count(Case(When(status__in=Dispute.TERMINAL_STATUSES, then=1), output_field=IntegerField())),
     )
-    # Disputes with a response deadline in the next 3 days (or already past),
-    # still open — the highest-stakes "act now" number. Missing the deadline
-    # auto-loses the dispute.
-    _open_dispute = ~models.Q(status__in=Dispute.TERMINAL_STATUSES)
-    dispute_stats['due_soon'] = Dispute.objects.filter(
-        _open_dispute, seller_response_due__isnull=False,
+    # "Disputes due soon" — the act-now number. It MUST match the queue the card
+    # opens (?view=action): disputes still ours to reply to (not in PayPal's or the
+    # buyer's hands, not terminal, not overdue) whose deadline lands within 3 days.
+    # Reuses the disputes-list query so the count can never exceed the list, and
+    # never counts an overdue dispute we can no longer reply to.
+    from apps.payments.frontend_views import _needs_action_qs
+    dispute_stats['due_soon'] = _needs_action_qs(Dispute.objects.all()).filter(
+        seller_response_due__isnull=False,
         seller_response_due__lte=timezone.now() + timedelta(days=3),
     ).count()
 
@@ -814,17 +839,14 @@ def manager_dashboard(request):
     recent_disputes = Dispute.objects.select_related('claim').order_by('-created_at')[:5]
 
     # Action-triage counts — the dashboard leads with "what needs me now", reusing
-    # the SAME definitions as the list screens so the numbers match their queues:
+    # the SAME query helpers as the list screens so the numbers match their queues:
     #   - claims needing attention = the claims "Problems" lens (unacknowledged risk
-    #     flag OR an institution email awaiting a human reply)
+    #     flag OR an institution email awaiting a reply) AND still active
     #   - refunds awaiting a decision = claims marked 'Refund Requested' (refunds queue)
-    from django.db.models import Exists, OuterRef
     _claims_attn = Claim.objects.annotate(
-        _attn_emails=Count('emails', distinct=True,
-                           filter=Q(emails__action_required=True, emails__auto_resolved=False)))
-    claims_attention = _claims_attn.filter(
-        (Q(risk_acknowledged_at__isnull=True) & ~Q(risk_level='none')) | Q(_attn_emails__gt=0)
-    ).distinct().count()
+        attention_emails=Count('emails', distinct=True,
+                               filter=Q(emails__action_required=True, emails__auto_resolved=False)))
+    claims_attention = _claims_attn.filter(_claim_problems_q()).distinct().count()
     refunds_pending_decision = Claim.objects.filter(status='Refund Requested').count()
 
     context = {
@@ -917,11 +939,36 @@ def _dashboard_chart_data(range_days, show):
         for i, v in enumerate(vals):
             x, y = xs[i], plot_b - (v / m) * plot_h
             pts.append('{:.1f},{:.1f}'.format(x, y))
-            dots.append({'x': round(x, 1), 'y': round(y, 1),
-                         'tooltip': '{} — {}'.format(dates[i].strftime('%b %d'), fmt(key, v))})
+            # Visual marker only; the value tooltip now lives on the per-day hover
+            # column (chart_cols) so hovering anywhere in a day reveals it.
+            dots.append({'x': round(x, 1), 'y': round(y, 1)})
         lines.append({'key': key, 'label': _CHART_SERIES[key]['label'],
                       'color': _CHART_SERIES[key]['color'], 'points': ' '.join(pts),
                       'dots': dots, 'total': fmt(key, sum(vals))})
+
+    # Per-day hover columns: an invisible full-height band that, on hover, reveals
+    # a guide line + a small card listing that day's value(s). Pure CSS in the
+    # template (no JS / eval) — CSP-safe. Geometry is computed here so the template
+    # stays math-free, matching the rest of this builder.
+    half = (plot_w / (n - 1) / 2) if n > 1 else plot_w / 2
+    box_w, line_h = 104, 15
+    cols = []
+    for i, d in enumerate(dates):
+        bx0 = max(_CL, xs[i] - half)
+        bx1 = min(plot_r, xs[i] + half)
+        tip = [{'text': d.strftime('%b %d'), 'fill': '#111827', 'weight': 600}]
+        for key in show:
+            tip.append({'text': '{} {}'.format(_CHART_SERIES[key]['label'], fmt(key, data[key][i])),
+                        'fill': _CHART_SERIES[key]['color'], 'weight': 500})
+        for j, t in enumerate(tip):
+            t['y'] = round(8 + line_h * (j + 1), 1)
+        box_x = min(max(xs[i] - box_w / 2, _CL), plot_r - box_w)
+        cols.append({
+            'hx': round(bx0, 1), 'hy': _CT, 'hw': round(bx1 - bx0, 1), 'hh': round(plot_b - _CT, 1),
+            'gx': round(xs[i], 1), 'gy0': _CT, 'gy1': round(plot_b, 1),
+            'bx': round(box_x, 1), 'bw': box_w, 'bh': 10 + line_h * len(tip),
+            'tx': round(box_x + 8, 1), 'lines': tip,
+        })
 
     grid_ys = [round(_CT, 1), round((_CT + plot_b) / 2, 1), round(plot_b, 1)]
 
@@ -948,6 +995,7 @@ def _dashboard_chart_data(range_days, show):
         'chart_w': _CW, 'chart_h': _CH,
         'chart_grid_ys': grid_ys, 'chart_grid_x0': _CL, 'chart_grid_x1': plot_r,
         'chart_lines': lines,
+        'chart_cols': cols,
         'chart_left_axis': axis('claims') if 'claims' in cur else None,
         'chart_right_axis': axis('income') if 'income' in cur else None,
         'chart_left_x': _CL - 6, 'chart_right_x': plot_r + 6,
@@ -996,17 +1044,16 @@ def manager_claims(request):
         dispute_exists=Exists(Dispute.objects.filter(claim=OuterRef('pk'))),
     )
 
-    flagged_q = Q(risk_acknowledged_at__isnull=True) & ~Q(risk_level='none')
-    # "Exited the system" = genuinely done (Solved/Closed). A 'Refund-Denied' ticket
-    # is in the Solved FAMILY at Zendesk but is still being worked until it is
-    # actually closed, so it does NOT count as exited — it stays in the active
-    # lenses. Mirrors Claim.has_exited so the lists and the badge always agree.
-    exited_q = Q(status_category__in=['solved', 'closed']) & ~Q(status__icontains='denied')
+    # Exited vs active + the Problems predicate are shared with the dashboard (see
+    # _claim_exited_q / _claim_problems_q) so the cards and these lenses agree.
+    # 'Refund-Denied' is in the Solved family at Zendesk but is still worked until
+    # the ticket is actually closed, so it does NOT count as exited.
+    exited_q = _claim_exited_q()
     active_q = ~exited_q
     lenses = {
         # Action lenses show only still-active claims — a solved/closed ticket has
         # nothing left to act on, so it never belongs in problems/found/refunds/disputes.
-        'problems': (flagged_q | Q(attention_emails__gt=0)) & active_q,
+        'problems': _claim_problems_q(),
         'object_found': Q(status__icontains='object found') & active_q,
         'refunds': Q(refund_exists=True) & active_q,
         'disputes': Q(dispute_exists=True) & active_q,
