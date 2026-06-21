@@ -841,11 +841,13 @@ def process_single_email(
         else:
             logger.warning("Email will NOT be posted to Zendesk (no ticket match)")
         
-        # Extract email body
+        # Extract email body (readable text) + the original HTML (for the rendered
+        # Zendesk note — same treatment as the manual per-ticket check).
         body = extract_email_body(msg)
         if not body:
             logger.warning("Empty body for message UID %s", uid)
             body = '(No content extracted)'
+        email_html = extract_email_html(msg)
 
         # Get subject
         subject = decode_mime_header(msg.get('Subject', '(No Subject)'))
@@ -919,6 +921,7 @@ def process_single_email(
                 from_email=from_email,
                 email_body=body,
                 alias=alias or '',
+                email_html=email_html,
             )
             if success:
                 logger.info("✓ Successfully posted email to Zendesk ticket %s", zd_ticket_id)
