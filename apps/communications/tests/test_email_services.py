@@ -607,6 +607,42 @@ class TestProcessSingleEmail:
         assert result.zd_ticket_id == "12345"
         assert result.claim == claim
 
+    @patch("apps.communications.services.match_alias_to_zendesk_ticket")
+    @patch("apps.communications.services.extract_from_email")
+    @patch("apps.communications.services.extract_alias_from_headers")
+    @patch("apps.communications.services.call_qwen_ai")
+    @patch("apps.communications.services.parse_ai_response")
+    @patch("apps.communications.services.post_ai_summary_to_zendesk")
+    def test_auto_sweep_forwards_email_html_for_rendered_note(
+        self, mock_post_zd, mock_parse_ai, mock_call_ai,
+        mock_extract_alias, mock_extract_from, mock_match_alias,
+    ):
+        """The automatic sweep posts the SAME rendered note as the manual check —
+        it forwards the original email HTML to post_ai_summary_to_zendesk so links
+        and inline images render in the ticket (regression: it used to post text)."""
+        mock_extract_from.return_value = "noreply@x.aero"
+        mock_extract_alias.return_value = "client-1@mydomain.com"
+        mock_match_alias.return_value = {"id": "12345"}
+        mock_call_ai.return_value = {"raw_response": "{}"}
+        mock_parse_ai.return_value = {
+            "summary": "s", "category": "OBJECT_NOT_FOUND",
+            "action_required": False, "auto_resolvable": True,
+        }
+        mock_post_zd.return_value = True
+        # Claim already in LORA → skips the import branch (no SystemSettings needed).
+        Claim.objects.create(zd_ticket_id="12345", client_email="c@e.com")
+
+        m = MIMEText('<p>Hi <a href="https://x.test/u">here</a></p>', "html")
+        m["Subject"] = "Update"
+        m["Message-ID"] = "<auto-sweep-test@x.test>"
+
+        result = process_single_email(
+            imap_conn=Mock(), uid="1", msg_data=m.as_bytes(), ai_prompt="p")
+
+        assert result is not None
+        _, kwargs = mock_post_zd.call_args
+        assert "https://x.test/u" in kwargs["email_html"]   # rendered note gets the HTML
+
     @patch("apps.communications.services.SystemSettings")
     @patch("apps.communications.services.match_alias_to_zendesk_ticket")
     @patch("apps.communications.services.extract_from_email")
