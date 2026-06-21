@@ -835,21 +835,26 @@ class TestDashboardActionCountsMatchQueues:
                 transaction_id='TXN-' + ppid, transaction_date='2026-03-15T10:00:00Z',
                 seller_response_due=due, raw_webhook_payload=payload)
 
+        from apps.users.constants import DEADLINE_SOON_DAYS
         ours_soon = mk('D-SOON', now + timedelta(days=1), {})              # counts
+        week_out = mk('D-WEEK', now + timedelta(days=6), {})               # within 7d → counts
         mk('D-OVERDUE', now - timedelta(days=1), {})                       # overdue → out
         mk('D-REVIEW', now + timedelta(days=1), {'status': 'UNDER_REVIEW'})  # PayPal's court → out
         mk('D-FAR', now + timedelta(days=10), {})                          # actionable but not soon
 
         client = self._mgr_client()
         resp = client.get('/manager/')
+        # Whole-calendar-day window, not "N days from this exact second" (no flicker).
         expected = _needs_action_qs(Dispute.objects.all()).filter(
             seller_response_due__isnull=False,
-            seller_response_due__lte=now + timedelta(days=3)).count()
-        assert resp.context['dispute_due_soon'] == expected == 1
+            seller_response_due__date__lte=timezone.localdate() + timedelta(days=DEADLINE_SOON_DAYS),
+        ).count()
+        assert resp.context['dispute_due_soon'] == expected == 2
 
         # Every counted dispute is reachable in the list the card opens.
         action_ids = {d.id for d in client.get('/manager/disputes/?view=action').context['page_obj']}
         assert ours_soon.id in action_ids
+        assert week_out.id in action_ids
 
     def test_claims_attention_matches_problems_lens(self):
         from apps.claims.models import Claim
