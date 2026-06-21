@@ -22,6 +22,10 @@ from django.test import TestCase
 from apps.communications.services import (
     decode_mime_header,
     extract_email_body,
+    extract_email_html,
+    _html_to_text,
+    _sanitize_email_html,
+    _build_email_note_html,
     extract_from_email,
     extract_alias_from_headers,
     extract_raw_headers,
@@ -85,15 +89,14 @@ class TestExtractEmailBody:
         assert result == "This is the email body"
 
     def test_html_email(self):
-        """Test extracting body from HTML email."""
+        """A single-part HTML email is converted to readable text (tags stripped)."""
         html_content = "<html><body><p>This is HTML content</p></body></html>"
         msg = MIMEText(html_content, "html")
         msg["Subject"] = "Test"
 
         result = extract_email_body(msg)
-        # For single-part HTML email, body is returned as-is (decoded)
-        # The HTML tag stripping only happens for multipart emails
         assert "This is HTML content" in result
+        assert "<p>" not in result and "<html>" not in result
 
     def test_multipart_email(self):
         """Test extracting body from multipart email."""
@@ -128,6 +131,92 @@ class TestExtractEmailBody:
         result = extract_email_body(msg)
         assert "Email body" in result
         assert "fake data" not in result
+
+    def test_html_email_preserves_links_and_images(self):
+        """Links keep their URL and images keep their address — nothing silently lost."""
+        html = ('<p>Hello <a href="https://app.nettracer.aero/update?r=1">click here</a> '
+                'to update.</p><img src="https://cdn.example.com/found.png" alt="found item">')
+        result = extract_email_body(MIMEText(html, "html"))
+        assert "https://app.nettracer.aero/update?r=1" in result   # link target kept
+        assert "click here" in result
+        assert "https://cdn.example.com/found.png" in result       # image address kept
+        assert "<a" not in result and "<img" not in result
+
+    def test_html_in_plain_text_slot_is_cleaned(self):
+        """If a sender stuffs HTML into the text/plain part, it is still cleaned."""
+        result = extract_email_body(MIMEText("<div>raw <b>html</b> in the plain slot</div>", "plain"))
+        assert "raw html in the plain slot" in result
+        assert "<div>" not in result and "<b>" not in result
+
+    def test_multipart_prefers_real_plain_text(self):
+        """A genuine text/plain part is used as-is (no stripping needed)."""
+        msg = MIMEMultipart()
+        msg.attach(MIMEText("Just plain words", "plain"))
+        msg.attach(MIMEText("<p>HTML alt</p>", "html"))
+        assert extract_email_body(msg) == "Just plain words"
+
+
+class TestEmailHtmlForZendeskNote:
+    """The Zendesk note renders the ORIGINAL email so links and inline images show;
+    we sanitize it first (Zendesk re-sanitizes too)."""
+
+    def test_extract_html_from_single_part(self):
+        msg = MIMEText("<p>hi <a href='https://x.test'>link</a></p>", "html")
+        assert "href" in extract_email_html(msg)
+
+    def test_extract_html_empty_for_plain_email(self):
+        assert extract_email_html(MIMEText("just text, no markup", "plain")) == ""
+
+    def test_extract_html_from_plain_slot_that_holds_markup(self):
+        assert "<div>" in extract_email_html(MIMEText("<div>html here</div>", "plain"))
+
+    def test_sanitize_keeps_links_and_images_drops_scripts(self):
+        dirty = ('<p>ok <a href="https://x.test">go</a> '
+                 '<img src="https://x.test/a.png"></p><script>alert(1)</script>')
+        clean = _sanitize_email_html(dirty)
+        assert "<a" in clean and "https://x.test" in clean
+        assert "<img" in clean
+        assert "<script" not in clean and "alert(1)" not in clean
+
+    def test_sanitize_strips_handlers_styles_and_js_urls(self):
+        clean = _sanitize_email_html(
+            '<p style="x" onclick="evil()"><a href="javascript:evil()">x</a></p>')
+        assert "onclick" not in clean
+        assert "style=" not in clean
+        assert "javascript:" not in clean
+
+    def test_note_html_wraps_email_and_analysis(self):
+        parsed = {"category": "OBJECT_NOT_FOUND", "summary": "no item yet",
+                  "action_required": False, "auto_resolvable": True}
+        note = _build_email_note_html(parsed, "Subj", "noreply@x.aero", "alias@d.com",
+                                      '<p>Hello <a href="https://x.test/u">here</a></p>')
+        assert "New Email Received" in note
+        assert "https://x.test/u" in note                # link survives, rendered
+        assert "OBJECT_NOT_FOUND" in note and "no item yet" in note
+
+    @patch("apps.communications.services.post_zendesk_comment")
+    def test_summary_posts_html_when_html_present(self, mock_post):
+        mock_post.return_value = True
+        parsed = {"category": "OBJECT_FOUND", "summary": "s", "action_required": False}
+        post_ai_summary_to_zendesk(
+            zd_ticket_id="9", parsed=parsed, subject="S", from_email="a@b.c",
+            email_body="plain fallback", alias="al@d.com",
+            email_html='<p>rich <a href="https://x.test">link</a></p>')
+        _, kwargs = mock_post.call_args
+        assert kwargs.get("html_body")                   # posted as rendered HTML
+        assert "https://x.test" in kwargs["html_body"]
+        assert "comment_body" not in kwargs              # not the plain-text path
+
+    @patch("apps.communications.services.post_zendesk_comment")
+    def test_summary_falls_back_to_plain_without_html(self, mock_post):
+        mock_post.return_value = True
+        parsed = {"category": "OBJECT_FOUND", "summary": "s", "action_required": False}
+        post_ai_summary_to_zendesk(
+            zd_ticket_id="9", parsed=parsed, subject="S", from_email="a@b.c",
+            email_body="plain only", alias="al@d.com")
+        _, kwargs = mock_post.call_args
+        assert kwargs.get("html_body") is None or "html_body" not in kwargs
+        assert "plain only" in kwargs.get("comment_body", "")
 
 
 @pytest.mark.django_db

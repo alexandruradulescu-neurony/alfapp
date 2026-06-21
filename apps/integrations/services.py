@@ -159,28 +159,36 @@ def _zendesk_request(path: str, *, method: str = 'GET', json_body: Any = None,
         return json.loads(response.read().decode('utf-8'))
 
 
-def post_zendesk_comment(zd_ticket_id: str, comment_body: str, is_internal: bool = True) -> Optional[Dict[str, Any]]:
+def post_zendesk_comment(zd_ticket_id: str, comment_body: str = '', is_internal: bool = True,
+                         html_body: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
     Post a comment to a Zendesk ticket.
-    
+
     Args:
         zd_ticket_id: The Zendesk ticket ID
-        comment_body: The comment text to post
+        comment_body: The plain-text comment to post
         is_internal: If True, post as internal note (default True)
-    
+        html_body: If given, post this as rendered HTML (Zendesk sanitizes it)
+            instead of comment_body — used to show an email's links/inline images.
+
     Returns:
         The response data dict on success, None on failure
-    
+
     Raises:
         ValueError: If Zendesk credentials not configured
     """
     try:
         logger.info("Posting comment to Zendesk ticket %s", zd_ticket_id)
 
+        comment: Dict[str, Any] = {'public': not is_internal}
+        if html_body is not None:
+            comment['html_body'] = html_body
+        else:
+            comment['body'] = comment_body
         result = _zendesk_request(
             f"/tickets/{zd_ticket_id}.json",
             method='PUT',
-            json_body={'ticket': {'comment': {'body': comment_body, 'public': not is_internal}}},
+            json_body={'ticket': {'comment': comment}},
         )
         logger.info("Successfully posted comment to ticket %s", zd_ticket_id)
         return result

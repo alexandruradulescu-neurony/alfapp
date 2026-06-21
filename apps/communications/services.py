@@ -99,10 +99,62 @@ def decode_mime_header(header: str) -> str:
     return ''.join(decoded_parts)
 
 
+_HTML_TAG_RE = re.compile(r'<[a-zA-Z!/][^>]*>')
+
+
+def _looks_like_html(text: str) -> bool:
+    """True if a supposedly-plain body actually carries HTML markup — some senders
+    (and alias forwarders) put HTML in the text/plain slot."""
+    return bool(_HTML_TAG_RE.search(text or ''))
+
+
+def _inline_link(match) -> str:
+    """<a href=URL>label</a> -> 'label (URL)' so the link target survives in text."""
+    url = match.group(1).strip()
+    label = re.sub(r'(?s)<[^>]+>', '', match.group(2)).strip()
+    if not label or label == url:
+        return f' {url} '
+    return f'{label} ({url})'
+
+
+def _inline_img(match) -> str:
+    """<img src=URL alt=ALT> -> '[image: ALT - URL]' so photos aren't silently lost."""
+    tag = match.group(0)
+    src = re.search(r'(?i)\bsrc=["\']([^"\']+)["\']', tag)
+    if not src:
+        return ''
+    alt = re.search(r'(?i)\balt=["\']([^"\']*)["\']', tag)
+    alt_text = alt.group(1).strip() if alt else ''
+    return f'[image: {alt_text + " - " if alt_text else ""}{src.group(1).strip()}]'
+
+
+def _html_to_text(html: str) -> str:
+    """Best-effort HTML -> readable plain text, for the body we store, show in LORA,
+    and feed the AI. Keeps link targets and image addresses inline (nothing silently
+    lost), drops style/script blocks, turns <br> and block ends into line breaks,
+    strips the remaining tags, unescapes entities, and collapses whitespace."""
+    from html import unescape
+    if not html:
+        return ''
+    text = re.sub(r'(?is)<(script|style)\b.*?</\1\s*>', '', html)   # drop css/js blocks
+    text = re.sub(r'(?is)<a\b[^>]*\bhref=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+                  _inline_link, text)                              # keep link URLs
+    text = re.sub(r'(?is)<img\b[^>]*>', _inline_img, text)         # keep image URLs
+    text = re.sub(r'(?i)<br\s*/?>', '\n', text)                     # <br> -> newline
+    text = re.sub(r'(?i)</(p|div|tr|li|h[1-6]|table|ul|ol)\s*>', '\n', text)  # block ends
+    text = re.sub(r'(?s)<[^>]+>', '', text)                        # remaining tags
+    text = unescape(text).replace(' ', ' ')                  # entities + nbsp
+    text = re.sub(r'[ \t]+', ' ', text)                           # collapse spaces
+    text = re.sub(r'\n[ \t]+', '\n', text)                        # trim line starts
+    text = re.sub(r'\n{3,}', '\n\n', text)                        # collapse blank runs
+    return text.strip()
+
+
 def extract_email_body(msg: email.message.Message) -> str:
     """
-    Extract the plain text body from an email message.
-    Prefers text/plain, falls back to text/html (stripped of tags).
+    Extract a readable plain-text body from an email message.
+    Prefers a genuine text/plain part; otherwise converts the text/html part to
+    text. If the "plain" part actually contains HTML, it is cleaned too.
     """
     body_text = ''
     body_html = ''
@@ -133,24 +185,121 @@ def extract_email_body(msg: email.message.Message) -> str:
                 logger.warning("Error decoding email part: %s", e)
                 continue
     else:
-        # Handle non-multipart messages
+        # Non-multipart: route by the part's own content type, so an HTML-only
+        # email isn't dumped verbatim into the plain-text slot.
         try:
             payload = msg.get_payload(decode=True)
             if payload:
                 charset = msg.get_content_charset() or 'utf-8'
-                body_text = payload.decode(charset, errors='replace')
+                content = payload.decode(charset, errors='replace')
+                if msg.get_content_type() == 'text/html':
+                    body_html = content
+                else:
+                    body_text = content
         except Exception as e:
             logger.warning("Error decoding email payload: %s", e)
 
-    # Prefer plain text, fall back to HTML (strip tags)
-    if body_text:
+    # A genuine plain-text part wins. Otherwise convert whatever HTML we have — a
+    # real text/html part, OR markup that a sender stuffed into the text/plain slot
+    # — into readable text (keeping link and image addresses inline).
+    if body_text and not _looks_like_html(body_text):
         return body_text.strip()
-    elif body_html:
-        # Simple HTML tag stripping
-        clean_text = re.sub(r'<[^>]+>', '', body_html)
-        return clean_text.strip()
-
+    html_source = body_html or body_text
+    if html_source:
+        return _html_to_text(html_source)
     return ''
+
+
+def extract_email_html(msg: email.message.Message) -> str:
+    """Return the email's HTML — the text/html part, or a text/plain part that
+    actually carries HTML markup. '' when the email is genuinely plain text. Used
+    to render the original email faithfully in the Zendesk note (links + images)."""
+    html_part = ''
+    plain_part = ''
+    if msg.is_multipart():
+        for part in msg.walk():
+            if 'attachment' in str(part.get('Content-Disposition') or ''):
+                continue
+            ctype = part.get_content_type()
+            if ctype not in ('text/html', 'text/plain'):
+                continue
+            try:
+                payload = part.get_payload(decode=True)
+                if not payload:
+                    continue
+                content = payload.decode(part.get_content_charset() or 'utf-8', errors='replace')
+            except Exception as e:
+                logger.warning("Error decoding part for HTML extract: %s", e)
+                continue
+            if ctype == 'text/html':
+                html_part = content
+            else:
+                plain_part = content
+    else:
+        try:
+            payload = msg.get_payload(decode=True)
+            if payload:
+                content = payload.decode(msg.get_content_charset() or 'utf-8', errors='replace')
+                if msg.get_content_type() == 'text/html':
+                    html_part = content
+                else:
+                    plain_part = content
+        except Exception as e:
+            logger.warning("Error decoding payload for HTML extract: %s", e)
+    if html_part:
+        return html_part
+    if plain_part and _looks_like_html(plain_part):
+        return plain_part
+    return ''
+
+
+# Tags/attributes kept when rendering the original email inside a Zendesk internal
+# note. Links, images, tables and basic formatting survive; scripts, styles and
+# event handlers are dropped (Zendesk re-sanitizes html_body server-side too).
+_EMAIL_NOTE_TAGS = [
+    'p', 'br', 'div', 'span', 'a', 'img', 'b', 'strong', 'i', 'em', 'u', 's',
+    'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'td', 'th',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'hr', 'pre', 'small', 'font',
+]
+_EMAIL_NOTE_ATTRS = {
+    'a': ['href', 'title', 'target', 'rel'],
+    'img': ['src', 'alt', 'width', 'height'],
+}
+
+
+def _sanitize_email_html(html: str) -> str:
+    """Strip executable/unsafe content from the email HTML before it goes into the
+    note. Drops <script>/<style> blocks and any disallowed tags; keeps links,
+    images, tables and basic formatting."""
+    import bleach
+    cleaned = re.sub(r'(?is)<(script|style)\b.*?</\1\s*>', '', html or '')
+    return bleach.clean(cleaned, tags=_EMAIL_NOTE_TAGS, attributes=_EMAIL_NOTE_ATTRS,
+                        protocols=['http', 'https', 'mailto', 'cid'], strip=True)
+
+
+def _build_email_note_html(parsed: Dict[str, Any], subject: str, from_email: str,
+                           alias: str, email_html: str) -> str:
+    """The internal-note HTML: our header / AI-analysis chrome wrapped around the
+    sanitized original email, so links and inline images render in the ticket."""
+    from django.utils.html import escape
+    safe_email = _sanitize_email_html(email_html)
+    action = 'Yes' if parsed.get('action_required') else 'No'
+    auto = 'Yes' if parsed.get('auto_resolvable', False) else 'No'
+    return (
+        '<p>\U0001F4E7 <strong>New Email Received</strong></p>'
+        f'<p><strong>From:</strong> {escape(from_email)}<br>'
+        f'<strong>Subject:</strong> {escape(subject)}<br>'
+        f'<strong>Alias:</strong> {escape(alias)}</p>'
+        '<hr>'
+        '<p><strong>Original Message:</strong></p>'
+        f'<blockquote>{safe_email}</blockquote>'
+        '<hr>'
+        '<p><strong>AI Analysis</strong><br>'
+        f'<strong>Category:</strong> {escape(str(parsed.get("category", "")))}<br>'
+        f'<strong>Summary:</strong> {escape(str(parsed.get("summary", "")))}<br>'
+        f'<strong>Action Required:</strong> {action}<br>'
+        f'<strong>Auto-Resolved:</strong> {auto}</p>'
+    )
 
 
 # AnonAddy/addy.io forwards mail through per-ticket aliases and rewrites the
@@ -534,17 +683,23 @@ def post_ai_summary_to_zendesk(
     from_email: str,
     email_body: str,
     alias: str = '',
+    email_html: str = '',
 ) -> bool:
     """
-    Post full email body + AI analysis summary as internal note to Zendesk ticket.
+    Post the original email + AI analysis as an internal note on the Zendesk ticket.
+
+    When email_html is provided, the note is posted as rendered HTML (html_body) so
+    the original email's links and inline images show in the ticket; otherwise it
+    falls back to the plain-text note built from email_body.
 
     Args:
         zd_ticket_id: The Zendesk ticket ID
         parsed: Parsed AI analysis result
         subject: Original email subject
         from_email: Sender email address
-        email_body: Full email body content
+        email_body: Readable plain-text body (fallback when there is no HTML)
         alias: Matched email alias (if any)
+        email_html: Original email HTML (rendered in the note when present)
 
     Returns:
         True if successful, False otherwise
@@ -553,27 +708,36 @@ def post_ai_summary_to_zendesk(
         return False
 
     try:
-        internal_note = (
-            f"📧 **New Email Received**\n\n"
-            f"**From:** {from_email}\n"
-            f"**Subject:** {subject}\n"
-            f"**Alias:** {alias}\n\n"
-            f"---\n\n"
-            f"**Original Message:**\n\n"
-            f"{email_body}\n\n"
-            f"---\n\n"
-            f"**AI Analysis**\n\n"
-            f"**Category:** {parsed['category']}\n\n"
-            f"**Summary:** {parsed['summary']}\n\n"
-            f"**Action Required:** {'Yes' if parsed['action_required'] else 'No'}\n\n"
-            f"**Auto-Resolved:** {'Yes' if parsed.get('auto_resolvable', False) else 'No'}\n"
-        )
+        if email_html:
+            # Rendered note: the agent sees the email as sent (formatting, clickable
+            # links, inline images). Sanitized here and again by Zendesk.
+            result = post_zendesk_comment(
+                zd_ticket_id=zd_ticket_id,
+                is_internal=True,
+                html_body=_build_email_note_html(parsed, subject, from_email, alias, email_html),
+            )
+        else:
+            internal_note = (
+                f"📧 **New Email Received**\n\n"
+                f"**From:** {from_email}\n"
+                f"**Subject:** {subject}\n"
+                f"**Alias:** {alias}\n\n"
+                f"---\n\n"
+                f"**Original Message:**\n\n"
+                f"{email_body}\n\n"
+                f"---\n\n"
+                f"**AI Analysis**\n\n"
+                f"**Category:** {parsed['category']}\n\n"
+                f"**Summary:** {parsed['summary']}\n\n"
+                f"**Action Required:** {'Yes' if parsed['action_required'] else 'No'}\n\n"
+                f"**Auto-Resolved:** {'Yes' if parsed.get('auto_resolvable', False) else 'No'}\n"
+            )
 
-        result = post_zendesk_comment(
-            zd_ticket_id=zd_ticket_id,
-            comment_body=internal_note,
-            is_internal=True,  # Post as internal note
-        )
+            result = post_zendesk_comment(
+                zd_ticket_id=zd_ticket_id,
+                comment_body=internal_note,
+                is_internal=True,  # Post as internal note
+            )
 
         if result:
             logger.info("Posted email + AI summary to Zendesk ticket %s", zd_ticket_id)
@@ -1024,6 +1188,7 @@ def _process_ticket_email(
     from_email = extract_from_email(msg) or ''
     subject = decode_mime_header(msg.get('Subject', '(No Subject)'))
     body = extract_email_body(msg) or '(No content extracted)'
+    email_html = extract_email_html(msg)
 
     ai_result = call_qwen_ai(ai_prompt, body, subject, known_pii=_known_pii_for_email(claim))
     if ai_result.get('validation_failed'):
@@ -1058,6 +1223,7 @@ def _process_ticket_email(
         from_email=from_email,
         email_body=body,
         alias=alias,
+        email_html=email_html,
     )
 
     # Same inbox contract as the global flow: routine mail is marked read,
