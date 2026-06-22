@@ -430,10 +430,40 @@ def extract_alias_from_headers(msg: email.message.Message) -> Optional[str]:
         
         logger.debug("No matching alias found in headers")
         return None
-        
+
     except Exception as e:
         logger.error("Error extracting alias from headers: %s", e)
         return None
+
+
+_ALIAS_CANDIDATE_HEADERS = ('Delivered-To', 'X-Original-To', 'X-AnonAddy-Original-To',
+                             'To', 'X-RCPT-TO', 'Cc')
+
+
+def extract_recipient_candidates(msg) -> list:
+    """Every recipient address from the headers an alias can appear in — deduped,
+    lowercased, ANY domain. Used to match an inbound email to its ticket by the
+    'Email used for submissions' field, with no configured alias domain required."""
+    seen = []
+    for header_name in _ALIAS_CANDIDATE_HEADERS:
+        for raw in msg.get_all(header_name, []) or []:
+            for addr in _PLAIN_EMAIL_RE.findall(str(raw)):
+                a = addr.strip().lower()
+                if a and a not in seen:
+                    seen.append(a)
+    return seen
+
+
+def find_zendesk_ticket_for_email(msg):
+    """Match an inbound email to a Zendesk ticket by its 'Email used for submissions'
+    field, trying each recipient address (any domain). Returns (ticket_data, alias)
+    or (None, '')."""
+    from apps.integrations.services import match_alias_to_zendesk_ticket
+    for addr in extract_recipient_candidates(msg):
+        ticket = match_alias_to_zendesk_ticket(addr)
+        if ticket:
+            return ticket, addr
+    return None, ''
 
 
 def extract_raw_headers(msg: email.message.Message) -> str:
@@ -795,45 +825,38 @@ def process_single_email(
             logger.warning("Could not extract from_email from message UID %s", uid)
             return None
 
-        # Extract alias from headers (To, Delivered-To, etc.)
-        alias = extract_alias_from_headers(msg)
-
         # Initialize matching variables
         zd_ticket_id = ''
         claim = None
         matched_via = 'none'
 
-        # Step 1: Try alias-based matching via Zendesk custom field
-        if alias:
-            logger.info("Attempting to match alias %s to Zendesk ticket", alias)
-            ticket_data = match_alias_to_zendesk_ticket(alias)
+        # Step 1: Try alias-based matching via Zendesk custom field (any domain)
+        ticket_data, alias = find_zendesk_ticket_for_email(msg)
 
-            if ticket_data:
-                zd_ticket_id = str(ticket_data.get('id', ''))
-                matched_via = 'alias'
-                logger.info("✓ Matched alias %s to Zendesk ticket %s", alias, zd_ticket_id)
+        if ticket_data:
+            zd_ticket_id = str(ticket_data.get('id', ''))
+            matched_via = 'alias'
+            logger.info("✓ Matched alias %s to Zendesk ticket %s", alias, zd_ticket_id)
 
-                # Try to find associated claim
-                claim = Claim.objects.filter(zd_ticket_id=zd_ticket_id).first()
+            # Try to find associated claim
+            claim = Claim.objects.filter(zd_ticket_id=zd_ticket_id).first()
 
-                # Backlog transition: the ticket exists in Zendesk but LORA has
-                # not mirrored it yet. When enabled, import the real claim from
-                # Zendesk on the spot so the matched email has somewhere to land.
-                # We never fabricate a claim — this only copies one that already
-                # exists in Zendesk (alias match guarantees a real ticket).
-                if claim is None and getattr(
-                        SystemSettings.get_instance(), 'import_claims_from_email', False):
-                    from apps.integrations.services import import_claim_from_zendesk_ticket
-                    imported, created = import_claim_from_zendesk_ticket(zd_ticket_id)
-                    if imported is not None:
-                        claim = imported
-                        logger.info(
-                            f"Imported claim #{claim.id} from Zendesk ticket "
-                            f"{zd_ticket_id} on inbound email (created={created})")
-            else:
-                logger.warning("✗ No Zendesk ticket found for alias %s", alias)
+            # Backlog transition: the ticket exists in Zendesk but LORA has
+            # not mirrored it yet. When enabled, import the real claim from
+            # Zendesk on the spot so the matched email has somewhere to land.
+            # We never fabricate a claim — this only copies one that already
+            # exists in Zendesk (alias match guarantees a real ticket).
+            if claim is None and getattr(
+                    SystemSettings.get_instance(), 'import_claims_from_email', False):
+                from apps.integrations.services import import_claim_from_zendesk_ticket
+                imported, created = import_claim_from_zendesk_ticket(zd_ticket_id)
+                if imported is not None:
+                    claim = imported
+                    logger.info(
+                        f"Imported claim #{claim.id} from Zendesk ticket "
+                        f"{zd_ticket_id} on inbound email (created={created})")
         else:
-            logger.warning("✗ No alias found in email headers")
+            logger.warning("No matching Zendesk ticket for this email's recipients")
 
         # Log matching result
         if zd_ticket_id:
@@ -993,7 +1016,6 @@ def process_incoming_emails() -> Dict[str, Any]:
         imap_user = system_settings.imap_user
         imap_pass = system_settings.imap_pass
         ai_prompt = system_settings.email_analysis_prompt
-        email_domain = system_settings.email_domain
     except Exception as e:
         logger.error("Failed to load SystemSettings: %s", e)
         stats['errors'] += 1
@@ -1007,10 +1029,6 @@ def process_incoming_emails() -> Dict[str, Any]:
         logger.error("IMAP credentials not configured (or failed to decrypt)")
         stats['errors'] += 1
         return stats
-
-    # Validate email domain
-    if not email_domain:
-        logger.warning("Email domain not configured in SystemSettings - alias matching disabled")
 
     # Get configurable timeout
     imap_timeout = getattr(settings, 'IMAP_TIMEOUT', DEFAULT_IMAP_TIMEOUT)
