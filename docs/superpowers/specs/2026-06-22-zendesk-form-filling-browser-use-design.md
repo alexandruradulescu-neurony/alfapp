@@ -50,14 +50,23 @@ pattern ([[project_zendesk_sidebar_app]]).
    browser tab for watching or manual takeover.
 5. **PII = domain-scoped "secrets".** Claim data is passed as Browser Use *secrets*
    so the underlying LLM never sees real values; the browser fills them directly.
+6. **Image attachments = both sources, optional.** A form that needs a photo can take
+   it from (A) the ticket's existing attachments or (B) an image the agent uploads in
+   the tab. Both supported; the step is optional; one image for v1 (extensible).
+7. **Every attempt is persisted as a `FormFill` entity** linked to the claim — the
+   per-claim audit trail of what was filled, when, by whom, and the result. It is also
+   the source of truth the tab and claim page read from.
 
 ## User flow
 
-1. Agent opens the **Form filling** tab on a ticket with a linked claim.
-2. Pastes the institution form URL. (Optional: tick **Post screenshot to ticket**.)
+1. Agent opens the **Form filling** tab on a ticket with a linked claim. The tab also
+   shows this claim's **past form fills** (from the `FormFill` history).
+2. Pastes the institution form URL. **Optional image:** pick one of the ticket's
+   attachments, or upload a file. (Optional: tick **Post screenshot to ticket**.)
 3. Clicks **Fill form**.
-4. LORA starts a Browser Use session: *"fill this form with the provided details,
-   do NOT submit"*, claim data as domain-scoped secrets, recording on.
+4. LORA creates a `FormFill` row, then starts a Browser Use session: *"fill this form
+   with the provided details, do NOT submit"*, claim data as domain-scoped secrets,
+   the chosen image uploaded to the session, recording on.
 5. The tab shows progress; when the fill finishes, it shows a **screenshot of the
    filled form** with **Approve & submit** / **Cancel**. An **Open live view** button
    is available throughout (opens the interactive browser in a new tab — used to
@@ -136,9 +145,15 @@ Zendesk tab ──POST zd/form-fill/submit {session_id}──▶ LORA
   place; raises a typed error on failure; never leaks the API key.
 - **Endpoints** (in the sidebar views module, `verify_webhook_secret`-authed like the
   other `zd/*` calls):
-  - `POST /api/integrations/zd/form-fill/start` → `{ticket_id, url, post_screenshot}`
-    → resolves claim by ticket, builds secrets, starts the session, returns
-    `{session_id, live_url, status}`. 400 if no linked claim / feature off.
+  - `GET/POST /api/integrations/zd/form-fill/attachments` → `{ticket_id}` → lists the
+    ticket's image attachments (`{filename, content_type, url}`) for source A.
+  - `POST /api/integrations/zd/form-fill/upload` → multipart image (source B) →
+    validates type/size, stores it on the (pending) `FormFill`, returns a reference.
+  - `POST /api/integrations/zd/form-fill/start` →
+    `{ticket_id, url, post_screenshot, image_ref?}` → resolves claim by ticket, creates
+    the `FormFill` row, builds secrets, uploads the chosen image (if any) to the
+    session, starts it, returns `{form_fill_id, session_id, live_url, status}`. 400 if
+    no linked claim / feature off.
   - `POST /api/integrations/zd/form-fill/status` → `{session_id}` →
     `{status, screenshot (LORA-proxied data URL), live_url}`.
   - `POST /api/integrations/zd/form-fill/submit` → `{session_id, ticket_id, post_screenshot}`
@@ -159,6 +174,52 @@ location, flight details, loss date, and the ALF claim reference. The agent is
 AI-driven, so it maps these to the form's own fields by reading the field labels — no
 rigid per-form field map is required. The exact claim field set is finalized in the
 plan against the `Claim` model.
+
+## Image attachments (optional)
+
+Some forms require a photo (e.g. a product image). The step is optional and supports
+two sources:
+
+- **A) From the ticket's attachments.** The tab lists the ticket's existing
+  attachments (the Zendesk REST comments call returns each attachment's filename,
+  content type and content URL); the agent picks one. LORA downloads it from Zendesk
+  (using its Zendesk credentials) and uploads it to the Browser Use session.
+- **B) Agent-uploaded.** The tab has a file picker; the agent uploads an image (one
+  they have, or pulled from elsewhere). It is sent to LORA (multipart), stored on the
+  `FormFill` record for audit, optionally attached back to the Zendesk ticket, and
+  uploaded to the Browser Use session.
+
+The agent is then instructed to use the uploaded file for the form's file input (by
+file name). **The image is not sent to the LLM** — the upload is mechanical (the
+browser attaches the file to the `<input type=file>`), so image content stays out of
+the model. The image goes to Browser Use + the institution (where it is being
+submitted anyway), consistent with the accepted cloud posture and the existing
+vision-PII precedent ([[project_ai_provider_split]]).
+
+v1: one image, optional, default to "pick from ticket" with an "upload instead"
+button. Extensible to multiple images later. Browser Use limit ≈ 10 MB per file.
+
+## Persistence & audit — the `FormFill` entity
+
+Every attempt is recorded as a **`FormFill`** row so each claim has a durable history
+of what form-filling happened, when, by whom, and the outcome. This is also the source
+of truth the tab and claim page read from (not a fire-and-forget button).
+
+Fields (final names/placement decided in the plan; likely `apps/claims` or
+`apps/integrations`):
+
+- `claim` (FK, `related_name='form_fills'`), `created_by` (User).
+- `form_url`, `browser_use_session_id` (+ `workspace_id` if v3 workspaces are used).
+- `status`: `STARTED → FILLED → SUBMITTED` with branches `CANCELLED` / `FAILED`.
+- timestamps: `created_at`, `filled_at`, `submitted_at`.
+- image: `image_source` (`ticket` / `upload` / `none`), `image_name`, and for uploads
+  a stored `image` file (audit copy); for ticket attachments a reference id/URL.
+- `confirmation_screenshot` (stored image), `result_output` (bot's text), `error`.
+- `posted_to_ticket` (bool).
+- (Recording MP4 URLs expire ~1 h, so we store at most a flag, not the URL.)
+
+Surfaces: the tab's history list; a "Form fills" panel on the LORA claim page; the
+lifecycle is advanced by the start/submit/cancel endpoints.
 
 ## PII / trust boundary
 
@@ -201,8 +262,12 @@ box.
 - **Endpoints:** auth required (sidebar secret); no-claim → error; feature-flag off →
   error; start returns session+live_url; submit triggers follow-up + optional note;
   cancel stops. Browser Use calls mocked.
+- **`FormFill` lifecycle + images:** a row is created on start and advances
+  STARTED→FILLED→SUBMITTED (and CANCELLED/FAILED); the per-claim history lists prior
+  fills; uploaded images are validated + stored; ticket-attachment selection resolves
+  to a download. Browser Use + Zendesk calls mocked.
 - **No live key in CI.** A separate, manual smoke test against one real form (with a
-  real key) is run once during the plan to pin the screenshot-retrieval path.
+  real key) is run once during the plan to pin the screenshot- and file-upload paths.
 - Follows [[feedback_strict_tdd]] for the wrapper/endpoint logic.
 
 ## Rollout / deploy
@@ -223,6 +288,11 @@ box.
 3. Whether to use webhooks (`agent.task.status_update`) instead of tab polling later
    (polling is fine for v1; webhooks are an optimization).
 4. Final claim → secrets field list against the `Claim` model.
+5. Exact file-upload path — v2 session files (`POST /sessions/{id}/files`, presigned,
+   ≈10 MB) vs v3 workspaces (`workspaces.upload` + `workspace_id`) — pin against a live
+   key, same as the screenshot path.
+6. Where the `FormFill` model lives (`apps/claims` vs `apps/integrations`) and whether
+   uploaded images are also pushed back as Zendesk attachments.
 
 ## Out of scope / future
 
