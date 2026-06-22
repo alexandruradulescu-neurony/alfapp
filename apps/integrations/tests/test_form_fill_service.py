@@ -34,6 +34,9 @@ def test_fill_task_uses_placeholders_not_values_and_says_do_not_submit():
     assert 'x_client_name' in task
     assert 'do not submit' in task.lower()
     assert 'https://lf.example/report' in task
+    # don't let the agent grind on a fiddly control; tell it to skip and report
+    assert 'two attempts' in task.lower()
+    assert 'list any fields you could not fill' in task.lower()
 
 
 @pytest.mark.django_db
