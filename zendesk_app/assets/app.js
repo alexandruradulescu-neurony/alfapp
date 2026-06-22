@@ -585,6 +585,16 @@ async function ffCheck() {
     if (data.status === 'FILLED') {
       if (ffPoll) { clearInterval(ffPoll); ffPoll = null; }
       document.getElementById('ff-status').textContent = 'Filled — review, then Approve & submit.';
+    } else if (data.status === 'SUBMITTED') {
+      if (ffPoll) { clearInterval(ffPoll); ffPoll = null; }
+      if (data.screenshot) {
+        document.getElementById('ff-shot').innerHTML =
+          '<img src="' + data.screenshot + '" alt="confirmation" style="width:100%;border:1px solid #e5e7eb;border-radius:8px">';
+      }
+      document.getElementById('ff-status').textContent = '✓ Submitted.';
+      document.getElementById('ff-actions').hidden = true;
+      document.getElementById('ff-fill').disabled = false;
+      ffSession = null;
     } else if (data.status === 'FAILED') {
       if (ffPoll) { clearInterval(ffPoll); ffPoll = null; }
       document.getElementById('ff-status').textContent = 'The fill did not complete — open the live view to take over.';
@@ -603,14 +613,10 @@ async function ffApprove() {
       { session_id: ffSession, ticket_id: String(d0['ticket.id']),
         post_screenshot: document.getElementById('ff-post').checked });
     const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
-    if (data.screenshot) {
-      document.getElementById('ff-shot').innerHTML =
-        '<img src="' + data.screenshot + '" alt="confirmation" style="width:100%;border:1px solid #e5e7eb;border-radius:8px">';
-    }
-    statusEl.textContent = data.error ? data.error : '✓ Submitted.';
-    document.getElementById('ff-actions').hidden = true;
-    document.getElementById('ff-fill').disabled = false;
-    ffSession = null;
+    if (data.error) { statusEl.textContent = data.error; document.getElementById('ff-approve').disabled = false; return; }
+    statusEl.textContent = 'Submitting…';
+    if (ffPoll) clearInterval(ffPoll);
+    ffPoll = setInterval(ffCheck, 4000);
   } catch (e) {
     statusEl.innerHTML = '<span class="error">' + escapeHtml(diagnose(e)) + '</span>';
     document.getElementById('ff-approve').disabled = false;

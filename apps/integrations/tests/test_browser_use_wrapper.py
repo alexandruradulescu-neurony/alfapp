@@ -29,7 +29,7 @@ def test_create_session_sends_keepalive_secrets_and_normalizes_liveurl(key):
     assert body['task'] == 'fill it'
     assert body['secrets'] == {'lf.example': {'x_name': 'Jo'}}
     assert body['allowed_domains'] == ['lf.example']
-    assert body['enable_recording'] is True
+    assert body['enable_recording'] is False     # no full recording (PII); screenshot is the artifact
     assert body['keep_alive'] is True            # keeps the session idle for the follow-up
     assert body['model'] == 'claude-sonnet-4.6'
 

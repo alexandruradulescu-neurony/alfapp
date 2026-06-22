@@ -25,4 +25,4 @@ class TestFormFillModel:
 
     def test_status_choices_cover_lifecycle(self):
         vals = {c[0] for c in FormFill.STATUS_CHOICES}
-        assert vals == {'STARTED', 'FILLED', 'SUBMITTED', 'CANCELLED', 'FAILED'}
+        assert vals == {'STARTED', 'FILLED', 'SUBMITTING', 'SUBMITTED', 'CANCELLED', 'FAILED'}

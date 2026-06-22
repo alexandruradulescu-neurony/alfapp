@@ -10,12 +10,14 @@ class FormFill(models.Model):
 
     STATUS_STARTED = 'STARTED'
     STATUS_FILLED = 'FILLED'
+    STATUS_SUBMITTING = 'SUBMITTING'
     STATUS_SUBMITTED = 'SUBMITTED'
     STATUS_CANCELLED = 'CANCELLED'
     STATUS_FAILED = 'FAILED'
     STATUS_CHOICES = [
         (STATUS_STARTED, 'Started'),
         (STATUS_FILLED, 'Filled — awaiting approval'),
+        (STATUS_SUBMITTING, 'Submitting'),
         (STATUS_SUBMITTED, 'Submitted'),
         (STATUS_CANCELLED, 'Cancelled'),
         (STATUS_FAILED, 'Failed'),
@@ -49,6 +51,7 @@ class FormFill(models.Model):
     result_output = models.TextField(blank=True, default='')
     error = models.TextField(blank=True, default='')
     posted_to_ticket = models.BooleanField(default=False)
+    post_screenshot = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

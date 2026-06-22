@@ -70,6 +70,22 @@ def test_start_creates_formfill_and_returns_session(api, settings_obj):
 
 
 @pytest.mark.django_db
+def test_start_rejects_non_zendesk_image_url(api, settings_obj):
+    settings_obj.zd_subdomain = 'airportlf'; settings_obj.save()
+    Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')
+    with patch('apps.integrations.views.form_fill.fetch_zendesk_attachment') as fetch, \
+         patch('apps.integrations.views.form_fill.browser_use.create_session',
+               return_value={'id': 'S1', 'live_url': 'x', 'status': 'running'}):
+        resp = api.post(reverse('zd-form-fill-start'),
+                        {'ticket_id': '55', 'url': 'https://lf.example/r',
+                         'image_url': 'http://169.254.169.254/latest/meta-data/',
+                         'image_filename': 'x.jpg'},
+                        format='json', **_auth())
+    assert resp.status_code == 200          # the fill still proceeds…
+    fetch.assert_not_called()               # …but the SSRF fetch is blocked
+
+
+@pytest.mark.django_db
 def test_status_marks_filled_when_idle(api, settings_obj):
     claim = Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')
     ff = FormFill.objects.create(claim=claim, form_url='https://lf.x/r',
@@ -89,17 +105,45 @@ def test_submit_advances_and_skips_note_when_not_requested(api, settings_obj):
     ff = FormFill.objects.create(claim=claim, form_url='https://lf.x/r',
                                  browser_use_session_id='S1', status=FormFill.STATUS_FILLED)
     with patch('apps.integrations.views.form_fill.browser_use.continue_session', return_value={'id': 'S1'}), \
-         patch('apps.integrations.views.form_fill.browser_use.get_session',
-               return_value={'status': 'stopped', 'output': 'Submitted, ref 123', 'screenshot_url': '', 'is_successful': True}), \
-         patch('apps.integrations.views.form_fill.browser_use.latest_screenshot_url', return_value=''), \
          patch('apps.integrations.views.form_fill.post_zendesk_comment') as note:
         resp = api.post(reverse('zd-form-fill-submit'),
                         {'session_id': 'S1', 'ticket_id': '55', 'post_screenshot': False},
                         format='json', **_auth())
     assert resp.status_code == 200
+    assert resp.data['status'] == 'submitting'      # submit only kicks off; status poll finalizes
+    ff.refresh_from_db()
+    assert ff.status == FormFill.STATUS_SUBMITTING   # NOT submitted yet
+    assert note.called is False                      # no note at submit time
+
+
+@pytest.mark.django_db
+def test_submit_rejected_when_not_filled(api, settings_obj):
+    claim = Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')
+    FormFill.objects.create(claim=claim, form_url='https://lf.x/r',
+                            browser_use_session_id='S1', status=FormFill.STATUS_STARTED)
+    with patch('apps.integrations.views.form_fill.browser_use.continue_session') as cont:
+        resp = api.post(reverse('zd-form-fill-submit'),
+                        {'session_id': 'S1', 'ticket_id': '55'}, format='json', **_auth())
+    assert resp.status_code == 400
+    cont.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_status_finalizes_submit_and_posts_note_when_stopped(api, settings_obj):
+    claim = Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')
+    ff = FormFill.objects.create(claim=claim, form_url='https://lf.x/r',
+                                 browser_use_session_id='S1', status=FormFill.STATUS_SUBMITTING,
+                                 post_screenshot=True)
+    with patch('apps.integrations.views.form_fill.browser_use.get_session',
+               return_value={'status': 'stopped', 'output': 'Submitted ref 9', 'screenshot_url': 'x', 'is_successful': True}), \
+         patch('apps.integrations.views.form_fill._proxy_screenshot', return_value='data:image/png;base64,zzz'), \
+         patch('apps.integrations.views.form_fill.post_zendesk_comment') as note:
+        resp = api.post(reverse('zd-form-fill-status'), {'session_id': 'S1'}, format='json', **_auth())
+    assert resp.status_code == 200
     ff.refresh_from_db()
     assert ff.status == FormFill.STATUS_SUBMITTED
-    assert note.called is False
+    assert ff.posted_to_ticket is True
+    note.assert_called_once()
 
 
 @pytest.mark.django_db

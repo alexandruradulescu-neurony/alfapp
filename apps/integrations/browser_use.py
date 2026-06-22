@@ -56,7 +56,7 @@ def _get(path: str) -> dict:
 
 
 def create_session(*, task: str, secrets: dict, allowed_domains: list,
-                   enable_recording: bool = True, keep_alive: bool = True) -> dict:
+                   enable_recording: bool = False, keep_alive: bool = True) -> dict:
     """Start a keep-alive session running the fill task. keep_alive=True keeps the
     session IDLE after the task so the approve->submit follow-up is accepted.
     Returns normalized {'id', 'live_url', 'status', 'raw'}."""

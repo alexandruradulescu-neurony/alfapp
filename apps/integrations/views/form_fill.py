@@ -3,6 +3,7 @@ institution form from a claim, with a human approval gate before submit. Every
 attempt is a FormFill row. Auth: ZendeskSidebarAuth (bearer token)."""
 import base64
 import logging
+from urllib.parse import urlparse
 
 import requests
 from django.core.files.base import ContentFile
@@ -29,6 +30,24 @@ def _claim_for(ticket_id):
     return Claim.objects.filter(zd_ticket_id=ticket_id).first() if ticket_id else None
 
 
+def _is_allowed_attachment_url(url: str) -> bool:
+    """Only fetch attachment URLs that point at our own Zendesk tenant over https
+    (Zendesk serves attachments from <subdomain>.zendesk.com and *.zdusercontent.com).
+    Blocks SSRF / credential-leak via an arbitrary image_url."""
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    if p.scheme != 'https' or not p.hostname:
+        return False
+    host = p.hostname.lower()
+    sub = (SystemSettings.get_instance().zd_subdomain or '').lower()
+    allowed = set()
+    if sub:
+        allowed.add(f'{sub}.zendesk.com')
+    return (host in allowed) or host.endswith('.zdusercontent.com')
+
+
 def _proxy_screenshot(session_id: str) -> str:
     """Fetch the latest screenshot from Browser Use and return it as a data: URL so
     the sidebar loads it same-origin (no CSP/whitelist change). '' if none."""
@@ -39,8 +58,11 @@ def _proxy_screenshot(session_id: str) -> str:
         r = requests.get(src, timeout=30)
         if r.status_code >= 400:
             return ''
+        content = r.content[:6 * 1024 * 1024]   # cap ~6MB
         ctype = r.headers.get('Content-Type', 'image/png')
-        b64 = base64.b64encode(r.content).decode()
+        if not ctype.startswith('image/'):
+            ctype = 'image/png'
+        b64 = base64.b64encode(content).decode()
         return f'data:{ctype};base64,{b64}'
     except Exception as e:
         logger.warning('Screenshot proxy failed: %s', e)
@@ -84,7 +106,8 @@ class FormFillStartView(APIView):
                                 status=status.HTTP_400_BAD_REQUEST)
             ff.form_url = url
             ff.status = FormFill.STATUS_STARTED
-            ff.save(update_fields=['form_url', 'status', 'updated_at'])
+            ff.post_screenshot = post_screenshot
+            ff.save(update_fields=['form_url', 'status', 'post_screenshot', 'updated_at'])
             if ff.image:
                 image_bytes = ff.image.read()
                 image_ctype = 'application/octet-stream'
@@ -92,8 +115,8 @@ class FormFillStartView(APIView):
             ff = FormFill.objects.create(
                 claim=claim, form_url=url, status=FormFill.STATUS_STARTED,
                 created_by=request.user if request.user.is_authenticated else None,
-                posted_to_ticket=False)
-            if image_url:
+                posted_to_ticket=False, post_screenshot=post_screenshot)
+            if image_url and _is_allowed_attachment_url(image_url):
                 try:
                     image_bytes, image_ctype = fetch_zendesk_attachment(image_url)
                     ff.image_source = FormFill.IMAGE_SOURCE_TICKET
@@ -101,6 +124,8 @@ class FormFillStartView(APIView):
                     ff.image.save(image_filename, ContentFile(image_bytes), save=True)
                 except Exception as e:
                     logger.warning('Ticket attachment fetch failed: %s', e)
+            elif image_url:
+                logger.warning('Rejected non-Zendesk image_url for form fill: %s', image_url)
 
         if image_bytes and ff.image_name:
             task += f"\nA file named '{ff.image_name}' has been uploaded to this session — attach it to the form's photo/file upload field."
@@ -144,6 +169,7 @@ class FormFillStatusView(APIView):
         except browser_use.BrowserUseError as e:
             return Response({'error': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
         bu_status = st.get('status', '')
+        screenshot = _proxy_screenshot(session_id)
         if ff and ff.status == FormFill.STATUS_STARTED:
             if bu_status == 'idle':
                 ff.status = FormFill.STATUS_FILLED
@@ -154,13 +180,35 @@ class FormFillStatusView(APIView):
                 ff.status = FormFill.STATUS_FAILED
                 ff.error = str(st.get('output', '') or 'Session ended before the fill completed.')[:2000]
                 ff.save(update_fields=['status', 'error', 'updated_at'])
-        screenshot = _proxy_screenshot(session_id)
+        elif ff and ff.status == FormFill.STATUS_SUBMITTING:
+            # The submit follow-up runs without keep_alive, so it ends 'stopped' (not idle).
+            if bu_status in ('stopped', 'idle'):
+                ff.status = FormFill.STATUS_SUBMITTED
+                ff.submitted_at = timezone.now()
+                ff.result_output = str(st.get('output', ''))[:5000]
+                ff.save(update_fields=['status', 'submitted_at', 'result_output', 'updated_at'])
+                if ff.post_screenshot and screenshot and ff.claim.zd_ticket_id:
+                    note = (f'<p>\U0001F4DD <strong>Form filled &amp; submitted via LORA</strong></p>'
+                            f'<p><img src="{screenshot}" alt="form submission confirmation" /></p>')
+                    try:
+                        post_zendesk_comment(ff.claim.zd_ticket_id, comment_body='',
+                                             is_internal=True, html_body=note)
+                        ff.posted_to_ticket = True
+                        ff.save(update_fields=['posted_to_ticket', 'updated_at'])
+                    except Exception as e:
+                        logger.warning('Form-fill note post failed for ticket %s: %s',
+                                       ff.claim.zd_ticket_id, e)
+            elif bu_status in ('error', 'failed', 'timed_out'):
+                ff.status = FormFill.STATUS_FAILED
+                ff.error = str(st.get('output', '') or 'Session ended before the submit completed.')[:2000]
+                ff.save(update_fields=['status', 'error', 'updated_at'])
         return Response({'status': ff.status if ff else bu_status, 'bu_status': bu_status,
                          'screenshot': screenshot}, status=status.HTTP_200_OK)
 
 
 class FormFillSubmitView(APIView):
-    """POST {session_id, ticket_id, post_screenshot} — continue the session to submit."""
+    """POST {session_id} — kick off the submit (SUBMITTING); the status poll finalizes
+    it to SUBMITTED and captures the confirmation. Returns {status: 'submitting'}."""
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -168,35 +216,22 @@ class FormFillSubmitView(APIView):
         if auth_error:
             return auth_error
         session_id = str(request.data.get('session_id', '')).strip()
-        ticket_id = str(request.data.get('ticket_id', '')).strip()
-        post_screenshot = bool(request.data.get('post_screenshot', False))
         ff = FormFill.objects.filter(browser_use_session_id=session_id).first()
+        if ff is None or ff.status not in (FormFill.STATUS_FILLED,):
+            if ff and ff.status in (FormFill.STATUS_SUBMITTING, FormFill.STATUS_SUBMITTED):
+                return Response({'status': ff.status.lower()}, status=status.HTTP_200_OK)
+            return Response({'error': 'This fill is not ready to submit.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        ff.status = FormFill.STATUS_SUBMITTING
+        ff.save(update_fields=['status', 'updated_at'])
         try:
             browser_use.continue_session(session_id, task=SUBMIT_TASK)
-            st = browser_use.get_session(session_id)
         except browser_use.BrowserUseError as e:
-            if ff:
-                ff.status = FormFill.STATUS_FAILED
-                ff.error = str(e)
-                ff.save()
+            ff.status = FormFill.STATUS_FAILED
+            ff.error = str(e)
+            ff.save(update_fields=['status', 'error', 'updated_at'])
             return Response({'error': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
-        screenshot = _proxy_screenshot(session_id)
-        if ff:
-            ff.status = FormFill.STATUS_SUBMITTED
-            ff.submitted_at = timezone.now()
-            ff.result_output = str(st.get('output', ''))[:5000]
-            ff.save(update_fields=['status', 'submitted_at', 'result_output', 'updated_at'])
-        if post_screenshot and screenshot and ticket_id:
-            note = (f'<p>\U0001F4DD <strong>Form filled &amp; submitted via LORA</strong></p>'
-                    f'<p><img src="{screenshot}" alt="form submission confirmation" /></p>')
-            try:
-                post_zendesk_comment(ticket_id, comment_body='', is_internal=True, html_body=note)
-                if ff:
-                    ff.posted_to_ticket = True
-                    ff.save(update_fields=['posted_to_ticket', 'updated_at'])
-            except Exception as e:
-                logger.warning('Form-fill note post failed for ticket %s: %s', ticket_id, e)
-        return Response({'status': 'submitted', 'screenshot': screenshot}, status=status.HTTP_200_OK)
+        return Response({'status': 'submitting'}, status=status.HTTP_200_OK)
 
 
 class FormFillCancelView(APIView):
