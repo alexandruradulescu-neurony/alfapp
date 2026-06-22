@@ -544,10 +544,8 @@ class TestPostAISummaryToZendesk:
 class TestProcessSingleEmail:
     """Tests for process_single_email function."""
 
-    @patch("apps.communications.services.SystemSettings")
-    @patch("apps.communications.services.match_alias_to_zendesk_ticket")
+    @patch("apps.communications.services.find_zendesk_ticket_for_email")
     @patch("apps.communications.services.extract_from_email")
-    @patch("apps.communications.services.extract_alias_from_headers")
     @patch("apps.communications.services.extract_email_body")
     @patch("apps.communications.services.decode_mime_header")
     @patch("apps.communications.services.call_qwen_ai")
@@ -555,23 +553,14 @@ class TestProcessSingleEmail:
     @patch("apps.communications.services.post_ai_summary_to_zendesk")
     def test_successful_email_processing(
         self, mock_post_zd, mock_parse_ai, mock_call_ai,
-        mock_decode, mock_extract_body, mock_extract_alias,
-        mock_extract_from, mock_match_alias, mock_settings
+        mock_decode, mock_extract_body, mock_extract_from, mock_find_ticket,
     ):
         """Test successful email processing workflow."""
-        # Mock settings
-        mock_settings_instance = Mock()
-        mock_settings_instance.email_domain = "mydomain.com"
-        mock_settings.return_value = mock_settings_instance
-
         # Mock email extraction
         mock_extract_from.return_value = "sender@example.com"
-        mock_extract_alias.return_value = "client-123@mydomain.com"
+        mock_find_ticket.return_value = ({"id": "12345"}, "client-123@whatever.io")
         mock_extract_body.return_value = "Email body"
         mock_decode.return_value = "Test Subject"
-
-        # Mock Zendesk matching
-        mock_match_alias.return_value = {"id": "12345"}
 
         # Mock AI
         mock_call_ai.return_value = {"raw_response": '{"summary": "Test", "category": "OBJECT_FOUND"}'}
@@ -607,22 +596,20 @@ class TestProcessSingleEmail:
         assert result.zd_ticket_id == "12345"
         assert result.claim == claim
 
-    @patch("apps.communications.services.match_alias_to_zendesk_ticket")
+    @patch("apps.communications.services.find_zendesk_ticket_for_email")
     @patch("apps.communications.services.extract_from_email")
-    @patch("apps.communications.services.extract_alias_from_headers")
     @patch("apps.communications.services.call_qwen_ai")
     @patch("apps.communications.services.parse_ai_response")
     @patch("apps.communications.services.post_ai_summary_to_zendesk")
     def test_auto_sweep_forwards_email_html_for_rendered_note(
         self, mock_post_zd, mock_parse_ai, mock_call_ai,
-        mock_extract_alias, mock_extract_from, mock_match_alias,
+        mock_extract_from, mock_find_ticket,
     ):
         """The automatic sweep posts the SAME rendered note as the manual check —
         it forwards the original email HTML to post_ai_summary_to_zendesk so links
         and inline images render in the ticket (regression: it used to post text)."""
         mock_extract_from.return_value = "noreply@x.aero"
-        mock_extract_alias.return_value = "client-1@mydomain.com"
-        mock_match_alias.return_value = {"id": "12345"}
+        mock_find_ticket.return_value = ({"id": "12345"}, "client-1@whatever.io")
         mock_call_ai.return_value = {"raw_response": "{}"}
         mock_parse_ai.return_value = {
             "summary": "s", "category": "OBJECT_NOT_FOUND",
@@ -643,26 +630,19 @@ class TestProcessSingleEmail:
         _, kwargs = mock_post_zd.call_args
         assert "https://x.test/u" in kwargs["email_html"]   # rendered note gets the HTML
 
-    @patch("apps.communications.services.SystemSettings")
-    @patch("apps.communications.services.match_alias_to_zendesk_ticket")
+    @patch("apps.communications.services.find_zendesk_ticket_for_email")
     @patch("apps.communications.services.extract_from_email")
-    @patch("apps.communications.services.extract_alias_from_headers")
     @patch("apps.communications.services.extract_email_body")
     @patch("apps.communications.services.call_qwen_ai")
     @patch("apps.communications.services.parse_ai_response")
     def test_email_no_zendesk_match(
         self, mock_parse_ai, mock_call_ai, mock_extract_body,
-        mock_extract_alias, mock_extract_from, mock_match_alias, mock_settings
+        mock_extract_from, mock_find_ticket,
     ):
         """Test email processing when no Zendesk match found."""
-        mock_settings_instance = Mock()
-        mock_settings_instance.email_domain = "mydomain.com"
-        mock_settings.return_value = mock_settings_instance
-
         mock_extract_from.return_value = "sender@example.com"
-        mock_extract_alias.return_value = "client-123@mydomain.com"
+        mock_find_ticket.return_value = (None, "")  # No match
         mock_extract_body.return_value = "Email body"
-        mock_match_alias.return_value = None  # No match
 
         mock_call_ai.return_value = {"raw_response": '{"summary": "Test"}'}
         mock_parse_ai.return_value = {
@@ -701,26 +681,23 @@ class TestProcessSingleEmail:
 
         assert result is None
 
+    @patch("apps.communications.services.find_zendesk_ticket_for_email")
     @patch("apps.communications.services.SystemSettings")
     @patch("apps.communications.services.extract_from_email")
-    @patch("apps.communications.services.extract_alias_from_headers")
     @patch("apps.communications.services.extract_email_body")
     @patch("apps.communications.services.call_qwen_ai")
     @patch("apps.communications.services.parse_ai_response")
     def test_auto_resolved_email(
         self, mock_parse_ai, mock_call_ai, mock_extract_body,
-        mock_extract_alias, mock_extract_from, mock_settings
+        mock_extract_from, mock_settings, mock_find_ticket,
     ):
         """Test email that is auto-resolved."""
         mock_settings_instance = Mock()
-        mock_settings_instance.email_domain = "mydomain.com"
-        mock_settings.return_value = mock_settings_instance
-        # Backlog-import branch is off here (production default); this test is
-        # about auto-resolve, not the on-demand claim import.
-        mock_settings.get_instance.return_value.import_claims_from_email = False
+        mock_settings_instance.import_claims_from_email = False
+        mock_settings.get_instance.return_value = mock_settings_instance
 
         mock_extract_from.return_value = "sender@example.com"
-        mock_extract_alias.return_value = "client-123@mydomain.com"
+        mock_find_ticket.return_value = ({"id": "12345"}, "client-123@whatever.io")
         mock_extract_body.return_value = "Email body"
 
         # call_qwen_ai now returns structured fields directly (post-AIClient
@@ -734,8 +711,6 @@ class TestProcessSingleEmail:
         }
 
         mock_imap = Mock()
-        mock_match_alias = patch("apps.communications.services.match_alias_to_zendesk_ticket")
-        mock_match_alias.start().return_value = {"id": "12345"}
 
         result = process_single_email(
             imap_conn=mock_imap,
@@ -743,8 +718,6 @@ class TestProcessSingleEmail:
             msg_data=b"fake data",
             ai_prompt="Test",
         )
-
-        mock_match_alias.stop()
 
         assert result is not None
         assert result.auto_resolved is True
@@ -887,3 +860,50 @@ class TestAutoResolvableCategories:
     def test_is_list(self):
         """Test that AUTO_RESOLVABLE_CATEGORIES is a list."""
         assert isinstance(AUTO_RESOLVABLE_CATEGORIES, list)
+
+
+# ---------------------------------------------------------------------------
+# Tests for domain-agnostic recipient matching (Part 1)
+# ---------------------------------------------------------------------------
+
+def _msg_with_headers(headers: dict):
+    import email.message
+    m = email.message.Message()
+    for k, v in headers.items():
+        m[k] = v
+    return m
+
+
+@pytest.mark.django_db
+def test_extract_recipient_candidates_any_domain_deduped():
+    from apps.communications.services import extract_recipient_candidates
+    msg = _msg_with_headers({
+        'Delivered-To': 'claims@airportlostfound.com',
+        'X-AnonAddy-Original-To': 'Case-123@whatever.io',
+        'To': 'case-123@whatever.io, someone@other.net',
+    })
+    cands = extract_recipient_candidates(msg)
+    assert 'case-123@whatever.io' in cands           # any domain
+    assert 'someone@other.net' in cands
+    assert cands.count('case-123@whatever.io') == 1   # deduped, lowercased
+
+
+@pytest.mark.django_db
+def test_find_ticket_tries_each_candidate_until_match():
+    from unittest.mock import patch
+    from apps.communications.services import find_zendesk_ticket_for_email
+    msg = _msg_with_headers({'Delivered-To': 'nope@x.com', 'To': 'hit@y.com'})
+    def fake_match(addr):
+        return {'id': '900'} if addr == 'hit@y.com' else None
+    with patch('apps.integrations.services.match_alias_to_zendesk_ticket', side_effect=fake_match):
+        ticket, alias = find_zendesk_ticket_for_email(msg)
+    assert ticket == {'id': '900'} and alias == 'hit@y.com'
+
+
+@pytest.mark.django_db
+def test_find_ticket_returns_none_when_no_candidate_matches():
+    from unittest.mock import patch
+    from apps.communications.services import find_zendesk_ticket_for_email
+    msg = _msg_with_headers({'To': 'a@b.com'})
+    with patch('apps.integrations.services.match_alias_to_zendesk_ticket', return_value=None):
+        assert find_zendesk_ticket_for_email(msg) == (None, '')
