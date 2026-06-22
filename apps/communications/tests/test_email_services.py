@@ -632,25 +632,14 @@ class TestProcessSingleEmail:
 
     @patch("apps.communications.services.find_zendesk_ticket_for_email")
     @patch("apps.communications.services.extract_from_email")
-    @patch("apps.communications.services.extract_email_body")
     @patch("apps.communications.services.call_qwen_ai")
-    @patch("apps.communications.services.parse_ai_response")
     def test_email_no_zendesk_match(
-        self, mock_parse_ai, mock_call_ai, mock_extract_body,
-        mock_extract_from, mock_find_ticket,
+        self, mock_call_ai, mock_extract_from, mock_find_ticket,
     ):
-        """Test email processing when no Zendesk match found."""
+        """No ticket match → returns None immediately (no AI, no EmailLog, not marked read).
+        Updated for the new early-return behaviour: unmatched mail is left untouched."""
         mock_extract_from.return_value = "sender@example.com"
         mock_find_ticket.return_value = (None, "")  # No match
-        mock_extract_body.return_value = "Email body"
-
-        mock_call_ai.return_value = {"raw_response": '{"summary": "Test"}'}
-        mock_parse_ai.return_value = {
-            "summary": "Test",
-            "category": "GENERAL_CORRESPONDENCE",
-            "action_required": False,
-            "auto_resolvable": False,
-        }
 
         mock_imap = Mock()
 
@@ -661,9 +650,9 @@ class TestProcessSingleEmail:
             ai_prompt="Test",
         )
 
-        assert result is not None
-        assert result.zd_ticket_id == ""
-        assert result.claim is None
+        assert result is None
+        mock_call_ai.assert_not_called()   # no AI spend on unmatched mail
+        mock_imap.store.assert_not_called()  # not marked read
 
     @patch("apps.communications.services.extract_from_email")
     def test_email_no_sender(self, mock_extract_from):
@@ -723,6 +712,23 @@ class TestProcessSingleEmail:
         assert result.auto_resolved is True
         # Should mark email as seen
         mock_imap.store.assert_called()
+
+    @pytest.mark.django_db
+    def test_unmatched_email_is_skipped_entirely(self):
+        """No ticket match -> no EmailLog, no AI, returns None, left unread."""
+        from unittest.mock import patch, Mock
+        from apps.communications.models import EmailLog
+        before = EmailLog.objects.count()
+        with patch('apps.communications.services.find_zendesk_ticket_for_email', return_value=(None, '')), \
+             patch('apps.communications.services.extract_from_email', return_value='x@y.com'), \
+             patch('apps.communications.services.call_qwen_ai') as ai, \
+             patch('apps.communications.services.mark_email_as_seen') as seen:
+            # Use a message with no Message-ID so _is_duplicate_message returns False.
+            result = process_single_email(Mock(), '1', b'From: x@y.com\n\nbody', 'prompt')
+        assert result is None
+        assert EmailLog.objects.count() == before   # nothing logged
+        ai.assert_not_called()                       # no AI spend
+        seen.assert_not_called()                     # not marked read
 
 
 @pytest.mark.django_db

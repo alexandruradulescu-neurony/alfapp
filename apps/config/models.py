@@ -297,6 +297,11 @@ Please analyze this claim and provide:
                   'spot. Never creates a new claim. Requires the inbox sweep to be ON. '
                   'Intended as a temporary backlog-transition helper.'
     )
+    recover_orphan_emails = models.BooleanField(
+        default=False,
+        help_text='When ON, each scheduled run re-routes orphaned emails (already swept, '
+                  'no ticket match at the time) to their tickets. Idempotent — turn ON to '
+                  'clear the backlog, watch one run, then turn OFF.')
 
     # Zendesk Sidebar Authentication (ENCRYPTED - sensitive credential)
     sidebar_secret_token = EncryptedCharField(

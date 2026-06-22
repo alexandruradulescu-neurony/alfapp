@@ -466,6 +466,46 @@ def find_zendesk_ticket_for_email(msg):
     return None, ''
 
 
+def recover_orphan_emails(dry_run: bool = False) -> dict:
+    """Re-route orphan EmailLogs (no zd_ticket_id) to their tickets using the now
+    domain-agnostic matching and the STORED analysis (no IMAP re-fetch, no new AI).
+    Idempotent. Returns {'matched': n, 'dry_run': bool}."""
+    import email as email_lib
+    from apps.claims.models import Claim
+    from apps.integrations.services import add_zendesk_ticket_tags, import_claim_from_zendesk_ticket
+    matched = 0
+    orphans = EmailLog.objects.filter(zd_ticket_id__in=['', None]).exclude(raw_headers='')
+    for el in orphans:
+        try:
+            msg = email_lib.message_from_string(el.raw_headers)
+        except Exception:
+            continue
+        ticket, alias = find_zendesk_ticket_for_email(msg)
+        if not ticket:
+            continue
+        zd_ticket_id = str(ticket.get('id', ''))
+        matched += 1
+        if dry_run:
+            continue
+        claim = Claim.objects.filter(zd_ticket_id=zd_ticket_id).first()
+        if claim is None and getattr(SystemSettings.get_instance(), 'import_claims_from_email', False):
+            imported, _created = import_claim_from_zendesk_ticket(zd_ticket_id)
+            claim = imported or claim
+        el.zd_ticket_id = zd_ticket_id
+        el.claim = claim
+        el.alias_matched = alias
+        # updated_at is auto_now=True — Django updates it automatically on save
+        el.save(update_fields=['zd_ticket_id', 'claim', 'alias_matched'])
+        parsed = {'category': el.category, 'summary': el.ai_summary,
+                  'action_required': el.action_required, 'auto_resolvable': el.auto_resolved}
+        post_ai_summary_to_zendesk(zd_ticket_id=zd_ticket_id, parsed=parsed, subject=el.subject,
+                                   from_email=el.from_email, email_body=el.body, alias=alias)
+        tags = _ai_tags_for(el.category, el.action_required)
+        if tags:
+            add_zendesk_ticket_tags(zd_ticket_id, sorted(tags))
+    return {'matched': matched, 'dry_run': dry_run}
+
+
 def extract_raw_headers(msg: email.message.Message) -> str:
     """
     Extract raw email headers for debugging/logging purposes.
@@ -825,45 +865,36 @@ def process_single_email(
             logger.warning("Could not extract from_email from message UID %s", uid)
             return None
 
-        # Initialize matching variables
-        zd_ticket_id = ''
-        claim = None
-        matched_via = 'none'
-
-        # Step 1: Try alias-based matching via Zendesk custom field (any domain)
+        # Step 1: Match email to a Zendesk ticket via recipient aliases (any domain).
+        # No match → leave the email completely untouched (no AI, no log, no mark-read).
         ticket_data, alias = find_zendesk_ticket_for_email(msg)
+        if not ticket_data:
+            logger.info("No matching ticket — leaving email UID %s unread, not processed", uid)
+            return None
+        zd_ticket_id = str(ticket_data.get('id', ''))
+        matched_via = 'alias'
+        logger.info("✓ Matched alias %s to Zendesk ticket %s", alias, zd_ticket_id)
 
-        if ticket_data:
-            zd_ticket_id = str(ticket_data.get('id', ''))
-            matched_via = 'alias'
-            logger.info("✓ Matched alias %s to Zendesk ticket %s", alias, zd_ticket_id)
+        # Try to find associated claim
+        claim = Claim.objects.filter(zd_ticket_id=zd_ticket_id).first()
 
-            # Try to find associated claim
-            claim = Claim.objects.filter(zd_ticket_id=zd_ticket_id).first()
+        # Backlog transition: the ticket exists in Zendesk but LORA has
+        # not mirrored it yet. When enabled, import the real claim from
+        # Zendesk on the spot so the matched email has somewhere to land.
+        # We never fabricate a claim — this only copies one that already
+        # exists in Zendesk (alias match guarantees a real ticket).
+        if claim is None and getattr(
+                SystemSettings.get_instance(), 'import_claims_from_email', False):
+            from apps.integrations.services import import_claim_from_zendesk_ticket
+            imported, created = import_claim_from_zendesk_ticket(zd_ticket_id)
+            if imported is not None:
+                claim = imported
+                logger.info(
+                    f"Imported claim #{claim.id} from Zendesk ticket "
+                    f"{zd_ticket_id} on inbound email (created={created})")
 
-            # Backlog transition: the ticket exists in Zendesk but LORA has
-            # not mirrored it yet. When enabled, import the real claim from
-            # Zendesk on the spot so the matched email has somewhere to land.
-            # We never fabricate a claim — this only copies one that already
-            # exists in Zendesk (alias match guarantees a real ticket).
-            if claim is None and getattr(
-                    SystemSettings.get_instance(), 'import_claims_from_email', False):
-                from apps.integrations.services import import_claim_from_zendesk_ticket
-                imported, created = import_claim_from_zendesk_ticket(zd_ticket_id)
-                if imported is not None:
-                    claim = imported
-                    logger.info(
-                        f"Imported claim #{claim.id} from Zendesk ticket "
-                        f"{zd_ticket_id} on inbound email (created={created})")
-        else:
-            logger.warning("No matching Zendesk ticket for this email's recipients")
+        logger.info("Email will be posted to Zendesk ticket %s", zd_ticket_id)
 
-        # Log matching result
-        if zd_ticket_id:
-            logger.info("Email will be posted to Zendesk ticket %s", zd_ticket_id)
-        else:
-            logger.warning("Email will NOT be posted to Zendesk (no ticket match)")
-        
         # Extract email body (readable text) + the original HTML (for the rendered
         # Zendesk note — same treatment as the manual per-ticket check).
         body = extract_email_body(msg)
@@ -1061,8 +1092,9 @@ def process_incoming_emails() -> Dict[str, Any]:
             logger.info("No UNSEEN emails found")
             return stats
 
-        # Limit to first 20 emails
-        uid_list = uid_list[:MAX_EMAILS_PER_RUN]
+        # Newest-first so fresh case mail is always processed; ignored non-case
+        # mail ages out of the lookback window on its own.
+        uid_list = list(reversed(uid_list))[:MAX_EMAILS_PER_RUN]
         logger.info("Found %s UNSEEN emails (processing up to %s)", len(uid_list), MAX_EMAILS_PER_RUN)
 
         # Step 3: Process each email
