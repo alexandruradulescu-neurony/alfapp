@@ -1,0 +1,20 @@
+{% if form_fills %}
+<div class="overflow-hidden lora-card">
+  <div class="border-b border-gray-200 px-5 py-3"><h3 class="lora-card-title">Form fills</h3></div>
+  <ul role="list" class="divide-y divide-gray-200">
+    {% for ff in form_fills %}
+    <li class="px-5 py-3 text-sm">
+      <div class="flex items-center justify-between gap-3">
+        <span class="truncate text-gray-900">{{ ff.form_url }}</span>
+        <span class="shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset
+          {% if ff.status == 'SUBMITTED' %}bg-green-50 text-green-700 ring-green-600/20
+          {% elif ff.status == 'FAILED' %}bg-red-50 text-red-700 ring-red-600/10
+          {% elif ff.status == 'CANCELLED' %}bg-gray-50 text-gray-600 ring-gray-500/10
+          {% else %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% endif %}">{{ ff.get_status_display }}</span>
+      </div>
+      <div class="lora-meta mt-0.5">{{ ff.created_at }}{% if ff.created_by %} · {{ ff.created_by }}{% endif %}</div>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}

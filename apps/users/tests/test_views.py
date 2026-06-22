@@ -420,6 +420,23 @@ class TestAgentClaimDetail:
         assert response.status_code == 200
         assert response.context['claim'] == claim
 
+
+@pytest.mark.django_db
+def test_claim_detail_lists_form_fills():
+    from apps.integrations.models import FormFill
+    from django.contrib.auth import get_user_model
+    from django.urls import reverse
+    User = get_user_model()
+    User.objects.create_user(username='ff_view', password='x')
+    claim = Claim.objects.create(client_email='c@e.com', alf_claim_id='ALFX', zd_ticket_id='77')
+    FormFill.objects.create(claim=claim, form_url='https://lf.example/r',
+                            status=FormFill.STATUS_SUBMITTED)
+    c = Client(); c.login(username='ff_view', password='x')
+    resp = c.get(reverse('agent_claim_detail', args=[claim.id]))
+    assert resp.status_code == 200
+    assert 'lf.example' in resp.content.decode()
+
+
 @pytest.mark.django_db
 class TestAgentUploadEvidence:
     """Tests for agent_upload_evidence view."""

@@ -499,6 +499,7 @@ def _claim_detail_context(claim_id):
         'client_followups': client_followups,
         'remaining_refund': remaining_refund,
         'cadence': cadence,
+        'form_fills': claim.form_fills.all()[:10],
     }
 
 
