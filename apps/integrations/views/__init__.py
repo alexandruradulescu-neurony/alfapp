@@ -18,6 +18,9 @@ from apps.integrations.views.webhooks import (
 )
 from apps.integrations.views.email import ZendeskEmailCheckView, ZendeskTicketEmailsView
 from apps.integrations.views.client_updates import ZendeskClientUpdatesView
+from apps.integrations.views.form_fill import (
+    FormFillStartView, FormFillStatusView, FormFillSubmitView, FormFillCancelView,
+)
 
 __all__ = [
     'ZendeskSidebarAuth',
@@ -33,4 +36,8 @@ __all__ = [
     'ZendeskEmailCheckView',
     'ZendeskTicketEmailsView',
     'ZendeskClientUpdatesView',
+    'FormFillStartView',
+    'FormFillStatusView',
+    'FormFillSubmitView',
+    'FormFillCancelView',
 ]
