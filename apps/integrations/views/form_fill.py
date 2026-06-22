@@ -17,7 +17,8 @@ from apps.claims.models import Claim
 from apps.config.models import SystemSettings
 from apps.integrations import browser_use
 from apps.integrations.form_fill_service import (
-    build_agent_context, build_form_secrets, build_fill_task, SUBMIT_TASK, form_host)
+    build_agent_context, build_form_secrets, build_fill_task, SUBMIT_TASK, form_host,
+    MAX_FILL_STEPS)
 from apps.integrations.models import FormFill
 from apps.integrations.services import (
     post_zendesk_comment, fetch_zendesk_ticket, fetch_zendesk_comments,
@@ -189,9 +190,23 @@ class FormFillStatusView(APIView):
         except browser_use.BrowserUseError as e:
             return Response({'error': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
         bu_status = st.get('status', '')
+        step_count = st.get('step_count')
         screenshot = _proxy_screenshot(session_id)
         if ff and ff.status == FormFill.STATUS_STARTED:
-            if bu_status == 'idle':
+            if bu_status == 'running' and isinstance(step_count, int) and step_count > MAX_FILL_STEPS:
+                # Cost guard: every step is a billed LLM call. A fill still running past
+                # the budget is grinding (e.g. stuck on a control) — stop it and let the
+                # human finish in the live view rather than keep paying.
+                try:
+                    browser_use.stop_session(session_id)
+                except browser_use.BrowserUseError:
+                    pass
+                ff.status = FormFill.STATUS_FAILED
+                ff.error = (f'Stopped after {step_count} steps (budget {MAX_FILL_STEPS}) to limit '
+                            f'cost. Open the live view to finish it by hand.')[:2000]
+                ff.save(update_fields=['status', 'error', 'updated_at'])
+                bu_status = 'stopped'
+            elif bu_status == 'idle':
                 ff.status = FormFill.STATUS_FILLED
                 ff.filled_at = timezone.now()
                 ff.result_output = str(st.get('output', ''))[:5000]
@@ -223,7 +238,8 @@ class FormFillStatusView(APIView):
                 ff.error = str(st.get('output', '') or 'Session ended before the submit completed.')[:2000]
                 ff.save(update_fields=['status', 'error', 'updated_at'])
         return Response({'status': ff.status if ff else bu_status, 'bu_status': bu_status,
-                         'screenshot': screenshot}, status=status.HTTP_200_OK)
+                         'screenshot': screenshot, 'step_count': step_count},
+                        status=status.HTTP_200_OK)
 
 
 class FormFillSubmitView(APIView):

@@ -125,6 +125,41 @@ def test_status_marks_filled_when_idle(api, settings_obj):
 
 
 @pytest.mark.django_db
+def test_status_stops_runaway_fill_over_step_budget(api, settings_obj):
+    from apps.integrations.form_fill_service import MAX_FILL_STEPS
+    claim = Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')
+    ff = FormFill.objects.create(claim=claim, form_url='https://lf.x/r',
+                                 browser_use_session_id='S1', status=FormFill.STATUS_STARTED)
+    with patch('apps.integrations.views.form_fill.browser_use.get_session',
+               return_value={'status': 'running', 'output': '', 'screenshot_url': '',
+                             'step_count': MAX_FILL_STEPS + 5, 'is_successful': None}), \
+         patch('apps.integrations.views.form_fill.browser_use.latest_screenshot_url', return_value=''), \
+         patch('apps.integrations.views.form_fill.browser_use.stop_session') as stop:
+        resp = api.post(reverse('zd-form-fill-status'), {'session_id': 'S1'}, format='json', **_auth())
+    assert resp.status_code == 200
+    stop.assert_called_once()                       # runaway session stopped to cap cost
+    ff.refresh_from_db()
+    assert ff.status == FormFill.STATUS_FAILED
+
+
+@pytest.mark.django_db
+def test_status_lets_fill_under_budget_keep_running(api, settings_obj):
+    claim = Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')
+    ff = FormFill.objects.create(claim=claim, form_url='https://lf.x/r',
+                                 browser_use_session_id='S1', status=FormFill.STATUS_STARTED)
+    with patch('apps.integrations.views.form_fill.browser_use.get_session',
+               return_value={'status': 'running', 'output': '', 'screenshot_url': '',
+                             'step_count': 5, 'is_successful': None}), \
+         patch('apps.integrations.views.form_fill.browser_use.latest_screenshot_url', return_value=''), \
+         patch('apps.integrations.views.form_fill.browser_use.stop_session') as stop:
+        resp = api.post(reverse('zd-form-fill-status'), {'session_id': 'S1'}, format='json', **_auth())
+    assert resp.status_code == 200
+    stop.assert_not_called()
+    ff.refresh_from_db()
+    assert ff.status == FormFill.STATUS_STARTED     # still filling
+
+
+@pytest.mark.django_db
 def test_submit_advances_and_skips_note_when_not_requested(api, settings_obj):
     claim = Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')
     ff = FormFill.objects.create(claim=claim, form_url='https://lf.x/r',
