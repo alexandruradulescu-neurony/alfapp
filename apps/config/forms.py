@@ -41,6 +41,7 @@ class SystemSettingsForm(forms.ModelForm):
         'woocommerce_consumer_key',
         'woocommerce_consumer_secret',
         'oblio_secret',
+        'browser_use_api_key',
     ]
 
     class Meta:
@@ -78,6 +79,9 @@ class SystemSettingsForm(forms.ModelForm):
             'client_report_trigger_status',
             'client_report_trigger_status_id',
             'service_length_days',
+            # Browser Use Cloud (Zendesk Form filling)
+            'browser_use_model',
+            'form_filling_enabled',
         ]
         widgets = {
             # AI Configuration

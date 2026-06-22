@@ -314,6 +314,19 @@ Please analyze this claim and provide:
         help_text='AeroDataBox (RapidAPI) key for flight lookups (encrypted at rest)'
     )
 
+    # --- Browser Use Cloud (Zendesk "Form filling" feature) ---
+    browser_use_api_key = EncryptedCharField(
+        max_length=255, blank=True, default='',
+        help_text='Browser Use Cloud API key (bu_...), encrypted at rest. Powers the '
+                  'Zendesk Form filling tab.')
+    browser_use_model = models.CharField(
+        max_length=64, blank=True, default='claude-sonnet-4.6',
+        help_text='Model Browser Use runs the form-filling agent on.')
+    form_filling_enabled = models.BooleanField(
+        default=False,
+        help_text='When ON, the Zendesk Form filling tab can drive Browser Use to fill '
+                  'institution forms from a claim. OFF by default.')
+
     # WooCommerce store (for LORA-initiated refunds → WooCommerce → PayPal → Zendesk)
     woocommerce_store_url = models.URLField(
         blank=True,
