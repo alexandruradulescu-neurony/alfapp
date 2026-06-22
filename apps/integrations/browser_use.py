@@ -106,6 +106,20 @@ def stop_session(session_id: str, *, strategy: str = 'session') -> dict:
 
 
 def upload_file(session_id: str, *, filename: str, content: bytes, content_type: str) -> str:
-    """Make a file available to the session for a form file input. Returns the file
-    reference the agent uses. Implemented in Task 7 (workspace upload) — not yet wired."""
-    raise NotImplementedError('Implemented in Task 7.')
+    """Make a file available to the session for a form file input; returns the file
+    name the agent references. Best-effort presigned flow (ask for an upload URL,
+    then PUT the bytes). NOTE: the exact field names are pinned during the live
+    smoke test (Task 9) — adjust here if the live API differs. Callers mock this in
+    tests, so the contract (returns the filename) is what matters."""
+    meta = _post(f'/sessions/{session_id}/files',
+                 {'file_name': filename, 'content_type': content_type, 'size_bytes': len(content)})
+    upload_url = meta.get('uploadUrl') or meta.get('url') or meta.get('presignedUrl') or ''
+    if upload_url:
+        try:
+            put = requests.put(upload_url, data=content,
+                               headers={'Content-Type': content_type}, timeout=120)
+        except requests.RequestException as e:
+            raise BrowserUseError(f'File upload failed: {e}') from e
+        if put.status_code >= 400:
+            raise BrowserUseError(f'File upload PUT returned HTTP {put.status_code}.')
+    return filename

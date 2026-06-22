@@ -1,3 +1,4 @@
+import io
 import pytest
 from unittest.mock import patch
 from django.urls import reverse
@@ -112,3 +113,48 @@ def test_cancel_stops_session(api, settings_obj):
     stop.assert_called_once()
     ff.refresh_from_db()
     assert ff.status == FormFill.STATUS_CANCELLED
+
+
+@pytest.mark.django_db
+def test_attachments_lists_only_image_attachments(api, settings_obj):
+    Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')
+    fake_comments = [{'attachments': [
+        {'file_name': 'item.jpg', 'content_type': 'image/jpeg', 'content_url': 'https://zd/att/1'},
+        {'file_name': 'note.pdf', 'content_type': 'application/pdf', 'content_url': 'https://zd/att/2'},
+    ]}]
+    with patch('apps.integrations.views.form_fill.fetch_zendesk_comments', return_value=fake_comments):
+        resp = api.post(reverse('zd-form-fill-attachments'), {'ticket_id': '55'}, format='json', **_auth())
+    assert resp.status_code == 200
+    names = [a['filename'] for a in resp.data['attachments']]
+    assert 'item.jpg' in names and 'note.pdf' not in names
+
+
+@pytest.mark.django_db
+def test_upload_image_stores_on_formfill(api, settings_obj):
+    Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    upload = SimpleUploadedFile('p.jpg', b'\xff\xd8\xff\xe0fakejpeg', content_type='image/jpeg')
+    resp = api.post(reverse('zd-form-fill-upload'),
+                    {'ticket_id': '55', 'image': upload}, format='multipart', **_auth())
+    assert resp.status_code == 200
+    ff = FormFill.objects.get(id=resp.data['form_fill_id'])
+    assert ff.image_source == FormFill.IMAGE_SOURCE_UPLOAD
+    assert ff.image_name == 'p.jpg'
+
+
+@pytest.mark.django_db
+def test_start_with_uploaded_image_uploads_to_session(api, settings_obj):
+    claim = Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')
+    from django.core.files.base import ContentFile
+    ff = FormFill.objects.create(claim=claim, form_url='', status=FormFill.STATUS_STARTED,
+                                 image_source=FormFill.IMAGE_SOURCE_UPLOAD, image_name='p.jpg')
+    ff.image.save('p.jpg', ContentFile(b'\xff\xd8fake'), save=True)
+    with patch('apps.integrations.views.form_fill.browser_use.create_session',
+               return_value={'id': 'S9', 'live_url': 'https://live/s9', 'status': 'running'}), \
+         patch('apps.integrations.views.form_fill.browser_use.upload_file', return_value='p.jpg') as up:
+        resp = api.post(reverse('zd-form-fill-start'),
+                        {'ticket_id': '55', 'url': 'https://lf.example/r', 'form_fill_id': ff.id},
+                        format='json', **_auth())
+    assert resp.status_code == 200
+    assert resp.data['form_fill_id'] == ff.id      # reused the uploaded row
+    up.assert_called_once()                        # image pushed to the session

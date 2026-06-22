@@ -1413,3 +1413,11 @@ def build_ticket_thread(data: Dict[str, Any]) -> dict:
     if lines:
         untrusted['zendesk_comment'] = lines
     return untrusted
+
+
+def fetch_zendesk_attachment(content_url: str, *, timeout: int = 30):
+    """Download a Zendesk attachment's bytes. Returns (bytes, content_type)."""
+    headers = _get_zendesk_auth_headers()
+    req = urllib.request.Request(content_url, headers=headers, method='GET')
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read(), r.headers.get('Content-Type', 'application/octet-stream')
