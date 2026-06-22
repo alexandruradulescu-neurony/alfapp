@@ -845,7 +845,8 @@ class TestMatchAliasToZendeskTicket:
         # Verify search query uses correct custom field ID
         mock_search.assert_called_once()
         query = mock_search.call_args[0][0]
-        assert 'custom_fields_13606076120860:"client-123@mydomain.com"' == query
+        # SINGULAR custom_field_ — the Zendesk Search API form (plural matches nothing).
+        assert 'custom_field_13606076120860:"client-123@mydomain.com"' == query
 
     def test_returns_none_when_no_match(self, mock_system_settings):
         """Returns None when no ticket matches alias."""

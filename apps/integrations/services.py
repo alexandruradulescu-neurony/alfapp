@@ -1005,9 +1005,11 @@ def match_alias_to_zendesk_ticket(alias: str) -> Optional[Dict[str, Any]]:
         Matching ticket data dict, None if no match
     """
     try:
-        # Search for tickets where the custom field contains the alias
-        # Zendesk search syntax: custom_fields_{id}:"value"
-        query = f'custom_fields_{ZENDESK_FIELD_ALIAS_EMAIL}:"{alias}"'
+        # Search for tickets where the custom field holds the alias.
+        # Zendesk Search API syntax is custom_field_<id>:"value" — SINGULAR
+        # "custom_field_". The plural "custom_fields_" silently matches nothing
+        # (returns 0 results), which is why sweep matching never found a ticket.
+        query = f'custom_field_{ZENDESK_FIELD_ALIAS_EMAIL}:"{alias}"'
         results = search_zendesk_tickets(query)
         
         if results:
