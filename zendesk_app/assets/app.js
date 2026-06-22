@@ -91,8 +91,10 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.getElementById('panel-chat').hidden = which !== 'chat';
     document.getElementById('panel-email').hidden = which !== 'email';
     document.getElementById('panel-updates').hidden = which !== 'updates';
+    document.getElementById('panel-formfill').hidden = which !== 'formfill';
     if (which === 'email') loadEmails();
     if (which === 'updates') loadUpdates();
+    if (which === 'formfill') ffLoadImageOptions();
   };
 });
 
@@ -487,6 +489,149 @@ upList.addEventListener('click', async ev => {
     document.getElementById('updates-error-detail').textContent = diagnose(e);
   }
 });
+
+// --- form filling (Browser Use) ---
+let ffSession = null, ffLiveUrl = null, ffPoll = null;
+
+async function ffLoadImageOptions() {
+  const box = document.getElementById('ff-image');
+  box.innerHTML = 'Image (optional): <input id="ff-file" type="file" accept="image/*">';
+  try {
+    const d0 = await client.get(['ticket.id']);
+    const resp = await loraRequest('/api/integrations/zd/form-fill/attachments/',
+      { ticket_id: String(d0['ticket.id']) });
+    const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
+    const atts = (data.attachments || []);
+    if (atts.length) {
+      const opts = atts.map(a =>
+        `<option value="${escapeHtml(a.url)}" data-name="${escapeHtml(a.filename)}">${escapeHtml(a.filename)}</option>`).join('');
+      box.innerHTML =
+        'Image (optional): <select id="ff-att"><option value="">— from ticket —</option>' + opts + '</select>'
+        + ' or upload <input id="ff-file" type="file" accept="image/*">';
+    }
+  } catch (e) { /* leave the plain file input */ }
+}
+
+// Multipart upload can't go through loraRequest (JSON). Build the ZAF request directly.
+async function ffUpload(formData) {
+  const settings = await client.metadata().then(m => m.settings);
+  const opts = {
+    url: settings.lora_base_url.replace(/\/$/, '') + '/api/integrations/zd/form-fill/upload/',
+    type: 'POST', data: formData, processData: false, contentType: false,
+  };
+  if (settings.sidebar_secret_token) {
+    opts.headers = { Authorization: 'Bearer ' + settings.sidebar_secret_token };
+  } else {
+    opts.headers = { Authorization: 'Bearer {{setting.sidebar_secret_token}}' };
+    opts.secure = true;
+  }
+  const resp = await client.request(opts);
+  return typeof resp === 'string' ? JSON.parse(resp) : resp;
+}
+
+async function ffStartFill() {
+  const url = document.getElementById('ff-url').value.trim();
+  const statusEl = document.getElementById('ff-status');
+  if (!url) { statusEl.textContent = 'Paste the form URL first.'; return; }
+  const btn = document.getElementById('ff-fill');
+  btn.disabled = true; statusEl.textContent = 'Starting…';
+  document.getElementById('ff-shot').innerHTML = '';
+  try {
+    const d0 = await client.get(['ticket.id']);
+    const ticketId = String(d0['ticket.id']);
+    const body = { ticket_id: ticketId, url: url,
+                   post_screenshot: document.getElementById('ff-post').checked };
+    // Image source A: a picked ticket attachment.
+    const att = document.getElementById('ff-att');
+    if (att && att.value) {
+      body.image_url = att.value;
+      const opt = att.options[att.selectedIndex];
+      body.image_filename = opt ? opt.getAttribute('data-name') : 'attachment';
+    }
+    // Image source B: an agent-uploaded file → upload first, then pass the form_fill_id.
+    const file = document.getElementById('ff-file');
+    if (!body.image_url && file && file.files && file.files[0]) {
+      statusEl.textContent = 'Uploading image…';
+      const fd = new FormData();
+      fd.append('ticket_id', ticketId);
+      fd.append('image', file.files[0]);
+      const up = await ffUpload(fd);
+      if (up && up.form_fill_id) body.form_fill_id = up.form_fill_id;
+    }
+    statusEl.textContent = 'Filling the form…';
+    const resp = await loraRequest('/api/integrations/zd/form-fill/start/', body);
+    const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
+    if (data.error) { statusEl.textContent = data.error; btn.disabled = false; return; }
+    ffSession = data.session_id; ffLiveUrl = data.live_url;
+    statusEl.textContent = 'Filling the form… open the live view to watch.';
+    document.getElementById('ff-actions').hidden = false;
+    if (ffPoll) clearInterval(ffPoll);
+    ffPoll = setInterval(ffCheck, 4000);
+  } catch (e) {
+    statusEl.innerHTML = '<span class="error">' + escapeHtml(diagnose(e)) + '</span>';
+    btn.disabled = false;
+  }
+}
+
+async function ffCheck() {
+  if (!ffSession) return;
+  try {
+    const resp = await loraRequest('/api/integrations/zd/form-fill/status/', { session_id: ffSession });
+    const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
+    if (data.screenshot) {
+      document.getElementById('ff-shot').innerHTML =
+        '<img src="' + data.screenshot + '" alt="filled form" style="width:100%;border:1px solid #e5e7eb;border-radius:8px">';
+    }
+    if (data.status === 'FILLED') {
+      if (ffPoll) { clearInterval(ffPoll); ffPoll = null; }
+      document.getElementById('ff-status').textContent = 'Filled — review, then Approve & submit.';
+    } else if (data.status === 'FAILED') {
+      if (ffPoll) { clearInterval(ffPoll); ffPoll = null; }
+      document.getElementById('ff-status').textContent = 'The fill did not complete — open the live view to take over.';
+    }
+  } catch (e) { /* keep polling */ }
+}
+
+async function ffApprove() {
+  if (!ffSession) return;
+  const statusEl = document.getElementById('ff-status');
+  document.getElementById('ff-approve').disabled = true;
+  statusEl.textContent = 'Submitting…';
+  try {
+    const d0 = await client.get(['ticket.id']);
+    const resp = await loraRequest('/api/integrations/zd/form-fill/submit/',
+      { session_id: ffSession, ticket_id: String(d0['ticket.id']),
+        post_screenshot: document.getElementById('ff-post').checked });
+    const data = typeof resp === 'string' ? JSON.parse(resp) : resp;
+    if (data.screenshot) {
+      document.getElementById('ff-shot').innerHTML =
+        '<img src="' + data.screenshot + '" alt="confirmation" style="width:100%;border:1px solid #e5e7eb;border-radius:8px">';
+    }
+    statusEl.textContent = data.error ? data.error : '✓ Submitted.';
+    document.getElementById('ff-actions').hidden = true;
+    document.getElementById('ff-fill').disabled = false;
+    ffSession = null;
+  } catch (e) {
+    statusEl.innerHTML = '<span class="error">' + escapeHtml(diagnose(e)) + '</span>';
+    document.getElementById('ff-approve').disabled = false;
+  }
+}
+
+async function ffCancel() {
+  if (ffPoll) { clearInterval(ffPoll); ffPoll = null; }
+  if (ffSession) {
+    try { await loraRequest('/api/integrations/zd/form-fill/cancel/', { session_id: ffSession }); } catch (e) {}
+  }
+  ffSession = null;
+  document.getElementById('ff-actions').hidden = true;
+  document.getElementById('ff-fill').disabled = false;
+  document.getElementById('ff-status').textContent = 'Cancelled.';
+}
+
+document.getElementById('ff-fill').onclick = ffStartFill;
+document.getElementById('ff-approve').onclick = ffApprove;
+document.getElementById('ff-cancel').onclick = ffCancel;
+document.getElementById('ff-live').onclick = () => { if (ffLiveUrl) window.open(ffLiveUrl, '_blank'); };
 
 // init
 loadBriefing(false);

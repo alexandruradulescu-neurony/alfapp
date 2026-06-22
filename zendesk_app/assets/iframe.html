@@ -11,6 +11,7 @@
     <button id="tab-chat" class="tab" data-tab="chat">Chat</button>
     <button id="tab-email" class="tab" data-tab="email">Email</button>
     <button id="tab-updates" class="tab" data-tab="updates">Updates</button>
+    <button id="tab-formfill" class="tab" data-tab="formfill">Form filling</button>
   </div>
 
   <section id="panel-briefing" class="panel">
@@ -73,6 +74,28 @@
     <div id="updates-error" class="error" hidden>
       Couldn't load updates. <button id="updates-retry" type="button">Retry</button>
       <div id="updates-error-detail" class="muted"></div>
+    </div>
+  </section>
+
+  <section id="panel-formfill" class="panel" hidden>
+    <p class="muted">Paste a lost-item report form's web address. LORA fills it from this
+      claim, you review the screenshot, then approve to submit. Nothing is submitted
+      without you.</p>
+    <input id="ff-url" type="url" placeholder="https://…/report" autocomplete="off"
+           style="width:100%;box-sizing:border-box;margin:6px 0">
+    <div id="ff-image" class="muted" style="font-size:12px;margin:6px 0"></div>
+    <label style="display:flex;gap:6px;align-items:center;font-size:12px;margin:6px 0">
+      <input id="ff-post" type="checkbox"> Post the confirmation screenshot to the ticket
+    </label>
+    <div class="actions">
+      <button id="ff-fill" type="button" class="wide">Fill form</button>
+    </div>
+    <div id="ff-status" class="muted" style="margin-top:6px"></div>
+    <div id="ff-shot" style="margin-top:6px"></div>
+    <div id="ff-actions" class="actions" hidden style="margin-top:6px">
+      <button id="ff-approve" type="button">Approve &amp; submit</button>
+      <button id="ff-live" type="button">Open live view</button>
+      <button id="ff-cancel" type="button">Cancel</button>
     </div>
   </section>
 
