@@ -105,6 +105,10 @@ def build_fill_task(url: str, secrets: dict, context: str = '') -> str:
         f"For the contact email field, use x_client_email exactly (it routes the institution's "
         f"reply back to us). Use the TICKET HISTORY above to fill any DESCRIPTIVE fields the "
         f"form has — item description, identifying marks, circumstances of loss — as completely "
-        f"as the history allows. Leave any field you have no value for blank. IMPORTANT: do NOT "
+        f"as the history allows. Leave any field you have no value for blank. If a field's input "
+        f"control is too fiddly to operate (for example a custom pop-up picker or a dropdown that "
+        f"will not accept your choice) and you cannot fill it after two attempts, leave it and move "
+        f"on rather than retrying repeatedly. In your final summary, list any fields you could not "
+        f"fill so a human can complete them during review. IMPORTANT: do NOT "
         f"submit the form — stop once every field you can fill is filled, so a human can review it."
     )
