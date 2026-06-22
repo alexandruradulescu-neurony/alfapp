@@ -53,8 +53,11 @@ def test_start_400_when_no_claim(api, settings_obj):
 
 @pytest.mark.django_db
 def test_start_creates_formfill_and_returns_session(api, settings_obj):
-    Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1', client_name='Jo')
-    with patch('apps.integrations.views.form_fill.browser_use.create_session',
+    Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1',
+                         client_name='Jo', email_alias='alias-55@mailapptoday.com')
+    with patch('apps.integrations.views.form_fill.fetch_zendesk_ticket', return_value={}), \
+         patch('apps.integrations.views.form_fill.fetch_zendesk_comments', return_value=[]), \
+         patch('apps.integrations.views.form_fill.browser_use.create_session',
                return_value={'id': 'S1', 'live_url': 'https://live/s1', 'status': 'running'}) as m:
         resp = api.post(reverse('zd-form-fill-start'),
                         {'ticket_id': '55', 'url': 'https://lf.example/r', 'post_screenshot': True},
@@ -67,6 +70,26 @@ def test_start_creates_formfill_and_returns_session(api, settings_obj):
     assert ff.browser_use_session_id == 'S1'
     # the task passed to Browser Use must not contain the real client name (PII via secrets only)
     assert 'Jo' not in m.call_args[1]['task']
+    # real client email must not appear in secrets
+    secrets = m.call_args[1]['secrets']
+    assert 'c@e.com' not in list(secrets.get('lf.example', {}).values())
+
+
+@pytest.mark.django_db
+def test_start_uses_alias_for_email_not_real_email(api, settings_obj):
+    Claim.objects.create(client_email='real@e.com', client_name='Jo', zd_ticket_id='55',
+                         alf_claim_id='ALF1', email_alias='alias-55@mailapptoday.com')
+    with patch('apps.integrations.views.form_fill.fetch_zendesk_ticket', return_value={}), \
+         patch('apps.integrations.views.form_fill.fetch_zendesk_comments', return_value=[]), \
+         patch('apps.integrations.views.form_fill.browser_use.create_session',
+               return_value={'id': 'S1', 'live_url': 'x', 'status': 'running'}) as m:
+        resp = api.post(reverse('zd-form-fill-start'),
+                        {'ticket_id': '55', 'url': 'https://lf.example/r'}, format='json', **_auth())
+    assert resp.status_code == 200
+    secrets = m.call_args[1]['secrets']
+    vals = list(secrets.get('lf.example', {}).values())
+    assert 'alias-55@mailapptoday.com' in vals       # alias used
+    assert 'real@e.com' not in vals                  # real email NOT sent
 
 
 @pytest.mark.django_db
@@ -74,6 +97,8 @@ def test_start_rejects_non_zendesk_image_url(api, settings_obj):
     settings_obj.zd_subdomain = 'airportlf'; settings_obj.save()
     Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')
     with patch('apps.integrations.views.form_fill.fetch_zendesk_attachment') as fetch, \
+         patch('apps.integrations.views.form_fill.fetch_zendesk_ticket', return_value={}), \
+         patch('apps.integrations.views.form_fill.fetch_zendesk_comments', return_value=[]), \
          patch('apps.integrations.views.form_fill.browser_use.create_session',
                return_value={'id': 'S1', 'live_url': 'x', 'status': 'running'}):
         resp = api.post(reverse('zd-form-fill-start'),
@@ -193,7 +218,9 @@ def test_start_with_uploaded_image_uploads_to_session(api, settings_obj):
     ff = FormFill.objects.create(claim=claim, form_url='', status=FormFill.STATUS_STARTED,
                                  image_source=FormFill.IMAGE_SOURCE_UPLOAD, image_name='p.jpg')
     ff.image.save('p.jpg', ContentFile(b'\xff\xd8fake'), save=True)
-    with patch('apps.integrations.views.form_fill.browser_use.create_session',
+    with patch('apps.integrations.views.form_fill.fetch_zendesk_ticket', return_value={}), \
+         patch('apps.integrations.views.form_fill.fetch_zendesk_comments', return_value=[]), \
+         patch('apps.integrations.views.form_fill.browser_use.create_session',
                return_value={'id': 'S9', 'live_url': 'https://live/s9', 'status': 'running'}), \
          patch('apps.integrations.views.form_fill.browser_use.upload_file', return_value='p.jpg') as up:
         resp = api.post(reverse('zd-form-fill-start'),

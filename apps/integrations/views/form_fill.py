@@ -17,10 +17,11 @@ from apps.claims.models import Claim
 from apps.config.models import SystemSettings
 from apps.integrations import browser_use
 from apps.integrations.form_fill_service import (
-    build_form_secrets, build_fill_task, SUBMIT_TASK, form_host)
+    build_agent_context, build_form_secrets, build_fill_task, SUBMIT_TASK, form_host)
 from apps.integrations.models import FormFill
 from apps.integrations.services import (
-    post_zendesk_comment, fetch_zendesk_comments, fetch_zendesk_attachment)
+    post_zendesk_comment, fetch_zendesk_ticket, fetch_zendesk_comments,
+    fetch_zendesk_attachment, get_ticket_email_alias)
 from apps.integrations.views.auth import ZendeskSidebarAuth
 
 logger = logging.getLogger(__name__)
@@ -89,9 +90,28 @@ class FormFillStartView(APIView):
         if not claim:
             return Response({'error': 'Link a LORA claim to this ticket to use form filling.'},
                             status=status.HTTP_400_BAD_REQUEST)
+
+        # Fetch ticket context once — used for both the alias cache and the agent context.
+        ticket_data = {}
+        try:
+            ticket_data = fetch_zendesk_ticket(ticket_id) or {}
+            ticket_data['comments'] = fetch_zendesk_comments(ticket_id)
+        except Exception as e:
+            logger.warning('Form-fill: could not fetch ticket %s context: %s', ticket_id, e)
+        if not claim.email_alias:
+            alias = ''
+            try:
+                alias = get_ticket_email_alias(ticket_data) if ticket_data else ''
+            except Exception:
+                alias = ''
+            if alias:
+                claim.email_alias = alias
+                claim.save(update_fields=['email_alias', 'updated_at'])
+
         host = form_host(url)
         secrets = build_form_secrets(claim, host)
-        task = build_fill_task(url, secrets)
+        context = build_agent_context(claim, ticket_data)
+        task = build_fill_task(url, secrets, context)
 
         form_fill_id = request.data.get('form_fill_id')
         image_url = str(request.data.get('image_url', '')).strip()
