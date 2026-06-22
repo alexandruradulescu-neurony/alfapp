@@ -281,6 +281,38 @@
         </div>
     </div>
 
+    <!-- Browser Use Cloud (Zendesk Form filling) -->
+    <div class="lora-card p-6 lg:p-8 mb-6">
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+            <h3 class="lora-card-title">
+                {% heroicon_outline "cursor-arrow-rays" class="size-4 text-gray-500" %} Browser Use Cloud
+                {% if settings.browser_use_api_key %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20">Configured</span>{% else %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-gray-50 text-gray-600 ring-gray-500/10">Not set</span>{% endif %}
+            </h3>
+        </div>
+        <p class="lora-prose mb-6">Powers the Zendesk <strong>Form filling</strong> tab. When enabled, LORA can drive Browser Use to fill institution lost-and-found forms directly from a claim.</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+            <div class="sm:col-span-2">
+                <label class="block text-sm font-medium text-gray-900">Browser Use API key
+                    <span class="block text-xs font-normal text-gray-500">Leave blank to keep current</span></label>
+                <input type="password" name="browser_use_api_key" autocomplete="off"
+                       class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"
+                       placeholder="{% if settings.browser_use_api_key %}........ (saved - leave blank to keep){% else %}bu_...{% endif %}">
+            </div>
+            <div class="sm:col-span-2">
+                <label class="block text-sm font-medium text-gray-900">Browser Use model</label>
+                <input type="text" name="browser_use_model" value="{{ settings.browser_use_model }}"
+                       class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">
+            </div>
+            <div class="sm:col-span-2 flex items-start gap-2">
+                <input type="checkbox" id="form_filling_enabled" name="form_filling_enabled"
+                       class="mt-0.5 size-5 rounded border-gray-300 accent-indigo-500"
+                       {% if settings.form_filling_enabled %}checked{% endif %}>
+                <label for="form_filling_enabled" class="text-sm text-gray-700">
+                    Enable the Zendesk <strong>Form filling</strong> tab (Browser Use). Off by default.</label>
+            </div>
+        </div>
+    </div>
+
     <!-- Dispute documents -->
     <div class="lora-card p-6 lg:p-8 mb-6">
         <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
