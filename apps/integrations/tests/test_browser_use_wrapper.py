@@ -47,11 +47,13 @@ def test_continue_session_posts_session_id_without_keepalive(key):
 def test_get_session_normalizes_screenshot_and_status(key):
     with patch.object(bu.requests, 'get',
                       return_value=_resp({'status': 'idle', 'output': 'done',
-                                          'screenshotUrl': 'https://shot/1', 'isTaskSuccessful': True})):
+                                          'screenshotUrl': 'https://shot/1', 'isTaskSuccessful': True,
+                                          'stepCount': 17})):
         st = bu.get_session('S1')
     assert st['status'] == 'idle' and st['output'] == 'done'
     assert st['screenshot_url'] == 'https://shot/1'
     assert st['is_successful'] is True
+    assert st['step_count'] == 17                # surfaced for the cost guard
 
 
 @pytest.mark.django_db

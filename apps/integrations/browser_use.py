@@ -78,10 +78,11 @@ def continue_session(session_id: str, *, task: str) -> dict:
 
 
 def get_session(session_id: str) -> dict:
-    """Normalized session state: {'status','output','screenshot_url','is_successful','raw'}."""
+    """Normalized session state: {'status','output','screenshot_url','step_count','is_successful','raw'}."""
     data = _get(f'/sessions/{session_id}')
     return {'status': data.get('status', ''), 'output': data.get('output') or '',
             'screenshot_url': data.get('screenshotUrl') or '',
+            'step_count': data.get('stepCount'),
             'is_successful': data.get('isTaskSuccessful'), 'raw': data}
 
 

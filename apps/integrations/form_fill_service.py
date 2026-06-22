@@ -3,6 +3,11 @@
 filled into the form by Browser Use, never sent to the model."""
 from urllib.parse import urlparse
 
+# Cost guard: stop a fill that blows past this many agent steps. Each step is a
+# billed LLM call, so a runaway (e.g. stuck looping on a control) grinds up the
+# bill; a clean fill is well under this. Tunable.
+MAX_FILL_STEPS = 60
+
 # placeholder name -> Claim attribute
 _FIELD_MAP = [
     ('x_client_name', 'client_name'),
@@ -16,7 +21,9 @@ _FIELD_MAP = [
 ]
 
 _LABELS = {
-    'x_client_name': "the claimant's full name",
+    'x_client_name': "the claimant's full name (use for a single full-name box)",
+    'x_client_first_name': "the claimant's first name (use for a separate First name box)",
+    'x_client_last_name': "the claimant's last/family name (use for a separate Last name box)",
     'x_client_email': "the claimant's contact email — use this EXACT address so replies route back to us",
     'x_client_phone': "the claimant's phone",
     'x_item_description': "the lost item's description",
@@ -34,14 +41,32 @@ def form_host(url: str) -> str:
     return (urlparse(url).hostname or '').lower()
 
 
+def _split_name(full_name: str):
+    """Split a full name into (first, last) for forms with separate boxes. A single
+    token -> first only. Best-effort; the human review catches odd splits."""
+    parts = (full_name or '').strip().split()
+    if not parts:
+        return '', ''
+    if len(parts) == 1:
+        return parts[0], ''
+    return parts[0], ' '.join(parts[1:])
+
+
 def build_form_secrets(claim, host: str) -> dict:
-    """Return {host: {placeholder: value}} for every non-empty claim field."""
+    """Return {host: {placeholder: value}} for every non-empty claim field. Also
+    derives first/last name so forms with separate First/Last boxes can be filled
+    (the full name stays available for single-box forms)."""
     values = {}
     for placeholder, attr in _FIELD_MAP:
         val = (getattr(claim, attr, '') or '')
         val = str(val).strip()
         if val:
             values[placeholder] = val
+    first, last = _split_name(getattr(claim, 'client_name', ''))
+    if first:
+        values['x_client_first_name'] = first
+    if last:
+        values['x_client_last_name'] = last
     return {host: values}
 
 
@@ -91,7 +116,9 @@ def build_agent_context(claim, ticket_data: dict) -> str:
 
 
 def build_fill_task(url: str, secrets: dict, context: str = '') -> str:
-    """The fill instruction. References placeholders only — never the real values."""
+    """The fill instruction. References placeholder KEYS only — never the real values.
+    The x_* keys are typed literally and Browser Use swaps in the real value; the
+    masked <...> tokens from the case history must NEVER be typed into a field."""
     host = next(iter(secrets), '')
     present = secrets.get(host, {})
     lines = [f"- {name}: {_LABELS.get(name, name)}" for name in present]
@@ -99,16 +126,31 @@ def build_fill_task(url: str, secrets: dict, context: str = '') -> str:
     preamble = (context + "\n\n") if context else ""
     return (
         f"{preamble}You are an Airport Lost Found agent filling a lost-item report form "
-        f"on the claimant's behalf. Open the form at {url} and fill it in.\n"
-        f"Use these secret placeholder values for the matching fields (match by the form's "
-        f"own field labels):\n{fields}\n"
-        f"For the contact email field, use x_client_email exactly (it routes the institution's "
-        f"reply back to us). Use the TICKET HISTORY above to fill any DESCRIPTIVE fields the "
-        f"form has — item description, identifying marks, circumstances of loss — as completely "
-        f"as the history allows. Leave any field you have no value for blank. If a field's input "
-        f"control is too fiddly to operate (for example a custom pop-up picker or a dropdown that "
-        f"will not accept your choice) and you cannot fill it after two attempts, leave it and move "
-        f"on rather than retrying repeatedly. In your final summary, list any fields you could not "
-        f"fill so a human can complete them during review. IMPORTANT: do NOT "
-        f"submit the form — stop once every field you can fill is filled, so a human can review it."
+        f"on the claimant's behalf. Open the form at {url} and fill it in.\n\n"
+        f"HOW TO ENTER VALUES — read carefully:\n"
+        f"Type these secret keys EXACTLY as written; the system swaps in the real value as you "
+        f"type. Match each to the form field by its label:\n{fields}\n"
+        f"- For a single full-name box use x_client_name; for separate First/Last boxes use "
+        f"x_client_first_name and x_client_last_name.\n"
+        f"- For the contact email box type x_client_email exactly — it routes the institution's "
+        f"reply back to us.\n"
+        f"- NEVER type a masked placeholder such as <NAME_...>, <ALIAS_...>, <PHONE_...> or "
+        f"<ALF_ID_...> into any form field. Those are masks shown only so you understand the case; "
+        f"they are not real data. Disregard any earlier instruction about repeating placeholders "
+        f"verbatim — that is for writing notes, not for filling forms. If the only value you have "
+        f"for a field is a <...> placeholder, leave that field blank.\n\n"
+        f"DESCRIPTIVE fields (item description, identifying marks, where/how it was lost): use the "
+        f"matching x_item_description / x_lost_location / x_flight_details / x_incident_details "
+        f"values above. Keep the wording about this item and this loss only. Do NOT paste long "
+        f"passages from the case history, our internal claim or reference IDs, or another company's "
+        f"case or report numbers — the institution does not need them.\n\n"
+        f"Do NOT invent values. For a dropdown or required choice with no matching real value, pick "
+        f"the closest sensible option or leave it for the human; never guess a specific value (such "
+        f"as a terminal) the data does not support.\n\n"
+        f"Leave any field you have no value for blank. If a field's input control is too fiddly to "
+        f"operate (for example a custom pop-up picker or a dropdown that will not accept your choice) "
+        f"and you cannot fill it after two attempts, leave it and move on rather than retrying "
+        f"repeatedly. In your final summary, list any fields you could not fill so a human can "
+        f"complete them during review. IMPORTANT: do NOT submit the form — stop once every field you "
+        f"can fill is filled, so a human can review it."
     )

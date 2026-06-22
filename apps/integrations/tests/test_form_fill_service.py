@@ -74,3 +74,31 @@ def test_submit_task_is_explicit():
 
 def test_form_host_extracts_domain():
     assert form_host('https://app.nettracer.aero/lf/report?x=1') == 'app.nettracer.aero'
+
+
+@pytest.mark.django_db
+def test_secrets_split_full_name_into_first_and_last():
+    claim = Claim.objects.create(client_email='c@e.com', client_name='Bronach Mary Smith',
+                                 alf_claim_id='ALF1')
+    placeholders = build_form_secrets(claim, 'h')['h']
+    assert placeholders['x_client_first_name'] == 'Bronach'
+    assert placeholders['x_client_last_name'] == 'Mary Smith'
+    assert placeholders['x_client_name'] == 'Bronach Mary Smith'   # full name kept for single-box forms
+
+
+@pytest.mark.django_db
+def test_fill_task_forbids_masked_tokens_and_directs_secret_keys():
+    claim = Claim.objects.create(client_email='c@e.com', client_name='Jo Bloggs', alf_claim_id='ALF9',
+                                 email_alias='a@mailapptoday.com', phone='123',
+                                 object_description='green suitcase')
+    task = build_fill_task('https://lf.example/r', build_form_secrets(claim, 'lf.example'))
+    low = task.lower()
+    # must explicitly forbid typing the masking tokens into form fields
+    assert 'never type a masked placeholder' in low
+    assert '<name_' in low
+    # the verbatim-repeat rule (inherited from the summary business-context) is overridden for forms
+    assert 'not for filling forms' in low
+    # separate first/last name boxes are supported
+    assert 'x_client_first_name' in task and 'x_client_last_name' in task
+    # no fabricating dropdown values
+    assert 'do not invent values' in low and 'never guess' in low
