@@ -90,3 +90,25 @@ class RunScheduledJobsTests(TestCase):
             result = rsj._job_email_sweep()
         sweep.assert_called_once()
         self.assertEqual(result, {'processed': 0})
+
+    def test_recover_orphans_job_dormant_when_flag_off(self):
+        from apps.config.models import SystemSettings
+        self.assertIn('recover_orphans', [name for name, _ in rsj.JOBS])
+        ss = SystemSettings.get_instance()
+        ss.recover_orphan_emails = False
+        ss.save()
+        with patch('apps.communications.services.recover_orphan_emails') as fn:
+            result = rsj._job_recover_orphans()
+        fn.assert_not_called()
+        self.assertEqual(result, {'enabled': False})
+
+    def test_recover_orphans_job_runs_when_flag_on(self):
+        from apps.config.models import SystemSettings
+        ss = SystemSettings.get_instance()
+        ss.recover_orphan_emails = True
+        ss.save()
+        with patch('apps.communications.services.recover_orphan_emails',
+                   return_value={'matched': 3, 'dry_run': False}) as fn:
+            result = rsj._job_recover_orphans()
+        fn.assert_called_once_with(dry_run=False)
+        self.assertEqual(result, {'enabled': True, 'matched': 3, 'dry_run': False})

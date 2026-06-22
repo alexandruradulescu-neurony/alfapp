@@ -43,6 +43,17 @@ def _job_email_sweep():
     return process_incoming_emails()
 
 
+def _job_recover_orphans():
+    """Re-route orphaned EmailLogs to their tickets. Idempotent: already-routed
+    emails are no longer orphans and are skipped. Turn ON to clear the backlog,
+    watch one run, then turn OFF."""
+    from apps.config.models import SystemSettings
+    if not getattr(SystemSettings.get_instance(), 'recover_orphan_emails', False):
+        return {'enabled': False}
+    from apps.communications.services import recover_orphan_emails
+    return {'enabled': True, **recover_orphan_emails(dry_run=False)}
+
+
 # (name, callable) — the callable runs the job and returns a small summary dict.
 # Add a future periodic job by appending one line. Each job decides for itself
 # whether it actually does anything (its own flag), so registering one here is
@@ -50,6 +61,7 @@ def _job_email_sweep():
 JOBS = [
     ('client_updates', _job_client_updates),
     ('email_sweep', _job_email_sweep),
+    ('recover_orphans', _job_recover_orphans),
 ]
 
 

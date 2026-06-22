@@ -45,3 +45,10 @@ class ToggleSettingFlagTests(TestCase):
         self.assertTrue(SystemSettings.get_instance().email_sweep_autorun)
         self._post({'flag': 'email_sweep_autorun', 'enabled': 'false'})
         self.assertFalse(SystemSettings.get_instance().email_sweep_autorun)
+
+    def test_recover_orphan_emails_flag_is_toggleable(self):
+        self.web.force_login(self.mgr)
+        self.assertEqual(self._post({'flag': 'recover_orphan_emails', 'enabled': True}).status_code, 200)
+        self.assertTrue(SystemSettings.get_instance().recover_orphan_emails)
+        self._post({'flag': 'recover_orphan_emails', 'enabled': False})
+        self.assertFalse(SystemSettings.get_instance().recover_orphan_emails)
