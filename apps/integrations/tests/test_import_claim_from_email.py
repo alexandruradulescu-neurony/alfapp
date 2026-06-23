@@ -124,16 +124,16 @@ class TestEmailPathImportWiring:
     """The new branch in process_single_email is gated by the switch."""
 
     def _run(self, flag_on, import_side_effect):
-        """Drive process_single_email with an alias that matches ticket 888 and
-        NO local claim, with import_claims_from_email = flag_on. The import
-        function is mocked with the given side_effect (a callable or None)."""
+        """Drive process_single_email with an email that MATCHES ticket 888 and has
+        NO local claim, with import_claims_from_email = flag_on. The import function is
+        mocked with the given side_effect (a callable). Matching goes through
+        find_zendesk_ticket_for_email (post-#91: unmatched mail is skipped, so the match
+        must succeed for the import-wiring branch to be reachable)."""
         with patch('apps.communications.services.SystemSettings') as mock_ss, \
-             patch('apps.communications.services.match_alias_to_zendesk_ticket',
-                   return_value={'id': '888'}), \
+             patch('apps.communications.services.find_zendesk_ticket_for_email',
+                   return_value=({'id': '888'}, 'alias-888@mydomain.com')), \
              patch('apps.communications.services.extract_from_email',
                    return_value='sender@airport.com'), \
-             patch('apps.communications.services.extract_alias_from_headers',
-                   return_value='alias-888@mydomain.com'), \
              patch('apps.communications.services.extract_email_body', return_value='Body'), \
              patch('apps.communications.services.decode_mime_header', return_value='Subject'), \
              patch('apps.communications.services.call_qwen_ai',
