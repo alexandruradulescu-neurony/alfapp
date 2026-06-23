@@ -96,6 +96,33 @@ def test_start_uses_alias_for_email_not_real_email(api, settings_obj):
 
 
 @pytest.mark.django_db
+def test_start_uses_structured_profile_secrets_and_facts(api, settings_obj):
+    from apps.integrations.form_profile import FormProfile
+    claim = Claim.objects.create(client_email='real@e.com', client_name='Bronach Brother',
+                                 zd_ticket_id='55', alf_claim_id='ALF1',
+                                 email_alias='alias-55@mailapptoday.com')
+    prof = FormProfile(first_name='Bronach', last_name='Brother',
+                       email_alias='alias-55@mailapptoday.com', item_type='Suitcase',
+                       baggage_tag='0081234567', item_description='green bag')
+    with patch('apps.integrations.views.form_fill.fetch_zendesk_ticket', return_value={}), \
+         patch('apps.integrations.views.form_fill.fetch_zendesk_comments', return_value=[]), \
+         patch('apps.integrations.views.form_fill.build_form_profile', return_value=prof), \
+         patch('apps.integrations.views.form_fill.browser_use.create_session',
+               return_value={'id': 'S1', 'live_url': 'x', 'status': 'running'}) as m:
+        resp = api.post(reverse('zd-form-fill-start'),
+                        {'ticket_id': '55', 'url': 'https://lf.example/r'}, format='json', **_auth())
+    assert resp.status_code == 200
+    secrets = m.call_args[1]['secrets']['lf.example']
+    assert secrets['x_baggage_tag'] == '0081234567'          # recovered ID reaches the form
+    assert 'real@e.com' not in secrets.values()              # real email never sent
+    task = m.call_args[1]['task']
+    assert 'Item type: Suitcase' in task                     # visible fact shown in the brief
+    assert 'Bronach' not in task                             # PII not inline in the brief
+    claim.refresh_from_db()
+    assert claim.form_profile.get('baggage_tag') == '0081234567'   # cached on the claim
+
+
+@pytest.mark.django_db
 def test_start_rejects_non_zendesk_image_url(api, settings_obj):
     settings_obj.zd_subdomain = 'airportlf'; settings_obj.save()
     Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')

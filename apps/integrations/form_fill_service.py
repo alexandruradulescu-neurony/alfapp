@@ -31,6 +31,9 @@ _LABELS = {
     'x_flight_details': "the flight details",
     'x_incident_details': "how/when it was lost",
     'x_claim_ref': "the claim reference number",
+    'x_baggage_tag': "the baggage tag number",
+    'x_booking_ref': "the booking / confirmation number",
+    'x_street_address': "the shipping street address",
 }
 
 SUBMIT_TASK = ("Submit the form now by clicking its submit/send button, then report "
@@ -70,63 +73,30 @@ def build_form_secrets(claim, host: str) -> dict:
     return {host: values}
 
 
-def build_agent_context(claim, ticket_data: dict) -> str:
-    """Business context + the ticket conversation, with the client's identifying PII
-    MASKED (names/emails/phones tokenized) before it reaches Browser Use's LLM. Gives
-    the agent the full case so it can fill descriptive form fields; the actual contact
-    values are filled separately via the secrets channel."""
-    from apps.integrations.services import build_ticket_thread
-    from apps.integrations.briefing import ALF_BUSINESS_CONTEXT, normalize_fetched_comments
-    from apps.ai.client import _build_tokenizer
-
-    raw_comments = ticket_data.get('comments', [])
-    # normalize_fetched_comments handles the {author: dict, body: str} shape from
-    # fetch_zendesk_comments, as well as already-normalised {text: str} dicts.
-    normalized_comments = normalize_fetched_comments(raw_comments)
-
-    thread = build_ticket_thread({
-        'subject': ticket_data.get('subject', ''),
-        'description': ticket_data.get('description', ''),
-        'ticket_created_at': ticket_data.get('created_at', '') or ticket_data.get('ticket_created_at', ''),
-        'comments': normalized_comments,
-    })
-    parts = []
-    if thread.get('ticket_subject'):
-        parts.append('Subject: ' + thread['ticket_subject'])
-    if thread.get('ticket_description'):
-        parts.append('Description: ' + thread['ticket_description'])
-    for line in thread.get('zendesk_comment', []):
-        parts.append(line)
-    history = '\n'.join(parts).strip()
-    if history:
-        known_pii = {
-            'aliases': [a for a in [getattr(claim, 'email_alias', ''),
-                                     getattr(claim, 'client_email', '')] if a],
-            'names': [n for n in [getattr(claim, 'client_name', '')] if n],
-        }
-        try:
-            history = _build_tokenizer(known_pii).tokenize(history, {})
-        except Exception:
-            history = ''   # if masking fails, send NO raw history (fail safe for PII)
-    if not history:
-        return ALF_BUSINESS_CONTEXT
-    return (ALF_BUSINESS_CONTEXT
-            + '\n\nTICKET HISTORY for this case (personal identifiers are masked as '
-            + '<NAME_..>/<EMAIL_..>/<PHONE_..> placeholders):\n' + history)
-
-
-def build_fill_task(url: str, secrets: dict, context: str = '') -> str:
+def build_fill_task(url: str, secrets: dict, facts: dict = None, playbook: str = '',
+                    context: str = '') -> str:
     """The fill instruction. References placeholder KEYS only — never the real values.
-    The x_* keys are typed literally and Browser Use swaps in the real value; the
-    masked <...> tokens from the case history must NEVER be typed into a field."""
+    The x_* keys are typed literally and Browser Use swaps in the real value; masked
+    <...> tokens must NEVER be typed into a field. `facts` are non-PII values shown so
+    the agent can choose dropdowns; `playbook` is site-specific guidance for this form."""
     host = next(iter(secrets), '')
     present = secrets.get(host, {})
     lines = [f"- {name}: {_LABELS.get(name, name)}" for name in present]
     fields = "\n".join(lines)
     preamble = (context + "\n\n") if context else ""
+    facts = facts or {}
+    facts_block = (
+        "Known facts about this case (real, non-personal values — use them to choose "
+        "dropdowns and matching options):\n"
+        + "\n".join(f"- {k}: {v}" for k, v in facts.items()) + "\n\n"
+    ) if facts else ""
+    playbook_block = (
+        "Site-specific guidance for THIS form (follow it):\n" + playbook.strip() + "\n\n"
+    ) if (playbook or "").strip() else ""
     return (
         f"{preamble}You are an Airport Lost Found agent filling a lost-item report form "
         f"on the claimant's behalf. Open the form at {url} and fill it in.\n\n"
+        f"{facts_block}"
         f"HOW TO ENTER VALUES — read carefully:\n"
         f"Type these secret keys EXACTLY as written; the system swaps in the real value as you "
         f"type. Match each to the form field by its label:\n{fields}\n"
@@ -140,15 +110,16 @@ def build_fill_task(url: str, secrets: dict, context: str = '') -> str:
         f"verbatim — that is for writing notes, not for filling forms. If the only value you have "
         f"for a field is a <...> placeholder, leave that field blank.\n\n"
         f"DESCRIPTIVE fields (item description, identifying marks, where/how it was lost): use the "
-        f"matching x_item_description / x_lost_location / x_flight_details / x_incident_details "
-        f"values above. Keep the wording about this item and this loss only. Do NOT paste long "
-        f"passages from the case history, our internal claim or reference IDs, or another company's "
-        f"case or report numbers — the institution does not need them.\n\n"
-        f"Do NOT invent or infer values — use ONLY what the case details state. For a dropdown or "
-        f"required choice with no value stated in the case, leave it blank (or choose an explicit "
-        f"Unknown/Other option if the form has one). Do NOT reason from outside knowledge (for "
-        f"example, which terminal an airline normally uses); never enter a specific value such as a "
-        f"terminal that the case details do not state.\n\n"
+        f"matching x_item_description / x_flight_details / x_incident_details values above. Keep "
+        f"the wording about this item and this loss only. Do NOT paste long passages from the case "
+        f"history, our internal claim or reference IDs, or another company's case or report numbers "
+        f"— the institution does not need them.\n\n"
+        f"{playbook_block}"
+        f"Do NOT invent or infer values — use ONLY what the case details or the known facts above "
+        f"state. For a dropdown or required choice with no value available, leave it blank (or choose "
+        f"an explicit Unknown/Other option if the form has one). Do NOT reason from outside knowledge "
+        f"(for example, which terminal an airline normally uses); never enter a specific value such "
+        f"as a terminal that the case details do not state.\n\n"
         f"Leave any field you have no value for blank. If a field's input control is too fiddly to "
         f"operate (for example a custom pop-up picker or a dropdown that will not accept your choice) "
         f"and you cannot fill it after two attempts, leave it and move on rather than retrying "

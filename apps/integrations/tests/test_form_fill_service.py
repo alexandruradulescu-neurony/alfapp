@@ -2,7 +2,7 @@ import pytest
 from urllib.parse import urlparse
 from apps.claims.models import Claim
 from apps.integrations.form_fill_service import (
-    build_form_secrets, build_fill_task, build_agent_context, SUBMIT_TASK, form_host)
+    build_form_secrets, build_fill_task, SUBMIT_TASK, form_host)
 
 
 @pytest.mark.django_db
@@ -47,27 +47,6 @@ def test_fill_task_includes_context_when_given():
     assert 'BIZ CONTEXT HERE' in task
 
 
-@pytest.mark.django_db
-def test_build_agent_context_masks_name_and_includes_business_context():
-    from apps.config.models import SystemSettings
-    ss = SystemSettings.get_instance()
-    ss.pii_tokenization_salt = 'salt-long-enough'
-    ss.save()
-    claim = Claim.objects.create(client_email='jo@e.com', client_name='Jo Bloggs',
-                                 alf_claim_id='ALF9', email_alias='a@mailapptoday.com')
-    ticket_data = {
-        'subject': 'Lost headphones',
-        'description': 'black Sony WH-1000XM5',
-        'comments': [{'author': 'Jo Bloggs', 'public': True,
-                      'text': 'Jo Bloggs here, serial SN12345 on the headphones'}],
-    }
-    ctx = build_agent_context(claim, ticket_data)
-    assert 'Airport Lost Found' in ctx              # business context present
-    assert 'SN12345' in ctx                          # descriptive detail preserved
-    assert 'Jo Bloggs' not in ctx                    # client name masked
-    assert 'jo@e.com' not in ctx                     # email masked
-
-
 def test_submit_task_is_explicit():
     assert 'submit' in SUBMIT_TASK.lower()
 
@@ -104,3 +83,19 @@ def test_fill_task_forbids_masked_tokens_and_directs_secret_keys():
     assert 'do not invent or infer' in low
     assert 'outside knowledge' in low
     assert 'leave it blank' in low
+
+
+def test_fill_task_includes_facts_and_playbook_and_keeps_safety_rules():
+    secrets = {'lf.example': {'x_client_first_name': 'ZZNAME', 'x_item_description': 'ZZDESC',
+                              'x_baggage_tag': 'ZZTAG'}}
+    facts = {'Item type': 'Suitcase', 'Airport': 'EWR'}
+    task = build_fill_task('https://lf.example/r', secrets, facts=facts,
+                           playbook='Item type is a pop-up picker; type to select.')
+    low = task.lower()
+    assert 'item type: suitcase' in low and 'airport: ewr' in low      # visible facts shown
+    assert 'x_baggage_tag' in task                                     # new secret label present
+    assert 'pop-up picker' in low                                      # site playbook injected
+    assert 'never type a masked placeholder' in low                    # safety rules kept
+    assert 'do not submit' in low
+    # the real secret VALUES are never written into the brief (only the x_* keys are)
+    assert 'ZZNAME' not in task and 'ZZDESC' not in task and 'ZZTAG' not in task
