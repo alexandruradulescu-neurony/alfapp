@@ -299,30 +299,16 @@ class ServiceDeclarationTests(TestCase):
             fn(*args, **kwargs)
         return captured['body'].decode('utf-8', 'replace')
 
-    def test_helper_prepends_declaration(self):
-        out = pds._lead_with_service_declaration('our specific argument')
-        self.assertIn(pds.SERVICE_NOT_PRODUCT_MARKER, out.lower())
-        self.assertIn('our specific argument', out)            # body preserved
-        self.assertTrue(out.startswith(pds.SERVICE_NOT_PRODUCT_DECLARATION))
+    def test_initial_response_sends_notes_verbatim(self):
+        # The service-not-product framing now lives INSIDE the narrative
+        # (EVIDENCE_NOTES_SYSTEM_PROMPT / the fallback opening), so the transport
+        # sends the notes as-is. Nothing is prepended — the old declaration prefix
+        # pushed the note past PayPal's 2000-char limit.
+        body = self._capture_body(pds.provide_evidence_files, 'PP-D-X', 'our case argument', [])
+        self.assertIn('our case argument', body)
+        self.assertNotIn('not a physical product', body.lower())   # no auto-prepended declaration
 
-    def test_helper_is_idempotent(self):
-        already = pds.SERVICE_NOT_PRODUCT_DECLARATION + "\n\nmore detail"
-        out = pds._lead_with_service_declaration(already)
-        self.assertEqual(out.lower().count(pds.SERVICE_NOT_PRODUCT_MARKER), 1)
-
-    def test_helper_handles_empty_notes(self):
-        self.assertEqual(pds._lead_with_service_declaration(''),
-                         pds.SERVICE_NOT_PRODUCT_DECLARATION)
-
-    def test_initial_response_includes_declaration(self):
-        body = self._capture_body(pds.provide_evidence_files, 'PP-D-X', 'our case', [])
-        self.assertIn(pds.SERVICE_NOT_PRODUCT_MARKER, body.lower())
-        self.assertIn('not a', body.lower())                   # "...not a physical product"
-        self.assertIn('our case', body)
-
-    def test_followup_does_not_add_declaration(self):
-        # The back-and-forth channel (provide-supporting-info) is NOT the initial
-        # request, so it must not inject the declaration.
+    def test_followup_sends_notes_verbatim(self):
         body = self._capture_body(pds.provide_supporting_info, 'PP-D-X', 'follow-up note', [])
-        self.assertNotIn(pds.SERVICE_NOT_PRODUCT_MARKER, body.lower())
         self.assertIn('follow-up note', body)
+        self.assertNotIn('not a physical product', body.lower())

@@ -261,6 +261,19 @@ class SubmitToPayPalTests(_UITestBase):
         self.assertTrue(any('accepting a submission' in m for m in msgs),
                         f"expected the no-endpoint flash message; got {msgs}")
 
+    def test_submit_blocked_when_notes_exceed_paypal_limit(self):
+        # PayPal hard-rejects a note over 2000 chars; catch it before the call with
+        # a clear, actionable message and leave the draft editable for a retry.
+        d = _dispute(payload={'dispute_state': 'UNDER_PAYPAL_REVIEW'})
+        draft = DisputeSubmission.objects.create(dispute=d, notes='x' * 2050,
+                                                 source='AI', status='DRAFT')
+        with patch.object(fv, 'submit_dispute_response') as submit:
+            resp = self.web.post(reverse('disputes:dispute_submit_to_paypal', args=[d.id]), follow=True)
+            submit.assert_not_called()                     # blocked before hitting PayPal
+        self.assertContains(resp, 'Trim 50')               # clear, actionable message
+        draft.refresh_from_db()
+        self.assertEqual(draft.status, 'DRAFT')            # left editable, not stuck SUBMITTING
+
 
 class RefreshFromPayPalTests(_UITestBase):
     """The per-dispute "Refresh from PayPal" view: pulls the latest state (and the

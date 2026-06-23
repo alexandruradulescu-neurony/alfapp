@@ -2008,8 +2008,12 @@ EVIDENCE_NOTES_SYSTEM_PROMPT = DISPUTE_BUSINESS_CONTEXT + ZENDESK_OPERATIONS_CON
     "VOICE: always 'we', 'our', 'us' for ALF; call the buyer 'the customer'. "
     "NEVER call ALF 'the merchant' or write in the third person.\n"
     "Produce FOUR sections as JSON string fields:\n"
-    "- opening: one short paragraph stating we are formally contesting this "
-    "dispute and, in one line, why it is unfounded for THIS dispute reason.\n"
+    "- opening: one short paragraph that states we are formally contesting this "
+    "dispute; makes clear this transaction was for an INTANGIBLE lost-item "
+    "recovery SERVICE (a service fee for the search-and-recovery work we "
+    "performed), NOT a physical product, with no goods sold or shipped, so PayPal "
+    "should assess it as a service and not as merchandise; and, in one line, why "
+    "the dispute is unfounded for THIS dispute reason.\n"
     "- authorization: the proof the customer themselves authorised this "
     "purchase — that they personally submitted the claim on our website "
     "(citing the date/IP if given), supplying details only they could provide "
@@ -2036,7 +2040,9 @@ EVIDENCE_NOTES_SYSTEM_PROMPT = DISPUTE_BUSINESS_CONTEXT + ZENDESK_OPERATIONS_CON
     "marked NOT answered went to voicemail — NEVER say we spoke with, talked "
     "to, or reached the customer, or repeat what they said, unless a record "
     "states the call was answered. "
-    "Keep each section tight and free of padding. Return JSON: {\"opening\": "
+    "Keep each section tight and free of padding. HARD LENGTH LIMIT: the four "
+    "sections combined MUST total under 1900 characters — PayPal rejects the note "
+    "above 2000 — so be concise and cut anything non-essential. Return JSON: {\"opening\": "
     "<str>, \"authorization\": <str>, \"service_delivery\": <str>, "
     "\"closing\": <str>}."
 )
@@ -2153,9 +2159,12 @@ def _fallback_narrative_sections(dispute, bundle: dict) -> dict:
     clause = _consent_clause(consent)  # " when they submitted the claim on <when>, from IP <ip>"
 
     opening = (
-        f"We are formally contesting this PayPal dispute. {name} purchased our paid "
-        "lost-item recovery service, authorised us to act on their behalf, and we carried "
-        "out that service in full. The points below set out the evidence."
+        "We are formally contesting this PayPal dispute. This transaction was for an "
+        "intangible lost-item recovery service, not a physical product: no goods were "
+        "sold or shipped; the customer paid a service fee for the search-and-recovery "
+        "work we performed, so it should be assessed as a service, not merchandise. "
+        f"{name} authorised us to act on their behalf and we carried out that service in "
+        "full. The points below set out the evidence."
     )
 
     auth = [f"{name} personally submitted this claim through our website{clause}."]
