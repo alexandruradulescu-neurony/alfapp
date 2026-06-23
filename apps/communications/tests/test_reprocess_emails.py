@@ -4,7 +4,7 @@ set (empty-body + GENERAL_CORRESPONDENCE + UNKNOWN), re-tagging Zendesk. Idempot
 Each test scopes reprocess to its own claim (claim_id=) so it's deterministic regardless
 of any rows left in the reused test DB."""
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from email.mime.text import MIMEText
 
 from apps.claims.models import Claim
@@ -97,3 +97,23 @@ def test_healthy_meaningful_category_is_left_alone():
     assert el.category == EmailLog.CATEGORY_OBJECT_FOUND        # untouched
     assert result['examined'] == 0                              # not in the suspect set
     ai.assert_not_called()
+
+
+def test_fetch_raw_by_message_id_quotes_the_search_value():
+    """The Message-ID (<...@...>) must be QUOTED in the IMAP search — unquoted, the
+    server rejects every search and nothing is ever found (the body_unrecoverable bug)."""
+    from apps.communications.services import fetch_raw_by_message_id
+    conn = MagicMock()
+    conn.search.return_value = ('OK', [b'7'])
+    conn.fetch.return_value = ('OK', [(b'7 (BODY[] {5}', b'hello'), b')'])
+    raw = fetch_raw_by_message_id(conn, '<abc@def.com>')
+    assert raw == b'hello'                                      # happy path returns the raw bytes
+    assert conn.search.call_args[0][-1] == '"<abc@def.com>"'    # value is quoted for IMAP
+
+
+def test_fetch_raw_by_message_id_none_when_not_found():
+    from apps.communications.services import fetch_raw_by_message_id
+    conn = MagicMock()
+    conn.search.return_value = ('OK', [b''])                    # no match
+    assert fetch_raw_by_message_id(conn, '<gone@x>') is None
+    conn.fetch.assert_not_called()
