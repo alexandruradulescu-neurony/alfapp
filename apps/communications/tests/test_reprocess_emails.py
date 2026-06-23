@@ -36,22 +36,39 @@ def test_recategorizes_general_correspondence_to_shipping_and_tags():
 
 
 @pytest.mark.django_db
-def test_recovers_empty_body_then_recategorizes():
+def test_recovers_empty_body_by_matching_recent_mailbox_then_recategorizes():
     claim = _claim(2)
     el = EmailLog.objects.create(
         claim=claim, subject='Found', body='(No content extracted)',
         category=EmailLog.CATEGORY_GENERAL_CORRESPONDENCE, from_email='x@chargerback.com',
         zd_ticket_id='55', message_id='<b@x>')
     raw = MIMEText('<p>Tracking 1Z999, your bag is on its way</p>', 'html').as_bytes()
-    with patch('apps.communications.services.open_inbox'), \
-         patch('apps.communications.services.fetch_raw_by_message_id', return_value=raw), \
+    conn = MagicMock()
+    conn.fetch.return_value = ('OK', [(b'7 (BODY[] {0}', raw), b')'])   # full-body fetch by seq
+    with patch('apps.communications.services.open_inbox', return_value=conn), \
+         patch('apps.communications.services._fetch_recent_message_id_map',
+               return_value={'<b@x>': '7'}), \
          patch('apps.communications.services.call_qwen_ai', return_value=_SHIPPING), \
          patch('apps.integrations.services.add_zendesk_ticket_tags'):
         result = reprocess_email_logs(claim_id=claim.id)
     el.refresh_from_db()
-    assert 'Tracking 1Z999' in el.body                          # body recovered + extracted
+    assert 'Tracking 1Z999' in el.body                          # matched in recent mail + extracted
     assert el.category == EmailLog.CATEGORY_SHIPPING_INFORMATION
     assert result['body_recovered'] == 1
+
+
+def test_fetch_recent_message_id_map_builds_from_sequence_range():
+    from apps.communications.services import _fetch_recent_message_id_map
+    conn = MagicMock()
+    conn.select.return_value = ('OK', [b'10'])
+    conn.fetch.return_value = ('OK', [
+        (b'9 (BODY[HEADER.FIELDS (MESSAGE-ID)] {30}', b'Message-ID: <aaa@host>\r\n\r\n'), b')',
+        (b'10 (BODY[HEADER.FIELDS (MESSAGE-ID)] {30}', b'Message-ID: <bbb@host>\r\n\r\n'), b')',
+    ])
+    mapping = _fetch_recent_message_id_map(conn, scan=5)
+    assert mapping == {'<aaa@host>': '9', '<bbb@host>': '10'}
+    # scanned the last 5 of 10 -> sequence range "6:10"
+    assert conn.fetch.call_args[0][0] == '6:10'
 
 
 @pytest.mark.django_db
