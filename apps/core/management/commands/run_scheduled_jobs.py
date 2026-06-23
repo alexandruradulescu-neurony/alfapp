@@ -32,6 +32,21 @@ def _job_client_updates():
     return run_due_updates()
 
 
+def _job_sync_aliases():
+    """Pull each claim's submission alias from its Zendesk ticket into LORA so the
+    sweep can match inbound mail LOCALLY (Zendesk search is unreliable for email
+    fields — see project_email_system). only_missing keeps it cheap: after the first
+    full sync, each tick fetches only claims that still lack an alias (i.e. new ones).
+    Shares the sweep's gate — no point syncing if the sweep isn't matching. Runs
+    BEFORE the sweep in JOBS so a new claim's alias is present when its first reply
+    arrives."""
+    from apps.config.models import SystemSettings
+    if not getattr(SystemSettings.get_instance(), 'email_sweep_autorun', False):
+        return {'enabled': False}
+    from apps.integrations.services import sync_claim_aliases
+    return {'enabled': True, **sync_claim_aliases(only_missing=True)}
+
+
 def _job_email_sweep():
     """Sweep the shared inbox for institution replies. DORMANT by design: runs
     only when SystemSettings.email_sweep_autorun is on (default off) — until then
@@ -60,6 +75,7 @@ def _job_recover_orphans():
 # safe; the email sweep is registered but gated OFF until explicitly enabled.
 JOBS = [
     ('client_updates', _job_client_updates),
+    ('sync_aliases', _job_sync_aliases),
     ('email_sweep', _job_email_sweep),
     ('recover_orphans', _job_recover_orphans),
 ]

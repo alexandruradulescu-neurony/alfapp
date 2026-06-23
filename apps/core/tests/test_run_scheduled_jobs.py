@@ -91,6 +91,34 @@ class RunScheduledJobsTests(TestCase):
         sweep.assert_called_once()
         self.assertEqual(result, {'processed': 0})
 
+    def test_sync_aliases_registered_and_runs_before_the_sweep(self):
+        names = [name for name, _ in rsj.JOBS]
+        self.assertIn('sync_aliases', names)
+        # Must precede the sweep so a new claim's alias is present when matching.
+        self.assertLess(names.index('sync_aliases'), names.index('email_sweep'))
+
+    def test_sync_aliases_dormant_when_sweep_flag_off(self):
+        from apps.config.models import SystemSettings
+        ss = SystemSettings.get_instance()
+        ss.email_sweep_autorun = False
+        ss.save()
+        with patch('apps.integrations.services.sync_claim_aliases') as fn:
+            result = rsj._job_sync_aliases()
+        fn.assert_not_called()                          # no Zendesk calls while the sweep is off
+        self.assertEqual(result, {'enabled': False})
+
+    def test_sync_aliases_runs_only_missing_when_flag_on(self):
+        from apps.config.models import SystemSettings
+        ss = SystemSettings.get_instance()
+        ss.email_sweep_autorun = True
+        ss.save()
+        with patch('apps.integrations.services.sync_claim_aliases',
+                   return_value={'checked': 1, 'updated': 1, 'no_alias': 0, 'no_ticket': 0}) as fn:
+            result = rsj._job_sync_aliases()
+        fn.assert_called_once_with(only_missing=True)   # cheap: only claims still lacking an alias
+        self.assertEqual(result, {'enabled': True, 'checked': 1, 'updated': 1,
+                                  'no_alias': 0, 'no_ticket': 0})
+
     def test_recover_orphans_job_dormant_when_flag_off(self):
         from apps.config.models import SystemSettings
         self.assertIn('recover_orphans', [name for name, _ in rsj.JOBS])
