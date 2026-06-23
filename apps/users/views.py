@@ -669,6 +669,7 @@ def agent_emails(request):
     lenses = {
         'needs_reply': needs_reply_q,
         'object_found': Q(category=EmailLog.CATEGORY_OBJECT_FOUND),
+        'shipping': Q(category=EmailLog.CATEGORY_SHIPPING_INFORMATION),
         'not_found': Q(category=EmailLog.CATEGORY_OBJECT_NOT_FOUND),
         'resubmit': Q(category=EmailLog.CATEGORY_RESUBMISSION_REQUIRED),
         'handled': ~needs_reply_q,
@@ -681,7 +682,7 @@ def agent_emails(request):
     tab_counts = {name: base.filter(q).count() for name, q in lenses.items()}
     _tab_labels = [
         ('needs_reply', 'Needs reply'), ('object_found', 'Object found'),
-        ('not_found', 'Not found'), ('resubmit', 'Resubmit'),
+        ('shipping', 'Shipping'), ('not_found', 'Not found'), ('resubmit', 'Resubmit'),
         ('handled', 'Handled'), ('all', 'All'),
     ]
     tabs = [{'key': k, 'label': lbl, 'count': tab_counts[k], 'active': tab == k}
