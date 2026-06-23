@@ -23,8 +23,13 @@ class Command(BaseCommand):
                             help='Process at most N emails (newest first).')
         parser.add_argument('--claim', type=int, default=None,
                             help='Restrict to a single claim id.')
+        parser.add_argument('--scan', type=int, default=500,
+                            help='How many of the most recent mailbox messages to scan '
+                                 'when matching empty bodies by Message-ID (default 500). '
+                                 'Bump this if the logs show seq=None misses.')
 
     def handle(self, *args, **opts):
         result = reprocess_email_logs(
-            dry_run=opts['dry_run'], limit=opts['limit'], claim_id=opts['claim'])
+            dry_run=opts['dry_run'], limit=opts['limit'], claim_id=opts['claim'],
+            scan=opts['scan'])
         self.stdout.write(self.style.SUCCESS(f"reprocess_emails: {result}"))

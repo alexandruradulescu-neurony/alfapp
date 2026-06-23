@@ -568,10 +568,39 @@ def fetch_raw_by_message_id(conn: imaplib.IMAP4_SSL, message_id: str) -> Optiona
     return None
 
 
+def _fetch_recent_message_id_map(conn, scan: int) -> dict:
+    """Map {Message-ID -> sequence number} for the most recent `scan` messages in INBOX,
+    built with ONE sequence-range FETCH of just the Message-ID header. This host returns
+    0 for any server-side Message-ID search, so we pull the recent slice and match locally
+    (the stored emails are all recent)."""
+    try:
+        typ, data = conn.select('INBOX')
+        total = int(data[0])
+    except (TypeError, ValueError, IndexError) as e:
+        logger.warning("backfill: could not read INBOX size: %r", e)
+        return {}
+    if total <= 0:
+        return {}
+    lo = max(1, total - scan + 1)
+    typ, msgs = conn.fetch('%d:%d' % (lo, total), '(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])')
+    mapping = {}
+    for item in (msgs or []):
+        if not isinstance(item, tuple) or len(item) < 2 or not item[1]:
+            continue
+        seq = item[0].split(b' ', 1)[0].decode('ascii', 'ignore')
+        m = re.search(r'(?i)message-id:\s*(<[^>]+>)', item[1].decode('utf-8', 'replace'))
+        if m:
+            mapping[m.group(1).strip()] = seq
+    logger.info("backfill: scanned last %d of %d INBOX messages, indexed %d Message-IDs",
+                total - lo + 1, total, len(mapping))
+    return mapping
+
+
 def reprocess_email_logs(*, dry_run: bool = False, limit: Optional[int] = None,
-                         claim_id: Optional[int] = None) -> dict:
-    """Backfill existing emails: (1) recover empty bodies by re-fetching the original
-    from the mailbox by Message-ID and re-extracting with the current logic, and
+                         claim_id: Optional[int] = None, scan: int = 200) -> dict:
+    """Backfill existing emails: (1) recover empty bodies by matching them to the most
+    recent `scan` mailbox messages (by Message-ID) and re-extracting with the fixed logic,
+    and
     (2) re-categorize the 'suspect' set — empty-body rows plus those still tagged
     GENERAL_CORRESPONDENCE or UNKNOWN — with the current, shipping-aware categorizer,
     then re-apply Zendesk tags. It only ever re-runs the suspect set, so a meaningful
@@ -599,6 +628,7 @@ def reprocess_email_logs(*, dry_run: bool = False, limit: Optional[int] = None,
 
     ai_prompt = SystemSettings.get_instance().email_analysis_prompt
     conn = None
+    recent_map = None
     try:
         for el in qs:
             summary['examined'] += 1
@@ -608,17 +638,19 @@ def reprocess_email_logs(*, dry_run: bool = False, limit: Optional[int] = None,
                 if el.message_id:
                     if conn is None:
                         conn = open_inbox()
-                        try:
-                            typ, cnt = conn.select('INBOX')
-                            logger.info("backfill: INBOX message_count=%s (status=%s)", cnt, typ)
-                        except Exception as e:
-                            logger.info("backfill: INBOX count probe skipped: %r", e)
-                    raw = fetch_raw_by_message_id(conn, el.message_id)
+                    if recent_map is None:
+                        recent_map = _fetch_recent_message_id_map(conn, scan)
+                    seq = recent_map.get(el.message_id) or recent_map.get(el.message_id.strip())
+                    if seq:
+                        typ, msg_data = conn.fetch(seq, '(BODY.PEEK[])')
+                        raw = (msg_data[0][1] if (msg_data and isinstance(msg_data[0], tuple)
+                                                  and len(msg_data[0]) > 1) else None)
+                    logger.info("backfill: EmailLog #%s mid=%s -> seq=%s raw_bytes=%s",
+                                el.id, el.message_id[:55], seq, len(raw) if raw else 0)
                 else:
                     logger.info("backfill: EmailLog #%s has no Message-ID", el.id)
                 body = extract_email_body(email.message_from_bytes(raw)) if raw else ''
                 if not body:
-                    logger.info("backfill: EmailLog #%s UNRECOVERABLE (had_raw=%s)", el.id, bool(raw))
                     summary['body_unrecoverable'] += 1
                     continue
                 el.body = body
