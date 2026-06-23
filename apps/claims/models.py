@@ -195,6 +195,19 @@ class Claim(models.Model):
         help_text='When flight_data was last fetched'
     )
 
+    # Form filling (Browser Use): the structured profile extracted from the case,
+    # cached so retries don't re-pay for the AI structuring call.
+    form_profile = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Clean structured form-fill profile (real values); written by the form-fill flow'
+    )
+    form_profile_generated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When form_profile was last built'
+    )
+
     # Workflow
     status = models.CharField(
         max_length=64,

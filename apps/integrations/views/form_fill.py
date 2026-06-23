@@ -20,8 +20,9 @@ from apps.claims.models import Claim
 from apps.config.models import SystemSettings
 from apps.integrations import browser_use
 from apps.integrations.form_fill_service import (
-    build_agent_context, build_form_secrets, build_fill_task, SUBMIT_TASK, form_host,
-    MAX_FILL_STEPS)
+    build_form_secrets, build_fill_task, SUBMIT_TASK, form_host, MAX_FILL_STEPS)
+from apps.integrations.form_profile import (
+    FormProfile, build_form_profile, profile_to_secrets_and_facts)
 from apps.integrations.models import FormFill
 from apps.integrations.services import (
     post_zendesk_comment, fetch_zendesk_ticket, fetch_zendesk_comments,
@@ -195,11 +196,32 @@ class FormFillStartView(APIView):
                 claim.save(update_fields=['email_alias', 'updated_at'])
 
         host = form_host(url)
-        secrets = build_form_secrets(claim, host)
-        context = build_agent_context(claim, ticket_data)
-        task = build_fill_task(url, secrets, context)
-
         form_fill_id = request.data.get('form_fill_id')
+
+        # Clean structured profile (cached on the claim). Reuse it on a retry (a start
+        # that reuses an existing FormFill, e.g. the image-upload flow); otherwise build
+        # it fresh so a new fill picks up anything added to the case.
+        profile = None
+        if form_fill_id and claim.form_profile:
+            try:
+                profile = FormProfile(**claim.form_profile)
+            except Exception:
+                profile = None
+        if profile is None:
+            profile = build_form_profile(claim, ticket_data)
+            if profile is not None:
+                claim.form_profile = profile.model_dump()
+                claim.form_profile_generated_at = timezone.now()
+                claim.save(update_fields=['form_profile', 'form_profile_generated_at', 'updated_at'])
+        if profile is not None:
+            secrets_map, facts = profile_to_secrets_and_facts(profile)
+            secrets = {host: secrets_map}
+        else:
+            secrets = build_form_secrets(claim, host)   # fallback: raw claim fields, no thread
+            facts = {}
+        playbook = ''   # Phase B sets this via playbook_for_domain(host)
+        task = build_fill_task(url, secrets, facts=facts, playbook=playbook)
+
         image_url = str(request.data.get('image_url', '')).strip()
         image_filename = str(request.data.get('image_filename', '')).strip() or 'attachment'
         image_bytes = None
