@@ -843,6 +843,17 @@ def dispute_submit_to_paypal(request, dispute_id):
         messages.error(request, "Prepare a submission first — generate or write the narrative, then save.")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
+    # PayPal hard-rejects a note over 2000 chars (NOTE_CAN_NOT_BE_MORE_THAN_2000_CHARS).
+    # Catch it here with a clear message instead of letting it fail at PayPal.
+    notes_len = len((draft.notes or '').strip())
+    if notes_len > PAYPAL_NOTES_MAX_CHARS:
+        messages.error(
+            request,
+            f"The narrative is {notes_len} characters — PayPal's hard limit is "
+            f"{PAYPAL_NOTES_MAX_CHARS}. Trim {notes_len - PAYPAL_NOTES_MAX_CHARS} "
+            "character(s) and submit again.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
     endpoint = dispute.submit_endpoint
     if not endpoint:
         messages.error(

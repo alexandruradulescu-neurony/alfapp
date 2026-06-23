@@ -115,6 +115,18 @@ class FallbackTests(TestCase):
         # one public reply in COMMENTS
         self.assertIn('We sent the customer 1 update', out['notes'])
 
+    def test_fallback_states_service_not_product_and_fits_limit(self):
+        # The service-not-product framing is folded INTO the narrative now (no
+        # separate transport prefix), so even the deterministic fallback must assert
+        # it — and the whole note must fit PayPal's 2000-char hard limit.
+        claim = _full_claim()
+        d = _dispute(claim=claim, zd_ticket_id='97001')
+        with patch.object(ds, '_fetch_zendesk_ticket_full',
+                          return_value={'ticket': {}, 'comments': COMMENTS}):
+            out = ds.build_dispute_narrative_notes(d)
+        self.assertIn('not a physical product', out['notes'].lower())
+        self.assertLessEqual(len(out['notes']), 2000)
+
     def test_use_ai_false_forces_fallback_even_with_key(self):
         SystemSettings.get_instance()  # key may be set elsewhere; use_ai=False must still skip AI
         ss = SystemSettings.get_instance()
