@@ -20,7 +20,7 @@ from apps.integrations.views.email import ZendeskEmailCheckView, ZendeskTicketEm
 from apps.integrations.views.client_updates import ZendeskClientUpdatesView
 from apps.integrations.views.form_fill import (
     FormFillStartView, FormFillStatusView, FormFillSubmitView, FormFillCancelView,
-    FormFillAttachmentsView, FormFillUploadView,
+    FormFillAttachmentsView, FormFillUploadView, FormFillWebhookView,
 )
 
 __all__ = [
@@ -43,4 +43,5 @@ __all__ = [
     'FormFillCancelView',
     'FormFillAttachmentsView',
     'FormFillUploadView',
+    'FormFillWebhookView',
 ]

@@ -1,4 +1,7 @@
+import hashlib
+import hmac
 import io
+import json
 import pytest
 from unittest.mock import patch
 from django.urls import reverse
@@ -264,3 +267,66 @@ def test_start_with_uploaded_image_uploads_to_session(api, settings_obj):
     assert resp.status_code == 200
     assert resp.data['form_fill_id'] == ff.id      # reused the uploaded row
     up.assert_called_once()                        # image pushed to the session
+
+
+# --- Browser Use webhook receiver ---
+
+WEBHOOK_SECRET = 'bu_whsec_test'
+
+
+def _sign(body: bytes, ts: str, secret=WEBHOOK_SECRET):
+    return hmac.new(secret.encode(), f'{ts}.'.encode() + body, hashlib.sha256).hexdigest()
+
+
+@pytest.mark.django_db
+def test_webhook_test_event_returns_200_even_without_secret(api, settings_obj):
+    # the 'test' event fires at creation, before the code is pasted into Settings → must 200
+    body = json.dumps({'type': 'test', 'timestamp': 't', 'payload': {'test': 'ok'}})
+    resp = api.post(reverse('browser-use-webhook'), data=body, content_type='application/json')
+    assert resp.status_code == 200
+
+
+@pytest.mark.django_db
+def test_webhook_status_update_finalizes_fill_with_valid_signature(api, settings_obj):
+    settings_obj.browser_use_webhook_secret = WEBHOOK_SECRET; settings_obj.save()
+    claim = Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')
+    ff = FormFill.objects.create(claim=claim, form_url='https://lf.x/r',
+                                 browser_use_session_id='S1', status=FormFill.STATUS_STARTED)
+    body = json.dumps({'type': 'agent.task.status_update', 'timestamp': 't',
+                       'payload': {'session_id': 'S1', 'task_id': 'T1', 'status': 'finished'}}).encode()
+    ts = '1737406233'
+    with patch('apps.integrations.views.form_fill.browser_use.get_session',
+               return_value={'status': 'idle', 'output': 'filled', 'screenshot_url': '', 'is_successful': None}), \
+         patch('apps.integrations.views.form_fill._proxy_screenshot', return_value=''):
+        resp = api.post(reverse('browser-use-webhook'), data=body, content_type='application/json',
+                        HTTP_X_BROWSER_USE_SIGNATURE=_sign(body, ts), HTTP_X_BROWSER_USE_TIMESTAMP=ts)
+    assert resp.status_code == 200
+    ff.refresh_from_db()
+    assert ff.status == FormFill.STATUS_FILLED       # finalized server-side, no tab/poll needed
+
+
+@pytest.mark.django_db
+def test_webhook_rejects_bad_signature(api, settings_obj):
+    settings_obj.browser_use_webhook_secret = WEBHOOK_SECRET; settings_obj.save()
+    claim = Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')
+    ff = FormFill.objects.create(claim=claim, form_url='https://lf.x/r',
+                                 browser_use_session_id='S1', status=FormFill.STATUS_STARTED)
+    body = json.dumps({'type': 'agent.task.status_update',
+                       'payload': {'session_id': 'S1', 'status': 'finished'}}).encode()
+    with patch('apps.integrations.views.form_fill.browser_use.get_session') as gs:
+        resp = api.post(reverse('browser-use-webhook'), data=body, content_type='application/json',
+                        HTTP_X_BROWSER_USE_SIGNATURE='deadbeef', HTTP_X_BROWSER_USE_TIMESTAMP='1')
+    assert resp.status_code == 401
+    gs.assert_not_called()
+    ff.refresh_from_db()
+    assert ff.status == FormFill.STATUS_STARTED      # spoofed call changes nothing
+
+
+@pytest.mark.django_db
+def test_webhook_real_event_rejected_when_no_secret_configured(api, settings_obj):
+    # secret not pasted yet → fail closed on a real (non-test) event
+    body = json.dumps({'type': 'agent.task.status_update',
+                       'payload': {'session_id': 'S1', 'status': 'finished'}}).encode()
+    resp = api.post(reverse('browser-use-webhook'), data=body, content_type='application/json',
+                    HTTP_X_BROWSER_USE_SIGNATURE=_sign(body, '1'), HTTP_X_BROWSER_USE_TIMESTAMP='1')
+    assert resp.status_code == 401

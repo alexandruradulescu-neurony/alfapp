@@ -2,6 +2,9 @@
 institution form from a claim, with a human approval gate before submit. Every
 attempt is a FormFill row. Auth: ZendeskSidebarAuth (bearer token)."""
 import base64
+import hashlib
+import hmac
+import json
 import logging
 from urllib.parse import urlparse
 
@@ -69,6 +72,67 @@ def _proxy_screenshot(session_id: str) -> str:
     except Exception as e:
         logger.warning('Screenshot proxy failed: %s', e)
         return ''
+
+
+def _finalize_form_fill(ff, st, screenshot=''):
+    """Apply a Browser Use session state to the FormFill. Shared by the status poll
+    and the webhook so a fill is recorded the same way regardless of what triggered
+    the check. Only transitions OUT of non-terminal states, so it is safe to call
+    repeatedly (e.g. a poll and a webhook racing on the same session)."""
+    bu_status = st.get('status', '')
+    if ff.status == FormFill.STATUS_STARTED:
+        if bu_status == 'idle':
+            ff.status = FormFill.STATUS_FILLED
+            ff.filled_at = timezone.now()
+            ff.result_output = str(st.get('output', ''))[:5000]
+            ff.save(update_fields=['status', 'filled_at', 'result_output', 'updated_at'])
+        elif bu_status in ('error', 'failed', 'timed_out', 'stopped'):
+            ff.status = FormFill.STATUS_FAILED
+            ff.error = str(st.get('output', '') or 'Session ended before the fill completed.')[:2000]
+            ff.save(update_fields=['status', 'error', 'updated_at'])
+    elif ff.status == FormFill.STATUS_SUBMITTING:
+        # The submit follow-up runs without keep_alive, so it ends 'stopped' (not idle).
+        if bu_status in ('stopped', 'idle'):
+            ff.status = FormFill.STATUS_SUBMITTED
+            ff.submitted_at = timezone.now()
+            ff.result_output = str(st.get('output', ''))[:5000]
+            ff.save(update_fields=['status', 'submitted_at', 'result_output', 'updated_at'])
+            if ff.post_screenshot and screenshot and ff.claim.zd_ticket_id:
+                note = (f'<p>\U0001F4DD <strong>Form filled &amp; submitted via LORA</strong></p>'
+                        f'<p><img src="{screenshot}" alt="form submission confirmation" /></p>')
+                try:
+                    post_zendesk_comment(ff.claim.zd_ticket_id, comment_body='',
+                                         is_internal=True, html_body=note)
+                    ff.posted_to_ticket = True
+                    ff.save(update_fields=['posted_to_ticket', 'updated_at'])
+                except Exception as e:
+                    logger.warning('Form-fill note post failed for ticket %s: %s',
+                                   ff.claim.zd_ticket_id, e)
+        elif bu_status in ('error', 'failed', 'timed_out'):
+            ff.status = FormFill.STATUS_FAILED
+            ff.error = str(st.get('output', '') or 'Session ended before the submit completed.')[:2000]
+            ff.save(update_fields=['status', 'error', 'updated_at'])
+
+
+def _verify_webhook_signature(secret: str, body: bytes, signature: str, timestamp: str) -> bool:
+    """Verify Browser Use's HMAC-SHA256 webhook signature. Headers: X-Browser-Use-Signature
+    (hex digest) and X-Browser-Use-Timestamp (unix seconds). Browser Use signs
+    '{timestamp}.{body}'; we also accept the raw body as a fallback. Constant-time compare."""
+    if not secret or not signature:
+        return False
+    sig = signature.strip()
+    if sig.startswith('sha256='):
+        sig = sig[7:]
+    key = secret.encode()
+    candidates = []
+    if timestamp:
+        candidates.append(f'{timestamp}.'.encode() + body)
+    candidates.append(body)
+    for msg in candidates:
+        digest = hmac.new(key, msg, hashlib.sha256).hexdigest()
+        if hmac.compare_digest(digest, sig):
+            return True
+    return False
 
 
 class FormFillStartView(APIView):
@@ -192,51 +256,22 @@ class FormFillStatusView(APIView):
         bu_status = st.get('status', '')
         step_count = st.get('step_count')
         screenshot = _proxy_screenshot(session_id)
-        if ff and ff.status == FormFill.STATUS_STARTED:
-            if bu_status == 'running' and isinstance(step_count, int) and step_count > MAX_FILL_STEPS:
-                # Cost guard: every step is a billed LLM call. A fill still running past
-                # the budget is grinding (e.g. stuck on a control) — stop it and let the
-                # human finish in the live view rather than keep paying.
-                try:
-                    browser_use.stop_session(session_id)
-                except browser_use.BrowserUseError:
-                    pass
-                ff.status = FormFill.STATUS_FAILED
-                ff.error = (f'Stopped after {step_count} steps (budget {MAX_FILL_STEPS}) to limit '
-                            f'cost. Open the live view to finish it by hand.')[:2000]
-                ff.save(update_fields=['status', 'error', 'updated_at'])
-                bu_status = 'stopped'
-            elif bu_status == 'idle':
-                ff.status = FormFill.STATUS_FILLED
-                ff.filled_at = timezone.now()
-                ff.result_output = str(st.get('output', ''))[:5000]
-                ff.save(update_fields=['status', 'filled_at', 'result_output', 'updated_at'])
-            elif bu_status in ('error', 'failed', 'timed_out', 'stopped'):
-                ff.status = FormFill.STATUS_FAILED
-                ff.error = str(st.get('output', '') or 'Session ended before the fill completed.')[:2000]
-                ff.save(update_fields=['status', 'error', 'updated_at'])
-        elif ff and ff.status == FormFill.STATUS_SUBMITTING:
-            # The submit follow-up runs without keep_alive, so it ends 'stopped' (not idle).
-            if bu_status in ('stopped', 'idle'):
-                ff.status = FormFill.STATUS_SUBMITTED
-                ff.submitted_at = timezone.now()
-                ff.result_output = str(st.get('output', ''))[:5000]
-                ff.save(update_fields=['status', 'submitted_at', 'result_output', 'updated_at'])
-                if ff.post_screenshot and screenshot and ff.claim.zd_ticket_id:
-                    note = (f'<p>\U0001F4DD <strong>Form filled &amp; submitted via LORA</strong></p>'
-                            f'<p><img src="{screenshot}" alt="form submission confirmation" /></p>')
-                    try:
-                        post_zendesk_comment(ff.claim.zd_ticket_id, comment_body='',
-                                             is_internal=True, html_body=note)
-                        ff.posted_to_ticket = True
-                        ff.save(update_fields=['posted_to_ticket', 'updated_at'])
-                    except Exception as e:
-                        logger.warning('Form-fill note post failed for ticket %s: %s',
-                                       ff.claim.zd_ticket_id, e)
-            elif bu_status in ('error', 'failed', 'timed_out'):
-                ff.status = FormFill.STATUS_FAILED
-                ff.error = str(st.get('output', '') or 'Session ended before the submit completed.')[:2000]
-                ff.save(update_fields=['status', 'error', 'updated_at'])
+        if ff and ff.status == FormFill.STATUS_STARTED and bu_status == 'running' \
+                and isinstance(step_count, int) and step_count > MAX_FILL_STEPS:
+            # Cost guard: every step is a billed LLM call. A fill still running past the
+            # budget is grinding (e.g. stuck on a control) — stop it and let the human
+            # finish in the live view rather than keep paying.
+            try:
+                browser_use.stop_session(session_id)
+            except browser_use.BrowserUseError:
+                pass
+            ff.status = FormFill.STATUS_FAILED
+            ff.error = (f'Stopped after {step_count} steps (budget {MAX_FILL_STEPS}) to limit '
+                        f'cost. Open the live view to finish it by hand.')[:2000]
+            ff.save(update_fields=['status', 'error', 'updated_at'])
+            bu_status = 'stopped'
+        elif ff:
+            _finalize_form_fill(ff, st, screenshot)
         return Response({'status': ff.status if ff else bu_status, 'bu_status': bu_status,
                          'screenshot': screenshot, 'step_count': step_count},
                         status=status.HTTP_200_OK)
@@ -339,3 +374,45 @@ class FormFillUploadView(APIView):
             image_source=FormFill.IMAGE_SOURCE_UPLOAD, image_name=upload.name)
         ff.image.save(upload.name, ContentFile(upload.read()), save=True)
         return Response({'form_fill_id': ff.id}, status=status.HTTP_200_OK)
+
+
+class FormFillWebhookView(APIView):
+    """Browser Use posts task status changes here so a fill is finalized server-side
+    even with the Zendesk tab closed (no polling needed). Secured by the
+    X-Browser-Use-Signature HMAC, NOT a bearer token. Configure the URL + signing code
+    in Browser Use's dashboard; paste the code into Settings (browser_use_webhook_secret)."""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        body = request.body
+        try:
+            event = json.loads(body.decode('utf-8') or '{}')
+        except (ValueError, UnicodeDecodeError):
+            return Response({'error': 'invalid json'}, status=status.HTTP_400_BAD_REQUEST)
+        etype = str(event.get('type', ''))
+
+        # The 'test' event fires when the webhook is created — before the signing code
+        # can be pasted into Settings — and carries no data, so just acknowledge it.
+        if etype == 'test':
+            return Response({'ok': True}, status=status.HTTP_200_OK)
+
+        secret = SystemSettings.get_instance().browser_use_webhook_secret or ''
+        sig = request.META.get('HTTP_X_BROWSER_USE_SIGNATURE', '')
+        ts = request.META.get('HTTP_X_BROWSER_USE_TIMESTAMP', '')
+        if not _verify_webhook_signature(secret, body, sig, ts):
+            logger.warning('Form-fill webhook: signature verification failed (type=%s)', etype)
+            return Response({'error': 'invalid signature'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if etype == 'agent.task.status_update':
+            session_id = str((event.get('payload') or {}).get('session_id', '')).strip()
+            ff = FormFill.objects.filter(browser_use_session_id=session_id).first()
+            if ff and ff.status in (FormFill.STATUS_STARTED, FormFill.STATUS_SUBMITTING):
+                # Read the authoritative session state and finalize exactly as the status
+                # poll does — don't trust the webhook's status string blindly.
+                try:
+                    st = browser_use.get_session(session_id)
+                    screenshot = _proxy_screenshot(session_id)
+                    _finalize_form_fill(ff, st, screenshot)
+                except browser_use.BrowserUseError as e:
+                    logger.warning('Form-fill webhook: could not read session %s: %s', session_id, e)
+        return Response({'ok': True}, status=status.HTTP_200_OK)
