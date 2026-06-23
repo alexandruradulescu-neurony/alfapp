@@ -23,6 +23,7 @@ from apps.integrations.form_fill_service import (
     build_form_secrets, build_fill_task, SUBMIT_TASK, form_host, MAX_FILL_STEPS)
 from apps.integrations.form_profile import (
     FormProfile, build_form_profile, profile_to_secrets_and_facts)
+from apps.integrations.playbooks import playbook_for_domain
 from apps.integrations.models import FormFill
 from apps.integrations.services import (
     post_zendesk_comment, fetch_zendesk_ticket, fetch_zendesk_comments,
@@ -219,7 +220,7 @@ class FormFillStartView(APIView):
         else:
             secrets = build_form_secrets(claim, host)   # fallback: raw claim fields, no thread
             facts = {}
-        playbook = ''   # Phase B sets this via playbook_for_domain(host)
+        playbook = playbook_for_domain(host)   # site-specific instructions, if any
         task = build_fill_task(url, secrets, facts=facts, playbook=playbook)
 
         image_url = str(request.data.get('image_url', '')).strip()

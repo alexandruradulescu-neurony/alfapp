@@ -123,6 +123,23 @@ def test_start_uses_structured_profile_secrets_and_facts(api, settings_obj):
 
 
 @pytest.mark.django_db
+def test_start_injects_site_playbook_into_brief(api, settings_obj):
+    from apps.integrations.models import FormPlaybook
+    FormPlaybook.objects.create(domain='lf.example', label='LF',
+                                instructions='Tick both consent boxes before submit.', enabled=True)
+    Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1',
+                         email_alias='alias-55@mailapptoday.com')
+    with patch('apps.integrations.views.form_fill.fetch_zendesk_ticket', return_value={}), \
+         patch('apps.integrations.views.form_fill.fetch_zendesk_comments', return_value=[]), \
+         patch('apps.integrations.views.form_fill.browser_use.create_session',
+               return_value={'id': 'S1', 'live_url': 'x', 'status': 'running'}) as m:
+        resp = api.post(reverse('zd-form-fill-start'),
+                        {'ticket_id': '55', 'url': 'https://lf.example/r'}, format='json', **_auth())
+    assert resp.status_code == 200
+    assert 'Tick both consent boxes before submit.' in m.call_args[1]['task']   # playbook injected
+
+
+@pytest.mark.django_db
 def test_start_rejects_non_zendesk_image_url(api, settings_obj):
     settings_obj.zd_subdomain = 'airportlf'; settings_obj.save()
     Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')

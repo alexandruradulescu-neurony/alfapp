@@ -64,3 +64,28 @@ class FormFill(models.Model):
 
     def __str__(self):
         return f"FormFill #{self.pk} ({self.status}) for claim {self.claim_id}"
+
+
+class FormPlaybook(models.Model):
+    """Per-form-platform fill instructions, keyed by the form's domain (e.g.
+    'chargerback.com'). Injected into the Browser Use brief at fill time; edited in the
+    manager 'Form playbooks' page and improvable from real runs. One row per domain."""
+
+    domain = models.CharField(max_length=255, unique=True,
+                              help_text="Form host, e.g. chargerback.com (lowercased)")
+    label = models.CharField(max_length=255, blank=True, default='')
+    instructions = models.TextField(blank=True, default='',
+                                    help_text="Site-specific how-to injected into the agent's brief")
+    enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['domain']
+
+    def save(self, *args, **kwargs):
+        self.domain = (self.domain or '').strip().lower()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.label or self.domain
