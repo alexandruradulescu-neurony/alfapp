@@ -539,9 +539,14 @@ def fetch_raw_by_message_id(conn: imaplib.IMAP4_SSL, message_id: str) -> Optiona
     # The Message-ID (<...@...>) MUST be a quoted IMAP string — its < @ > are not valid
     # bare-atom characters. Servers vary on HEADER search, so try a few forms and LOG
     # each so a miss is diagnosable (this was previously a silent 0/21).
+    bare = mid.strip('<>').replace('"', '\\"')
     attempts = [
-        ('quoted', ('HEADER', 'Message-ID', '"%s"' % mid.replace('"', '\\"'))),
-        ('no-brackets', ('HEADER', 'Message-ID', '"%s"' % mid.strip('<>').replace('"', '\\"'))),
+        ('header', ('HEADER', 'Message-ID', '"%s"' % mid.replace('"', '\\"'))),
+        ('header-bare', ('HEADER', 'Message-ID', '"%s"' % bare)),
+        # Full-text search — servers that won't resolve a HEADER lookup on a huge mailbox
+        # often still match the Message-ID string in the message text.
+        ('text', ('TEXT', '"%s"' % mid.replace('"', '\\"'))),
+        ('text-bare', ('TEXT', '"%s"' % bare)),
     ]
     for label, criteria in attempts:
         try:
