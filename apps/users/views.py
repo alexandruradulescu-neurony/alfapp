@@ -1363,6 +1363,40 @@ def manager_settings(request):
 
 
 @manager_required
+def manager_form_playbooks(request):
+    """Per-site form-fill playbooks: list, create, edit, enable/disable, delete.
+    Instructions saved here are injected into the Browser Use brief at fill time."""
+    from django.db import IntegrityError
+    from apps.integrations.models import FormPlaybook
+
+    if request.method == 'POST':
+        action = request.POST.get('action', 'save')
+        pid = request.POST.get('id')
+        if action == 'delete' and pid:
+            FormPlaybook.objects.filter(pk=pid).delete()
+            messages.success(request, 'Playbook deleted.')
+            return redirect('manager_form_playbooks')
+        domain = (request.POST.get('domain') or '').strip().lower()
+        if not domain:
+            messages.error(request, 'A form domain is required (e.g. chargerback.com).')
+            return redirect('manager_form_playbooks')
+        pb = get_object_or_404(FormPlaybook, pk=pid) if pid else FormPlaybook()
+        pb.domain = domain
+        pb.label = (request.POST.get('label') or '').strip()
+        pb.instructions = request.POST.get('instructions') or ''
+        pb.enabled = request.POST.get('enabled') == 'on'
+        try:
+            pb.save()
+            messages.success(request, 'Playbook saved.')
+        except IntegrityError:
+            messages.error(request, f'A playbook for "{domain}" already exists — edit that one.')
+        return redirect('manager_form_playbooks')
+
+    return render(request, 'manager/form_playbooks.html',
+                  {'playbooks': FormPlaybook.objects.all(), 'active': 'manager_form_playbooks'})
+
+
+@manager_required
 def manager_users(request):
     """Staff user management. Creation goes through StaffUserCreationForm, which
     brings password confirmation (password1/password2) and Django's full password

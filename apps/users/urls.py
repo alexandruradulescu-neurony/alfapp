@@ -36,6 +36,7 @@ urlpatterns = [
     path('manager/claims/import/', views.manager_claims_import, name='manager_claims_import'),
     path('manager/claims/<int:claim_id>/assign/', views.agent_assign_claim, name='agent_assign_claim'),
     path('manager/settings/', views.manager_settings, name='manager_settings'),
+    path('manager/form-playbooks/', views.manager_form_playbooks, name='manager_form_playbooks'),
     path('manager/users/', views.manager_users, name='manager_users'),
     path('manager/refunds/', views.manager_refunds, name='manager_refunds'),
     path('manager/test-ai/', views.test_ai, name='test_ai'),
