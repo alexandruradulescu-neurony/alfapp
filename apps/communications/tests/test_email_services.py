@@ -155,6 +155,17 @@ class TestExtractEmailBody:
         msg.attach(MIMEText("<p>HTML alt</p>", "html"))
         assert extract_email_body(msg) == "Just plain words"
 
+    def test_whitespace_only_plain_text_falls_back_to_html(self):
+        """Chargerback sends a multipart/alternative whose text/plain part is just a
+        space ('=20' in quoted-printable); the real content is the text/html part. A
+        whitespace-only plain part must NOT shadow the HTML and yield an empty body."""
+        msg = MIMEMultipart("alternative")
+        msg.attach(MIMEText(" ", "plain"))          # whitespace-only, like Chargerback's '=20'
+        msg.attach(MIMEText("<p>Dear Kimberly, your lost Report ID: 46153040</p>", "html"))
+        result = extract_email_body(msg)
+        assert "Report ID: 46153040" in result      # real HTML content recovered
+        assert result.strip() != ""                  # not the empty "(No content extracted)" path
+
 
 class TestEmailHtmlForZendeskNote:
     """The Zendesk note renders the ORIGINAL email so links and inline images show;
