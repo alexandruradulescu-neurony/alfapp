@@ -536,7 +536,11 @@ def fetch_raw_by_message_id(conn: imaplib.IMAP4_SSL, message_id: str) -> Optiona
     if not mid:
         return None
     try:
-        status, data = conn.search(None, 'HEADER', 'Message-ID', mid)
+        # The Message-ID (<...@...>) MUST be a quoted IMAP string — its < @ > are not
+        # valid bare-atom characters, so an unquoted value makes the server reject the
+        # search and nothing is ever found.
+        quoted = '"%s"' % mid.replace('\\', '\\\\').replace('"', '\\"')
+        status, data = conn.search(None, 'HEADER', 'Message-ID', quoted)
         if status != 'OK' or not data or not data[0]:
             return None
         seq_nums = data[0].split()
