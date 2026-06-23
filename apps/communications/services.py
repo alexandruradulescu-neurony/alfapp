@@ -534,25 +534,33 @@ def fetch_raw_by_message_id(conn: imaplib.IMAP4_SSL, message_id: str) -> Optiona
     does not change the read flag (BODY.PEEK)."""
     mid = (message_id or '').strip()
     if not mid:
+        logger.info("backfill fetch: empty Message-ID, skipping")
         return None
-    try:
-        # The Message-ID (<...@...>) MUST be a quoted IMAP string — its < @ > are not
-        # valid bare-atom characters, so an unquoted value makes the server reject the
-        # search and nothing is ever found.
-        quoted = '"%s"' % mid.replace('\\', '\\\\').replace('"', '\\"')
-        status, data = conn.search(None, 'HEADER', 'Message-ID', quoted)
-        if status != 'OK' or not data or not data[0]:
-            return None
-        seq_nums = data[0].split()
-        if not seq_nums:
-            return None
-        status, msg_data = conn.fetch(seq_nums[-1], '(BODY.PEEK[])')
-        if status != 'OK' or not msg_data or not msg_data[0]:
-            return None
-        return msg_data[0][1]
-    except Exception as e:
-        logger.warning("Re-fetch by Message-ID failed for %s: %s", mid[:80], e)
-        return None
+    # The Message-ID (<...@...>) MUST be a quoted IMAP string — its < @ > are not valid
+    # bare-atom characters. Servers vary on HEADER search, so try a few forms and LOG
+    # each so a miss is diagnosable (this was previously a silent 0/21).
+    attempts = [
+        ('quoted', ('HEADER', 'Message-ID', '"%s"' % mid.replace('"', '\\"'))),
+        ('no-brackets', ('HEADER', 'Message-ID', '"%s"' % mid.strip('<>').replace('"', '\\"'))),
+    ]
+    for label, criteria in attempts:
+        try:
+            status, data = conn.search(None, *criteria)
+            seq_nums = data[0].split() if (data and data[0]) else []
+            logger.info("backfill fetch [%s] %s -> status=%s matches=%d",
+                        label, mid[:70], status, len(seq_nums))
+            if status != 'OK' or not seq_nums:
+                continue
+            status, msg_data = conn.fetch(seq_nums[-1], '(BODY.PEEK[])')
+            raw = (msg_data[0][1] if (msg_data and isinstance(msg_data[0], tuple)
+                                      and len(msg_data[0]) > 1) else None)
+            logger.info("backfill fetch [%s] fetch seq=%s -> status=%s bytes=%d",
+                        label, seq_nums[-1], status, len(raw) if raw else 0)
+            if status == 'OK' and raw:
+                return raw
+        except Exception as e:
+            logger.warning("backfill fetch [%s] Message-ID %s FAILED: %r", label, mid[:70], e)
+    return None
 
 
 def reprocess_email_logs(*, dry_run: bool = False, limit: Optional[int] = None,
@@ -595,13 +603,22 @@ def reprocess_email_logs(*, dry_run: bool = False, limit: Optional[int] = None,
                 if el.message_id:
                     if conn is None:
                         conn = open_inbox()
+                        try:
+                            typ, cnt = conn.select('INBOX')
+                            logger.info("backfill: INBOX message_count=%s (status=%s)", cnt, typ)
+                        except Exception as e:
+                            logger.info("backfill: INBOX count probe skipped: %r", e)
                     raw = fetch_raw_by_message_id(conn, el.message_id)
+                else:
+                    logger.info("backfill: EmailLog #%s has no Message-ID", el.id)
                 body = extract_email_body(email.message_from_bytes(raw)) if raw else ''
                 if not body:
+                    logger.info("backfill: EmailLog #%s UNRECOVERABLE (had_raw=%s)", el.id, bool(raw))
                     summary['body_unrecoverable'] += 1
                     continue
                 el.body = body
                 summary['body_recovered'] += 1
+                logger.info("backfill: EmailLog #%s body recovered, %d chars", el.id, len(body))
             old_category = el.category
             ai = call_qwen_ai(ai_prompt, body, el.subject,
                               known_pii=_known_pii_for_email(el.claim))
