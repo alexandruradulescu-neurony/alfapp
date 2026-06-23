@@ -74,11 +74,26 @@ def _proxy_screenshot(session_id: str) -> str:
         return ''
 
 
+def _post_status_note(ff, headline, screenshot=''):
+    """Post an internal Zendesk note so the agent is told ON THE TICKET that a fill needs
+    attention — even if they never opened (or have since closed) the Form filling tab."""
+    if not ff.claim.zd_ticket_id:
+        return
+    img = f'<p><img src="{screenshot}" alt="filled form" /></p>' if screenshot else ''
+    note = f'<p>\U0001F4DD <strong>{headline}</strong></p>{img}'
+    try:
+        post_zendesk_comment(ff.claim.zd_ticket_id, comment_body='', is_internal=True, html_body=note)
+        ff.posted_to_ticket = True
+        ff.save(update_fields=['posted_to_ticket', 'updated_at'])
+    except Exception as e:
+        logger.warning('Form-fill status note post failed for ticket %s: %s', ff.claim.zd_ticket_id, e)
+
+
 def _finalize_form_fill(ff, st, screenshot=''):
-    """Apply a Browser Use session state to the FormFill. Shared by the status poll
-    and the webhook so a fill is recorded the same way regardless of what triggered
-    the check. Only transitions OUT of non-terminal states, so it is safe to call
-    repeatedly (e.g. a poll and a webhook racing on the same session)."""
+    """Apply a Browser Use session state to the FormFill AND notify the ticket. Shared by
+    the status poll and the webhook so a fill is recorded the same way regardless of what
+    triggered the check. Only transitions OUT of non-terminal states, so it is safe to
+    call repeatedly (e.g. a poll and a webhook racing on the same session)."""
     bu_status = st.get('status', '')
     if ff.status == FormFill.STATUS_STARTED:
         if bu_status == 'idle':
@@ -86,10 +101,15 @@ def _finalize_form_fill(ff, st, screenshot=''):
             ff.filled_at = timezone.now()
             ff.result_output = str(st.get('output', ''))[:5000]
             ff.save(update_fields=['status', 'filled_at', 'result_output', 'updated_at'])
+            # Notify on the ticket that it needs review (the screenshot only if opted in).
+            _post_status_note(ff, 'LORA filled a form — review it, then Approve &amp; submit in the '
+                                  'Form filling tab.', screenshot if ff.post_screenshot else '')
         elif bu_status in ('error', 'failed', 'timed_out', 'stopped'):
             ff.status = FormFill.STATUS_FAILED
             ff.error = str(st.get('output', '') or 'Session ended before the fill completed.')[:2000]
             ff.save(update_fields=['status', 'error', 'updated_at'])
+            _post_status_note(ff, 'LORA could not finish filling a form — open the Form filling tab '
+                                  'to take over.')
     elif ff.status == FormFill.STATUS_SUBMITTING:
         # The submit follow-up runs without keep_alive, so it ends 'stopped' (not idle).
         if bu_status in ('stopped', 'idle'):
@@ -112,27 +132,28 @@ def _finalize_form_fill(ff, st, screenshot=''):
             ff.status = FormFill.STATUS_FAILED
             ff.error = str(st.get('output', '') or 'Session ended before the submit completed.')[:2000]
             ff.save(update_fields=['status', 'error', 'updated_at'])
+            _post_status_note(ff, 'LORA could not complete the form submission — open the Form '
+                                  'filling tab.')
 
 
 def _verify_webhook_signature(secret: str, body: bytes, signature: str, timestamp: str) -> bool:
-    """Verify Browser Use's HMAC-SHA256 webhook signature. Headers: X-Browser-Use-Signature
-    (hex digest) and X-Browser-Use-Timestamp (unix seconds). Browser Use signs
-    '{timestamp}.{body}'; we also accept the raw body as a fallback. Constant-time compare."""
-    if not secret or not signature:
+    """Verify Browser Use's webhook signature (per their docs). The signed message is
+    '{timestamp}.{canonical_json}', where canonical_json is the parsed body re-serialized
+    with sorted keys and compact separators — NOT the raw body. HMAC-SHA256, hex digest.
+    Headers: X-Browser-Use-Signature and X-Browser-Use-Timestamp (unix seconds).
+
+    We deliberately do NOT enforce their 300s freshness window: _finalize_form_fill is
+    idempotent (it only transitions out of non-terminal states), so a replay is harmless,
+    and skipping the window lets legitimate retries / dashboard resends through."""
+    if not secret or not signature or not timestamp:
         return False
-    sig = signature.strip()
-    if sig.startswith('sha256='):
-        sig = sig[7:]
-    key = secret.encode()
-    candidates = []
-    if timestamp:
-        candidates.append(f'{timestamp}.'.encode() + body)
-    candidates.append(body)
-    for msg in candidates:
-        digest = hmac.new(key, msg, hashlib.sha256).hexdigest()
-        if hmac.compare_digest(digest, sig):
-            return True
-    return False
+    try:
+        payload = json.loads(body)
+    except (ValueError, TypeError):
+        return False
+    message = f"{timestamp}.{json.dumps(payload, separators=(',', ':'), sort_keys=True)}"
+    expected = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature.strip())
 
 
 class FormFillStartView(APIView):
@@ -403,12 +424,15 @@ class FormFillWebhookView(APIView):
             logger.warning('Form-fill webhook: signature verification failed (type=%s)', etype)
             return Response({'error': 'invalid signature'}, status=status.HTTP_401_UNAUTHORIZED)
 
-        if etype == 'agent.task.status_update':
-            session_id = str((event.get('payload') or {}).get('session_id', '')).strip()
+        # Any status-change event carries a session_id (Browser Use sends
+        # 'session.status.update'; the exact name varies, so don't gate on it). Read the
+        # authoritative session state and finalize the same way the status poll does —
+        # don't trust the event's own status string blindly.
+        payload = event.get('payload') if isinstance(event.get('payload'), dict) else {}
+        session_id = str(payload.get('session_id') or event.get('session_id') or '').strip()
+        if session_id:
             ff = FormFill.objects.filter(browser_use_session_id=session_id).first()
             if ff and ff.status in (FormFill.STATUS_STARTED, FormFill.STATUS_SUBMITTING):
-                # Read the authoritative session state and finalize exactly as the status
-                # poll does — don't trust the webhook's status string blindly.
                 try:
                     st = browser_use.get_session(session_id)
                     screenshot = _proxy_screenshot(session_id)

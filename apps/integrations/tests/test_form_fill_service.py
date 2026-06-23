@@ -100,5 +100,7 @@ def test_fill_task_forbids_masked_tokens_and_directs_secret_keys():
     assert 'not for filling forms' in low
     # separate first/last name boxes are supported
     assert 'x_client_first_name' in task and 'x_client_last_name' in task
-    # no fabricating dropdown values
-    assert 'do not invent values' in low and 'never guess' in low
+    # no fabricating / inferring dropdown values (e.g. guessing a terminal)
+    assert 'do not invent or infer' in low
+    assert 'outside knowledge' in low
+    assert 'leave it blank' in low

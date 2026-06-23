@@ -120,11 +120,13 @@ def test_status_marks_filled_when_idle(api, settings_obj):
                                  browser_use_session_id='S1', status=FormFill.STATUS_STARTED)
     with patch('apps.integrations.views.form_fill.browser_use.get_session',
                return_value={'status': 'idle', 'output': 'filled', 'screenshot_url': '', 'is_successful': None}), \
-         patch('apps.integrations.views.form_fill.browser_use.latest_screenshot_url', return_value=''):
+         patch('apps.integrations.views.form_fill.browser_use.latest_screenshot_url', return_value=''), \
+         patch('apps.integrations.views.form_fill.post_zendesk_comment') as note:
         resp = api.post(reverse('zd-form-fill-status'), {'session_id': 'S1'}, format='json', **_auth())
     assert resp.status_code == 200
     ff.refresh_from_db()
     assert ff.status == FormFill.STATUS_FILLED
+    note.assert_called_once()                        # ticket gets a "needs review" note
 
 
 @pytest.mark.django_db
@@ -275,7 +277,14 @@ WEBHOOK_SECRET = 'bu_whsec_test'
 
 
 def _sign(body: bytes, ts: str, secret=WEBHOOK_SECRET):
-    return hmac.new(secret.encode(), f'{ts}.'.encode() + body, hashlib.sha256).hexdigest()
+    # Browser Use signs '{timestamp}.{canonical_json}' (sorted keys, compact separators).
+    message = f"{ts}.{json.dumps(json.loads(body), separators=(',', ':'), sort_keys=True)}"
+    return hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
+
+
+def _event_body():
+    return json.dumps({'type': 'session.status.update', 'timestamp': 'iso',
+                       'payload': {'session_id': 'S1', 'status': 'stopped'}}).encode()
 
 
 @pytest.mark.django_db
@@ -287,22 +296,23 @@ def test_webhook_test_event_returns_200_even_without_secret(api, settings_obj):
 
 
 @pytest.mark.django_db
-def test_webhook_status_update_finalizes_fill_with_valid_signature(api, settings_obj):
+def test_webhook_status_update_finalizes_and_notifies_with_valid_signature(api, settings_obj):
     settings_obj.browser_use_webhook_secret = WEBHOOK_SECRET; settings_obj.save()
     claim = Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')
     ff = FormFill.objects.create(claim=claim, form_url='https://lf.x/r',
                                  browser_use_session_id='S1', status=FormFill.STATUS_STARTED)
-    body = json.dumps({'type': 'agent.task.status_update', 'timestamp': 't',
-                       'payload': {'session_id': 'S1', 'task_id': 'T1', 'status': 'finished'}}).encode()
+    body = _event_body()
     ts = '1737406233'
     with patch('apps.integrations.views.form_fill.browser_use.get_session',
                return_value={'status': 'idle', 'output': 'filled', 'screenshot_url': '', 'is_successful': None}), \
-         patch('apps.integrations.views.form_fill._proxy_screenshot', return_value=''):
+         patch('apps.integrations.views.form_fill._proxy_screenshot', return_value=''), \
+         patch('apps.integrations.views.form_fill.post_zendesk_comment') as note:
         resp = api.post(reverse('browser-use-webhook'), data=body, content_type='application/json',
                         HTTP_X_BROWSER_USE_SIGNATURE=_sign(body, ts), HTTP_X_BROWSER_USE_TIMESTAMP=ts)
     assert resp.status_code == 200
     ff.refresh_from_db()
     assert ff.status == FormFill.STATUS_FILLED       # finalized server-side, no tab/poll needed
+    note.assert_called_once()                        # and the ticket gets a "needs review" note
 
 
 @pytest.mark.django_db
@@ -311,10 +321,8 @@ def test_webhook_rejects_bad_signature(api, settings_obj):
     claim = Claim.objects.create(client_email='c@e.com', zd_ticket_id='55', alf_claim_id='ALF1')
     ff = FormFill.objects.create(claim=claim, form_url='https://lf.x/r',
                                  browser_use_session_id='S1', status=FormFill.STATUS_STARTED)
-    body = json.dumps({'type': 'agent.task.status_update',
-                       'payload': {'session_id': 'S1', 'status': 'finished'}}).encode()
     with patch('apps.integrations.views.form_fill.browser_use.get_session') as gs:
-        resp = api.post(reverse('browser-use-webhook'), data=body, content_type='application/json',
+        resp = api.post(reverse('browser-use-webhook'), data=_event_body(), content_type='application/json',
                         HTTP_X_BROWSER_USE_SIGNATURE='deadbeef', HTTP_X_BROWSER_USE_TIMESTAMP='1')
     assert resp.status_code == 401
     gs.assert_not_called()
@@ -325,8 +333,7 @@ def test_webhook_rejects_bad_signature(api, settings_obj):
 @pytest.mark.django_db
 def test_webhook_real_event_rejected_when_no_secret_configured(api, settings_obj):
     # secret not pasted yet → fail closed on a real (non-test) event
-    body = json.dumps({'type': 'agent.task.status_update',
-                       'payload': {'session_id': 'S1', 'status': 'finished'}}).encode()
+    body = _event_body()
     resp = api.post(reverse('browser-use-webhook'), data=body, content_type='application/json',
                     HTTP_X_BROWSER_USE_SIGNATURE=_sign(body, '1'), HTTP_X_BROWSER_USE_TIMESTAMP='1')
     assert resp.status_code == 401
