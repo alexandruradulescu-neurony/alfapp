@@ -54,10 +54,25 @@ AUTO_RESOLVABLE_CATEGORIES = [
 AI_TAG_BY_CATEGORY = {
     EmailLog.CATEGORY_OBJECT_FOUND: 'ai_object_found',
     EmailLog.CATEGORY_OBJECT_NOT_FOUND: 'ai_object_not_found',
+    EmailLog.CATEGORY_SHIPPING_INFORMATION: 'ai_shipping_information',
     EmailLog.CATEGORY_RESUBMISSION_REQUIRED: 'ai_resubmission_required',
 }
 # Added whenever the AI says the email needs a human, regardless of category.
 AI_TAG_ATTENTION = 'ai_attention_needed'
+
+# Authoritative category definitions appended to the (non-user-editable) analysis
+# prompt at call time, so the taxonomy is always current in code — no prompt migration
+# needed. The schema (apps/ai/schemas.py) enforces the allowed values; this tells the
+# model HOW to choose, and ensures shipping/tracking mail stops landing in
+# GENERAL_CORRESPONDENCE.
+EMAIL_CATEGORY_GUIDE = """Classify the email into EXACTLY ONE category (this list is authoritative):
+- OBJECT_FOUND: the institution has located or identified the lost item.
+- OBJECT_NOT_FOUND: the institution searched and did not find it, or is closing the search.
+- SHIPPING_INFORMATION: the item is being returned or shipped to the client — a tracking number, courier/carrier name, shipping label, dispatch or out-for-delivery/delivered notice, or "your item is on its way". Choose this whenever the email carries shipping or tracking details, even if it also mentions the item was found. This is an IMPORTANT category: set action_required=true and auto_resolvable=false.
+- RESUBMISSION_REQUIRED: the institution needs more detail or a corrected/re-filed report.
+- SUBMISSION_CONFIRMATION: an automated receipt acknowledging a report was filed (no new information).
+- GENERAL_CORRESPONDENCE: relevant correspondence that fits none of the above.
+- UNKNOWN: the content cannot be determined."""
 
 
 class EmailNotConfigured(Exception):
@@ -509,6 +524,107 @@ def recover_orphan_emails(dry_run: bool = False) -> dict:
     return {'matched': matched, 'dry_run': dry_run}
 
 
+# Bodies LORA stores when extraction found nothing — the rows worth re-fetching.
+_EMPTY_BODY_VALUES = ['', '(No content extracted)']
+
+
+def fetch_raw_by_message_id(conn: imaplib.IMAP4_SSL, message_id: str) -> Optional[bytes]:
+    """Fetch a message's full raw bytes from the mailbox by its Message-ID, or None if
+    it is no longer there. Searches the whole mailbox (seen + unseen, any date) and
+    does not change the read flag (BODY.PEEK)."""
+    mid = (message_id or '').strip()
+    if not mid:
+        return None
+    try:
+        status, data = conn.search(None, 'HEADER', 'Message-ID', mid)
+        if status != 'OK' or not data or not data[0]:
+            return None
+        seq_nums = data[0].split()
+        if not seq_nums:
+            return None
+        status, msg_data = conn.fetch(seq_nums[-1], '(BODY.PEEK[])')
+        if status != 'OK' or not msg_data or not msg_data[0]:
+            return None
+        return msg_data[0][1]
+    except Exception as e:
+        logger.warning("Re-fetch by Message-ID failed for %s: %s", mid[:80], e)
+        return None
+
+
+def reprocess_email_logs(*, dry_run: bool = False, limit: Optional[int] = None,
+                         claim_id: Optional[int] = None) -> dict:
+    """Backfill existing emails: (1) recover empty bodies by re-fetching the original
+    from the mailbox by Message-ID and re-extracting with the current logic, and
+    (2) re-categorize the 'suspect' set — empty-body rows plus those still tagged
+    GENERAL_CORRESPONDENCE or UNKNOWN — with the current, shipping-aware categorizer,
+    then re-apply Zendesk tags. It only ever re-runs the suspect set, so a meaningful
+    category (Object Found/Not Found/Resubmission/Shipping) is never clobbered.
+    Idempotent. Returns a summary dict."""
+    from django.db.models import Q
+    from apps.integrations.services import add_zendesk_ticket_tags
+
+    suspect = (Q(body__in=_EMPTY_BODY_VALUES)
+               | Q(category__in=[EmailLog.CATEGORY_GENERAL_CORRESPONDENCE,
+                                 EmailLog.CATEGORY_UNKNOWN]))
+    qs = EmailLog.objects.filter(suspect)
+    if claim_id:
+        qs = qs.filter(claim_id=claim_id)
+    qs = qs.order_by('-id')
+    if limit:
+        qs = qs[:limit]
+
+    summary = {'examined': 0, 'body_recovered': 0, 'body_unrecoverable': 0,
+               'recategorized': 0, 'retagged': 0, 'dry_run': dry_run}
+    if dry_run:
+        summary['examined'] = qs.count()
+        summary['would_refetch'] = qs.filter(body__in=_EMPTY_BODY_VALUES).count()
+        return summary
+
+    ai_prompt = SystemSettings.get_instance().email_analysis_prompt
+    conn = None
+    try:
+        for el in qs:
+            summary['examined'] += 1
+            body = el.body
+            if body in _EMPTY_BODY_VALUES:
+                raw = None
+                if el.message_id:
+                    if conn is None:
+                        conn = open_inbox()
+                    raw = fetch_raw_by_message_id(conn, el.message_id)
+                body = extract_email_body(email.message_from_bytes(raw)) if raw else ''
+                if not body:
+                    summary['body_unrecoverable'] += 1
+                    continue
+                el.body = body
+                summary['body_recovered'] += 1
+            old_category = el.category
+            ai = call_qwen_ai(ai_prompt, body, el.subject,
+                              known_pii=_known_pii_for_email(el.claim))
+            if not ai.get('validation_failed'):
+                el.category = ai.get('category') or old_category
+                el.ai_summary = ai.get('summary') or el.ai_summary
+                el.action_required = ai.get('action_required', el.action_required)
+            el.save(update_fields=['body', 'category', 'ai_summary', 'action_required'])
+            if el.category != old_category:
+                summary['recategorized'] += 1
+            if el.zd_ticket_id:
+                tags = _ai_tags_for(el.category, el.action_required)
+                if tags:
+                    try:
+                        add_zendesk_ticket_tags(el.zd_ticket_id, sorted(tags))
+                        summary['retagged'] += 1
+                    except Exception as e:
+                        logger.warning("Re-tag failed for ticket %s: %s", el.zd_ticket_id, e)
+    finally:
+        if conn is not None:
+            try:
+                conn.logout()
+            except Exception:
+                pass
+    return summary
+
+
 def extract_raw_headers(msg: email.message.Message) -> str:
     """
     Extract raw email headers for debugging/logging purposes.
@@ -551,7 +667,7 @@ def call_qwen_ai(prompt: str, email_body: str, subject: str = '',
 
     try:
         result = AIClient.complete(
-            system_prompt=prompt,
+            system_prompt=f"{prompt}\n\n{EMAIL_CATEGORY_GUIDE}",
             trusted=None,
             untrusted={
                 "email_subject": subject,

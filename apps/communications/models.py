@@ -14,6 +14,7 @@ class EmailLog(models.Model):
     # a rename can't silently break a count or a categorization branch.
     CATEGORY_OBJECT_FOUND = 'OBJECT_FOUND'
     CATEGORY_OBJECT_NOT_FOUND = 'OBJECT_NOT_FOUND'
+    CATEGORY_SHIPPING_INFORMATION = 'SHIPPING_INFORMATION'
     CATEGORY_RESUBMISSION_REQUIRED = 'RESUBMISSION_REQUIRED'
     CATEGORY_SUBMISSION_CONFIRMATION = 'SUBMISSION_CONFIRMATION'
     CATEGORY_GENERAL_CORRESPONDENCE = 'GENERAL_CORRESPONDENCE'
@@ -21,6 +22,7 @@ class EmailLog(models.Model):
     CATEGORY_CHOICES = [
         (CATEGORY_OBJECT_FOUND, 'Object Found'),
         (CATEGORY_OBJECT_NOT_FOUND, 'Object Not Found'),
+        (CATEGORY_SHIPPING_INFORMATION, 'Shipping Information'),
         (CATEGORY_RESUBMISSION_REQUIRED, 'Resubmission Required'),
         (CATEGORY_SUBMISSION_CONFIRMATION, 'Submission Confirmation'),
         (CATEGORY_GENERAL_CORRESPONDENCE, 'General Correspondence'),

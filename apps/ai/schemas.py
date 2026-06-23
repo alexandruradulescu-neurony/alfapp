@@ -29,6 +29,7 @@ class EmailCategorization(BaseModel):
     category: Literal[
         "OBJECT_FOUND",
         "OBJECT_NOT_FOUND",
+        "SHIPPING_INFORMATION",
         "RESUBMISSION_REQUIRED",
         "SUBMISSION_CONFIRMATION",
         "GENERAL_CORRESPONDENCE",
