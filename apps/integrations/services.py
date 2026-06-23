@@ -993,35 +993,77 @@ def remove_zendesk_ticket_tags(zd_ticket_id: str, tags: list) -> bool:
 
 
 def match_alias_to_zendesk_ticket(alias: str) -> Optional[Dict[str, Any]]:
+    """Find the Zendesk ticket whose 'Email used for submissions' field
+    (ZENDESK_FIELD_ALIAS_EMAIL) holds this alias.
+
+    PRIMARY = LORA's own index: a Claim whose email_alias matches. Zendesk's Search API
+    does NOT reliably match email-valued custom fields — confirmed: ticket 53859's field
+    literally held the alias yet `custom_field_..:"alias"` returned 0. The local lookup is
+    exact + instant; populate it with `sync_claim_aliases`. FALLBACK = the Zendesk search,
+    kept for resilience / claims not yet synced.
     """
-    Search for a Zendesk ticket where custom field 13606076120860 contains the email alias.
+    alias = (alias or '').strip().lower()
+    if not alias:
+        return None
 
-    This is the ONLY matching method - no fallback to other fields.
-
-    Args:
-        alias: The email alias to search for (e.g., "client-123@mydomain.com")
-
-    Returns:
-        Matching ticket data dict, None if no match
-    """
+    # 1. Local alias index — reliable.
     try:
-        # Search for tickets where the custom field holds the alias.
-        # Zendesk Search API syntax is custom_field_<id>:"value" — SINGULAR
-        # "custom_field_". The plural "custom_fields_" silently matches nothing
-        # (returns 0 results), which is why sweep matching never found a ticket.
+        from apps.claims.models import Claim
+        claim = (Claim.objects.exclude(zd_ticket_id='')
+                 .filter(email_alias__iexact=alias).first())
+        if claim:
+            ticket = fetch_zendesk_ticket(claim.zd_ticket_id)
+            if ticket:
+                logger.info("Matched alias %s to Zendesk ticket %s (local index)",
+                            alias, claim.zd_ticket_id)
+                return ticket
+    except Exception as e:
+        logger.warning("Local alias match failed for %s: %s", alias, e)
+
+    # 2. Fallback: Zendesk search (SINGULAR custom_field_; unreliable for email values).
+    try:
         query = f'custom_field_{ZENDESK_FIELD_ALIAS_EMAIL}:"{alias}"'
         results = search_zendesk_tickets(query)
-        
         if results:
-            logger.info("Matched alias %s to Zendesk ticket %s", alias, results[0].get('id'))
+            logger.info("Matched alias %s to Zendesk ticket %s (search)", alias, results[0].get('id'))
             return results[0]
-        
         logger.debug("No Zendesk ticket found for alias %s", alias)
         return None
-        
     except Exception as e:
         logger.error("Error matching alias to Zendesk ticket: %s", e)
         return None
+
+
+def sync_claim_aliases(*, only_missing: bool = False, limit: Optional[int] = None) -> dict:
+    """Populate Claim.email_alias from each claim's Zendesk ticket 'Email used for
+    submissions' field, so inbound emails can be matched LOCALLY (Zendesk search is
+    unreliable for email-valued custom fields). Idempotent. Returns a summary."""
+    from django.db.models import Q
+    from apps.claims.models import Claim
+    qs = Claim.objects.exclude(zd_ticket_id='')
+    if only_missing:
+        qs = qs.filter(Q(email_alias='') | Q(email_alias__isnull=True))
+    qs = qs.order_by('-id')
+    if limit:
+        qs = qs[:limit]
+    summary = {'checked': 0, 'updated': 0, 'no_alias': 0, 'no_ticket': 0}
+    for claim in qs:
+        summary['checked'] += 1
+        ticket = fetch_zendesk_ticket(claim.zd_ticket_id)
+        if not ticket:
+            summary['no_ticket'] += 1
+            continue
+        alias = get_ticket_email_alias(ticket)   # already stripped + lowercased
+        if not alias:
+            summary['no_alias'] += 1
+            continue
+        if alias != (claim.email_alias or '').strip().lower():
+            claim.email_alias = alias
+            claim.save(update_fields=['email_alias', 'updated_at'])
+            summary['updated'] += 1
+            logger.info("sync_claim_aliases: claim %s (ticket %s) alias=%s",
+                        claim.id, claim.zd_ticket_id, alias)
+    return summary
 
 
 def tag_zendesk_ticket_as_refunded(zd_ticket_id: str) -> bool:
