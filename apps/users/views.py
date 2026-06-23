@@ -1380,6 +1380,30 @@ def manager_form_playbooks(request):
         if not domain:
             messages.error(request, 'A form domain is required (e.g. chargerback.com).')
             return redirect('manager_form_playbooks')
+
+        if action == 'suggest':
+            # Draft improved instructions from recent runs; show the draft in the textarea
+            # WITHOUT saving — the user reviews and clicks Save to apply.
+            from apps.integrations.playbooks import (
+                recent_run_summaries, suggest_playbook_instructions)
+            summaries = recent_run_summaries(domain)
+            if not summaries:
+                messages.info(request, f'No recorded runs for {domain} yet — run a fill on this form first.')
+                return redirect('manager_form_playbooks')
+            draft = suggest_playbook_instructions(request.POST.get('instructions') or '', summaries)
+            if not draft:
+                messages.error(request, 'Could not draft instructions just now (AI unavailable). Try again.')
+                return redirect('manager_form_playbooks')
+            messages.success(request, f'Draft ready below from {len(summaries)} recent run(s) — '
+                                      f'review it and click Save to apply.')
+            playbooks = list(FormPlaybook.objects.all())
+            for pb in playbooks:
+                if pb.domain == domain:
+                    pb.instructions = draft
+                    pb.has_draft = True
+            return render(request, 'manager/form_playbooks.html',
+                          {'playbooks': playbooks, 'active': 'manager_form_playbooks'})
+
         pb = get_object_or_404(FormPlaybook, pk=pid) if pid else FormPlaybook()
         pb.domain = domain
         pb.label = (request.POST.get('label') or '').strip()
