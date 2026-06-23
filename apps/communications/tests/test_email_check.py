@@ -194,7 +194,8 @@ class CheckEmailForTicketTests(TestCase):
         EmailLog.objects.create(subject='x', body='x',
                                 message_id='<m1@mail.example>')
         before = EmailLog.objects.count()
-        results = self.run_check(mock_conn())
+        conn = mock_conn()
+        results = self.run_check(conn)
 
         self.assertEqual(results['already_processed'], 1)
         self.assertEqual(results['processed'], [])
@@ -202,11 +203,15 @@ class CheckEmailForTicketTests(TestCase):
         mock_ai.assert_not_called()
         mock_note.assert_not_called()
         mock_tags.assert_not_called()
+        # Already filed → marked read so it clears from the inbox (backlog cleanup).
+        conn.store.assert_called_once_with('1', '+FLAGS', '\\Seen')
 
-    def test_unresolved_email_left_unread(self, mock_ai, mock_note, mock_tags):
+    def test_filed_email_marked_read(self, mock_ai, mock_note, mock_tags):
+        # Contract: every filed email is marked read ("read = handled"), even one
+        # needing a human — what needs attention is tracked in the app, not the inbox.
         conn = mock_conn()
         self.run_check(conn)
-        conn.store.assert_not_called()
+        conn.store.assert_called_once_with('1', '+FLAGS', '\\Seen')
 
     def test_auto_resolved_email_marked_read(self, mock_ai, mock_note, mock_tags):
         mock_ai.return_value = {

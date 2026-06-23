@@ -1,29 +1,21 @@
-"""RED-phase tests: fetching mail must NOT mark it ``\\Seen``.
+"""Fetching mail must NOT mark it ``\\Seen`` as a side effect — the read flag is
+set EXPLICITLY after an email is filed, never by the act of fetching.
 
 INVARIANT under test
 --------------------
-Pulling a message off the IMAP server is a *read* of the bytes, not a
-human dispositioning it. Mail that needs a person must be LEFT UNREAD so
-a human still sees it in the inbox. Only the explicit auto-resolve path
-(``mark_email_as_seen`` -> ``store(uid, '+FLAGS', '\\Seen')``) may set the
-Seen flag.
+Pulling a message off the IMAP server is a *read of the bytes*, not a disposition.
+So both fetch sites must use ``BODY.PEEK[]`` (non-marking), never bare ``RFC822`` /
+``BODY[]`` (which sets ``\\Seen`` as a side effect). The Seen flag is set by an
+explicit ``mark_email_as_seen`` -> ``store(uid, '+FLAGS', '\\Seen')`` once filed.
 
-THE BUG these tests pin
------------------------
-Both fetch sites call ``conn.fetch(uid, '(RFC822)')``. In IMAP, fetching
-``RFC822`` (a.k.a. ``BODY[]``) sets ``\\Seen`` as a *side effect*. The
-non-marking spelling is ``BODY.PEEK[]``. So today every fetched message is
-silently marked read, defeating the "leave unread for a human" design and
-making the selective ``mark_email_as_seen`` pointless.
+Disposition contract (``read = LORA handled it``)
+-------------------------------------------------
+Every email LORA files is marked read via that explicit store — even one needing a
+human, because what needs attention is tracked in the app, not the inbox read-state.
+Only genuinely UNMATCHED mail (no ticket) is left unread. Covers BOTH fetch sites:
 
-The observable contract these tests assert: the FETCH command must use the
-PEEK (non-marking) form -- the spec passed to ``conn.fetch`` contains
-``BODY.PEEK`` and is NOT the bare ``RFC822`` form. Covers BOTH fetch sites:
-
-  * the per-ticket path ``check_email_for_ticket(...)`` (services.py:1114), and
-  * the global sweep ``process_incoming_emails()`` (services.py:886).
-
-These tests are EXPECTED TO FAIL until the fetch spec is changed to PEEK.
+  * the per-ticket path ``check_email_for_ticket(...)``, and
+  * the global sweep ``process_incoming_emails()``.
 """
 
 from unittest.mock import MagicMock, Mock, patch
@@ -125,9 +117,10 @@ class CheckEmailForTicketPeekTests(TestCase):
         self.run_check(conn)
         _assert_peek_not_rfc822(self, conn)
 
-    def test_human_needed_email_left_unread(self, mock_ai, mock_note, mock_tags):
-        # A non-auto-resolvable email (needs a human) must stay unread:
-        # the fetch must not mark it seen AND no explicit \Seen store fires.
+    def test_filed_email_marked_read_via_explicit_store(self, mock_ai, mock_note, mock_tags):
+        # New contract: a filed email is marked read ("read = handled"), even a
+        # human-needed one. The fetch still uses PEEK (fetching != dispositioning);
+        # the \Seen comes from an EXPLICIT store after filing, not from the fetch.
         conn = mock_conn()
         results = self.run_check(conn)
 
@@ -135,9 +128,8 @@ class CheckEmailForTicketPeekTests(TestCase):
         self.assertEqual(len(results['processed']), 1)
         self.assertFalse(results['processed'][0].get('auto_resolved', False))
 
-        # No explicit mark-as-seen for a human-needed message.
-        conn.store.assert_not_called()
-        # And the fetch itself must not have marked it read.
+        # Filed → an explicit \Seen store fires; the fetch itself stays PEEK.
+        conn.store.assert_called_once_with('1', '+FLAGS', '\\Seen')
         _assert_peek_not_rfc822(self, conn)
 
 
@@ -177,11 +169,11 @@ class ProcessIncomingEmailsPeekTests(TestCase):
     @patch('apps.communications.services.process_single_email')
     @patch('apps.communications.services.imaplib')
     @patch('apps.communications.services.SystemSettings')
-    def test_human_needed_email_left_unread(
+    def test_sweep_delegates_marking_to_process_single_email(
             self, mock_settings_cls, mock_imaplib, mock_process_single):
-        # The sweep itself only fetches; auto-resolve marking happens inside
-        # process_single_email (mocked away here). For a human-needed message
-        # the fetch must not be the one that marks it read.
+        # The sweep loop only FETCHES (with PEEK); deciding/setting the read flag
+        # happens inside process_single_email (mocked out here). So the sweep loop
+        # itself must never issue a \Seen store.
         mock_settings_cls.get_instance.return_value = self._settings()
 
         conn = mock_conn()
@@ -193,7 +185,5 @@ class ProcessIncomingEmailsPeekTests(TestCase):
 
         process_incoming_emails()
 
-        # The sweep must never issue \Seen on its own (only the auto-resolve
-        # branch inside process_single_email may, and that is mocked out).
         conn.store.assert_not_called()
         _assert_peek_not_rfc822(self, conn)

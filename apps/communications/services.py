@@ -1034,6 +1034,7 @@ def process_single_email(
         message_id = (msg.get('Message-ID') or '').strip()[:512]
         if _is_duplicate_message(message_id):
             logger.info("Skipping already-processed email UID %s (Message-ID match)", uid)
+            mark_email_as_seen(imap_conn, uid)   # already filed → clear it from the unread pile
             return None
 
         # Extract sender email
@@ -1106,17 +1107,12 @@ def process_single_email(
                 'auto_resolvable': ai_result.get('auto_resolvable', False),
             }
 
-        # Determine if email should be auto-resolved
-        auto_resolved = False
-        should_mark_as_seen = False
-
-        if parsed.get('auto_resolvable', False) and parsed.get('category') in AUTO_RESOLVABLE_CATEGORIES:
-            auto_resolved = True
-            should_mark_as_seen = True
-            logger.info("Email auto-resolved: category=%s, UID=%s", parsed['category'], uid)
-        else:
-            # Leave unread for agent attention
-            logger.info("Email requires agent attention: category=%s, UID=%s", parsed['category'], uid)
+        # auto_resolved records whether the mail was routine (stored on the EmailLog).
+        # It NO LONGER controls the read flag — every filed email is marked read below.
+        auto_resolved = (parsed.get('auto_resolvable', False)
+                         and parsed.get('category') in AUTO_RESOLVABLE_CATEGORIES)
+        logger.info("Email filed: category=%s auto_resolved=%s UID=%s",
+                    parsed.get('category'), auto_resolved, uid)
 
         # Create EmailLog entry
         email_log = EmailLog.objects.create(
@@ -1166,11 +1162,10 @@ def process_single_email(
         else:
             logger.warning("Skipping Zendesk posting — no ticket ID or match")
 
-        # Mark email as SEEN only if auto-resolved
-        if should_mark_as_seen:
-            mark_email_as_seen(imap_conn, uid)
-        else:
-            logger.debug("Leaving email UNSEEN for agent attention: UID=%s", uid)
+        # Filed (EmailLog created + posted to Zendesk) → mark it read. "Read = LORA
+        # handled it"; what needs attention is tracked in the app, not the inbox
+        # read-state. Unmatched mail returns earlier and correctly stays UNSEEN.
+        mark_email_as_seen(imap_conn, uid)
 
         return email_log
 
@@ -1456,10 +1451,9 @@ def _process_ticket_email(
         email_html=email_html,
     )
 
-    # Same inbox contract as the global flow: routine mail is marked read,
-    # anything needing a human stays unread for agent attention.
-    if auto_resolved:
-        mark_email_as_seen(conn, uid)
+    # Same inbox contract as the global flow: a filed email is marked read.
+    # (What needs attention is tracked in the app, not the inbox read-state.)
+    mark_email_as_seen(conn, uid)
 
     logger.info(
         f"Email check: EmailLog #{email_log.id} for ticket {ticket_id} — "
@@ -1523,6 +1517,7 @@ def check_email_for_ticket(ticket_id: str, claim: Optional[Claim], alias: str) -
                 message_id = (msg.get('Message-ID') or '').strip()[:512]
                 if _is_duplicate_message(message_id):
                     results['already_processed'] += 1
+                    mark_email_as_seen(conn, uid_str)   # already filed → clear it
                     continue
                 entry = _process_ticket_email(
                     conn, uid_str, msg, message_id, ticket_id, claim, alias, ai_prompt)
@@ -1534,6 +1529,7 @@ def check_email_for_ticket(ticket_id: str, claim: Optional[Claim], alias: str) -
                 # unique message_id constraint bounced this copy before any
                 # note was posted. Same outcome as the dedup check.
                 results['already_processed'] += 1
+                mark_email_as_seen(conn, uid_str)   # already filed → clear it
             except Exception as e:
                 logger.error(
                     f"Email check: error on UID {uid_str} for ticket {ticket_id}: {e}",
