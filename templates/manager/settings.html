@@ -313,6 +313,13 @@
                 <input type="text" name="browser_use_model" value="{{ settings.browser_use_model }}"
                        class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">
             </div>
+            <div class="sm:col-span-2">
+                <label class="block text-sm font-medium text-gray-900">Webhook signing code
+                    <span class="block text-xs font-normal text-gray-500">From Browser Use when you create the webhook. Leave blank to keep current.</span></label>
+                <input type="password" name="browser_use_webhook_secret" autocomplete="off"
+                       class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"
+                       placeholder="{% if settings.browser_use_webhook_secret %}........ (saved - leave blank to keep){% else %}signing code from Browser Use{% endif %}">
+            </div>
             <div class="sm:col-span-2 flex items-start gap-2">
                 <input type="checkbox" id="form_filling_enabled" name="form_filling_enabled"
                        class="mt-0.5 size-5 rounded border-gray-300 accent-indigo-500"

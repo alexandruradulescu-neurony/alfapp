@@ -331,6 +331,10 @@ Please analyze this claim and provide:
         default=False,
         help_text='When ON, the Zendesk Form filling tab can drive Browser Use to fill '
                   'institution forms from a claim. OFF by default.')
+    browser_use_webhook_secret = EncryptedCharField(
+        max_length=255, blank=True, default='',
+        help_text='Signing code Browser Use shows when you create the webhook. LORA uses it '
+                  'to verify incoming task-status callbacks (HMAC-SHA256). Encrypted at rest.')
 
     # WooCommerce store (for LORA-initiated refunds → WooCommerce → PayPal → Zendesk)
     woocommerce_store_url = models.URLField(

@@ -42,6 +42,7 @@ class SystemSettingsForm(forms.ModelForm):
         'woocommerce_consumer_secret',
         'oblio_secret',
         'browser_use_api_key',
+        'browser_use_webhook_secret',
     ]
 
     class Meta:
