@@ -199,11 +199,14 @@ def extract_email_body(msg: email.message.Message) -> str:
         except Exception as e:
             logger.warning("Error decoding email payload: %s", e)
 
-    # A genuine plain-text part wins. Otherwise convert whatever HTML we have — a
-    # real text/html part, OR markup that a sender stuffed into the text/plain slot
-    # — into readable text (keeping link and image addresses inline).
+    # A genuine, non-empty plain-text part wins. Strip FIRST: a whitespace-only
+    # text/plain alternative (Chargerback sends "=20" — a lone space) must NOT shadow
+    # the real HTML and then trim down to nothing. Otherwise convert whatever HTML we
+    # have — a real text/html part, OR markup stuffed into the text/plain slot — into
+    # readable text (keeping link and image addresses inline).
+    body_text = (body_text or '').strip()
     if body_text and not _looks_like_html(body_text):
-        return body_text.strip()
+        return body_text
     html_source = body_html or body_text
     if html_source:
         return _html_to_text(html_source)
