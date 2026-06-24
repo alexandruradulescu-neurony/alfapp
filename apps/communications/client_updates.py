@@ -433,6 +433,48 @@ def cancel_open_follow_ups(claim):
         state=ClientUpdate.STATE_SKIPPED, updated_at=timezone.now())
 
 
+def reanchor_client_updates(*, dry_run: bool = False, now=None, min_gap_days: int = 2) -> dict:
+    """Correct client-update reminders that were scheduled off the IMPORT date instead
+    of the claim's true date. The anchoring error is the GAP (created_at - submitted_at)
+    — how much LATER than it should be the cadence was scheduled. Only claims mis-anchored
+    by more than ``min_gap_days`` are touched; each of their open reminders is shifted
+    EARLIER by the gap, and any that then land in the past have missed their window so
+    they're skipped (never send a stale update).
+
+    Crucially this does NOT cancel a correctly-anchored claim just because a reminder is
+    overdue: a recent, live claim whose Day-2 sits in the past only because autosend was
+    off has gap≈0 and is left exactly as-is. Idempotent. Returns a summary."""
+    from apps.claims.models import Claim
+    now = now or timezone.now()
+    threshold = timedelta(days=min_gap_days)
+    summary = {'claims_checked': 0, 'reanchored': 0, 'updates_shifted': 0, 'updates_skipped': 0}
+    claim_ids = list(ClientUpdate.objects
+                     .filter(state__in=ClientUpdate.OPEN_STATES, claim__submitted_at__isnull=False)
+                     .values_list('claim_id', flat=True).distinct())
+    for claim in Claim.objects.filter(id__in=claim_ids):
+        summary['claims_checked'] += 1
+        gap = claim.created_at - claim.submitted_at
+        if gap <= threshold:
+            continue   # correctly anchored (within tolerance) → leave it untouched
+        touched = False
+        for cu in claim.follow_up_updates.filter(state__in=ClientUpdate.OPEN_STATES):
+            new_due = cu.due_at - gap
+            if new_due < now:
+                if not dry_run:
+                    cu.state = ClientUpdate.STATE_SKIPPED
+                    cu.save(update_fields=['state', 'updated_at'])
+                summary['updates_skipped'] += 1
+            else:
+                if not dry_run:
+                    cu.due_at = new_due
+                    cu.save(update_fields=['due_at', 'updated_at'])
+                summary['updates_shifted'] += 1
+            touched = True
+        if touched:
+            summary['reanchored'] += 1
+    return summary
+
+
 def due_follow_ups(claim, now=None):
     """Scheduled updates for ONE claim whose time has come (ready to prepare)."""
     now = now or timezone.now()
