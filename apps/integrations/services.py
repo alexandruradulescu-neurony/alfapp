@@ -571,11 +571,25 @@ def create_claim_from_zendesk_ticket(zd_ticket_id: Any, *,
             status_category = resolved['category'] or 'open'
 
     deadline_date_val = safe_date(extracted_data.get('deadline_date', ''))
+
+    # True claim date = when the WooCommerce order was paid (the cart became a paid
+    # claim). Best-effort: a lookup failure / missing order leaves it null, and
+    # reports fall back to created_at.
+    submitted_at_val = None
+    woo_id = extracted_data.get('woocommerce_id', '')
+    if woo_id:
+        try:
+            from apps.payments.woocommerce_service import get_woocommerce_order_date
+            submitted_at_val = get_woocommerce_order_date(woo_id)
+        except Exception as e:
+            logger.warning("create_claim: WooCommerce order-date lookup failed for %s: %s", woo_id, e)
+
     try:
         with transaction.atomic():
             claim = Claim.objects.create(
                 alf_claim_id=alf_claim_id,
                 zd_ticket_id=zd_ticket_id,
+                submitted_at=submitted_at_val,
                 client_email=client_email,
                 client_name=extracted_data.get('client_name', ''),
                 flight_details=extracted_data.get('flight_details', ''),

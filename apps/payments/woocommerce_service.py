@@ -15,7 +15,7 @@ import logging
 import urllib.error
 import urllib.request
 from decimal import Decimal
-from typing import Dict, Any
+from typing import Any, Dict, Optional
 
 from apps.config.models import SystemSettings
 
@@ -190,3 +190,34 @@ def get_woocommerce_order_meta(order_id: str, timeout: int = 15) -> Dict[str, An
         if k is not None and str(k) not in meta:
             meta[str(k)] = m.get('value')
     return meta
+
+
+def get_woocommerce_order_date(order_id: str, timeout: int = 15) -> Optional["datetime"]:
+    """The order's PAYMENT moment — when the cart became a paid claim — as a
+    tz-aware UTC datetime. Reads `date_paid_gmt`, falling back to `date_created_gmt`.
+    Returns None on any failure or an order with no date. Raises WooCommerceNotConfigured.
+
+    This is the TRUE claim date: the WooCommerce order number is only populated when
+    checkout completes, so the order's paid date is when an abandoned cart became a
+    paid claim (see Claim.submitted_at)."""
+    from datetime import datetime, timezone as _utc
+    base_url, key, secret = _wc_credentials()
+    url = f"{base_url}/wp-json/wc/v3/orders/{order_id}"
+    token = base64.b64encode(f"{key}:{secret}".encode('utf-8')).decode('ascii')
+    req = urllib.request.Request(
+        url, headers={'Authorization': f'Basic {token}', 'User-Agent': 'LORA-refunds/1.0'},
+        method='GET')
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = json.loads(resp.read().decode('utf-8'))
+    except Exception as e:
+        logger.error(f"Could not fetch WooCommerce order {order_id} date: {e}")
+        return None
+    raw = (body.get('date_paid_gmt') or body.get('date_created_gmt') or '').strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw).replace(tzinfo=_utc.utc)
+    except ValueError:
+        logger.warning(f"WooCommerce order {order_id}: unparseable date {raw!r}")
+        return None

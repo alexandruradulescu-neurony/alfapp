@@ -903,7 +903,7 @@ def _dashboard_chart_data(range_days, show):
     ready-to-draw SVG geometry (polyline points, dots, dual axes, gridlines),
     so the template does no math."""
     from django.db.models import Sum
-    from django.db.models.functions import TruncDate
+    from django.db.models.functions import TruncDate, Coalesce
 
     if range_days not in (7, 14, 30):
         range_days = 14
@@ -914,8 +914,11 @@ def _dashboard_chart_data(range_days, show):
 
     today = timezone.localdate()
     start = today - timedelta(days=range_days - 1)
-    rows = (Claim.objects.filter(created_at__date__gte=start)
-            .annotate(d=TruncDate('created_at')).values('d')
+    # Group by the TRUE claim date (WooCommerce order date when known, else the
+    # import date) so back-imported tickets land on their real day, not import day.
+    rows = (Claim.objects
+            .annotate(d=TruncDate(Coalesce('submitted_at', 'created_at')))
+            .filter(d__gte=start).values('d')
             .annotate(claims=Count('id'), income=Sum('price_paid')))
     by_date = {r['d']: r for r in rows}
 
@@ -1092,11 +1095,14 @@ def manager_claims(request):
             Q(alf_claim_id__icontains=search_query)
         )
 
-    # Calendar filter: claims submitted on a given day (created_at, local date).
+    # Calendar filter: claims submitted on a given day — by the TRUE claim date
+    # (WooCommerce order date when known, else import date), local date.
     date_raw = request.GET.get('date')
     date_filter = parse_date(date_raw) if date_raw else None
     if date_filter:
-        claims = claims.filter(created_at__date=date_filter)
+        from django.db.models.functions import TruncDate, Coalesce
+        claims = (claims.annotate(_claim_day=TruncDate(Coalesce('submitted_at', 'created_at')))
+                  .filter(_claim_day=date_filter))
 
     claims = claims.distinct().order_by('-created_at')
 
