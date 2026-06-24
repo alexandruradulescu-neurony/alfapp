@@ -641,6 +641,35 @@ class TestProcessSingleEmail:
         _, kwargs = mock_post_zd.call_args
         assert "https://x.test/u" in kwargs["email_html"]   # rendered note gets the HTML
 
+    @patch("apps.communications.services.add_zendesk_ticket_tags")
+    @patch("apps.communications.services.find_zendesk_ticket_for_email")
+    @patch("apps.communications.services.extract_from_email")
+    @patch("apps.communications.services.call_qwen_ai")
+    @patch("apps.communications.services.parse_ai_response")
+    @patch("apps.communications.services.post_ai_summary_to_zendesk")
+    def test_sweep_tags_the_ticket_for_its_category(
+        self, mock_post_zd, mock_parse_ai, mock_call_ai, mock_extract_from, mock_find_ticket, mock_tags,
+    ):
+        """The global sweep must now ALSO push the ai_* tag to Zendesk — it used to
+        only categorize, leaving tickets untagged (the bug behind the missing tags)."""
+        mock_extract_from.return_value = "lostandfound@chargerback.com"
+        mock_find_ticket.return_value = ({"id": "12345"}, "client-1@whatever.io")  # matched via alias
+        # call_qwen_ai returns structured fields directly (the AIClient path).
+        mock_call_ai.return_value = {"summary": "found", "category": "OBJECT_FOUND",
+                                     "action_required": True, "auto_resolvable": False}
+        mock_post_zd.return_value = True
+        mock_tags.return_value = True
+        Claim.objects.create(zd_ticket_id="12345", client_email="c@e.com")
+        m = MIMEText("we found your item", "plain")
+        m["Subject"] = "Found"; m["Message-ID"] = "<tag-sweep-test@x.test>"
+
+        process_single_email(imap_conn=Mock(), uid="1", msg_data=m.as_bytes(), ai_prompt="p")
+
+        mock_tags.assert_called_once()
+        tid, tags = mock_tags.call_args[0]
+        assert tid == "12345"
+        assert "ai_object_found" in tags and "ai_attention_needed" in tags
+
     @patch("apps.communications.services.find_zendesk_ticket_for_email")
     @patch("apps.communications.services.extract_from_email")
     @patch("apps.communications.services.call_qwen_ai")

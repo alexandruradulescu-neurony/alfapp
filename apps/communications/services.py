@@ -1154,6 +1154,12 @@ def process_single_email(
                 logger.info("✓ Successfully posted email to Zendesk ticket %s", zd_ticket_id)
             else:
                 logger.error("✗ Failed to post email to Zendesk ticket %s", zd_ticket_id)
+            # Apply the category's AI tag(s) to the ticket. The global sweep only
+            # CATEGORIZED before — tagging lived solely in the per-ticket button and
+            # reprocess paths, so every swept email left its ticket untagged.
+            ai_tags = _ai_tags_for(parsed['category'], parsed['action_required'])
+            if ai_tags:
+                add_zendesk_ticket_tags(zd_ticket_id, sorted(ai_tags))
         elif zd_ticket_id and matched_via != 'alias':
             logger.info(
                 f"Skipping Zendesk posting for ticket {zd_ticket_id} — "
@@ -1387,6 +1393,34 @@ def _ai_tags_for(category: str, action_required: bool) -> set[str]:
     if action_required:
         tags.add(AI_TAG_ATTENTION)
     return tags
+
+
+def retag_tickets_from_email_logs(*, limit: Optional[int] = None) -> dict:
+    """Re-apply the AI category tags to every Zendesk ticket from its EmailLogs.
+
+    The global sweep historically categorized emails WITHOUT tagging Zendesk, so many
+    tickets are missing their ai_* tags. This recomputes the tags for each ticket from
+    the UNION of all its EmailLogs and adds them — additive (never removes the workflow
+    tags; verified that PUT /tags.json appends on this instance), idempotent. Returns a
+    summary."""
+    from collections import defaultdict
+    from apps.integrations.services import add_zendesk_ticket_tags
+    by_ticket: dict = defaultdict(set)
+    for zd_ticket_id, category, action_required in (
+            EmailLog.objects.exclude(zd_ticket_id__in=['', None])
+            .values_list('zd_ticket_id', 'category', 'action_required')):
+        by_ticket[str(zd_ticket_id)].update(_ai_tags_for(category, action_required))
+    items = sorted((tid, tags) for tid, tags in by_ticket.items() if tags)
+    if limit:
+        items = items[:limit]
+    summary = {'tickets_total': len(by_ticket), 'to_tag': len(items), 'tagged': 0, 'failed': 0}
+    for tid, tags in items:
+        if add_zendesk_ticket_tags(tid, sorted(tags)):
+            summary['tagged'] += 1
+            logger.info("retag: ticket %s += %s", tid, sorted(tags))
+        else:
+            summary['failed'] += 1
+    return summary
 
 
 def _first_email_in_header(msg: email.message.Message, header_name: str) -> str:
