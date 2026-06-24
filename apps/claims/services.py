@@ -204,3 +204,36 @@ def refresh_claim_from_zendesk(claim, extracted: dict) -> list:
     save_fields = set(updated_fields) | {'deadline_at', 'updated_at'}
     claim.save(update_fields=list(save_fields))
     return updated_fields
+
+
+def backfill_claim_dates(*, only_missing: bool = True, limit=None) -> dict:
+    """Set Claim.submitted_at from each claim's WooCommerce order payment date — the
+    TRUE claim date (when the cart became a paid claim), vs created_at which is just
+    when LORA imported the row. Idempotent. Claims with no woocommerce_id are skipped
+    (they fall back to created_at in reports). Returns a summary dict."""
+    from apps.claims.models import Claim
+    from apps.payments.woocommerce_service import get_woocommerce_order_date
+    qs = Claim.objects.exclude(woocommerce_id='')
+    if only_missing:
+        qs = qs.filter(submitted_at__isnull=True)
+    qs = qs.order_by('-id')
+    if limit:
+        qs = qs[:limit]
+    summary = {'checked': 0, 'updated': 0, 'no_date': 0}
+    for claim in qs:
+        summary['checked'] += 1
+        try:
+            order_dt = get_woocommerce_order_date(claim.woocommerce_id)
+        except Exception:
+            order_dt = None
+        if order_dt is None:
+            summary['no_date'] += 1
+            continue
+        if claim.submitted_at != order_dt:
+            claim.submitted_at = order_dt
+            claim.save(update_fields=['submitted_at', 'updated_at'])
+            summary['updated'] += 1
+    # Claims with no order at all can't be backfilled — they keep falling back to
+    # created_at. Surface the count so the gap is visible.
+    summary['no_order_claims'] = Claim.objects.filter(woocommerce_id='').count()
+    return summary

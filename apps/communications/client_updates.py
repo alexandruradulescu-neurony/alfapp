@@ -175,7 +175,9 @@ def build_cadence_status(claim) -> list:
     Statuses: done / skipped / drafted / due / upcoming / missed.
     Each item: {key, label, status, fu_id, due_at}."""
     now = timezone.now()
-    anchor = getattr(claim, 'created_at', None) or now
+    # Anchor the preview to the true claim date (submitted_at) so it matches the
+    # actually-scheduled cadence, not the LORA import date.
+    anchor = getattr(claim, 'submitted_at', None) or getattr(claim, 'created_at', None) or now
     plan = cadence_plan(anchor, anchor, _service_length_days())
     rows = {r.milestone: r for r in claim.follow_up_updates.all()}
     tags = set(claim.zd_tags or [])
@@ -297,7 +299,10 @@ def _submission_anchor(claim, fallback):
         off = _offset_for(first.milestone)
         if off is not None:
             return first.due_at - timedelta(days=off)
-    return fallback
+    # No cadence row yet → anchor to the TRUE claim date (the WooCommerce order date
+    # in submitted_at) when known, so the cadence counts from when the claim was
+    # actually made, not when LORA imported it. Falls back to the caller's value.
+    return getattr(claim, 'submitted_at', None) or fallback
 
 
 def schedule_next(claim, submission_anchor=None, skip_past=False):

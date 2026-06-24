@@ -291,6 +291,12 @@ class Claim(models.Model):
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # The TRUE claim date: when the WooCommerce order was paid (the abandoned cart
+    # became a paid claim). created_at is only when LORA imported the row — for a
+    # back-imported ticket that's the import day, not the claim day — so reports and
+    # the update cadence read `claim_date` (submitted_at when known, else created_at).
+    # Backfilled from WooCommerce by order id; null when there's no order to read.
+    submitted_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     class Meta:
         ordering = ['-created_at']
@@ -306,6 +312,13 @@ class Claim(models.Model):
 
     def __str__(self) -> str:
         return f"Claim #{self.id} ({self.alf_claim_id}) - {self.client_email} ({self.status})"
+
+    @property
+    def claim_date(self):
+        """The true claim date for reports + the update cadence: the WooCommerce
+        order payment date (submitted_at) when known, else the LORA row's
+        created_at (so nothing breaks before/without a backfill)."""
+        return self.submitted_at or self.created_at
 
     @property
     def risk_active(self) -> bool:

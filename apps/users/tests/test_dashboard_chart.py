@@ -80,3 +80,18 @@ class DashboardChartTests(TestCase):
         """The fragment uses a pure-CSS hover reveal (CSP-safe — no JS/eval)."""
         html = self.web.get(reverse('manager_dashboard_chart')).content.decode()
         self.assertIn('group-hover:opacity-100', html)
+
+    def test_claim_buckets_on_submitted_at_not_import_date(self):
+        """A claim imported TODAY (created_at=now) but whose WooCommerce order was
+        paid 5 days ago must land on the order day, not today — otherwise old imports
+        pile onto the import day. submitted_at carries the true claim date."""
+        from datetime import timedelta
+        from django.utils import timezone
+        Claim.objects.create(client_email='old@e.com', alf_claim_id='ALFOLD',
+                             price_paid=Decimal('40.00'),
+                             submitted_at=timezone.now() - timedelta(days=5))
+        cols = self.web.get(reverse('manager_dashboard_chart') + '?range=14&show=claims').context['chart_cols']
+        today_texts = [ln['text'] for ln in cols[-1]['lines']]
+        self.assertIn('Orders 2', today_texts)              # today still just setUp's 2, not 3
+        day5_texts = [ln['text'] for ln in cols[-6]['lines']]   # range 14 → cols[-6] is today-5
+        self.assertIn('Orders 1', day5_texts)               # the import landed on its real day
