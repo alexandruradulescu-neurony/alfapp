@@ -401,14 +401,15 @@ def dispute_prune_resolved(request):
 @manager_required
 @require_POST
 def dispute_link_claim(request, dispute_id):
-    """Attach an unmatched dispute to an existing claim by reference (Zendesk
-    ticket id, ALF claim id, client email, or LORA claim id). Flips RECEIVED→
-    MATCHED and logs it. The fallback for disputes whose PayPal buyer email
-    didn't auto-match a claim."""
+    """Attach (or re-attach) a dispute to a claim by reference (Zendesk ticket
+    id, ALF claim id, client email, or LORA claim id). On a first link, flips
+    RECEIVED→MATCHED; on a relink, re-points an already-linked dispute to a
+    different claim. Either way the dispute's Zendesk ticket follows the claim
+    (the evidence builder reads comments from dispute.zd_ticket_id, so a stale
+    ticket would leak the previous customer's history). The fallback for
+    disputes whose PayPal buyer email didn't auto-match a claim, and the manager
+    fix for a wrong link."""
     dispute = get_object_or_404(Dispute, pk=dispute_id)
-    if dispute.claim_id:
-        messages.info(request, "This dispute is already linked to a claim.")
-        return redirect('disputes:dispute_detail', dispute_id=dispute.id)
 
     ref = (request.POST.get('claim_ref') or '').strip()
     if not ref:
@@ -430,12 +431,17 @@ def dispute_link_claim(request, dispute_id):
         return redirect('disputes:dispute_detail', dispute_id=dispute.id)
 
     claim = matches[0]
+    old_claim = dispute.claim          # None on a first link
+    is_relink = old_claim is not None
+    if is_relink and claim.id == old_claim.id:
+        messages.info(request, f"This dispute is already linked to claim #{claim.id}.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute.id)
 
     # Transaction-id cross-check (same key auto-matching uses): if BOTH sides
     # carry a PayPal transaction id and they DISAGREE, refuse the link unless the
     # manager explicitly confirms — linking the wrong claim mis-attributes a
-    # dispute to another customer's Zendesk case. Manual linking is the intended
-    # override, but a mismatch must be a deliberate, ticked choice.
+    # dispute to another customer's Zendesk case. Manual (re)linking is the
+    # intended override, but a mismatch must be a deliberate, ticked choice.
     dispute_txn = (dispute.transaction_id or '').strip()
     claim_txn = (claim.paypal_transaction_id or '').strip()
     txn_mismatch = bool(dispute_txn and claim_txn and dispute_txn != claim_txn)
@@ -449,22 +455,41 @@ def dispute_link_claim(request, dispute_id):
 
     dispute.claim = claim
     update_fields = ['claim', 'updated_at']
-    if not dispute.zd_ticket_id and claim.zd_ticket_id:
+    # The Zendesk ticket must follow the (re)linked claim — the evidence builder
+    # reads comments from dispute.zd_ticket_id, so a stale ticket from the old
+    # claim would pull the previous customer's history into the narrative.
+    if claim.zd_ticket_id and claim.zd_ticket_id != dispute.zd_ticket_id:
         dispute.zd_ticket_id = claim.zd_ticket_id
         update_fields.append('zd_ticket_id')
     if dispute.status == Dispute.STATUS_RECEIVED:
         dispute.status = Dispute.STATUS_MATCHED
         update_fields.append('status')
-    # Link + audit-log as one unit (no linked dispute without its log entry).
+
+    if is_relink:
+        log_detail = (f"Re-linked from claim #{old_claim.id} ({old_claim.alf_claim_id}) "
+                      f"to claim #{claim.id} ({claim.alf_claim_id}) by {request.user}")
+        success_msg = f"Re-linked dispute to claim #{claim.id} ({claim.alf_claim_id})."
+    else:
+        log_detail = f"Manually linked to claim #{claim.id} ({claim.alf_claim_id}) by {request.user}"
+        success_msg = f"Linked dispute to claim #{claim.id} ({claim.alf_claim_id})."
+    log_detail += " — OVERRIDE: transaction ids differ." if txn_mismatch else "."
+
+    # (Re)link + audit-log as one unit (no linked dispute without its log entry).
     with transaction.atomic():
         dispute.save(update_fields=update_fields)
         DisputeActivityLog.objects.create(
             dispute=dispute, action=DisputeActivityLog.ACTION_DISPUTE_MATCHED,
-            details=(f"Manually linked to claim #{claim.id} ({claim.alf_claim_id}) by {request.user}"
-                     + (" — OVERRIDE: transaction ids differ." if txn_mismatch else ".")))
-    messages.success(request, f"Linked dispute to claim #{claim.id} ({claim.alf_claim_id}).")
+            details=log_detail)
+    messages.success(request, success_msg)
     if txn_mismatch:
         messages.warning(request, "Linked despite differing PayPal transaction IDs (manager override).")
+    # Evidence already sent to PayPal used the OLD claim and can't be unsent —
+    # prompt the manager to regenerate and resubmit the corrected narrative.
+    if is_relink and dispute.submissions.filter(status=DisputeSubmission.STATUS_SUBMITTED).exists():
+        messages.warning(
+            request,
+            "Evidence was already submitted to PayPal under the previous claim. Regenerate "
+            "the narrative and submit again so PayPal receives the corrected version.")
     return redirect('disputes:dispute_detail', dispute_id=dispute.id)
 
 

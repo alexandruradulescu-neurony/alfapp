@@ -435,6 +435,21 @@
         <a href="{% url 'agent_claim_detail' dispute.claim.id %}" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50 mt-2">
           {% heroicon_outline "clipboard-document-list" class="size-4" %} View claim #{{ dispute.claim.id }}
         </a>
+        <details class="mt-2">
+          <summary class="cursor-pointer select-none text-xs text-gray-500 hover:text-gray-700">Change linked claim</summary>
+          <form method="post" action="{% url 'disputes:dispute_link_claim' dispute.id %}" class="mt-2 flex flex-col gap-2">
+            {% csrf_token %}
+            <input type="text" name="claim_ref" required
+                   class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"
+                   placeholder="Zendesk ticket ID, ALF claim ID, or email">
+            <label class="flex items-center gap-2 text-xs text-gray-500">
+              <input type="checkbox" name="override" value="1" class="size-4 rounded border-gray-300 accent-indigo-600">
+              Link even if PayPal transaction IDs differ
+            </label>
+            <p class="lora-meta">Re-points this dispute (and its Zendesk ticket) to a different claim. Regenerate the narrative afterwards.</p>
+            <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">{% heroicon_outline "arrow-path" class="size-4" %} Change claim</button>
+          </form>
+        </details>
       </div>
       {% else %}
       <form method="post" action="{% url 'disputes:dispute_link_claim' dispute.id %}" class="flex flex-col gap-2">

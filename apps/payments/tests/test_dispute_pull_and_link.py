@@ -167,15 +167,47 @@ class TestDisputeLinkClaimView(TestCase):
         self.assertContains(resp, 'Raw PayPal data')
         self.assertContains(resp, 'PP-D-RAW')  # payload rendered verbatim
 
-    def test_already_linked_is_a_noop(self):
+    def test_relink_repoints_claim_and_zendesk_ticket(self):
+        # An already-linked dispute can be moved to a different claim — and the
+        # Zendesk ticket must follow the new claim (the evidence builder reads
+        # comments from dispute.zd_ticket_id, so a stale ticket would leak the
+        # wrong customer's history into the regenerated narrative).
         other = Claim.objects.create(
             alf_claim_id='ALF5550002', zd_ticket_id='55502', client_email='o@example.com',
             status='Investigation initiated', status_category='open')
-        d = _dispute(paypal_dispute_id='PP-D-C', claim=self.claim, status='MATCHED')
+        d = _dispute(paypal_dispute_id='PP-D-C', claim=self.claim,
+                     zd_ticket_id='55501', status='MATCHED')
         resp = self.web.post(self._url(d), {'claim_ref': '55502'}, follow=True)
         d.refresh_from_db()
-        self.assertEqual(d.claim_id, self.claim.id)  # unchanged
-        self.assertContains(resp, 'already linked')
+        self.assertEqual(d.claim_id, other.id)        # moved to the new claim
+        self.assertEqual(d.zd_ticket_id, '55502')     # ticket followed the claim
+        self.assertContains(resp, 'Re-linked')
+
+    def test_relink_logs_from_and_to_claim(self):
+        other = Claim.objects.create(
+            alf_claim_id='ALF5550002', zd_ticket_id='55502', client_email='o@example.com',
+            status='Investigation initiated', status_category='open')
+        d = _dispute(paypal_dispute_id='PP-D-C2', claim=self.claim,
+                     zd_ticket_id='55501', status='MATCHED')
+        self.web.post(self._url(d), {'claim_ref': '55502'})
+        log = DisputeActivityLog.objects.filter(
+            dispute=d, action='DISPUTE_MATCHED').latest('id')
+        self.assertIn(str(self.claim.id), log.details)   # from
+        self.assertIn(str(other.id), log.details)        # to
+
+    def test_relink_blocked_on_txn_mismatch_without_override(self):
+        # The same transaction-id guard the first link uses must also protect a
+        # relink — you can't silently move a dispute onto a claim whose PayPal
+        # transaction id disagrees.
+        other = Claim.objects.create(
+            alf_claim_id='ALF5550003', zd_ticket_id='55503', client_email='x@example.com',
+            paypal_transaction_id='DIFFERENT', status='open', status_category='open')
+        d = _dispute(paypal_dispute_id='PP-D-C3', claim=self.claim,
+                     zd_ticket_id='55501', status='MATCHED', transaction_id='TXN-ORIG')
+        resp = self.web.post(self._url(d), {'claim_ref': '55503'}, follow=True)
+        d.refresh_from_db()
+        self.assertEqual(d.claim_id, self.claim.id)   # unchanged — blocked
+        self.assertContains(resp, 'Not linked')
 
 class TestDisputePruneResolvedView(TestCase):
     URL = '/manager/disputes/prune-resolved/'
