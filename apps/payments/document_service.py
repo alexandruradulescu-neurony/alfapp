@@ -2000,6 +2000,29 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
 # and the manager reviews/edits before submitting) — we warn past this length.
 PAYPAL_NOTES_MAX_CHARS = 2000
 
+# An LLM cannot reliably count its own characters in one shot, so a single
+# "keep it under N" instruction is routinely ignored. Instead we MEASURE the
+# assembled note and, if it overshoots NOTES_TARGET_CHARS, hand the exact length
+# back to the model and ask for a shorter rewrite — up to NARRATIVE_MAX_ATTEMPTS.
+# The target sits below the 2000 hard cap to leave headroom for the section
+# headings the assembler adds, so "the note fits the target" implies "it fits
+# PayPal". We keep the shortest draft produced across attempts.
+NOTES_TARGET_CHARS = 1800
+NARRATIVE_MAX_ATTEMPTS = 3
+
+
+def _condense_directive(assembled_len: int) -> str:
+    """Appended to the narrative system prompt on a retry: tells the model the
+    measured length of its previous draft and demands a shorter rewrite."""
+    return (
+        "\n\nLENGTH CORRECTION (highest priority): your previous draft assembled to "
+        f"{assembled_len} characters, OVER the {NOTES_TARGET_CHARS}-character ceiling. "
+        f"Rewrite ALL FOUR sections to be substantially shorter so the assembled note "
+        f"stays UNDER {NOTES_TARGET_CHARS} characters. Cut the least essential wording; "
+        "keep every concrete fact, date, name, reference, and amount, and keep all four "
+        "sections."
+    )
+
 EVIDENCE_NOTES_SYSTEM_PROMPT = DISPUTE_BUSINESS_CONTEXT + ZENDESK_OPERATIONS_CONTEXT + (
     "You are writing ALF's own evidence narrative for a PayPal "
     "dispute. PayPal's dispute reviewer reads this text to decide the case in "
@@ -2041,8 +2064,9 @@ EVIDENCE_NOTES_SYSTEM_PROMPT = DISPUTE_BUSINESS_CONTEXT + ZENDESK_OPERATIONS_CON
     "to, or reached the customer, or repeat what they said, unless a record "
     "states the call was answered. "
     "Keep each section tight and free of padding. HARD LENGTH LIMIT: the four "
-    "sections combined MUST total under 1900 characters — PayPal rejects the note "
-    "above 2000 — so be concise and cut anything non-essential. Return JSON: {\"opening\": "
+    "sections combined MUST total under 1700 characters — the system adds short "
+    "section headings and PayPal rejects the note above 2000 — so be concise and "
+    "cut anything non-essential. Return JSON: {\"opening\": "
     "<str>, \"authorization\": <str>, \"service_delivery\": <str>, "
     "\"closing\": <str>}."
 )
@@ -2227,28 +2251,54 @@ def build_dispute_narrative_notes(dispute, *, manager_note: str = '', use_ai: bo
     sections = None
     source = 'FALLBACK'
 
+    def _assemble(sec):
+        # _dephone_ips survives the AI dropping the zero-width spaces on any IP.
+        return _dephone_ips(_assemble_narrative_notes(sec, reason=dispute.dispute_reason))
+
     if use_ai:
         try:
             ss = SystemSettings.get_instance()
             if getattr(ss, 'ai_api_key', ''):
                 from apps.ai.client import AIClient
                 from apps.ai.schemas import DisputeNarrative
-                result = AIClient.complete(
-                    system_prompt=EVIDENCE_NOTES_SYSTEM_PROMPT,
-                    trusted=_dispute_narrative_facts(dispute, bundle, manager_note=manager_note),
-                    untrusted=_narrative_untrusted(bundle),
-                    known_pii=_known_pii_for(claim),
-                    response_schema=DisputeNarrative,
-                    call_site='dispute_narrative_notes',
-                    temperature=0.4,
-                    max_tokens=8192,
-                )
-                sections = {
-                    'opening': result.opening,
-                    'authorization': result.authorization,
-                    'service_delivery': result.service_delivery,
-                    'closing': result.closing,
-                }
+                trusted = _dispute_narrative_facts(dispute, bundle, manager_note=manager_note)
+                untrusted = _narrative_untrusted(bundle)
+                known_pii = _known_pii_for(claim)
+                # Generate, MEASURE the assembled note, and if it overshoots the
+                # target hand the exact length back and ask for a shorter rewrite.
+                # Keep the shortest draft across attempts; never loop forever.
+                best = None       # (assembled_notes, sections) with the fewest chars
+                directive = ''
+                for attempt in range(NARRATIVE_MAX_ATTEMPTS):
+                    result = AIClient.complete(
+                        system_prompt=EVIDENCE_NOTES_SYSTEM_PROMPT + directive,
+                        trusted=trusted,
+                        untrusted=untrusted,
+                        known_pii=known_pii,
+                        response_schema=DisputeNarrative,
+                        call_site='dispute_narrative_notes',
+                        temperature=0.4,
+                        max_tokens=8192,
+                    )
+                    candidate_sections = {
+                        'opening': result.opening,
+                        'authorization': result.authorization,
+                        'service_delivery': result.service_delivery,
+                        'closing': result.closing,
+                    }
+                    candidate_notes = _assemble(candidate_sections)
+                    if best is None or len(candidate_notes) < len(best[0]):
+                        best = (candidate_notes, candidate_sections)
+                    if len(candidate_notes) <= NOTES_TARGET_CHARS:
+                        break
+                    logger.info(
+                        "Dispute #%s narrative attempt %d/%d assembled to %d chars "
+                        "(> %d target); asking the model to condense.",
+                        getattr(dispute, 'pk', '?'), attempt + 1, NARRATIVE_MAX_ATTEMPTS,
+                        len(candidate_notes), NOTES_TARGET_CHARS,
+                    )
+                    directive = _condense_directive(len(candidate_notes))
+                sections = best[1]
                 source = 'AI'
         except Exception as e:
             logger.warning(f"Dispute narrative AI unavailable; using deterministic fallback: {e}")
@@ -2258,12 +2308,11 @@ def build_dispute_narrative_notes(dispute, *, manager_note: str = '', use_ai: bo
         sections = _fallback_narrative_sections(dispute, bundle)
         source = 'FALLBACK'
 
-    notes = _assemble_narrative_notes(sections, reason=dispute.dispute_reason)
-    notes = _dephone_ips(notes)   # survive the AI dropping the zero-width spaces on any IP
+    notes = _assemble(sections)
     if len(notes) > PAYPAL_NOTES_MAX_CHARS:
         logger.warning(
-            "Dispute #%s narrative is %d chars — PayPal caps dispute notes near %d; "
-            "the manager should trim before submitting.",
+            "Dispute #%s narrative is %d chars after the AI condense pass — PayPal "
+            "caps dispute notes near %d; the manager should trim before submitting.",
             getattr(dispute, 'pk', '?'), len(notes), PAYPAL_NOTES_MAX_CHARS,
         )
     return {'notes': notes, 'source': source, 'sections': sections}

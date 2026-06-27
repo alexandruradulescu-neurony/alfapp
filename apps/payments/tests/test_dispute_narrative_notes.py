@@ -241,3 +241,67 @@ class NotesLengthWarningTests(TestCase):
             out = ds.build_dispute_narrative_notes(d)
         self.assertGreater(len(out['notes']), ds.PAYPAL_NOTES_MAX_CHARS)
         self.assertTrue(any('caps dispute notes' in str(c) for c in warn.call_args_list))
+
+
+class NarrativeLengthEnforcementTests(TestCase):
+    """The AI cannot count its own characters, so build_dispute_narrative_notes
+    MEASURES the assembled note and, if it overshoots, hands the exact overage
+    back to the model and asks for a shorter rewrite — capped, never looping
+    forever, and always keeping the shortest draft it produced."""
+
+    def setUp(self):
+        ss = SystemSettings.get_instance()
+        ss.ai_api_key = 'test-key'
+        ss.pii_tokenization_salt = 'unit-test-salt'
+        ss.save()
+
+    def _narr(self, n):
+        from apps.ai.schemas import DisputeNarrative
+        block = 'x' * n
+        return DisputeNarrative(opening=block, authorization=block,
+                                service_delivery=block, closing=block)
+
+    def test_overlong_draft_is_condensed_via_retry(self):
+        claim = _full_claim()
+        d = _dispute(claim=claim, zd_ticket_id='97001')
+        # First reply blows past PayPal's cap; the retry comes back short.
+        replies = [self._narr(700), self._narr(80)]
+        with patch.object(ds, '_fetch_zendesk_ticket_full',
+                          return_value={'ticket': {}, 'comments': COMMENTS}), \
+             patch('apps.ai.client.AIClient.complete', side_effect=replies) as ai:
+            out = ds.build_dispute_narrative_notes(d)
+        self.assertEqual(ai.call_count, 2)                       # it retried once
+        self.assertEqual(out['source'], 'AI')
+        self.assertLessEqual(len(out['notes']), ds.PAYPAL_NOTES_MAX_CHARS)
+        # the retry's instructions changed and named the target ceiling
+        first_prompt = ai.call_args_list[0].kwargs['system_prompt']
+        retry_prompt = ai.call_args_list[1].kwargs['system_prompt']
+        self.assertNotEqual(retry_prompt, first_prompt)
+        self.assertIn(str(ds.NOTES_TARGET_CHARS), retry_prompt)
+
+    def test_first_draft_within_target_does_not_retry(self):
+        claim = _full_claim()
+        d = _dispute(claim=claim, zd_ticket_id='97001')
+        with patch.object(ds, '_fetch_zendesk_ticket_full',
+                          return_value={'ticket': {}, 'comments': COMMENTS}), \
+             patch('apps.ai.client.AIClient.complete',
+                   side_effect=[self._narr(80)]) as ai:
+            out = ds.build_dispute_narrative_notes(d)
+        ai.assert_called_once()                                  # no wasted retry
+        self.assertEqual(out['source'], 'AI')
+
+    def test_gives_up_after_max_attempts_and_keeps_shortest(self):
+        claim = _full_claim()
+        d = _dispute(claim=claim, zd_ticket_id='97001')
+        # Every attempt overshoots, but each is shorter than the one before.
+        sizes = [900 - i * 100 for i in range(ds.NARRATIVE_MAX_ATTEMPTS)]
+        with patch.object(ds, '_fetch_zendesk_ticket_full',
+                          return_value={'ticket': {}, 'comments': COMMENTS}), \
+             patch('apps.ai.client.AIClient.complete',
+                   side_effect=[self._narr(n) for n in sizes]) as ai:
+            out = ds.build_dispute_narrative_notes(d)
+        self.assertEqual(ai.call_count, ds.NARRATIVE_MAX_ATTEMPTS)  # capped, no infinite loop
+        self.assertEqual(out['source'], 'AI')
+        # It returned the SHORTEST attempt, not the first.
+        shortest = min(sizes)
+        self.assertIn('x' * shortest, out['notes'])
