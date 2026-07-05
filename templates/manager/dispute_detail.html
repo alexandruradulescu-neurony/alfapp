@@ -161,9 +161,12 @@
       </div>
       {% endif %}
 
-      <!-- Compose: generate / save (multipart for images) -->
+      <!-- Compose: generate / save / send (multipart for images). The Send
+           button below the attachments strip submits THIS form with
+           action=send, so the text and ticks on screen are exactly what
+           goes to PayPal — no separate "Save draft" click needed first. -->
       <form method="post" action="{% url 'disputes:dispute_prepare_submission' dispute.id %}"
-            enctype="multipart/form-data" class="space-y-4" data-block>
+            enctype="multipart/form-data" class="space-y-4" data-block id="dispute-composer">
         {% csrf_token %}
         <div>
           <label class="block text-sm font-medium text-gray-900 mb-1">What to emphasise (feeds the AI)</label>
@@ -199,13 +202,17 @@
           <div>
             <label class="block text-sm font-medium text-gray-900 mb-1">Attachments (evidence)</label>
             <label class="flex items-center gap-2 text-sm {% if not has_evidence_pdf %}opacity-50{% endif %}">
+              {# Default ON while the report has never been sent (like terms/invoice); #}
+              {# once it went out with a reply, follow-ups default to text-only. #}
               <input type="checkbox" name="attach_evidence_pdf" class="size-4 rounded border-gray-300 accent-indigo-600"
-                     {% if draft_submission.attach_evidence_pdf %}checked{% endif %}
+                     {% if draft_submission %}{% if draft_submission.attach_evidence_pdf %}checked{% endif %}{% elif has_evidence_pdf and not report_already_sent %}checked{% endif %}
                      {% if not has_evidence_pdf %}disabled{% endif %}>
               Attach the evidence-report PDF
             </label>
             {% if not has_evidence_pdf %}
             <span class="lora-meta mt-1 block">Generate the evidence report below to enable this.</span>
+            {% elif report_already_sent %}
+            <span class="lora-meta mt-1 block">Already sent with an earlier reply — tick only to send it again.</span>
             {% endif %}
             <label class="flex items-center gap-2 text-sm mt-1.5 {% if not has_terms_pdf %}opacity-50{% endif %}">
               <input type="checkbox" name="attach_terms" class="size-4 rounded border-gray-300 accent-indigo-600"
@@ -267,20 +274,16 @@
       </div>
       {% endif %}
 
-      <!-- Send to PayPal (outward, money-relevant — confirm). Channel auto-picked by stage. -->
+      <!-- Send to PayPal (outward, money-relevant — confirm). Channel auto-picked
+           by stage. Bound to the composer form above (form=), so it sends the
+           screen state: text, ticks, and any newly chosen files. -->
       <div class="my-5 border-t border-gray-200"></div>
-      <form method="post" action="{% url 'disputes:dispute_submit_to_paypal' dispute.id %}" data-block
-            onsubmit="return confirm('Send this reply to PayPal now? This sends your message and any attachments.');">
-        {% csrf_token %}
-        <button type="submit" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                {% if not draft_submission or not draft_submission.notes or not submit_endpoint %}disabled{% endif %}>
-          {% heroicon_outline "paper-airplane" class="size-4" %}
-          {% if submit_endpoint == 'provide-supporting-info' %}Send follow-up to PayPal{% else %}Send reply to PayPal{% endif %}
-        </button>
-        {% if not draft_submission or not draft_submission.notes %}
-        <span class="lora-meta mt-2 block">Write or generate a message and Save draft first.</span>
-        {% endif %}
-      </form>
+      <button type="submit" form="dispute-composer" name="action" value="send" id="send-to-paypal-btn"
+              class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              {% if not submit_endpoint %}disabled{% endif %}>
+        {% heroicon_outline "paper-airplane" class="size-4" %}
+        {% if submit_endpoint == 'provide-supporting-info' %}Send follow-up to PayPal{% else %}Send reply to PayPal{% endif %}
+      </button>
     </div>
 
     <!-- Evidence report — the attachable PDF artifact -->
@@ -506,6 +509,27 @@ document.querySelectorAll('form[data-block]').forEach(function (form) {
         }, 0);
     });
 });
+
+// Send-to-PayPal confirm — the message reflects the LIVE tick state (the send
+// posts the composer form, so what you see is what goes out). Warn loudly only
+// while the report has never been sent; once it went out with a reply,
+// text-only follow-ups are normal and stay quiet.
+(function () {
+    var btn = document.getElementById('send-to-paypal-btn');
+    if (!btn) return;
+    btn.addEventListener('click', function (e) {
+        var form = document.getElementById('dispute-composer');
+        var cb = form ? form.elements['attach_evidence_pdf'] : null;
+        var attached = !!(cb && !cb.disabled && cb.checked);
+        var msg = 'Send this reply to PayPal now? It goes out exactly as shown — text and ticked attachments.';
+        {% if has_evidence_pdf and not report_already_sent %}
+        if (!attached) {
+            msg = 'The evidence report has NOT been sent to PayPal for this dispute yet, and it is not ticked. Send without the report?';
+        }
+        {% endif %}
+        if (!confirm(msg)) e.preventDefault();
+    });
+})();
 
 // Composer live char counter — PayPal caps the reply/notes field near
 // paypal_notes_max; the service also warns past it server-side.

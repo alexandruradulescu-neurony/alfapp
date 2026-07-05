@@ -54,7 +54,10 @@ class DisputeDetailRedesignGuard(TestCase):
         for endpoint in [
             f'/manager/disputes/{did}/refresh-from-paypal/',
             f'/manager/disputes/{did}/prepare-submission/',
-            f'/manager/disputes/{did}/submit-to-paypal/',
+            # NB: /submit-to-paypal/ is intentionally no longer referenced by the
+            # page — the Send button posts the composer form (action=send) so the
+            # screen state is exactly what goes out. The legacy URL still works
+            # (see test_dispute_report_attachment.LegacySubmitUrlTests).
             f'/manager/disputes/{did}/generate-documents/',
             f'/manager/disputes/{did}/set-category/',
             f'/manager/disputes/{did}/accept-claim/',
@@ -68,6 +71,7 @@ class DisputeDetailRedesignGuard(TestCase):
         html = self._html()
         self.assertIn('composer-notes', html)     # char-counter target
         self.assertIn('composer-count', html)
+        self.assertIn('send-to-paypal-btn', html)  # one-step send (composer action=send)
         self.assertIn('thread-toggle', html)       # conversation expand/collapse
         self.assertIn('Raw PayPal data', html)     # manager debug payload
 

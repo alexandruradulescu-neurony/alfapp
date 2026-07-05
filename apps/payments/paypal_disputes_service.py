@@ -664,8 +664,10 @@ def _build_submission_files(submission: DisputeSubmission) -> List[dict]:
 
 
 def _record_submission_outcome(submission: DisputeSubmission, *, status, performed_by,
-                               response, action='') -> None:
-    """Persist a submission's terminal state + an activity-log line, in one txn."""
+                               response, action='', attachments=None) -> None:
+    """Persist a submission's terminal state + an activity-log line, in one txn.
+    `attachments` is the multipart files list actually uploaded — its names go
+    into the log line so "did the report go out?" is answerable from the UI."""
     from django.utils import timezone
     with transaction.atomic():
         fields = ['status', 'paypal_response', 'updated_at']
@@ -681,7 +683,11 @@ def _record_submission_outcome(submission: DisputeSubmission, *, status, perform
             fields.append('submitted_at')
         submission.save(update_fields=fields)
         if status == DisputeSubmission.STATUS_SUBMITTED:
-            details = (f"Submitted to PayPal via {action} (submission #{submission.id}).")
+            attached = ', '.join(
+                (f.get('filename') or f.get('name') or '?') for f in (attachments or []))
+            suffix = f" Attachments: {attached}." if attached else " No attachments."
+            details = (f"Submitted to PayPal via {action} (submission #{submission.id})."
+                       f"{suffix}")
             log_action = DisputeActivityLog.ACTION_EVIDENCE_SENT
         else:
             details = (f"PayPal submission #{submission.id} FAILED ({action or 'no endpoint'}): "
@@ -731,7 +737,7 @@ def submit_dispute_response(submission: DisputeSubmission, *, performed_by=None)
 
     _record_submission_outcome(submission, status=DisputeSubmission.STATUS_SUBMITTED,
                                performed_by=performed_by,
-                               response=response, action=endpoint)
+                               response=response, action=endpoint, attachments=files)
     # Re-sync OUTSIDE the DB transaction (network I/O): refresh state + evidences[].
     try:
         sync_dispute_from_paypal(dispute.paypal_dispute_id)
