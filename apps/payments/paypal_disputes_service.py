@@ -746,6 +746,77 @@ def submit_dispute_response(submission: DisputeSubmission, *, performed_by=None)
     return True
 
 
+# Fixed note for the report backfill follow-up (no AI involved). Short, factual,
+# and far under PayPal's 2000-char note cap.
+MISSING_REPORT_FOLLOWUP_NOTE = (
+    "Please add the attached evidence report to this case. It is our standard "
+    "dispute settlement report for this transaction and documents the service we "
+    "provided: the claim intake, the customer's authorization, the search work "
+    "performed with the airport lost and found offices, and our communication "
+    "with the customer. It supports the evidence we submitted earlier in this "
+    "dispute."
+)
+
+
+def send_missing_dispute_reports(*, dry_run=False) -> dict:
+    """Backfill: send the evidence-report PDF as a follow-up on disputes whose
+    earlier replies went to PayPal WITHOUT it (the attach tick silently
+    defaulted off until PR #114 fixed the composer).
+
+    A dispute qualifies when ALL hold:
+      - a generated evidence-report PDF exists (non-empty file),
+      - it has at least one SUBMITTED reply and none of them carried the report,
+      - PayPal still accepts a reply (submit_endpoint non-empty),
+      - no DRAFT is open (a manager mid-work keeps priority; skipped + counted).
+
+    Each candidate gets a fresh submission carrying ONLY the report (terms and
+    invoice went out with the original reply), pushed through the normal
+    submit_dispute_response machinery so activity-logging, failure recording and
+    the post-submit re-sync behave exactly like a manual send. Idempotent: a
+    sent report makes its dispute a non-candidate on the next run.
+    """
+    summary = {'candidates': 0, 'sent': 0, 'failed': 0, 'skipped_draft': 0,
+               'disputes': [], 'failed_disputes': []}
+    report_dispute_ids = (DisputeDocument.objects
+                          .filter(doc_type=DisputeDocument.DOC_TYPE_EVIDENCE_REPORT)
+                          .exclude(file_path='')
+                          .values_list('dispute_id', flat=True).distinct())
+    for dispute in Dispute.objects.filter(id__in=list(report_dispute_ids)).order_by('id'):
+        subs = DisputeSubmission.objects.filter(dispute=dispute)
+        if not subs.filter(status=DisputeSubmission.STATUS_SUBMITTED).exists():
+            continue    # never engaged — the manager's first send handles the report
+        if subs.filter(status=DisputeSubmission.STATUS_SUBMITTED,
+                       attach_evidence_pdf=True).exists():
+            continue    # report already went out with an earlier reply
+        if not dispute.submit_endpoint:
+            continue    # reply window closed — nothing can be sent
+        if subs.filter(status=DisputeSubmission.STATUS_DRAFT).exists():
+            summary['skipped_draft'] += 1   # manager mid-work — leave it to them
+            continue
+        summary['candidates'] += 1
+        summary['disputes'].append(dispute.id)
+        if dry_run:
+            continue
+        submission = DisputeSubmission.objects.create(
+            dispute=dispute,
+            notes=MISSING_REPORT_FOLLOWUP_NOTE,
+            source=DisputeSubmission.SOURCE_MANUAL,
+            status=DisputeSubmission.STATUS_DRAFT,
+            attach_evidence_pdf=True,
+            attach_terms=False,
+            attach_invoice=False,
+        )
+        ok = submit_dispute_response(submission, performed_by=None)
+        if ok:
+            summary['sent'] += 1
+        else:
+            summary['failed'] += 1
+            summary['failed_disputes'].append(dispute.id)
+            logger.error(f"Report backfill failed for Dispute #{dispute.id} "
+                         f"(submission #{submission.id}) — see its activity log.")
+    return summary
+
+
 # ---------------------------------------------------------------------------
 # Phase 2 — inbound: verify PayPal's signature, then ingest the dispute
 # ---------------------------------------------------------------------------
