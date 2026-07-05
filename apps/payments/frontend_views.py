@@ -576,6 +576,7 @@ def dispute_detail(request, dispute_id):
         'has_evidence_pdf': has_evidence_pdf,
         'has_terms_pdf': has_terms_pdf,
         'has_invoice': has_invoice,
+        'report_already_sent': _report_already_sent(dispute),
         'evidence_type_default': evidence_type_for_reason(dispute.dispute_reason),
         # Soft cap surfaced in the composer's live counter (PayPal caps the notes
         # field near here; the service also warns past it).
@@ -589,6 +590,15 @@ def _working_draft(dispute):
     """The dispute's current DRAFT submission being prepared (latest), or None."""
     return dispute.submissions.filter(
         status=DisputeSubmission.STATUS_DRAFT).order_by('-created_at').first()
+
+
+def _report_already_sent(dispute):
+    """True once any SUBMITTED reply of this dispute carried the evidence-report
+    PDF. After that the attach tick stops defaulting on and the send-time
+    warning goes quiet — later exchanges with PayPal are usually text-only."""
+    return dispute.submissions.filter(
+        status=DisputeSubmission.STATUS_SUBMITTED,
+        attach_evidence_pdf=True).exists()
 
 
 @manager_required
@@ -632,6 +642,12 @@ def dispute_generate_documents(request, dispute_id):
     try:
         evidence_report = generate_evidence_report(dispute_id)
         if evidence_report:
+            # Generating the report signals intent to send it — tick the working
+            # draft (if one is open) so the next send carries the fresh PDF.
+            draft = _working_draft(dispute)
+            if draft and not draft.attach_evidence_pdf:
+                draft.attach_evidence_pdf = True
+                draft.save(update_fields=['attach_evidence_pdf', 'updated_at'])
             messages.success(request, f"Evidence report generated successfully (Document #{evidence_report.id})")
         else:
             messages.warning(request, "Failed to generate evidence report")
@@ -781,11 +797,14 @@ def dispute_set_category(request, dispute_id):
 def dispute_prepare_submission(request, dispute_id):
     """Prepare (draft) the submission to PayPal — feature B.
 
-    Two actions on one form:
+    Three actions on one form:
     - action=generate: (re)write the AI evidence narrative into the working
       DRAFT submission, using the manager's emphasis note.
     - action=save: store the manager's edits (narrative text, emphasis note,
       evidence_type, attach-PDF tick) plus any uploaded images.
+    - action=send: save exactly like 'save', then submit the draft to PayPal
+      in the same request — what's on screen is what goes out, so a tick (or
+      untick) no longer needs a separate "Save draft" click to count.
 
     POST /manager/disputes/<id>/prepare-submission/
     """
@@ -807,6 +826,12 @@ def dispute_prepare_submission(request, dispute_id):
         draft.manager_note = manager_note
         draft.source = DisputeSubmission.SOURCE_AI  # machine-drafted (template fallback is still AI-origin)
         draft.status = DisputeSubmission.STATUS_DRAFT
+        # The composer posts the attachment ticks with every button, so keep the
+        # draft in step with the screen here too — ignoring them left drafts
+        # created via "Draft with AI" with the report tick silently off.
+        draft.attach_evidence_pdf = request.POST.get('attach_evidence_pdf') == 'on'
+        draft.attach_terms = request.POST.get('attach_terms') == 'on'
+        draft.attach_invoice = request.POST.get('attach_invoice') == 'on'
         if not draft.evidence_type:
             draft.evidence_type = evidence_type_for_reason(dispute.dispute_reason)
         draft.save()
@@ -816,7 +841,7 @@ def dispute_prepare_submission(request, dispute_id):
             messages.success(request, "Draft narrative generated. Review and edit before submitting.")
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
-    # action == 'save'
+    # action == 'save' or 'send' — both persist the screen state first.
     if draft is None:
         draft = DisputeSubmission(dispute=dispute, source=DisputeSubmission.SOURCE_MANUAL)
     notes = request.POST.get('notes', '')
@@ -847,6 +872,8 @@ def dispute_prepare_submission(request, dispute_id):
             continue
         DisputeSubmissionImage.objects.create(submission=draft, file=f, uploaded_by=request.user)
         saved += 1
+    if action == 'send':
+        return _submit_working_draft(request, dispute)
     msg = "Submission draft saved."
     if saved:
         msg += f" {saved} file{'s' if saved != 1 else ''} attached."
@@ -863,6 +890,14 @@ def dispute_submit_to_paypal(request, dispute_id):
     POST /manager/disputes/<id>/submit-to-paypal/
     """
     dispute = get_object_or_404(Dispute, pk=dispute_id)
+    return _submit_working_draft(request, dispute)
+
+
+def _submit_working_draft(request, dispute):
+    """Validate and send the dispute's working DRAFT to PayPal, with the
+    2000-char guard, the reply-window check, and the double-click claim.
+    Shared by the legacy submit button and the composer's one-step send."""
+    dispute_id = dispute.id
     draft = _working_draft(dispute)
     if draft is None or not (draft.notes or '').strip():
         messages.error(request, "Prepare a submission first — generate or write the narrative, then save.")
