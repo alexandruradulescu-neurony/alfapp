@@ -227,7 +227,7 @@ def paypal_json_request(url: str, *, access_token: str, method: str,
     wait=wait_exponential(multiplier=1, min=4, max=10),
     retry=retry_if_exception_type((urllib.error.HTTPError, urllib.error.URLError))
 )
-def fetch_dispute_details(dispute_id: str) -> Optional[Dict[str, Any]]:
+def fetch_dispute_details(dispute_id: str, timeout: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """
     Fetch full dispute details from PayPal.
 
@@ -237,6 +237,9 @@ def fetch_dispute_details(dispute_id: str) -> Optional[Dict[str, Any]]:
 
     Args:
         dispute_id: The PayPal dispute ID (e.g., PP-D-XXXXX)
+        timeout: socket timeout in seconds; None uses settings.PAYPAL_TIMEOUT
+            (30). Callers that block a page (the on-open refresh) pass a short
+            timeout so a slow PayPal can't hang the request.
 
     Returns:
         Dictionary with dispute details if successful, None on failure.
@@ -270,10 +273,10 @@ def fetch_dispute_details(dispute_id: str) -> Optional[Dict[str, Any]]:
             method='GET'
         )
 
-        # Use configurable timeout
-        timeout = getattr(settings, 'PAYPAL_TIMEOUT', 30)
+        # Use the caller's timeout if given, else the configurable default.
+        t = timeout if timeout is not None else getattr(settings, 'PAYPAL_TIMEOUT', 30)
 
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=t) as response:
             dispute_data = json.loads(response.read().decode('utf-8'))
             logger.info(f"Successfully fetched dispute details for {dispute_id}")
             return dispute_data
@@ -1115,13 +1118,16 @@ def ingest_dispute(dispute_id: str, raw_event: dict = None):
     return dispute, True
 
 
-def sync_dispute_from_paypal(dispute_id: str):
+def sync_dispute_from_paypal(dispute_id: str, *, timeout: Optional[int] = None):
     """Refresh a local Dispute from PayPal (Phase 3 — UPDATED/RESOLVED events).
 
     Updates stage, deadline, amount and reason; on a RESOLVED dispute maps
     PayPal's outcome to RESOLVED_WON / RESOLVED_LOST. Does NOT clobber the
     human workflow status (DOCUMENTS_READY etc.) on a mere UPDATE — only a
     resolution changes the LORA status. Returns the Dispute or None.
+
+    `timeout` bounds the PayPal fetch (forwarded to fetch_dispute_details); the
+    on-open page refresh passes a short one so it can't hang the page.
     """
     from django.utils import timezone
 
@@ -1135,7 +1141,7 @@ def sync_dispute_from_paypal(dispute_id: str):
             raise RuntimeError(f"Could not ingest dispute {dispute_id}: PayPal unreachable")
         return dispute
 
-    details = fetch_dispute_details(dispute_id)
+    details = fetch_dispute_details(dispute_id, timeout=timeout)
     if not details:
         # Couldn't fetch — RAISE rather than return quietly, so a webhook caller
         # doesn't mark the event processed without actually syncing.
@@ -1181,3 +1187,28 @@ def sync_dispute_from_paypal(dispute_id: str):
         dispute.save(update_fields=list(set(update_fields)) + ['updated_at'])
         logger.info(f"Synced dispute {dispute_id}: {update_fields}")
     return dispute
+
+
+# Short timeout for the on-open page refresh: enough for a healthy PayPal, short
+# enough that a slow/unreachable PayPal can't hang the dispute page.
+DISPUTE_ONLOAD_SYNC_TIMEOUT = 8
+
+
+def refresh_dispute_for_view(dispute) -> None:
+    """Best-effort refresh when a manager OPENS the dispute page: pull PayPal's
+    current record so the page reflects the latest — including any response a
+    colleague submitted directly on PayPal's site (which arrives as a
+    SUBMITTED_BY_SELLER evidence / SELLER message in the payload).
+
+    Never raises and never blocks for long: synthetic (manual) and already-
+    resolved disputes are skipped (nothing new will come), the fetch is bounded
+    by a short timeout, and ANY failure leaves the stored copy untouched."""
+    if (dispute.paypal_dispute_id or '').startswith('MANUAL-'):
+        return
+    if dispute.status in Dispute.TERMINAL_STATUSES:
+        return
+    try:
+        sync_dispute_from_paypal(dispute.paypal_dispute_id,
+                                 timeout=DISPUTE_ONLOAD_SYNC_TIMEOUT)
+    except Exception as e:
+        logger.warning(f"On-open PayPal refresh failed for dispute #{dispute.id}: {e}")

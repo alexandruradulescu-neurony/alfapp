@@ -2391,6 +2391,13 @@ def build_dispute_reply_timeline(dispute) -> list:
                         for m in (payload.get('messages') or [])
                         if (m.get('posted_by') or '').upper() == 'BUYER'}
 
+    # Text of the replies WE sent through LORA (SUBMITTED only). PayPal echoes
+    # each back as a SELLER evidence/message, so matching by normalized text lets
+    # us drop the echo (already shown as our own submission above) and flag the
+    # REMAINING seller entries as replies a colleague made directly on PayPal.
+    _our_reply_texts = {_norm(s.notes) for s in dispute.submissions.all()
+                        if s.status == 'SUBMITTED' and _norm(s.notes)}
+
     # PayPal also tells us how else we may respond (e.g. accept the claim by
     # refunding). Surface it on the request card rather than ignoring it.
     _aro = payload.get('allowed_response_options') or {}
@@ -2403,6 +2410,7 @@ def build_dispute_reply_timeline(dispute) -> list:
         src = (ev.get('source') or '').upper()
         etype = (ev.get('evidence_type') or '').upper()
         notes = ev.get('notes') or ''
+        via_paypal = False
         if src == 'REQUESTED_FROM_SELLER':
             # PayPal lists EACH acceptable evidence type as its own entry, all
             # stamped with the same time — it is ONE request offering options,
@@ -2425,9 +2433,13 @@ def build_dispute_reply_timeline(dispute) -> list:
             actor = 'Buyer'
             title = 'Buyer opened the dispute' if etype == 'CREATE' else 'Buyer submitted to PayPal'
         elif src == 'SUBMITTED_BY_SELLER':
-            # We submitted this — say so plainly (the old 'On file at PayPal'
-            # left the manager unsure whether it had actually been sent).
-            actor, title = 'Airport Lost Found', 'Submitted to PayPal'
+            # Our seller-side evidence. If it echoes a reply we sent from LORA,
+            # skip it — it's already shown above as our own submission.
+            if _norm(notes) and _norm(notes) in _our_reply_texts:
+                continue
+            # No matching LORA submission → a colleague submitted this straight
+            # on PayPal. Show it, flagged so the team sees where it came from.
+            actor, title, via_paypal = 'Airport Lost Found', 'Submitted on PayPal directly', True
         else:
             # Unknown/other source: recorded at PayPal but not clearly ours —
             # never claim it under our name.
@@ -2444,6 +2456,7 @@ def build_dispute_reply_timeline(dispute) -> list:
             'kind': 'paypal_evidence', 'title': title, 'status': '',
             'source': shown_type, 'text': notes[:_CASE_LOG_TEXT_DISPLAY_CHARS],
             'doc_count': len(docs) if isinstance(docs, list) else 0,
+            'via_paypal': via_paypal,
         })
 
     # One card per PayPal request, listing every acceptable evidence type with
@@ -2463,14 +2476,24 @@ def build_dispute_reply_timeline(dispute) -> list:
 
     for m in (payload.get('messages') or []):
         by = (m.get('posted_by') or '').upper()
+        content = m.get('content') or ''
         actor = ('Buyer' if by == 'BUYER'
                  else 'PayPal' if by in ('ARBITER', 'PAYPAL')
                  else 'Airport Lost Found')
+        title, via_paypal = 'Message', False
+        if actor == 'Airport Lost Found':
+            # A seller message. Drop it if it echoes a message we sent from LORA
+            # (already shown as our submission); otherwise a colleague sent it
+            # directly on PayPal — flag it.
+            if _norm(content) and _norm(content) in _our_reply_texts:
+                continue
+            title, via_paypal = 'Message sent on PayPal', True
         when = _parse_dt(m.get('time_posted') or m.get('create_time'))
         entries.append({
             'when': when, 'when_str': _fmt_zd_time(when), 'actor': actor,
-            'kind': 'paypal_message', 'title': 'Message', 'status': '',
-            'source': '', 'text': (m.get('content') or '')[:_CASE_LOG_TEXT_DISPLAY_CHARS],
+            'kind': 'paypal_message', 'title': title, 'status': '',
+            'source': '', 'text': content[:_CASE_LOG_TEXT_DISPLAY_CHARS],
+            'via_paypal': via_paypal,
         })
 
     entries.sort(key=lambda e: (e['when'] is None, e['when'] or _TIMELINE_MIN_DT))
