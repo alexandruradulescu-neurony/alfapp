@@ -683,11 +683,17 @@ def _record_submission_outcome(submission: DisputeSubmission, *, status, perform
             fields.append('submitted_at')
         submission.save(update_fields=fields)
         if status == DisputeSubmission.STATUS_SUBMITTED:
-            attached = ', '.join(
-                (f.get('filename') or f.get('name') or '?') for f in (attachments or []))
-            suffix = f" Attachments: {attached}." if attached else " No attachments."
-            details = (f"Submitted to PayPal via {action} (submission #{submission.id})."
-                       f"{suffix}")
+            if submission.kind == DisputeSubmission.KIND_MESSAGE:
+                # A buyer message carries no attachments — don't tack on the
+                # evidence path's "No attachments." (reads as a mistake here).
+                details = (f"Message sent to the buyer via PayPal "
+                           f"(submission #{submission.id}).")
+            else:
+                attached = ', '.join(
+                    (f.get('filename') or f.get('name') or '?') for f in (attachments or []))
+                suffix = f" Attachments: {attached}." if attached else " No attachments."
+                details = (f"Submitted to PayPal via {action} (submission #{submission.id})."
+                           f"{suffix}")
             log_action = DisputeActivityLog.ACTION_EVIDENCE_SENT
         else:
             details = (f"PayPal submission #{submission.id} FAILED ({action or 'no endpoint'}): "
@@ -815,6 +821,74 @@ def send_missing_dispute_reports(*, dry_run=False) -> dict:
             logger.error(f"Report backfill failed for Dispute #{dispute.id} "
                          f"(submission #{submission.id}) — see its activity log.")
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Buyer message channel — the reply PayPal accepts at the INQUIRY stage (and any
+# other open stage) when formal evidence upload isn't available yet.
+# ---------------------------------------------------------------------------
+
+def _post_dispute_message(dispute_id: str, message: str):
+    """POST a plain buyer message to .../{dispute_id}/send-message (JSON, not
+    multipart — send-message takes only {"message": ...}). Transport ONLY, no DB
+    writes. Returns (ok: bool, response: dict) mirroring the multipart transport
+    so the orchestration records it the same way."""
+    access_token = get_paypal_access_token()
+    if not access_token:
+        logger.error(f"Cannot send message for dispute {dispute_id}: no access token")
+        return False, {'error': 'no_access_token'}
+    url = f"{paypal_api_base()}/v1/customer/disputes/{dispute_id}/send-message"
+    try:
+        body = paypal_json_request(
+            url, access_token=access_token, method='POST', payload={'message': message})
+        return True, (body or {'ok': True})
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ''
+        logger.error(f"HTTP error sending message for dispute {dispute_id}: {e.code} - {error_body}")
+        return False, {'error': 'http_error', 'code': e.code, 'body': error_body[:1000]}
+    except urllib.error.URLError as e:
+        logger.error(f"URL error sending message for dispute {dispute_id}: {e.reason}")
+        return False, {'error': 'url_error', 'reason': str(e.reason)}
+    except Exception as e:
+        logger.error(f"Unexpected error sending message for dispute {dispute_id}: {e}")
+        return False, {'error': 'unexpected', 'detail': str(e)[:500]}
+
+
+def send_dispute_message(dispute: Dispute, message: str, *, performed_by=None) -> bool:
+    """Send a message to the buyer via PayPal and record it as a MESSAGE
+    submission so it lands on the dispute timeline like every other reply.
+
+    Records the outcome (SUBMITTED/FAILED) + an activity-log line and re-syncs
+    the dispute on success. Returns True on success; on failure marks the
+    submission FAILED and returns False so the manager can retry. Callers should
+    gate on dispute.can_message first (the view does); this is transport-safe
+    either way — PayPal is the final authority and a rejection is recorded."""
+    submission = DisputeSubmission.objects.create(
+        dispute=dispute,
+        notes=message,
+        kind=DisputeSubmission.KIND_MESSAGE,
+        source=DisputeSubmission.SOURCE_MANUAL,
+        status=DisputeSubmission.STATUS_DRAFT,
+        attach_evidence_pdf=False,
+        attach_terms=False,
+        attach_invoice=False,
+    )
+    ok, response = _post_dispute_message(dispute.paypal_dispute_id, message)
+    if not ok:
+        _record_submission_outcome(submission, status=DisputeSubmission.STATUS_FAILED,
+                                   performed_by=performed_by,
+                                   response=response, action='send-message')
+        return False
+    _record_submission_outcome(submission, status=DisputeSubmission.STATUS_SUBMITTED,
+                               performed_by=performed_by,
+                               response=response, action='send-message')
+    # Re-sync OUTSIDE the DB write (network I/O): pull the new message into the
+    # stored payload so the timeline shows PayPal's copy too.
+    try:
+        sync_dispute_from_paypal(dispute.paypal_dispute_id)
+    except Exception as e:
+        logger.warning(f"Post-message re-sync failed for dispute {dispute.paypal_dispute_id}: {e}")
+    return True
 
 
 # ---------------------------------------------------------------------------

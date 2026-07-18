@@ -413,6 +413,26 @@ class Dispute(models.Model):
         return 'provide-evidence' if self.can_submit_evidence else ''
 
     @property
+    def can_message(self) -> bool:
+        """Whether PayPal's buyer-message channel is open.
+
+        Unlike submit_endpoint (formal evidence, stage-gated to CHARGEBACK+),
+        a message to the buyer is accepted at EVERY open stage — most usefully
+        at INQUIRY, where evidence can't yet be uploaded but PayPal still wants
+        the seller to respond. Closed only for synthetic (manual) disputes and
+        resolved/terminal cases."""
+        if (self.paypal_dispute_id or '').startswith('MANUAL-'):
+            return False
+        if self.status in self.TERMINAL_STATUSES:
+            return False
+        payload = self.raw_webhook_payload or {}
+        state = (payload.get('dispute_state') or '').upper()
+        pp_status = (payload.get('status') or '').upper()
+        if 'RESOLVED' in state or 'RESOLVED' in pp_status:
+            return False
+        return True
+
+    @property
     def deadline_state(self) -> str:
         """'' | overdue | soon | ok — for colour-coding the response deadline."""
         if not self.seller_response_due or self.status in self.TERMINAL_STATUSES:

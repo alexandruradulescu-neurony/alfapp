@@ -39,7 +39,8 @@ from apps.payments.document_service import (generate_evidence_report,
                                             build_dispute_narrative_notes, build_dispute_reply_timeline,
                                             PAYPAL_NOTES_MAX_CHARS)
 from apps.payments.paypal_disputes_service import (accept_claim,
-                                                   submit_dispute_response, evidence_type_for_reason)
+                                                   submit_dispute_response, evidence_type_for_reason,
+                                                   send_dispute_message)
 
 logger = logging.getLogger(__name__)
 
@@ -949,6 +950,42 @@ def _submit_working_draft(request, dispute):
     else:
         messages.error(request, "PayPal rejected the submission — see the timeline for the reason. "
                                 "You can edit the draft and try again.")
+    return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
+
+@manager_required
+@require_POST
+def dispute_send_message(request, dispute_id):
+    """Send a direct message to the buyer via PayPal's Resolution Center.
+
+    This is the reply PayPal accepts at the INQUIRY stage (before a formal
+    claim), and at any other open stage. It is NOT a formal evidence upload —
+    it's a note to the buyer, recorded on the dispute timeline.
+
+    POST /manager/disputes/<id>/send-message/
+    """
+    dispute = get_object_or_404(Dispute, pk=dispute_id)
+    message = (request.POST.get('message') or '').strip()
+    if not message:
+        messages.error(request, "Write a message first.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+    if not dispute.can_message:
+        messages.error(
+            request,
+            "PayPal isn't accepting a message on this dispute right now — it may "
+            "already be resolved.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+    try:
+        ok = send_dispute_message(dispute, message, performed_by=request.user)
+    except Exception as e:
+        logger.error(f"Send-message failed for Dispute #{dispute_id}: {e}")
+        messages.error(request, f"Error sending the message to PayPal: {e}")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+    if ok:
+        messages.success(request, "Message sent to the buyer via PayPal.")
+    else:
+        messages.error(request, "PayPal rejected the message — see the timeline for the reason. "
+                                "You can try again.")
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
 

@@ -286,6 +286,39 @@
       </button>
     </div>
 
+    <!-- Message the buyer (PayPal Resolution Center). This is the ONLY reply
+         PayPal accepts at the inquiry stage (before a formal claim); it's also
+         available at any other open stage. Distinct from the formal evidence
+         reply above — it's a note to the buyer, logged on the timeline. -->
+    {% if dispute.can_message %}
+    <div class="lora-card p-6">
+      <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-3">
+        <h3 class="lora-card-title m-0">
+          {% heroicon_outline "chat-bubble-left-right" class="size-4 text-gray-600" %} Message the buyer
+        </h3>
+        {% if not submit_endpoint %}
+        <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-indigo-50 text-indigo-700 ring-indigo-700/10">Inquiry stage · message only</span>
+        {% endif %}
+      </div>
+      <p class="lora-meta mb-3">
+        {% if not submit_endpoint %}
+        PayPal only accepts a message at this stage (formal evidence opens once it becomes a claim).
+        {% endif %}
+        This goes to the buyer through PayPal's Resolution Center and is recorded on the timeline above.
+      </p>
+      <form method="post" action="{% url 'disputes:dispute_send_message' dispute.id %}" data-block
+            onsubmit="return confirm('Send this message to the buyer via PayPal now?');">
+        {% csrf_token %}
+        <textarea name="message" rows="5" required
+                  class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 leading-relaxed outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"
+                  placeholder="Write a short reply to the buyer…"></textarea>
+        <button type="submit" class="mt-3 inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
+          {% heroicon_outline "paper-airplane" class="size-4" %} Send message to buyer
+        </button>
+      </form>
+    </div>
+    {% endif %}
+
     <!-- Evidence report — the attachable PDF artifact -->
     <details class="lora-card overflow-hidden" {% if documents %}open{% endif %}>
       <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 p-6">
