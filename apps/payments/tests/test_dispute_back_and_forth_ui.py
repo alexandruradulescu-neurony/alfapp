@@ -283,7 +283,10 @@ class RefreshFromPayPalTests(_UITestBase):
         d = _dispute(paypal_dispute_id='PP-D-REF1')
         with patch('apps.payments.paypal_disputes_service.sync_dispute_from_paypal') as sync:
             resp = self.web.post(reverse('disputes:dispute_refresh_from_paypal', args=[d.id]), follow=True)
-            sync.assert_called_once_with('PP-D-REF1')
+            # The manual refresh syncs with the bare id. (follow=True then renders
+            # the detail page, whose on-open auto-refresh syncs again with a
+            # timeout kwarg — so assert the manual call happened, not the count.)
+            sync.assert_any_call('PP-D-REF1')
         self.assertEqual(resp.status_code, 200)
         msgs = [str(m) for m in resp.context['messages']]
         self.assertTrue(any('Refreshed from PayPal' in m for m in msgs), msgs)

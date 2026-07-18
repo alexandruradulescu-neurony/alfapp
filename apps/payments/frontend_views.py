@@ -40,7 +40,7 @@ from apps.payments.document_service import (generate_evidence_report,
                                             PAYPAL_NOTES_MAX_CHARS)
 from apps.payments.paypal_disputes_service import (accept_claim,
                                                    submit_dispute_response, evidence_type_for_reason,
-                                                   send_dispute_message)
+                                                   send_dispute_message, refresh_dispute_for_view)
 
 logger = logging.getLogger(__name__)
 
@@ -504,6 +504,17 @@ def dispute_detail(request, dispute_id):
     Template: manager/dispute_detail.html
     """
     dispute = get_object_or_404(Dispute, pk=dispute_id)
+
+    # Pull PayPal's latest before rendering so the page shows the current state —
+    # including any reply a colleague submitted directly on PayPal. Best-effort
+    # and short-bounded; re-load the row to see the update. Belt-and-braces:
+    # refresh_dispute_for_view already swallows errors, but never let a refresh
+    # problem take down the whole dispute page.
+    try:
+        refresh_dispute_for_view(dispute)
+        dispute.refresh_from_db()
+    except Exception as e:
+        logger.warning(f"On-open refresh skipped for dispute #{dispute_id}: {e}")
 
     # Get related data
     documents = DisputeDocument.objects.filter(dispute=dispute).order_by('-created_at')

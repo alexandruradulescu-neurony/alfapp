@@ -110,8 +110,9 @@
                 <span class="lora-meta">{{ e.title }}</span>
                 <span class="lora-meta ml-auto shrink-0">{{ e.when_str|default:"—" }}</span>
               </div>
-              {% if e.status or e.source or e.attached_pdf or e.image_count or e.doc_count %}
+              {% if e.status or e.source or e.attached_pdf or e.image_count or e.doc_count or e.via_paypal %}
               <div class="flex flex-wrap items-center gap-1.5 mt-2">
+                {% if e.via_paypal %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-amber-50 text-amber-800 ring-amber-600/20" title="This reply was submitted directly in PayPal, not through LORA">{% heroicon_outline "arrow-top-right-on-square" class="size-4 mr-0.5" %} on PayPal</span>{% endif %}
                 {% if e.status %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset {% if e.status == 'SUBMITTED' %}bg-green-50 text-green-700 ring-green-600/20{% elif e.status == 'FAILED' %}bg-red-50 text-red-700 ring-red-600/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ e.status }}</span>{% endif %}
                 {% if e.source %}<span class="lora-meta">{{ e.source }}</span>{% endif %}
                 {% if e.attached_pdf %}<span class="inline-flex items-center gap-x-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset bg-blue-50 text-blue-700 ring-blue-700/10">{% heroicon_outline "paper-clip" class="size-4 mr-0.5" %} report PDF</span>{% endif %}
