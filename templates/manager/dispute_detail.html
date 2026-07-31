@@ -198,7 +198,11 @@
             <input type="text" name="evidence_type"
                    value="{{ draft_submission.evidence_type|default:evidence_type_default }}"
                    class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600">
-            <span class="lora-meta mt-1 block">Defaulted from the dispute reason; used on the first-evidence reply.</span>
+            {% if evidence_type_allowed %}
+            <span class="lora-meta mt-1 block">PayPal accepts for this dispute: <span class="font-medium text-gray-700">{{ evidence_type_allowed|join:", " }}</span>. We default to the best fit and correct it on send if needed.</span>
+            {% else %}
+            <span class="lora-meta mt-1 block">Chosen automatically from what PayPal accepts for this dispute; used on the first-evidence reply.</span>
+            {% endif %}
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-900 mb-1">Attachments (evidence)</label>

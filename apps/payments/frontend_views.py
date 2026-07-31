@@ -39,8 +39,9 @@ from apps.payments.document_service import (generate_evidence_report,
                                             build_dispute_narrative_notes, build_dispute_reply_timeline,
                                             PAYPAL_NOTES_MAX_CHARS)
 from apps.payments.paypal_disputes_service import (accept_claim,
-                                                   submit_dispute_response, evidence_type_for_reason,
-                                                   send_dispute_message, refresh_dispute_for_view)
+                                                   submit_dispute_response,
+                                                   send_dispute_message, refresh_dispute_for_view,
+                                                   preferred_evidence_type, allowed_evidence_types)
 
 logger = logging.getLogger(__name__)
 
@@ -589,7 +590,11 @@ def dispute_detail(request, dispute_id):
         'has_terms_pdf': has_terms_pdf,
         'has_invoice': has_invoice,
         'report_already_sent': _report_already_sent(dispute),
-        'evidence_type_default': evidence_type_for_reason(dispute.dispute_reason),
+        # Evidence-type the reply will use, derived from PayPal's accepted list
+        # for THIS dispute (not the old blanket PROOF_OF_FULFILLMENT), plus the
+        # accepted list itself so the composer can show what PayPal will take.
+        'evidence_type_default': preferred_evidence_type(dispute),
+        'evidence_type_allowed': sorted(allowed_evidence_types(dispute)),
         # Soft cap surfaced in the composer's live counter (PayPal caps the notes
         # field near here; the service also warns past it).
         'paypal_notes_max': PAYPAL_NOTES_MAX_CHARS,
@@ -844,8 +849,11 @@ def dispute_prepare_submission(request, dispute_id):
         draft.attach_evidence_pdf = request.POST.get('attach_evidence_pdf') == 'on'
         draft.attach_terms = request.POST.get('attach_terms') == 'on'
         draft.attach_invoice = request.POST.get('attach_invoice') == 'on'
-        if not draft.evidence_type:
-            draft.evidence_type = evidence_type_for_reason(dispute.dispute_reason)
+        # Set (or auto-correct) the evidence type to one PayPal accepts for this
+        # dispute — keep a valid manager choice, replace a blank or rejected one.
+        _allowed = allowed_evidence_types(dispute)
+        if not draft.evidence_type or (_allowed and draft.evidence_type.upper() not in _allowed):
+            draft.evidence_type = preferred_evidence_type(dispute)
         draft.save()
         if result['source'] == 'FALLBACK':
             messages.warning(request, "AI was unavailable — generated a template draft. Review it before submitting.")
