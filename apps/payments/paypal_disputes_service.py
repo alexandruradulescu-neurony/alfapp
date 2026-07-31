@@ -65,8 +65,104 @@ EVIDENCE_TYPE_BY_REASON = {
 
 
 def evidence_type_for_reason(reason: str) -> str:
-    """PayPal evidence_type to default to for a dispute reason."""
+    """PayPal evidence_type to default to for a dispute reason (reason-only
+    hint, used before PayPal has listed the accepted types — prefer
+    preferred_evidence_type, which reads PayPal's per-dispute list)."""
     return EVIDENCE_TYPE_BY_REASON.get(reason or '', DEFAULT_EVIDENCE_TYPE)
+
+
+# Evidence-type selection. PayPal restricts which evidence_type it accepts PER
+# DISPUTE and lists the accepted ones in the payload (evidences[] entries marked
+# source=REQUESTED_FROM_SELLER). We pick from that list, preferring the strongest
+# defensive label for our stance (a service we performed / other supporting
+# evidence) and NEVER auto-selecting PROOF_OF_REFUND — that would concede a
+# refund. The reason only orders our preference and seeds the pre-request default
+# (e.g. "not as described" NEVER allows PROOF_OF_FULFILLMENT, so it leads with
+# OTHER). Confirmed against live data: same reason can carry different allowed
+# sets, so PayPal's per-dispute list — not the reason — is authoritative.
+_EVIDENCE_PREF_SNAD = ('OTHER', 'PROOF_OF_FULFILLMENT')          # not as described
+_EVIDENCE_PREF_DELIVERED = ('PROOF_OF_FULFILLMENT', 'OTHER')     # not received / unauthorised
+_EVIDENCE_PREF_DEFAULT = ('OTHER', 'PROOF_OF_FULFILLMENT')       # everything else
+
+
+def _evidence_preference_order(reason: str):
+    """Our ranked evidence_type preference for a dispute reason."""
+    if reason == 'MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED':
+        return _EVIDENCE_PREF_SNAD
+    if reason in ('MERCHANDISE_OR_SERVICE_NOT_RECEIVED', 'UNAUTHORISED'):
+        return _EVIDENCE_PREF_DELIVERED
+    return _EVIDENCE_PREF_DEFAULT
+
+
+def allowed_evidence_types(dispute) -> set:
+    """The evidence_type labels PayPal will accept for THIS dispute, upper-cased.
+
+    Read from the stored payload's evidences[] entries PayPal marked
+    REQUESTED_FROM_SELLER — that is PayPal telling us what it will take. Empty set
+    when PayPal hasn't requested seller evidence yet (e.g. still under review)."""
+    payload = dispute.raw_webhook_payload or {}
+    out = set()
+    for ev in (payload.get('evidences') or []):
+        if (ev.get('source') or '').upper() == 'REQUESTED_FROM_SELLER':
+            t = (ev.get('evidence_type') or '').strip().upper()
+            if t:
+                out.add(t)
+    return out
+
+
+def preferred_evidence_type(dispute) -> str:
+    """The evidence_type LORA should submit for this dispute.
+
+    Primary source of truth is PayPal's own accepted list (allowed_evidence_types):
+    pick the first reason-aware preference PayPal accepts, never auto-picking
+    PROOF_OF_REFUND. When PayPal accepts none of our preferences, use any accepted
+    non-refund label. When PayPal hasn't listed anything yet, fall back to the
+    reason preference's first entry."""
+    order = _evidence_preference_order(dispute.dispute_reason)
+    allowed = allowed_evidence_types(dispute)
+    if allowed:
+        for t in order:
+            if t in allowed:
+                return t
+        for t in sorted(allowed):
+            if t != 'PROOF_OF_REFUND':
+                return t
+        return order[0]   # only PROOF_OF_REFUND offered (unreached in practice)
+    return order[0]
+
+
+def fix_dispute_evidence_types(*, dry_run=False) -> dict:
+    """Correct saved DRAFT submissions on OPEN disputes to an evidence_type PayPal
+    accepts (preferred_evidence_type).
+
+    The old code stamped every draft PROOF_OF_FULFILLMENT, which PayPal rejects for
+    'not as described' disputes. This realigns already-prepared drafts so the page
+    and any send use an accepted label. Idempotent (a draft already on its
+    preferred label is left alone), and DRAFT-only (never touches sent history).
+    Terminal/resolved disputes are skipped — nothing left to submit there."""
+    summary = {'checked': 0, 'updated': 0, 'changes': []}
+    drafts = (DisputeSubmission.objects
+              .filter(status=DisputeSubmission.STATUS_DRAFT)
+              .select_related('dispute'))
+    for sub in drafts:
+        dispute = sub.dispute
+        if dispute.status in Dispute.TERMINAL_STATUSES:
+            continue
+        payload = dispute.raw_webhook_payload or {}
+        if 'RESOLVED' in (payload.get('dispute_state') or '').upper() or \
+           'RESOLVED' in (payload.get('status') or '').upper():
+            continue
+        summary['checked'] += 1
+        preferred = preferred_evidence_type(dispute)
+        if (sub.evidence_type or '').strip().upper() == preferred:
+            continue
+        summary['updated'] += 1
+        summary['changes'].append({'submission': sub.id, 'dispute': dispute.id,
+                                   'from': sub.evidence_type, 'to': preferred})
+        if not dry_run:
+            sub.evidence_type = preferred
+            sub.save(update_fields=['evidence_type', 'updated_at'])
+    return summary
 
 
 def paypal_api_base() -> str:
@@ -729,9 +825,17 @@ def submit_dispute_response(submission: DisputeSubmission, *, performed_by=None)
     files = _build_submission_files(submission)
 
     if endpoint == 'provide-evidence':
+        # Final safety net: only send the stored label if PayPal accepts it for
+        # THIS dispute; otherwise (blank, or a rejected label like the old
+        # hardcoded PROOF_OF_FULFILLMENT on a "not as described" case) pick an
+        # accepted one. Guarantees we never trip EVIDENCE_TYPE_IS_NOT_ALLOWED.
+        chosen = (submission.evidence_type or '').strip()
+        allowed = allowed_evidence_types(dispute)
+        if not chosen or (allowed and chosen.upper() not in allowed):
+            chosen = preferred_evidence_type(dispute)
         ok, response = provide_evidence_files(
             dispute.paypal_dispute_id, submission.notes, files,
-            evidence_type=submission.evidence_type or evidence_type_for_reason(dispute.dispute_reason))
+            evidence_type=chosen)
         submission.kind = DisputeSubmission.KIND_EVIDENCE
     else:
         ok, response = provide_supporting_info(dispute.paypal_dispute_id, submission.notes, files)
