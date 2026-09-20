@@ -16,12 +16,13 @@ Provides UI views for managing PayPal disputes:
 import json
 import logging
 from django.shortcuts import render, get_object_or_404, redirect
-from django.http import HttpResponse
+from django.http import HttpResponse, Http404
+from django.urls import reverse
 from django.utils.html import escape
 from django.contrib import messages
 from django.db.models import Q, Count
 from django.core.paginator import Paginator
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from decimal import Decimal, InvalidOperation
 from django.db import IntegrityError, transaction
@@ -38,6 +39,8 @@ from apps.payments.models import (Dispute, DisputeDocument, DisputeActivityLog,
 from apps.payments.document_service import (generate_evidence_report,
                                             build_dispute_narrative_notes, build_dispute_reply_timeline,
                                             PAYPAL_NOTES_MAX_CHARS)
+from apps.payments.report_images import (extract_image_data_uris, externalize_images,
+                                         reinline_images, parse_data_uri)
 from apps.payments.paypal_disputes_service import (accept_claim,
                                                    submit_dispute_response,
                                                    send_dispute_message, refresh_dispute_for_view,
@@ -62,15 +65,73 @@ def sanitize_document_html(html: str) -> str:
                         strip=True)
 
 
-def strip_active_html(html: str) -> str:
-    """Remove only executable content (<script> blocks and on*= handlers) while
-    PRESERVING layout (tables, images, inline styles). Used when re-rendering an
-    edited EVIDENCE_REPORT to PDF — the strict allowlist sanitizer would destroy
-    the report's tables/images/styles. Manager-only edit → PDF, so this is enough."""
+def strip_active_html(raw_html: str) -> str:
+    """Remove only executable content (<script> blocks, on*= handlers, and
+    javascript:/vbscript:/data:text/html URLs in ANY attribute) while
+    PRESERVING layout (tables, images, inline styles, data:image URIs, and
+    ordinary links). Used when re-rendering an edited EVIDENCE_REPORT to PDF —
+    the strict allowlist sanitizer would destroy the report's tables/images/
+    styles. Manager-only edit → PDF, so this is enough.
+
+    A dangerous scheme can be obfuscated to dodge a naive literal-text match
+    -- split across ASCII control characters (`java\\tscript:`), spelled with
+    HTML numeric character references (`&#106;avascript:`), left entirely
+    unquoted (`href=javascript:alert(1)`), or tucked into an attribute other
+    than href/src (`xlink:href`, `formaction`, `action`, an <object>'s
+    `data`, `srcset`, ...) -- so EVERY attribute's value (double-quoted,
+    single-quoted, or bare/unquoted), regardless of the attribute's name, is
+    HTML-unescaped, has its ASCII control characters and whitespace removed,
+    and is lowercased before being compared against the dangerous-scheme
+    list. `srcset` carries a comma-separated list of candidate URLs, so it is
+    treated as dangerous if ANY candidate normalises to a dangerous scheme.
+    That normalised form is used ONLY for the comparison: a dangerous
+    attribute is dropped whole (name, `=`, and value, byte for byte as
+    matched), and anything else -- including a `data:image/...` URI or an
+    href that merely CONTAINS "javascript:" without starting with it -- is
+    kept exactly as posted, never rewritten to its normalised form."""
+    import html as html_lib
     import re
-    html = re.sub(r'<script[^>]*>.*?</script>', '', html or '', flags=re.IGNORECASE | re.DOTALL)
-    html = re.sub(r'\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', html, flags=re.IGNORECASE)
-    return html
+
+    raw_html = re.sub(r'<script[^>]*>.*?</script>', '', raw_html or '', flags=re.IGNORECASE | re.DOTALL)
+    raw_html = re.sub(r'\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', raw_html, flags=re.IGNORECASE)
+
+    # A javascript:/vbscript:/data:text/html URL is executable wherever it
+    # appears -- not just in href/src -- so every attribute (any name,
+    # quoted with either quote style, or unquoted) is checked, and the whole
+    # attribute is dropped if dangerous. Never touches a data:image/... URI
+    # (the embedded photos) or an ordinary http(s)/relative URL.
+    _dangerous_schemes = ('javascript:', 'vbscript:', 'data:text/html')
+
+    def _normalised_attr_value(raw_value):
+        normalised = html_lib.unescape(raw_value or '')
+        return re.sub(r'[\x00-\x1f\s]', '', normalised).lower()
+
+    def _drop_if_dangerous(match):
+        attr_name = match.group(1)
+        raw_value = match.group(2)
+        if raw_value is None:
+            raw_value = match.group(3)
+        if raw_value is None:
+            raw_value = match.group(4)
+        normalised = _normalised_attr_value(raw_value)
+        if attr_name.lower() == 'srcset':
+            dangerous = any(candidate.startswith(_dangerous_schemes)
+                             for candidate in normalised.split(','))
+        else:
+            dangerous = normalised.startswith(_dangerous_schemes)
+        return '' if dangerous else match.group(0)
+
+    # Any HTML attribute: a leading whitespace separator, then a name (any
+    # run of letters/digits/`_`/`-`/`:`/`.`, so "xlink:href" is one name, not
+    # ":href" after a failed match on "href"), then its value -- double-
+    # quoted, single-quoted, or bare/unquoted (ending at the next whitespace,
+    # quote, `=`, `<`, `>` or backtick, same as the HTML spec's unquoted
+    # value grammar). No nested quantifiers -- each branch is a single
+    # non-overlapping char-class run, so this stays linear in input length.
+    raw_html = re.sub(
+        r'''\s([a-zA-Z_:][-\w:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))''',
+        _drop_if_dangerous, raw_html, flags=re.IGNORECASE)
+    return raw_html
 
 
 # --- PayPal state normalization (single source of truth for the queues) -------
@@ -675,6 +736,41 @@ def dispute_generate_documents(request, dispute_id):
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
 
+def _index_from_image_url(document_id):
+    """Build a matcher from a posted `<img src="...">` value back to its
+    0-based photo index for THIS document (see report_images.reinline_images).
+    Tolerates an absolute `https://host` prefix and a trailing query string
+    or fragment — a browser may post the URL back in any of those shapes —
+    but only ever matches THIS document's own per-index image URLs, so a
+    posted URL for a different document's photo is left alone rather than
+    resolved.
+    """
+    # "0" is always a single digit, so trimming the last 2 chars ("0/") off
+    # the reverse()'d URL for index 0 leaves exactly the fixed prefix, no
+    # matter how many digits a real index has.
+    prefix = reverse('disputes:dispute_document_image', args=[document_id, 0])[:-2]
+
+    def _matcher(src):
+        path = (src or '').strip()
+        # Drop a cache-busting query string and/or a fragment before matching
+        # (e.g. ".../images/0/?v=3", ".../images/0/#x") -- neither is part of
+        # the path itself.
+        path = path.partition('?')[0].partition('#')[0]
+        if not path.endswith('/'):
+            return None
+        for scheme in ('http://', 'https://'):
+            if path.lower().startswith(scheme):
+                slash = path.find('/', len(scheme))
+                path = path[slash:] if slash != -1 else ''
+                break
+        if not path.startswith(prefix):
+            return None
+        tail = path[len(prefix):-1]
+        return int(tail) if tail.isdigit() else None
+
+    return _matcher
+
+
 @manager_required
 def dispute_edit_document(request, document_id):
     """
@@ -686,20 +782,55 @@ def dispute_edit_document(request, document_id):
     Template: manager/dispute_edit_document.html
     """
     document = get_object_or_404(DisputeDocument, pk=document_id)
+    is_evidence_report = document.doc_type == DisputeDocument.DOC_TYPE_EVIDENCE_REPORT
 
     if request.method == 'POST':
         content_html = request.POST.get('content_html', '')
-        version_increment = request.POST.get('version_increment', 'on')
 
-        # Don't wipe the document if the editor posted empty content (e.g. the
-        # in-place editor's JS failed to serialise the iframe). Store the
-        # SANITIZED HTML (scripts/handlers stripped) — the edit view re-renders
-        # content_html into a srcdoc iframe, so persisting raw editor output
-        # would allow stored XSS in the manager's session.
-        if content_html.strip():
-            document.content_html = strip_active_html(content_html)
+        if not content_html.strip():
+            # The in-place editor's JS failed to serialise the iframe (or
+            # something else posted an empty body). Don't wipe the document —
+            # send the manager back to the editor with an error, not the
+            # "success" redirect to the dispute.
+            messages.error(
+                request,
+                "Nothing was saved: the editor sent an empty document. Reload the page and try again.")
+            return redirect('disputes:dispute_edit_document', document_id=document.id)
 
-        # Increment version if requested
+        # Optimistic concurrency: the WYSIWYG form round-trips the version the
+        # page was loaded from as `base_version`. If it disagrees with the
+        # CURRENT stored version, someone else has saved in between -- change
+        # nothing and send the manager back to reload rather than clobbering
+        # that other save. A POST that doesn't include the field at all (an
+        # older page, or the plain-textarea editor) is treated leniently and
+        # saved normally.
+        base_version = request.POST.get('base_version')
+        if base_version is not None and base_version != str(document.version):
+            messages.error(
+                request,
+                "This document was saved by someone else since you opened it. "
+                "Reload the page to get the latest version, then redo your edit.")
+            return redirect('disputes:dispute_edit_document', document_id=document.id)
+
+        # The browser posts back <img src="..."> URLs for photos it kept (see
+        # report_images.externalize_images, used on GET) plus whatever text was
+        # edited. Put the real bytes back — by index, from the document's
+        # CURRENTLY STORED content_html, never from the request — before
+        # anything is saved or handed to the PDF renderer (which can't fetch a
+        # relative URL).
+        content_html = reinline_images(
+            content_html, document.content_html, _index_from_image_url(document.id))
+
+        # Store the SANITIZED HTML (scripts/handlers/javascript: URLs stripped)
+        # — the edit view re-renders content_html into a srcdoc iframe, so
+        # persisting raw editor output would allow stored XSS in the manager's
+        # session.
+        document.content_html = strip_active_html(content_html)
+
+        # A missing field means "don't bump" — only an explicit 'on' (the
+        # plain-textarea editor's checkbox, or the WYSIWYG form's hidden field)
+        # increments the version.
+        version_increment = request.POST.get('version_increment') == 'on'
         if version_increment:
             document.version += 1
 
@@ -711,14 +842,15 @@ def dispute_edit_document(request, document_id):
         # text on a submission). A legacy RESPONSE_LETTER row just saves its
         # content_html above and is not re-rendered (its template is gone).
         regenerated = False
-        if content_html.strip() and document.doc_type == DisputeDocument.DOC_TYPE_EVIDENCE_REPORT:
+        if is_evidence_report:
             try:
                 from apps.payments.document_service import _render_to_pdf
                 from django.core.files.base import ContentFile
-                # Evidence reports are full HTML — render the edited body directly
-                # (strip only scripts/handlers, preserve layout).
+                # document.content_html was already sanitized above (once) --
+                # render the PDF straight from it instead of running
+                # strip_active_html on the same HTML a second time.
                 pdf_bytes = _render_to_pdf(
-                    strip_active_html(content_html),
+                    document.content_html,
                     f"Dispute #{document.dispute_id} Evidence Report (edited)")
                 filename = (f"Dispute Settlement Report "
                             f"{document.dispute.paypal_dispute_id or document.dispute_id}.pdf")
@@ -728,19 +860,38 @@ def dispute_edit_document(request, document_id):
             except Exception as e:
                 logger.error(f"Failed to re-render edited PDF for document #{document.id}: {e}")
 
-        # Log the activity
+        # Log the activity — wording matches whichever flash message follows.
+        if is_evidence_report:
+            pdf_note = 'PDF regenerated' if regenerated else 'PDF could not be regenerated'
+        else:
+            pdf_note = 'no PDF for this document type'
         DisputeActivityLog.objects.create(
             dispute=document.dispute,
             action=DisputeActivityLog.ACTION_NOTE_ADDED,
-            details=f"Document #{document.id} edited (v{document.version}); "
-                    f"PDF {'regenerated' if regenerated else 'not regenerated'}.",
+            details=f"Document #{document.id} edited (v{document.version}); {pdf_note}.",
         )
 
-        if regenerated:
+        if is_evidence_report and not regenerated:
+            # Don't claim success: the manager's text IS saved, but the
+            # download still serves the stale PDF until a re-render succeeds.
+            messages.warning(
+                request,
+                f"Text saved (v{document.version}), but the PDF could not be regenerated, "
+                "so the download still shows the previous version. Try 'Save & regenerate PDF' again.")
+        elif regenerated:
             messages.success(request, f"Document #{document_id} updated and PDF regenerated (v{document.version}).")
         else:
             messages.success(request, f"Document #{document_id} updated successfully (v{document.version}).")
         return redirect('disputes:dispute_detail', dispute_id=document.dispute_id)
+
+    if is_evidence_report:
+        # Photos are referenced by URL, never embedded — the browser no
+        # longer sees (or has to re-upload) a single image byte.
+        report_srcdoc = strip_active_html(externalize_images(
+            document.content_html or '',
+            lambda i: reverse('disputes:dispute_document_image', args=[document.id, i])))
+    else:
+        report_srcdoc = strip_active_html(document.content_html or '')
 
     context = {
         'document': document,
@@ -749,10 +900,40 @@ def dispute_edit_document(request, document_id):
         # Sanitize at render time too (not just on save) so EXISTING rows saved
         # before the save-path fix can't execute a smuggled <script> in the
         # srcdoc editor. Layout-preserving strip (scripts/handlers only).
-        'report_srcdoc': strip_active_html(document.content_html or ''),
+        'report_srcdoc': report_srcdoc,
     }
 
     return render(request, 'manager/dispute_edit_document.html', context)
+
+
+@manager_required
+@require_GET
+def dispute_document_image(request, document_id, index):
+    """Serve ONE decoded raster photo from an evidence report's stored
+    content_html, by its 0-based position among the embedded raster
+    data:image <img> tags (see report_images._RASTER_MIMES -- a non-raster
+    data URI, e.g. SVG, is never indexed, so it can never be reached here).
+    Backs the editor's externalised <img src> URLs (report_images.py) so the
+    actual bytes never have to travel through the browser's editor again.
+
+    GET /manager/documents/<id>/images/<index>/ (GET only -- @require_GET)
+    """
+    document = get_object_or_404(DisputeDocument, pk=document_id)
+    # Re-extracted on every request rather than cached: content_html is a
+    # handful of images at most, so re-scanning it per-request is cheap and
+    # keeps this view trivially correct after an edit (no cache to invalidate).
+    data_uris = extract_image_data_uris(document.content_html or '')
+    # `index` comes from the <int:index> URL converter, which never yields a
+    # negative number -- the `< 0` half of this check is defensive only.
+    if index < 0 or index >= len(data_uris):
+        raise Http404("No image at that index.")
+    try:
+        mime, data = parse_data_uri(data_uris[index])
+    except ValueError:
+        raise Http404("Stored image could not be decoded.")
+    response = HttpResponse(data, content_type=mime)
+    response['Cache-Control'] = 'private, no-store'
+    return response
 
 
 @manager_required

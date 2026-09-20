@@ -17,6 +17,7 @@ from apps.payments.frontend_views import (
     dispute_link_claim,
     dispute_generate_documents,
     dispute_edit_document,
+    dispute_document_image,
     dispute_delete_document,
     dispute_accept_claim,
     dispute_set_category,
@@ -53,5 +54,6 @@ urlpatterns = [
 
     # Document actions (separate URL namespace for documents)
     path('documents/<int:document_id>/edit/', dispute_edit_document, name='dispute_edit_document'),
+    path('documents/<int:document_id>/images/<int:index>/', dispute_document_image, name='dispute_document_image'),
     path('documents/<int:document_id>/delete/', dispute_delete_document, name='dispute_delete_document'),
 ]
