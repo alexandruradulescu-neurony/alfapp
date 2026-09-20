@@ -14,14 +14,55 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'lora_app.settings')
 
 
 @pytest.fixture(scope='session')
-def django_db_setup():
+def django_db_setup(django_db_blocker):
     """
-    Set up the test database for the test session.
-    
-    This fixture is automatically used by pytest-django.
-    It creates a test database and runs migrations.
+    Point tests at the already-migrated database instead of having
+    pytest-django create/migrate/tear down its own ephemeral `test_<name>`
+    database.
+
+    Both environments already provide a real, migrated database via
+    DATABASE_URL: locally that's the developer's own dev sqlite file, and in
+    CI it's the Postgres service migrated by the "Run migrations" step in
+    .github/workflows/test.yml (`manage.py migrate --noinput`, run before
+    pytest). Per-test isolation still comes from the normal `db` fixture
+    (atomic rollback) or TestCase's transaction wrapping — this fixture only
+    controls one-time SESSION setup, so overriding it doesn't weaken that.
+
+    While we're here: apps.config.models.SystemSettings is a lazily-created
+    singleton — every production call site reaches it through
+    SystemSettings.get_instance() (get-or-create), so in real use the row is
+    created on whichever request happens to touch it first. Locally that
+    happened long ago and the row has lived in the dev database ever since,
+    which is why tests that assume it exists (several fixtures/tests call
+    SystemSettings.objects.get(pk=1) directly, e.g.
+    apps/config/tests/test_services.py and
+    apps/payments/tests/test_document_screenshot_services.py) have always
+    passed there. CI's database starts empty every run, so those same tests
+    failed setup with SystemSettings.DoesNotExist. Create the row once per
+    session, the same way get_instance() would on first real request, so CI
+    starts from the same baseline as a lived-in dev database. Individual
+    tests still roll back whatever fields they change on it.
     """
-    pass
+    with django_db_blocker.unblock():
+        from apps.config.models import SystemSettings
+        SystemSettings.get_instance()
+
+
+@pytest.fixture(autouse=True)
+def _no_ssl_redirect(settings):
+    """
+    lora_app/settings.py turns SECURE_SSL_REDIRECT on whenever DEBUG is False,
+    matching production behind Railway's TLS-terminating proxy. CI
+    intentionally runs with DEBUG=False so tests exercise the same prod-like
+    settings (see .github/workflows/test.yml) — but Django's test Client
+    always speaks plain HTTP in-process and never sends X-Forwarded-Proto, so
+    SecurityMiddleware 301-redirected every request to
+    https://testserver/... before it ever reached a view (e.g. `assert 301 ==
+    200`). That redirect is a transport-layer concern the in-process test
+    client structurally cannot exercise either way, so disable just this one
+    setting for the test session rather than flipping DEBUG to True.
+    """
+    settings.SECURE_SSL_REDIRECT = False
 
 
 @pytest.fixture
