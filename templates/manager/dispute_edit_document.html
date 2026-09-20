@@ -20,6 +20,7 @@
     {% csrf_token %}
     <input type="hidden" name="content_html" id="content_html_field">
     <input type="hidden" name="version_increment" value="on">
+    <input type="hidden" name="base_version" value="{{ document.version }}">
 
     <div class="lora-card p-3 mb-4 flex flex-wrap items-center gap-2 sticky top-2 z-10">
         <span class="lora-meta mr-2">{% heroicon_outline "pencil-square" class="size-5" %} Click any text to edit it.</span>
@@ -118,9 +119,15 @@
             img.setAttribute('contenteditable', 'false');
             img.setAttribute('draggable', 'false');
         });
-        doc.addEventListener('input', function () {
+        function markDirty() {
             dirty = true;
             resizeFrame();
+        }
+        // 'input' alone doesn't always fire for every edit inside a
+        // designMode document across browsers -- keydown/paste/cut/drop are
+        // backup signals so the unsaved-changes guard can't miss an edit.
+        ['input', 'keydown', 'paste', 'cut', 'drop'].forEach(function (evt) {
+            doc.addEventListener(evt, markDirty);
         });
         resizeFrame();
     });

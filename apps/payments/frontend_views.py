@@ -22,7 +22,7 @@ from django.utils.html import escape
 from django.contrib import messages
 from django.db.models import Q, Count
 from django.core.paginator import Paginator
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from decimal import Decimal, InvalidOperation
 from django.db import IntegrityError, transaction
@@ -65,22 +65,46 @@ def sanitize_document_html(html: str) -> str:
                         strip=True)
 
 
-def strip_active_html(html: str) -> str:
+def strip_active_html(raw_html: str) -> str:
     """Remove only executable content (<script> blocks, on*= handlers, and
-    javascript: URLs in href/src) while PRESERVING layout (tables, images,
-    inline styles, data: URIs, and ordinary links). Used when re-rendering an
-    edited EVIDENCE_REPORT to PDF — the strict allowlist sanitizer would destroy
-    the report's tables/images/styles. Manager-only edit → PDF, so this is enough."""
+    javascript:/vbscript:/data:text/html URLs in href/src) while PRESERVING
+    layout (tables, images, inline styles, data:image URIs, and ordinary
+    links). Used when re-rendering an edited EVIDENCE_REPORT to PDF — the
+    strict allowlist sanitizer would destroy the report's tables/images/
+    styles. Manager-only edit → PDF, so this is enough.
+
+    A dangerous scheme can be obfuscated to dodge a naive literal-text match
+    -- split across ASCII control characters (`java\\tscript:`) or spelled
+    with HTML numeric character references (`&#106;avascript:`) -- so every
+    href=/src= attribute value is HTML-unescaped, has its ASCII control
+    characters and whitespace removed, and is lowercased before being
+    compared against the dangerous-scheme list. That normalised form is used
+    ONLY for the comparison: a dangerous attribute is dropped whole (original
+    text and all), and anything else -- including a `data:image/...` URI --
+    is kept exactly as posted, never rewritten to its normalised form."""
+    import html as html_lib
     import re
-    html = re.sub(r'<script[^>]*>.*?</script>', '', html or '', flags=re.IGNORECASE | re.DOTALL)
-    html = re.sub(r'\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', html, flags=re.IGNORECASE)
-    # A javascript: URL in href/src is executable just like an on*= handler or
-    # a <script> block — strip the whole attribute. Never touches a data: URI
-    # (the embedded photos) or an ordinary http(s)/relative URL.
-    html = re.sub(
-        r'''\s(?:href|src)\s*=\s*("\s*javascript:[^"]*"|'\s*javascript:[^']*')''',
-        '', html, flags=re.IGNORECASE)
-    return html
+
+    raw_html = re.sub(r'<script[^>]*>.*?</script>', '', raw_html or '', flags=re.IGNORECASE | re.DOTALL)
+    raw_html = re.sub(r'\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', raw_html, flags=re.IGNORECASE)
+
+    # A javascript:/vbscript:/data:text/html URL in href/src is executable
+    # just like an on*= handler or a <script> block -- strip the whole
+    # attribute. Never touches a data:image/... URI (the embedded photos) or
+    # an ordinary http(s)/relative URL.
+    _dangerous_schemes = ('javascript:', 'vbscript:', 'data:text/html')
+
+    def _drop_if_dangerous(match):
+        attr = match.group(0)
+        raw_value = match.group(1) if match.group(1) is not None else match.group(2)
+        normalised = html_lib.unescape(raw_value or '')
+        normalised = re.sub(r'[\x00-\x1f\s]', '', normalised).lower()
+        return '' if normalised.startswith(_dangerous_schemes) else attr
+
+    raw_html = re.sub(
+        r'''\s(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)')''',
+        _drop_if_dangerous, raw_html, flags=re.IGNORECASE)
+    return raw_html
 
 
 # --- PayPal state normalization (single source of truth for the queues) -------
@@ -688,10 +712,11 @@ def dispute_generate_documents(request, dispute_id):
 def _index_from_image_url(document_id):
     """Build a matcher from a posted `<img src="...">` value back to its
     0-based photo index for THIS document (see report_images.reinline_images).
-    Tolerates an absolute `https://host` prefix — a browser may post either a
-    relative or an absolute URL back — but only ever matches THIS document's
-    own per-index image URLs, so a posted URL for a different document's
-    photo is left alone rather than resolved.
+    Tolerates an absolute `https://host` prefix and a trailing query string
+    or fragment — a browser may post the URL back in any of those shapes —
+    but only ever matches THIS document's own per-index image URLs, so a
+    posted URL for a different document's photo is left alone rather than
+    resolved.
     """
     # "0" is always a single digit, so trimming the last 2 chars ("0/") off
     # the reverse()'d URL for index 0 leaves exactly the fixed prefix, no
@@ -700,6 +725,10 @@ def _index_from_image_url(document_id):
 
     def _matcher(src):
         path = (src or '').strip()
+        # Drop a cache-busting query string and/or a fragment before matching
+        # (e.g. ".../images/0/?v=3", ".../images/0/#x") -- neither is part of
+        # the path itself.
+        path = path.partition('?')[0].partition('#')[0]
         if not path.endswith('/'):
             return None
         for scheme in ('http://', 'https://'):
@@ -741,6 +770,21 @@ def dispute_edit_document(request, document_id):
                 "Nothing was saved: the editor sent an empty document. Reload the page and try again.")
             return redirect('disputes:dispute_edit_document', document_id=document.id)
 
+        # Optimistic concurrency: the WYSIWYG form round-trips the version the
+        # page was loaded from as `base_version`. If it disagrees with the
+        # CURRENT stored version, someone else has saved in between -- change
+        # nothing and send the manager back to reload rather than clobbering
+        # that other save. A POST that doesn't include the field at all (an
+        # older page, or the plain-textarea editor) is treated leniently and
+        # saved normally.
+        base_version = request.POST.get('base_version')
+        if base_version is not None and base_version != str(document.version):
+            messages.error(
+                request,
+                "This document was saved by someone else since you opened it. "
+                "Reload the page to get the latest version, then redo your edit.")
+            return redirect('disputes:dispute_edit_document', document_id=document.id)
+
         # The browser posts back <img src="..."> URLs for photos it kept (see
         # report_images.externalize_images, used on GET) plus whatever text was
         # edited. Put the real bytes back — by index, from the document's
@@ -775,10 +819,11 @@ def dispute_edit_document(request, document_id):
             try:
                 from apps.payments.document_service import _render_to_pdf
                 from django.core.files.base import ContentFile
-                # Evidence reports are full HTML — render the edited body directly
-                # (strip only scripts/handlers, preserve layout).
+                # document.content_html was already sanitized above (once) --
+                # render the PDF straight from it instead of running
+                # strip_active_html on the same HTML a second time.
                 pdf_bytes = _render_to_pdf(
-                    strip_active_html(content_html),
+                    document.content_html,
                     f"Dispute #{document.dispute_id} Evidence Report (edited)")
                 filename = (f"Dispute Settlement Report "
                             f"{document.dispute.paypal_dispute_id or document.dispute_id}.pdf")
@@ -835,16 +880,24 @@ def dispute_edit_document(request, document_id):
 
 
 @manager_required
+@require_GET
 def dispute_document_image(request, document_id, index):
-    """Serve ONE decoded photo from an evidence report's stored content_html,
-    by its 0-based position among the embedded data:image <img> tags. Backs
-    the editor's externalised <img src> URLs (report_images.py) so the actual
-    bytes never have to travel through the browser's editor again.
+    """Serve ONE decoded raster photo from an evidence report's stored
+    content_html, by its 0-based position among the embedded raster
+    data:image <img> tags (see report_images._RASTER_MIMES -- a non-raster
+    data URI, e.g. SVG, is never indexed, so it can never be reached here).
+    Backs the editor's externalised <img src> URLs (report_images.py) so the
+    actual bytes never have to travel through the browser's editor again.
 
-    GET /manager/documents/<id>/images/<index>/
+    GET /manager/documents/<id>/images/<index>/ (GET only -- @require_GET)
     """
     document = get_object_or_404(DisputeDocument, pk=document_id)
+    # Re-extracted on every request rather than cached: content_html is a
+    # handful of images at most, so re-scanning it per-request is cheap and
+    # keeps this view trivially correct after an edit (no cache to invalidate).
     data_uris = extract_image_data_uris(document.content_html or '')
+    # `index` comes from the <int:index> URL converter, which never yields a
+    # negative number -- the `< 0` half of this check is defensive only.
     if index < 0 or index >= len(data_uris):
         raise Http404("No image at that index.")
     try:

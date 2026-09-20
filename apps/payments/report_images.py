@@ -46,8 +46,25 @@ _IMG_TAG_RE = re.compile(r'<img\b[^>]*>', re.IGNORECASE)
 # A src="..." or src='...' attribute anywhere inside a tag (order-independent).
 _SRC_ATTR_RE = re.compile(r'''\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')''', re.IGNORECASE)
 
-# The exact shape document_service embeds a photo as.
-_DATA_IMAGE_RE = re.compile(r'^data:image/[^;,\s]+;base64,[A-Za-z0-9+/=]*$', re.IGNORECASE)
+# Raster formats only. These are the only mime types document_service ever
+# embeds as a photo, and the only ones safe for dispute_document_image to
+# serve back standalone: a non-raster type (e.g. image/svg+xml) can carry a
+# <script>, and serving it with its own Content-Type turns "open image in a
+# new tab" into script execution. Keep this in sync with _DATA_IMAGE_RE below.
+_RASTER_MIMES = frozenset({
+    'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp',
+})
+_RASTER_MIME_PATTERN = r'image/(?:png|jpeg|jpg|gif|webp)'
+
+# The exact shape document_service embeds a photo as -- restricted to the
+# raster mimes above, so a non-raster data URI (an SVG, say) is never counted
+# as a photo at all: it is left inline in the srcdoc untouched, never
+# indexed, and never served by dispute_document_image. The payload class
+# allows whitespace because some producers hard-wrap base64 (RFC 2045 style,
+# e.g. a newline every 76 characters); base64.b64decode ignores it once
+# stripped (see parse_data_uri).
+_DATA_IMAGE_RE = re.compile(
+    r'^data:' + _RASTER_MIME_PATTERN + r';base64,[A-Za-z0-9+/=\s]*$', re.IGNORECASE)
 
 
 def _src_value(img_tag: str) -> Optional[str]:
@@ -68,8 +85,11 @@ def _set_src_value(img_tag: str, new_value: str) -> str:
 
 
 def extract_image_data_uris(html: str) -> List[str]:
-    """The `src` values of every `<img>` whose src is a
-    `data:image/...;base64,...` URI, in document order."""
+    """The `src` values of every `<img>` whose src is a raster
+    `data:image/...;base64,...` URI (see `_DATA_IMAGE_RE`), in document
+    order. A non-raster data URI (e.g. `image/svg+xml`) is not a match and
+    is skipped -- it is neither indexed nor counted towards another photo's
+    index."""
     out = []
     for tag in _IMG_TAG_RE.findall(html or ''):
         src = _src_value(tag)
@@ -129,8 +149,13 @@ def reinline_images(posted_html: str, stored_html: str,
 
 def parse_data_uri(uri: str) -> Tuple[str, bytes]:
     """Decode a `data:<mime>;base64,<payload>` URI into `(mime, bytes)`.
-    Raises ValueError for anything that isn't exactly that shape, or whose
-    payload isn't valid base64."""
+    Raises ValueError for anything that isn't exactly that shape, whose mime
+    isn't one of the raster types in `_RASTER_MIMES` (kept strict here too,
+    not just in `_DATA_IMAGE_RE`, so this can never be made to decode and
+    serve a non-raster type such as SVG), or whose payload isn't valid
+    base64 once whitespace is stripped (a hard-wrapped payload embeds
+    newlines that aren't part of the base64 alphabet but are harmless to
+    remove before decoding)."""
     if not isinstance(uri, str) or not uri.startswith('data:'):
         raise ValueError('not a data URI')
     header, comma, payload = uri[len('data:'):].partition(',')
@@ -141,6 +166,9 @@ def parse_data_uri(uri: str) -> Tuple[str, bytes]:
     mime = header[:-len(';base64')]
     if not mime:
         raise ValueError('data URI has no mime type')
+    if mime.lower() not in _RASTER_MIMES:
+        raise ValueError(f'unsupported image mime type: {mime!r}')
+    payload = re.sub(r'\s+', '', payload)
     try:
         data = base64.b64decode(payload, validate=True)
     except Exception as e:
