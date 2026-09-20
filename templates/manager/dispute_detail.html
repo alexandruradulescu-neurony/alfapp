@@ -169,12 +169,18 @@
       <form method="post" action="{% url 'disputes:dispute_prepare_submission' dispute.id %}"
             enctype="multipart/form-data" class="space-y-4" data-block id="dispute-composer">
         {% csrf_token %}
+        {# The FIRST submit control in the form is the browser's implicit-submit #}
+        {# target, so pressing Enter anywhere in the composer saves rather than #}
+        {# re-running "Draft with AI" (which would silently overwrite the text). #}
+        <button type="submit" name="action" value="save" class="hidden" tabindex="-1" aria-hidden="true">Save draft</button>
         <div>
           <label class="block text-sm font-medium text-gray-900 mb-1">What to emphasise (feeds the AI)</label>
           <textarea name="manager_note" rows="2"
                     class="block w-full rounded-md bg-white px-3 py-1.5 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600"
                     placeholder="e.g. Stress that they emailed us from the same IP they used to file the claim.">{{ draft_submission.manager_note }}</textarea>
-          <button type="submit" name="action" value="generate" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50 mt-2">
+          <button type="submit" name="action" value="generate"
+                  onclick="return !document.getElementById('composer-notes').value.trim() || confirm('This replaces the current text in the PayPal message box with a fresh AI draft. Continue?')"
+                  class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50 mt-2">
             {% heroicon_outline "sparkles" class="size-4" %} Draft with AI
           </button>
           {% if draft_submission %}
@@ -333,7 +339,8 @@
         </span>
       </summary>
       <div class="px-6 pb-6">
-        <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" class="mb-4" data-block>
+        <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" class="mb-4" data-block
+              {% if has_evidence_report %}onsubmit="return confirm('This creates a new version of the evidence report from the latest case data. The newest report is the one attached to your next reply. Edits you made to the current report stay only in that older version. Continue?');"{% endif %}>
           {% csrf_token %}
           <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                   {% if not dispute.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
@@ -359,8 +366,9 @@
                 <td class="px-3 py-4 text-sm text-gray-700"><strong class="font-semibold text-gray-900">{{ doc.get_doc_type_display }}</strong></td>
                 <td class="px-3 py-4 text-sm text-gray-700">
                   <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset {% if doc.status == 'SENT' %}bg-blue-50 text-blue-700 ring-blue-700/10{% elif doc.status == 'REVIEW' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ doc.get_status_display }}</span>
+                  {% if doc.id == attached_report_id %}<br><span class="mt-1 inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20">Attached to the next reply</span>{% endif %}
                 </td>
-                <td class="px-3 py-4 text-sm text-gray-600">v{{ doc.version }}</td>
+                <td class="px-3 py-4 text-sm text-gray-600">v{{ doc.version }}{% if doc.was_edited %}<br><span class="lora-meta">edited {{ doc.updated_at|date:"M d, Y H:i" }}</span>{% endif %}</td>
                 <td class="px-3 py-4 text-sm text-gray-500">{{ doc.get_generated_by_display }}</td>
                 <td class="px-3 py-4 text-sm text-gray-500">{{ doc.created_at|date:"M d, Y H:i" }}</td>
                 <td class="px-3 py-4 text-sm text-gray-700">
@@ -368,7 +376,9 @@
                     {% if doc.file_path %}
                     <a href="{{ doc.file_path.url }}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2 py-1 text-xs font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" target="_blank" title="Download PDF">{% heroicon_outline "arrow-down-tray" class="size-4" %}</a>
                     {% endif %}
+                    {% if doc.status != 'SENT' %}
                     <a href="{% url 'disputes:dispute_edit_document' doc.id %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2 py-1 text-xs font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50" title="Edit">{% heroicon_outline "pencil" class="size-4" %}</a>
+                    {% endif %}
                     <form method="post" action="{% url 'disputes:dispute_delete_document' doc.id %}" class="inline"
                           onsubmit="return confirm('Are you sure you want to delete this document?');">
                       {% csrf_token %}
@@ -459,7 +469,8 @@
       <div class="my-5 border-t border-gray-200"></div>
 
       <!-- Generate evidence report -->
-      <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" data-block>
+      <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" data-block
+            {% if has_evidence_report %}onsubmit="return confirm('This creates a new version of the evidence report from the latest case data. The newest report is the one attached to your next reply. Edits you made to the current report stay only in that older version. Continue?');"{% endif %}>
         {% csrf_token %}
         <button type="submit" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed" {% if not dispute.zd_ticket_id %}disabled{% endif %}>
           {% heroicon_outline "sparkles" class="size-4" %} Generate evidence report

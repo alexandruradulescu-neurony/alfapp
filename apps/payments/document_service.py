@@ -1,8 +1,13 @@
 """
 Document Generation Service for LORA Dispute Management.
 
-Generates professional dispute response letters and evidence reports as PDF documents.
-Uses Qwen AI for response letter generation and template-based rendering for evidence reports.
+Generates the dispute evidence-report PDF and the PayPal narrative notes text.
+The evidence report compiles the case record (Zendesk comments, claim evidence,
+communication history) into a structured PDF, sorted into narrative sections by
+AI when configured (falls back to an ungrouped list otherwise); the narrative
+notes are the first-person argument PayPal's reviewer reads. AI calls go
+through apps.ai.client.AIClient, which routes dispute call sites to Anthropic
+(Claude) when configured.
 """
 
 import base64
@@ -528,9 +533,7 @@ def _persist_document(dispute, *, doc_type: str, generated_by: str, content_html
 # generic Zendesk-styled report. Register a new template here (and add the
 # file) when a category's model arrives — no other code changes needed.
 # The narrative report (matches the business's Word template) is the default.
-# The old metadata-dump template stays available under its name for fallback.
 GENERIC_EVIDENCE_TEMPLATE = 'disputes/narrative_evidence_report.html'
-LEGACY_EVIDENCE_TEMPLATE = 'dispute_evidence_report.html'
 CATEGORY_REPORT_TEMPLATES = {
     # Per-category layouts can override here; by default every category uses the
     # narrative template and only its framing text (CATEGORY_FRAMING) changes.
@@ -1924,6 +1927,12 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
     # Hybrid classification: notes with real text go to the text classifier; notes
     # whose picture IS the content (image-only) go to Claude's vision, which can
     # actually read the screenshot. Merge the two into one placement map.
+    # ai_narrated records whether EITHER narrator actually placed items (so the
+    # caller can give the report an honest "AI Generated" vs "Manually Created"
+    # label, instead of hardcoding one regardless of what happened) — an
+    # image-only case record never reaches the text classifier at all, so
+    # relying on text_part alone would mislabel a vision-only report MANUAL.
+    ai_narrated = False
     if use_ai:
         image_items = [it for it in items if _is_image_only_note(it)]
         text_items = [it for it in items if not _is_image_only_note(it)]
@@ -1931,8 +1940,10 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
         if text_part is None:
             narrative = None  # text AI errored — fall back to the ungrouped view
         else:
+            image_part = _narrate_image_evidence(dispute, image_items, dispute.claim) or {}
+            ai_narrated = bool(text_part) or bool(image_part)
             narrative = dict(text_part)
-            narrative.update(_narrate_image_evidence(dispute, image_items, dispute.claim) or {})
+            narrative.update(image_part)
     else:
         narrative = None
     sections = _group_into_sections(items, narrative, reason=dispute.dispute_reason)
@@ -1973,6 +1984,7 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
         'intake_panel': intake_panel,
         'flight_card': flight_card,
         'sections': sections,
+        'ai_narrated': ai_narrated,
         'narrative': _narrative_fields(dispute, submitted_at=submitted_dt),
         'framing': framing,
         'bottom_line': _bottom_line(dispute, identity, consent, recorded_acceptance),
@@ -2106,12 +2118,24 @@ def _assemble_narrative_notes(sections: dict, reason: str = '') -> str:
     return "\n\n".join(parts).strip()
 
 
-def _narrative_untrusted(bundle: dict, max_comments: int = 8, per_comment_chars: int = 400) -> dict:
+def _narrative_untrusted(bundle: dict, max_comments: int = 40, per_comment_chars: int = 700) -> dict:
     """The case records the AI may ground the service-delivery section in: the
     cleaned Zendesk comment bodies, fenced under the approved 'zendesk_comment'
-    tag. Empty when there are none."""
+    tag. Once there are more panels than max_comments, keeps the EARLIEST 8
+    (how the case opened) plus the MOST RECENT (max_comments - 8) (how it
+    stands now) rather than silently dropping everything after the cutoff —
+    chronological order is preserved. When max_comments itself is 8 or fewer
+    there is no room for a "most recent" half, so it keeps only the earliest
+    max_comments. Never returns more than max_comments records. Empty when
+    there are none."""
+    panels = bundle.get('panels', [])
+    if len(panels) > max_comments:
+        if max_comments <= 8:
+            panels = panels[:max_comments]
+        else:
+            panels = panels[:8] + panels[-(max_comments - 8):]
     bodies = []
-    for p in bundle.get('panels', [])[:max_comments]:
+    for p in panels:
         body = (p.get('body') or '').strip()
         if not body:
             continue
@@ -2503,24 +2527,31 @@ def build_dispute_reply_timeline(dispute) -> list:
 def generate_evidence_report(dispute_id: int) -> Optional[DisputeDocument]:
     """
     Generate a comprehensive evidence report for a dispute.
-    
-    This is a template-based (NO AI) structured factual report that compiles:
+
+    A structured, factual report that compiles:
     - Ticket data (rendered as simulated Zendesk panels)
     - Claim evidence
     - Communication history
+
+    When AI is configured it sorts the case record into narrative sections and
+    writes a one-line relevance note per item (see _narrate_evidence); without
+    it, or if the call fails, the items fall back to a single ungrouped
+    section. generated_by reflects whichever actually happened for THIS report
+    (AI vs MANUAL), not a hardcoded value.
 
     Steps:
     1. Fetch Dispute + Zendesk ticket data
     2. Fetch claim evidence images
     3. Fetch communication history (emails)
-    4. Render template-based report (structured, factual)
-    6. Save as DisputeDocument (type=EVIDENCE_REPORT, status=DRAFT, generated_by=MANUAL)
+    4. Render the report (AI-sorted when available, else structured/factual)
+    6. Save as DisputeDocument (type=EVIDENCE_REPORT, status=DRAFT, generated_by
+       reflecting whether the AI narrative actually ran)
     7. Render to PDF via WeasyPrint
     8. Log generation to DisputeActivityLog
-    
+
     Args:
         dispute_id: Primary key of the Dispute
-        
+
     Returns:
         DisputeDocument instance on success, None on failure
     """
@@ -2557,13 +2588,18 @@ def generate_evidence_report(dispute_id: int) -> Optional[DisputeDocument]:
                 f"Evidence report for Dispute #{dispute_id} is {len(pdf_bytes) // (1024 * 1024)}MB — "
                 f"PayPal evidence uploads are typically capped near 10MB; consider trimming embedded images.")
 
+        # Honest provenance: label AI only when the narrative grouping actually
+        # placed items for THIS report, not unconditionally.
+        generated_by = (DisputeDocument.GENERATED_BY_AI if template_context.get('ai_narrated')
+                        else DisputeDocument.GENERATED_BY_MANUAL)
+
         # Persist via the shared helper — auto-versioned filename/content/version/
         # log in one narrow transaction. The slow work (Zendesk fetch, render) is
         # already done above, outside any transaction.
         document = _persist_document(
             dispute,
             doc_type=DisputeDocument.DOC_TYPE_EVIDENCE_REPORT,
-            generated_by=DisputeDocument.GENERATED_BY_MANUAL,
+            generated_by=generated_by,
             content_html=html_string,
             pdf_bytes=pdf_bytes,
             details=(f"Evidence report created. Evidence: {len(evidence_list)}, "
@@ -2572,44 +2608,7 @@ def generate_evidence_report(dispute_id: int) -> Optional[DisputeDocument]:
 
         logger.info(f"Successfully generated evidence report for Dispute #{dispute_id} (Document #{document.id})")
         return document
-        
+
     except Exception:
         logger.exception(f"Error generating evidence report for Dispute #{dispute_id}")
-        return None
-
-
-def regenerate_document(document_id: int) -> Optional[DisputeDocument]:
-    """
-    Regenerate an existing document (increment version).
-    
-    Args:
-        document_id: Primary key of the DisputeDocument
-        
-    Returns:
-        New DisputeDocument instance on success, None on failure
-    """
-    try:
-        old_document = DisputeDocument.objects.get(pk=document_id)
-        dispute = old_document.dispute
-
-        # Only the evidence report is generated now (the response letter was
-        # dropped — the written argument is plain text on a DisputeSubmission).
-        # Legacy RESPONSE_LETTER rows can't be regenerated; surface that instead
-        # of silently producing an evidence report of the wrong type.
-        if old_document.doc_type != DisputeDocument.DOC_TYPE_EVIDENCE_REPORT:
-            logger.warning(
-                f"Refusing to regenerate document #{document_id}: only evidence "
-                f"reports are generated now (doc_type={old_document.doc_type}).")
-            return None
-
-        # generate_evidence_report auto-increments the version (max + 1) and writes
-        # its own single DOCUMENT_GENERATED log, so the new doc is already correctly
-        # versioned and filename/content/log all agree.
-        return generate_evidence_report(dispute.id)
-
-    except DisputeDocument.DoesNotExist:
-        logger.error(f"Document #{document_id} not found")
-        return None
-    except Exception:
-        logger.exception(f"Error regenerating document #{document_id}")
         return None

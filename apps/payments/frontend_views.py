@@ -15,6 +15,7 @@ Provides UI views for managing PayPal disputes:
 
 import json
 import logging
+from datetime import timedelta
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import HttpResponse, Http404
 from django.urls import reverse
@@ -44,7 +45,8 @@ from apps.payments.report_images import (extract_image_data_uris, externalize_im
 from apps.payments.paypal_disputes_service import (accept_claim,
                                                    submit_dispute_response,
                                                    send_dispute_message, refresh_dispute_for_view,
-                                                   preferred_evidence_type, allowed_evidence_types)
+                                                   preferred_evidence_type, allowed_evidence_types,
+                                                   attached_evidence_report)
 
 logger = logging.getLogger(__name__)
 
@@ -578,8 +580,23 @@ def dispute_detail(request, dispute_id):
     except Exception as e:
         logger.warning(f"On-open refresh skipped for dispute #{dispute_id}: {e}")
 
-    # Get related data
-    documents = DisputeDocument.objects.filter(dispute=dispute).order_by('-created_at')
+    # Get related data. was_edited flags a report that was touched well after
+    # creation, so the documents table can show an "edited" marker (with its
+    # own date, rendered via the template's |date filter just like the
+    # Created column) instead of only ever showing the unchanging created
+    # date; the >5s margin absorbs the create-then-attach-file two-step save,
+    # which would otherwise make every fresh document look "edited" by a few
+    # milliseconds.
+    documents = list(DisputeDocument.objects.filter(dispute=dispute).order_by('-created_at'))
+    for doc in documents:
+        doc.was_edited = (doc.updated_at - doc.created_at).total_seconds() > 5
+    # Whether the confirm-before-overwriting warning applies: it exists to
+    # protect an EVIDENCE REPORT specifically (the artifact a submission can
+    # attach), so a stray legacy RESPONSE_LETTER document must not trigger it.
+    has_evidence_report = any(
+        doc.doc_type == DisputeDocument.DOC_TYPE_EVIDENCE_REPORT for doc in documents)
+    attached_doc = attached_evidence_report(dispute)
+    attached_report_id = attached_doc.id if attached_doc else None
     activity_log = DisputeActivityLog.objects.filter(dispute=dispute).order_by('-performed_at')[:50]
 
     # Get claim evidence if claim exists
@@ -639,6 +656,14 @@ def dispute_detail(request, dispute_id):
     context = {
         'dispute': dispute,
         'documents': documents,
+        # Gates the "this will overwrite your report" confirm on both generate
+        # forms — scoped to EVIDENCE REPORTS specifically (see has_evidence_report
+        # above), regardless of whether a file has been rendered for it yet.
+        'has_evidence_report': has_evidence_report,
+        # id of the EVIDENCE_REPORT document _build_submission_files would
+        # actually attach to the next reply (most recently edited, not most
+        # recently created) — the documents table flags that one row.
+        'attached_report_id': attached_report_id,
         'activity_log': activity_log,
         'claim_evidence': claim_evidence,
         'raw_payload_json': raw_payload_json,
@@ -668,6 +693,33 @@ def _working_draft(dispute):
     """The dispute's current DRAFT submission being prepared (latest), or None."""
     return dispute.submissions.filter(
         status=DisputeSubmission.STATUS_DRAFT).order_by('-created_at').first()
+
+
+# A SUBMITTING row older than this no longer counts as "in flight" for
+# _recent_submitting_exists below. Without a time bound, a worker killed
+# mid-send (a crash between the atomic DRAFT -> SUBMITTING claim and the
+# PayPal call) would leave the row stuck in SUBMITTING forever, permanently
+# locking the dispute's composer. Gunicorn's request timeout is 120 seconds,
+# so 10 minutes is safely past any real send attempt, whether it succeeds or
+# fails.
+SUBMITTING_STALE_AFTER = timedelta(minutes=10)
+
+IN_FLIGHT_SUBMISSION_MESSAGE = (
+    "A submission for this dispute is already being sent. Wait a moment and "
+    "refresh before editing or sending again."
+)
+
+
+def _recent_submitting_exists(dispute):
+    """True while a submission of this dispute is genuinely in flight to
+    PayPal right now — SUBMITTING and updated within SUBMITTING_STALE_AFTER —
+    as opposed to a long-stuck row abandoned by a crash. Guards the composer
+    (save/generate/send) against quietly creating a second, divergent
+    DisputeSubmission alongside the one already going out."""
+    cutoff = timezone.now() - SUBMITTING_STALE_AFTER
+    return dispute.submissions.filter(
+        status=DisputeSubmission.STATUS_SUBMITTING,
+        updated_at__gte=cutoff).exists()
 
 
 def _report_already_sent(dispute):
@@ -1011,6 +1063,20 @@ def dispute_prepare_submission(request, dispute_id):
     draft = _working_draft(dispute)
     manager_note = (request.POST.get('manager_note') or '').strip()
 
+    # In-flight guard: _working_draft only ever looks at DRAFT rows, so a
+    # submission already claimed by a send (SUBMITTING) is invisible to it —
+    # without this check, save/generate/send would all fall through to "no
+    # draft" below and create a brand new, divergent DisputeSubmission
+    # alongside the one already going out. Checked first, before any
+    # save/create, and for all three composer actions; _submit_working_draft's
+    # own atomic claim (DRAFT -> SUBMITTING) is the second line of defence for
+    # 'send' against a tighter race. A SUBMITTING row past SUBMITTING_STALE_AFTER
+    # is treated as abandoned rather than in flight, so one stuck row (e.g. a
+    # crashed worker) can never lock the composer for good.
+    if _recent_submitting_exists(dispute):
+        messages.error(request, IN_FLIGHT_SUBMISSION_MESSAGE)
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
     if action == 'generate':
         try:
             result = build_dispute_narrative_notes(dispute, manager_note=manager_note)
@@ -1148,8 +1214,45 @@ def _submit_working_draft(request, dispute):
     if ok:
         messages.success(request, f"Submitted to PayPal via {endpoint}.")
     else:
-        messages.error(request, "PayPal rejected the submission — see the timeline for the reason. "
-                                "You can edit the draft and try again.")
+        # A clean rejection (no exception) already left `draft` FAILED via
+        # _record_submission_outcome — keep that row as the audit record, and
+        # open a fresh, identical DRAFT so the manager's text isn't stranded on
+        # a row that can no longer be edited or sent. Atomic + failure-tolerant:
+        # a crash partway through (e.g. a storage hiccup copying an image) must
+        # never leave a half-cloned DRAFT, and must never surface as a 500 —
+        # the FAILED row alone is still a safe, if less convenient, place to land.
+        try:
+            with transaction.atomic():
+                new_draft = DisputeSubmission.objects.create(
+                    dispute=dispute,
+                    kind=draft.kind,
+                    source=draft.source,
+                    notes=draft.notes,
+                    manager_note=draft.manager_note,
+                    evidence_type=draft.evidence_type,
+                    attach_evidence_pdf=draft.attach_evidence_pdf,
+                    attach_terms=draft.attach_terms,
+                    attach_invoice=draft.attach_invoice,
+                    status=DisputeSubmission.STATUS_DRAFT,
+                )
+                for img in draft.images.all():
+                    DisputeSubmissionImage.objects.create(
+                        submission=new_draft, file=img.file.name, caption=img.caption,
+                        uploaded_by=img.uploaded_by)
+        except Exception as e:
+            logger.error(
+                f"Failed to clone rejected submission #{draft.pk} into a fresh draft "
+                f"for Dispute #{dispute_id}: {e}")
+            messages.error(
+                request,
+                "PayPal rejected the submission, see the timeline for the reason. Your text "
+                "could not be restored as a new draft automatically, so copy it from the "
+                "timeline entry before retrying.")
+            return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+        messages.error(
+            request,
+            "PayPal rejected the submission, see the timeline for the reason. Your text is "
+            "back in the composer as a new draft, so you can edit it and try again.")
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
 
