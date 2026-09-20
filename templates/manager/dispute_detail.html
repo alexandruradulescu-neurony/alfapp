@@ -365,7 +365,7 @@
               <tr>
                 <td class="px-3 py-4 text-sm text-gray-700"><strong class="font-semibold text-gray-900">{{ doc.get_doc_type_display }}</strong></td>
                 <td class="px-3 py-4 text-sm text-gray-700">
-                  <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset {% if doc.status == 'SENT' %}bg-blue-50 text-blue-700 ring-blue-700/10{% elif doc.status == 'REVIEW' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ doc.get_status_display }}</span>
+                  <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset {% if doc.status == 'SENT' %}bg-blue-50 text-blue-700 ring-blue-700/10{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{% if doc.status == 'DRAFT' %}Not sent yet{% elif doc.status == 'SENT' %}Sent to PayPal{% else %}{{ doc.get_status_display }}{% endif %}</span>
                   {% if doc.id == attached_report_id %}<br><span class="mt-1 inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20">Attached to the next reply</span>{% endif %}
                 </td>
                 <td class="px-3 py-4 text-sm text-gray-600">v{{ doc.version }}{% if doc.was_edited %}<br><span class="lora-meta">edited {{ doc.updated_at|date:"M d, Y H:i" }}</span>{% endif %}</td>

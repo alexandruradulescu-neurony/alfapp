@@ -457,6 +457,12 @@ class DisputeDocument(models.Model):
         (DOC_TYPE_EVIDENCE_REPORT, 'Evidence Report'),
     ]
 
+    # Only DRAFT and SENT are ever actually set by code today. A document is
+    # created DRAFT, and paypal_disputes_service.submit_dispute_response()
+    # flips the EVIDENCE_REPORT document actually attached to a successful
+    # submission to SENT (queryset .update(), so it doesn't also bump
+    # updated_at/version — see that function for why). REVIEW/ACCEPTED are
+    # reserved values with no code path setting them yet.
     STATUS_DRAFT = 'DRAFT'
     STATUS_REVIEW = 'REVIEW'
     STATUS_ACCEPTED = 'ACCEPTED'

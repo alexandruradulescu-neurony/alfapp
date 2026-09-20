@@ -820,6 +820,13 @@ def submit_dispute_response(submission: DisputeSubmission, *, performed_by=None)
     activity log, and re-syncs the dispute from PayPal afterwards (so its state
     and evidence history update). Returns True on success; on failure marks the
     submission FAILED and returns False so the manager can edit and retry.
+
+    On success, when attach_evidence_pdf was set, also marks the EVIDENCE_REPORT
+    document actually attached (attached_evidence_report(dispute) — the same
+    helper _build_submission_files used to pick it, so both agree) as
+    STATUS_SENT, via a queryset .update() rather than a normal save() (see the
+    comment at the call site for why). Idempotent: attaching the same report to
+    a later, second successful submission leaves it SENT with no error.
     """
     dispute = submission.dispute
     endpoint = dispute.submit_endpoint
@@ -859,6 +866,23 @@ def submit_dispute_response(submission: DisputeSubmission, *, performed_by=None)
     _record_submission_outcome(submission, status=DisputeSubmission.STATUS_SUBMITTED,
                                performed_by=performed_by,
                                response=response, action=endpoint, attachments=files)
+
+    if submission.attach_evidence_pdf:
+        report = attached_evidence_report(dispute)
+        if report:
+            # Queryset .update(), NOT report.save(): a normal save() would fire
+            # auto_now and bump updated_at, which is the exact signal a manager
+            # reads as "this report was just edited" (see was_edited in
+            # frontend_views.dispute_detail) and the ordering
+            # attached_evidence_report() itself sorts by. Marking a report SENT
+            # must not make an otherwise-untouched report look freshly edited,
+            # and must not reshuffle which document a later submission would
+            # attach. A plain field set is also naturally idempotent, so
+            # attaching the same already-SENT report to a later submission is a
+            # no-op here, not an error.
+            DisputeDocument.objects.filter(pk=report.pk).update(
+                status=DisputeDocument.STATUS_SENT)
+
     # Re-sync OUTSIDE the DB transaction (network I/O): refresh state + evidences[].
     try:
         sync_dispute_from_paypal(dispute.paypal_dispute_id)
