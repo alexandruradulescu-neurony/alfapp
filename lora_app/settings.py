@@ -322,6 +322,16 @@ CSRF_COOKIE_HTTPONLY = True
 CSRF_COOKIE_SECURE = not DEBUG  # Only secure in production
 CSRF_COOKIE_SAMESITE = 'Lax'
 
+# Request body size ceiling. The evidence-report WYSIWYG editor
+# (disputes:dispute_edit_document) posts the WHOLE report back as one
+# content_html field, and reports embed photos as base64 data URIs, so that
+# field is routinely 2.5-10 MB (largest seen in production: ~9.2 MB raw).
+# Django's 2.5 MiB default silently rejected these saves with a bare HTTP 400
+# (RequestDataTooBig) on 2026-09-20, dropping the manager's edits. A follow-up
+# PR will stop round-tripping the images at all, so this is a ceiling to
+# unblock saves now, not a target to grow further.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024  # 50 MiB
+
 # CSP Configuration (updated format for django-csp 4.0+) - only in production
 if not DEBUG:
     CONTENT_SECURITY_POLICY = {
