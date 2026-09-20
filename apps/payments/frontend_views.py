@@ -15,6 +15,7 @@ Provides UI views for managing PayPal disputes:
 
 import json
 import logging
+from datetime import timedelta
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import HttpResponse
 from django.utils.html import escape
@@ -633,6 +634,33 @@ def _working_draft(dispute):
         status=DisputeSubmission.STATUS_DRAFT).order_by('-created_at').first()
 
 
+# A SUBMITTING row older than this no longer counts as "in flight" for
+# _recent_submitting_exists below. Without a time bound, a worker killed
+# mid-send (a crash between the atomic DRAFT -> SUBMITTING claim and the
+# PayPal call) would leave the row stuck in SUBMITTING forever, permanently
+# locking the dispute's composer. Gunicorn's request timeout is 120 seconds,
+# so 10 minutes is safely past any real send attempt, whether it succeeds or
+# fails.
+SUBMITTING_STALE_AFTER = timedelta(minutes=10)
+
+IN_FLIGHT_SUBMISSION_MESSAGE = (
+    "A submission for this dispute is already being sent. Wait a moment and "
+    "refresh before editing or sending again."
+)
+
+
+def _recent_submitting_exists(dispute):
+    """True while a submission of this dispute is genuinely in flight to
+    PayPal right now — SUBMITTING and updated within SUBMITTING_STALE_AFTER —
+    as opposed to a long-stuck row abandoned by a crash. Guards the composer
+    (save/generate/send) against quietly creating a second, divergent
+    DisputeSubmission alongside the one already going out."""
+    cutoff = timezone.now() - SUBMITTING_STALE_AFTER
+    return dispute.submissions.filter(
+        status=DisputeSubmission.STATUS_SUBMITTING,
+        updated_at__gte=cutoff).exists()
+
+
 def _report_already_sent(dispute):
     """True once any SUBMITTED reply of this dispute carried the evidence-report
     PDF. After that the attach tick stops defaulting on and the send-time
@@ -854,15 +882,18 @@ def dispute_prepare_submission(request, dispute_id):
     draft = _working_draft(dispute)
     manager_note = (request.POST.get('manager_note') or '').strip()
 
-    # Double-submit guard: _working_draft only ever looks at DRAFT rows, so a
-    # submission a send has already claimed (SUBMITTING) is invisible to it —
-    # without this check, a second 'send' would fall through to "no draft"
-    # below and create + dispatch a brand new, duplicate submission. Checked
-    # first, before any save/create; _submit_working_draft's own atomic claim
-    # (DRAFT -> SUBMITTING) is the second line of defence against a tighter race.
-    if action == 'send' and dispute.submissions.filter(
-            status=DisputeSubmission.STATUS_SUBMITTING).exists():
-        messages.error(request, "This submission is already being sent — refresh to see its status.")
+    # In-flight guard: _working_draft only ever looks at DRAFT rows, so a
+    # submission already claimed by a send (SUBMITTING) is invisible to it —
+    # without this check, save/generate/send would all fall through to "no
+    # draft" below and create a brand new, divergent DisputeSubmission
+    # alongside the one already going out. Checked first, before any
+    # save/create, and for all three composer actions; _submit_working_draft's
+    # own atomic claim (DRAFT -> SUBMITTING) is the second line of defence for
+    # 'send' against a tighter race. A SUBMITTING row past SUBMITTING_STALE_AFTER
+    # is treated as abandoned rather than in flight, so one stuck row (e.g. a
+    # crashed worker) can never lock the composer for good.
+    if _recent_submitting_exists(dispute):
+        messages.error(request, IN_FLIGHT_SUBMISSION_MESSAGE)
         return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
     if action == 'generate':
