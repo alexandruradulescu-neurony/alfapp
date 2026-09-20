@@ -21,7 +21,6 @@ from django.utils.html import escape
 from django.contrib import messages
 from django.db.models import Q, Count
 from django.core.paginator import Paginator
-from django.template.defaultfilters import date as date_filter
 from django.views.decorators.http import require_POST
 
 from decimal import Decimal, InvalidOperation
@@ -519,19 +518,21 @@ def dispute_detail(request, dispute_id):
     except Exception as e:
         logger.warning(f"On-open refresh skipped for dispute #{dispute_id}: {e}")
 
-    # Get related data. was_edited/edited_display let the documents table show
-    # when a report was touched after creation (rather than always claiming
-    # "Manually Created" or hiding that someone edited it); the >5s margin
-    # absorbs the create-then-attach-file two-step save, which otherwise makes
-    # every fresh document look "edited" by a few milliseconds.
+    # Get related data. was_edited flags a report that was touched well after
+    # creation, so the documents table can show an "edited" marker (with its
+    # own date, rendered via the template's |date filter just like the
+    # Created column) instead of only ever showing the unchanging created
+    # date; the >5s margin absorbs the create-then-attach-file two-step save,
+    # which would otherwise make every fresh document look "edited" by a few
+    # milliseconds.
     documents = list(DisputeDocument.objects.filter(dispute=dispute).order_by('-created_at'))
     for doc in documents:
         doc.was_edited = (doc.updated_at - doc.created_at).total_seconds() > 5
-        if doc.was_edited:
-            # Computed directly (not via the template's |date filter) so it always
-            # reads in the same clock the value was compared in above, regardless
-            # of the app's display-timezone auto-localization.
-            doc.edited_display = date_filter(doc.updated_at, "M d, Y H:i")
+    # Whether the confirm-before-overwriting warning applies: it exists to
+    # protect an EVIDENCE REPORT specifically (the artifact a submission can
+    # attach), so a stray legacy RESPONSE_LETTER document must not trigger it.
+    has_evidence_report = any(
+        doc.doc_type == DisputeDocument.DOC_TYPE_EVIDENCE_REPORT for doc in documents)
     attached_doc = attached_evidence_report(dispute)
     attached_report_id = attached_doc.id if attached_doc else None
     activity_log = DisputeActivityLog.objects.filter(dispute=dispute).order_by('-performed_at')[:50]
@@ -593,6 +594,10 @@ def dispute_detail(request, dispute_id):
     context = {
         'dispute': dispute,
         'documents': documents,
+        # Gates the "this will overwrite your report" confirm on both generate
+        # forms — scoped to EVIDENCE REPORTS specifically (see has_evidence_report
+        # above), regardless of whether a file has been rendered for it yet.
+        'has_evidence_report': has_evidence_report,
         # id of the EVIDENCE_REPORT document _build_submission_files would
         # actually attach to the next reply (most recently edited, not most
         # recently created) — the documents table flags that one row.
@@ -849,6 +854,17 @@ def dispute_prepare_submission(request, dispute_id):
     draft = _working_draft(dispute)
     manager_note = (request.POST.get('manager_note') or '').strip()
 
+    # Double-submit guard: _working_draft only ever looks at DRAFT rows, so a
+    # submission a send has already claimed (SUBMITTING) is invisible to it —
+    # without this check, a second 'send' would fall through to "no draft"
+    # below and create + dispatch a brand new, duplicate submission. Checked
+    # first, before any save/create; _submit_working_draft's own atomic claim
+    # (DRAFT -> SUBMITTING) is the second line of defence against a tighter race.
+    if action == 'send' and dispute.submissions.filter(
+            status=DisputeSubmission.STATUS_SUBMITTING).exists():
+        messages.error(request, "This submission is already being sent — refresh to see its status.")
+        return redirect('disputes:dispute_detail', dispute_id=dispute_id)
+
     if action == 'generate':
         try:
             result = build_dispute_narrative_notes(dispute, manager_note=manager_note)
@@ -989,23 +1005,38 @@ def _submit_working_draft(request, dispute):
         # A clean rejection (no exception) already left `draft` FAILED via
         # _record_submission_outcome — keep that row as the audit record, and
         # open a fresh, identical DRAFT so the manager's text isn't stranded on
-        # a row that can no longer be edited or sent.
-        new_draft = DisputeSubmission.objects.create(
-            dispute=dispute,
-            kind=draft.kind,
-            source=draft.source,
-            notes=draft.notes,
-            manager_note=draft.manager_note,
-            evidence_type=draft.evidence_type,
-            attach_evidence_pdf=draft.attach_evidence_pdf,
-            attach_terms=draft.attach_terms,
-            attach_invoice=draft.attach_invoice,
-            status=DisputeSubmission.STATUS_DRAFT,
-        )
-        for img in draft.images.all():
-            DisputeSubmissionImage.objects.create(
-                submission=new_draft, file=img.file.name, caption=img.caption,
-                uploaded_by=img.uploaded_by)
+        # a row that can no longer be edited or sent. Atomic + failure-tolerant:
+        # a crash partway through (e.g. a storage hiccup copying an image) must
+        # never leave a half-cloned DRAFT, and must never surface as a 500 —
+        # the FAILED row alone is still a safe, if less convenient, place to land.
+        try:
+            with transaction.atomic():
+                new_draft = DisputeSubmission.objects.create(
+                    dispute=dispute,
+                    kind=draft.kind,
+                    source=draft.source,
+                    notes=draft.notes,
+                    manager_note=draft.manager_note,
+                    evidence_type=draft.evidence_type,
+                    attach_evidence_pdf=draft.attach_evidence_pdf,
+                    attach_terms=draft.attach_terms,
+                    attach_invoice=draft.attach_invoice,
+                    status=DisputeSubmission.STATUS_DRAFT,
+                )
+                for img in draft.images.all():
+                    DisputeSubmissionImage.objects.create(
+                        submission=new_draft, file=img.file.name, caption=img.caption,
+                        uploaded_by=img.uploaded_by)
+        except Exception as e:
+            logger.error(
+                f"Failed to clone rejected submission #{draft.pk} into a fresh draft "
+                f"for Dispute #{dispute_id}: {e}")
+            messages.error(
+                request,
+                "PayPal rejected the submission, see the timeline for the reason. Your text "
+                "could not be restored as a new draft automatically, so copy it from the "
+                "timeline entry before retrying.")
+            return redirect('disputes:dispute_detail', dispute_id=dispute_id)
         messages.error(
             request,
             "PayPal rejected the submission, see the timeline for the reason. Your text is "

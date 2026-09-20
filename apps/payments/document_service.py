@@ -1927,9 +1927,11 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
     # Hybrid classification: notes with real text go to the text classifier; notes
     # whose picture IS the content (image-only) go to Claude's vision, which can
     # actually read the screenshot. Merge the two into one placement map.
-    # ai_narrated records whether the AI actually placed items (so the caller can
-    # give the report an honest "AI Generated" vs "Manually Created" label,
-    # instead of hardcoding one regardless of what happened).
+    # ai_narrated records whether EITHER narrator actually placed items (so the
+    # caller can give the report an honest "AI Generated" vs "Manually Created"
+    # label, instead of hardcoding one regardless of what happened) — an
+    # image-only case record never reaches the text classifier at all, so
+    # relying on text_part alone would mislabel a vision-only report MANUAL.
     ai_narrated = False
     if use_ai:
         image_items = [it for it in items if _is_image_only_note(it)]
@@ -1938,9 +1940,10 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
         if text_part is None:
             narrative = None  # text AI errored — fall back to the ungrouped view
         else:
-            ai_narrated = bool(text_part)
+            image_part = _narrate_image_evidence(dispute, image_items, dispute.claim) or {}
+            ai_narrated = bool(text_part) or bool(image_part)
             narrative = dict(text_part)
-            narrative.update(_narrate_image_evidence(dispute, image_items, dispute.claim) or {})
+            narrative.update(image_part)
     else:
         narrative = None
     sections = _group_into_sections(items, narrative, reason=dispute.dispute_reason)
@@ -2121,11 +2124,16 @@ def _narrative_untrusted(bundle: dict, max_comments: int = 40, per_comment_chars
     tag. Once there are more panels than max_comments, keeps the EARLIEST 8
     (how the case opened) plus the MOST RECENT (max_comments - 8) (how it
     stands now) rather than silently dropping everything after the cutoff —
-    chronological order is preserved. Empty when there are none."""
+    chronological order is preserved. When max_comments itself is 8 or fewer
+    there is no room for a "most recent" half, so it keeps only the earliest
+    max_comments. Never returns more than max_comments records. Empty when
+    there are none."""
     panels = bundle.get('panels', [])
     if len(panels) > max_comments:
-        recent_n = max(max_comments - 8, 0)
-        panels = panels[:8] + (panels[-recent_n:] if recent_n else [])
+        if max_comments <= 8:
+            panels = panels[:max_comments]
+        else:
+            panels = panels[:8] + panels[-(max_comments - 8):]
     bodies = []
     for p in panels:
         body = (p.get('body') or '').strip()

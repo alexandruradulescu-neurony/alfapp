@@ -340,7 +340,7 @@
       </summary>
       <div class="px-6 pb-6">
         <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" class="mb-4" data-block
-              {% if documents %}onsubmit="return confirm('This creates a new version of the evidence report from the latest case data. The newest report is the one attached to your next reply. Edits you made to the current report stay only in that older version. Continue?');"{% endif %}>
+              {% if has_evidence_report %}onsubmit="return confirm('This creates a new version of the evidence report from the latest case data. The newest report is the one attached to your next reply. Edits you made to the current report stay only in that older version. Continue?');"{% endif %}>
           {% csrf_token %}
           <button type="submit" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                   {% if not dispute.zd_ticket_id %}disabled title="No Zendesk ticket linked"{% endif %}>
@@ -368,7 +368,7 @@
                   <span class="inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset {% if doc.status == 'SENT' %}bg-blue-50 text-blue-700 ring-blue-700/10{% elif doc.status == 'REVIEW' %}bg-yellow-50 text-yellow-800 ring-yellow-600/20{% else %}bg-gray-50 text-gray-600 ring-gray-500/10{% endif %}">{{ doc.get_status_display }}</span>
                   {% if doc.id == attached_report_id %}<br><span class="mt-1 inline-flex items-center gap-x-1 rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset bg-green-50 text-green-700 ring-green-600/20">Attached to the next reply</span>{% endif %}
                 </td>
-                <td class="px-3 py-4 text-sm text-gray-600">v{{ doc.version }}{% if doc.was_edited %}<br><span class="lora-meta">edited {{ doc.edited_display }}</span>{% endif %}</td>
+                <td class="px-3 py-4 text-sm text-gray-600">v{{ doc.version }}{% if doc.was_edited %}<br><span class="lora-meta">edited {{ doc.updated_at|date:"M d, Y H:i" }}</span>{% endif %}</td>
                 <td class="px-3 py-4 text-sm text-gray-500">{{ doc.get_generated_by_display }}</td>
                 <td class="px-3 py-4 text-sm text-gray-500">{{ doc.created_at|date:"M d, Y H:i" }}</td>
                 <td class="px-3 py-4 text-sm text-gray-700">
@@ -470,7 +470,7 @@
 
       <!-- Generate evidence report -->
       <form method="post" action="{% url 'disputes:dispute_generate_documents' dispute.id %}" data-block
-            {% if documents %}onsubmit="return confirm('This creates a new version of the evidence report from the latest case data. The newest report is the one attached to your next reply. Edits you made to the current report stay only in that older version. Continue?');"{% endif %}>
+            {% if has_evidence_report %}onsubmit="return confirm('This creates a new version of the evidence report from the latest case data. The newest report is the one attached to your next reply. Edits you made to the current report stay only in that older version. Continue?');"{% endif %}>
         {% csrf_token %}
         <button type="submit" class="inline-flex w-full items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed" {% if not dispute.zd_ticket_id %}disabled{% endif %}>
           {% heroicon_outline "sparkles" class="size-4" %} Generate evidence report

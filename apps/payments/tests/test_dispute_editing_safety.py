@@ -450,7 +450,14 @@ class DocumentRowEditMarkerTests(_LoggedInTestCase):
     def test_row_shows_edited_and_its_date_when_updated_well_after_created(self):
         d = _dispute()
         doc = _report_doc(d, version=2)
-        _touch(doc, updated_at=doc.created_at + timedelta(seconds=30))
+        # Fixed, deliberately UTC-vs-local-DIVERGENT timestamps: 23:xx UTC is a
+        # different wall-clock hour in America/Chicago (the app's TIME_ZONE), so
+        # a raw-UTC render and a localized render can never accidentally agree
+        # (unlike `doc.created_at + timedelta(...)`, whose UTC hour depends on
+        # whenever the test happens to run).
+        created = datetime(2026, 6, 1, 23, 0, tzinfo=dt_tz.utc)
+        updated = datetime(2026, 6, 1, 23, 30, tzinfo=dt_tz.utc)
+        _touch(doc, created_at=created, updated_at=updated)
 
         html = self._detail_html(d)
         rows = _rows_matching(html, '>v2<')
@@ -458,9 +465,19 @@ class DocumentRowEditMarkerTests(_LoggedInTestCase):
         row = rows[0]
         self.assertIn('edited', row.lower(),
                       "a document updated 30s after creation must show as edited")
-        expected_date = date_filter(doc.updated_at, "M d, Y H:i")
+        # The row's neighbouring "Created" column renders through the template's
+        # |date filter, which localizes to the app's TIME_ZONE — the "edited"
+        # date must match that same clock, not raw UTC.
+        expected_date = date_filter(timezone.localtime(doc.updated_at), "M d, Y H:i")
+        raw_utc_date = date_filter(doc.updated_at, "M d, Y H:i")
+        self.assertNotEqual(
+            expected_date, raw_utc_date,
+            "test setup bug: localized and raw-UTC renderings must differ for this assertion "
+            "to mean anything")
         self.assertIn(expected_date, row,
-                      f"expected the updated_at date {expected_date!r} in the row")
+                      f"expected the LOCALIZED updated_at date {expected_date!r} in the row "
+                      f"(to match the neighbouring created_at column), not the raw-UTC "
+                      f"{raw_utc_date!r}")
 
     def test_sent_document_has_no_edit_link(self):
         d = _dispute()

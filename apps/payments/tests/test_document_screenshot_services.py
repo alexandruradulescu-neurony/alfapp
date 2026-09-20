@@ -2,7 +2,7 @@
 Tests for the payments document service (dispute evidence reports).
 
 Tests cover:
-- generate_evidence_report, regenerate_document
+- generate_evidence_report
 - Helper functions (_get_weasyprint, _fetch_zendesk_ticket_full, etc.)
 - Error handling, success and failure scenarios
 
