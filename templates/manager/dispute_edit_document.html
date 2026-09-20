@@ -9,7 +9,7 @@
         {% heroicon_outline "pencil" class="size-5" %} Edit {{ document.get_doc_type_display }}
         <span class="lora-meta font-normal">v{{ document.version }} · Dispute #{{ dispute.id }}</span>
     </h2>
-    <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
+    <a href="{% url 'disputes:dispute_detail' dispute.id %}" {% if document.doc_type == 'EVIDENCE_REPORT' %}onclick="return confirmLeave()"{% endif %} class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
         {% heroicon_outline "arrow-left" class="size-5" %} Back to Dispute
     </a>
 </div>
@@ -34,7 +34,7 @@
         <button type="button" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500" onclick="saveReport()">
             {% heroicon_outline "arrow-down-tray" class="size-5" %} Save &amp; regenerate PDF
         </button>
-        <a href="{% url 'disputes:dispute_detail' dispute.id %}" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Cancel</a>
+        <a href="{% url 'disputes:dispute_detail' dispute.id %}" onclick="return confirmLeave()" class="inline-flex items-center justify-center gap-x-1.5 rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50">Cancel</a>
     </div>
 
     <div class="overflow-hidden lora-card">
@@ -99,6 +99,7 @@
 <script>
 {% if document.doc_type == 'EVIDENCE_REPORT' %}
     const frame = document.getElementById('reportFrame');
+    let dirty = false;
 
     function resizeFrame() {
         try {
@@ -109,25 +110,44 @@
 
     frame.addEventListener('load', function () {
         const doc = frame.contentDocument;
-        // Make the document editable, but lock images so they can't be moved/altered.
+        // Make the document editable, but lock images so they can't be
+        // moved/altered. Images load via URLs now (never embedded data), but
+        // they're still not meant to be repositioned by the WYSIWYG editor.
         doc.designMode = 'on';
         doc.querySelectorAll('img').forEach(function (img) {
             img.setAttribute('contenteditable', 'false');
             img.setAttribute('draggable', 'false');
         });
-        doc.addEventListener('input', resizeFrame);
+        doc.addEventListener('input', function () {
+            dirty = true;
+            resizeFrame();
+        });
         resizeFrame();
     });
 
     function exec(cmd) {
         frame.contentDocument.execCommand(cmd, false, null);
         frame.focus();
+        dirty = true;
+    }
+
+    // Unsaved-changes guard: warn before leaving with edits not yet saved.
+    window.addEventListener('beforeunload', function (e) {
+        if (dirty) {
+            e.preventDefault();
+            e.returnValue = '';
+        }
+    });
+
+    function confirmLeave() {
+        return !dirty || confirm('You have unsaved changes. Leave without saving?');
     }
 
     function saveReport() {
         const doc = frame.contentDocument;
         document.getElementById('content_html_field').value =
             '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+        dirty = false;
         document.getElementById('wysiwygForm').submit();
     }
 {% else %}
