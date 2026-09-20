@@ -20,7 +20,6 @@ import tempfile
 
 from apps.payments.document_service import (
     generate_evidence_report,
-    regenerate_document,
     _get_weasyprint,
     _fetch_zendesk_ticket_full,
     _fetch_claim_evidence_base64,
@@ -447,68 +446,4 @@ class TestGenerateEvidenceReport:
             result = generate_evidence_report(dispute.id)
             # Should still succeed
             assert result is not None
-
-
-# =============================================================================
-# TESTS FOR regenerate_document
-# =============================================================================
-
-
-class TestRegenerateDocument:
-    """Tests for regenerate_document function."""
-
-    @pytest.mark.django_db
-    def test_regenerate_evidence_report(self, complete_dispute_setup, mock_weasyprint):
-        """Test regenerating an evidence report."""
-        dispute = complete_dispute_setup['dispute']
-
-        with patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={
-            'ticket': {},
-            'comments': [],
-        }):
-            original = generate_evidence_report(dispute.id)
-            assert original is not None
-
-        with patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={
-            'ticket': {},
-            'comments': [],
-        }):
-            new_doc = regenerate_document(original.id)
-            assert new_doc is not None
-            assert new_doc.version == 2
-
-    @pytest.mark.django_db
-    def test_regenerate_refuses_legacy_response_letter(self, complete_dispute_setup):
-        """A legacy RESPONSE_LETTER row is no longer regenerated (the response
-        letter was dropped) — regenerate_document refuses it and returns None
-        rather than producing a wrong-typed evidence report."""
-        dispute = complete_dispute_setup['dispute']
-        doc = DisputeDocument.objects.create(
-            dispute=dispute, doc_type='RESPONSE_LETTER', status='DRAFT',
-            generated_by='AI', content_html='legacy letter', version=1)
-        assert regenerate_document(doc.id) is None
-
-    @pytest.mark.django_db
-    def test_regenerate_document_not_found(self):
-        """Test when document does not exist."""
-        result = regenerate_document(99999)
-        assert result is None
-
-    @pytest.mark.django_db
-    def test_regenerate_error(self, complete_dispute_setup, mock_weasyprint):
-        """Test regeneration when generation fails."""
-        dispute = complete_dispute_setup['dispute']
-
-        with patch('apps.payments.document_service._fetch_zendesk_ticket_full', return_value={
-            'ticket': {},
-            'comments': [],
-        }):
-            original = generate_evidence_report(dispute.id)
-            # If PDF generation failed, original will be None
-            if original is None:
-                pytest.skip("PDF generation not available in test environment")
-
-        with patch('apps.payments.document_service.generate_evidence_report', return_value=None):
-            result = regenerate_document(original.id)
-            assert result is None
 

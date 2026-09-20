@@ -718,6 +718,17 @@ def _read_file_field(field, default_ct: str = 'application/octet-stream'):
             'content_type': _IMAGE_CONTENT_TYPES.get(ext, default_ct)}
 
 
+def attached_evidence_report(dispute) -> Optional[DisputeDocument]:
+    """The EVIDENCE_REPORT document that would actually be attached to this
+    dispute's next reply: the most recently TOUCHED one (latest updated_at),
+    not simply the most recently created one — an edit to an older version
+    must take precedence over a newer, untouched regeneration. None when no
+    report with a real file exists."""
+    return (DisputeDocument.objects
+            .filter(dispute=dispute, doc_type=DisputeDocument.DOC_TYPE_EVIDENCE_REPORT)
+            .exclude(file_path='').order_by('-updated_at', '-created_at').first())
+
+
 def _build_submission_files(submission: DisputeSubmission) -> List[dict]:
     """The files to upload with a submission: the manager's images, plus the
     latest evidence-report PDF when attach_evidence_pdf is ticked, plus the
@@ -725,10 +736,7 @@ def _build_submission_files(submission: DisputeSubmission) -> List[dict]:
     are skipped (logged), never crashing the submit."""
     files = []
     if submission.attach_evidence_pdf:
-        doc = (DisputeDocument.objects
-               .filter(dispute=submission.dispute,
-                       doc_type=DisputeDocument.DOC_TYPE_EVIDENCE_REPORT)
-               .exclude(file_path='').order_by('-created_at').first())
+        doc = attached_evidence_report(submission.dispute)
         if doc:
             f = _read_file_field(doc.file_path, default_ct='application/pdf')
             if f:

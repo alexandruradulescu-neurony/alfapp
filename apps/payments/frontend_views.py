@@ -21,6 +21,7 @@ from django.utils.html import escape
 from django.contrib import messages
 from django.db.models import Q, Count
 from django.core.paginator import Paginator
+from django.template.defaultfilters import date as date_filter
 from django.views.decorators.http import require_POST
 
 from decimal import Decimal, InvalidOperation
@@ -41,7 +42,8 @@ from apps.payments.document_service import (generate_evidence_report,
 from apps.payments.paypal_disputes_service import (accept_claim,
                                                    submit_dispute_response,
                                                    send_dispute_message, refresh_dispute_for_view,
-                                                   preferred_evidence_type, allowed_evidence_types)
+                                                   preferred_evidence_type, allowed_evidence_types,
+                                                   attached_evidence_report)
 
 logger = logging.getLogger(__name__)
 
@@ -517,8 +519,21 @@ def dispute_detail(request, dispute_id):
     except Exception as e:
         logger.warning(f"On-open refresh skipped for dispute #{dispute_id}: {e}")
 
-    # Get related data
-    documents = DisputeDocument.objects.filter(dispute=dispute).order_by('-created_at')
+    # Get related data. was_edited/edited_display let the documents table show
+    # when a report was touched after creation (rather than always claiming
+    # "Manually Created" or hiding that someone edited it); the >5s margin
+    # absorbs the create-then-attach-file two-step save, which otherwise makes
+    # every fresh document look "edited" by a few milliseconds.
+    documents = list(DisputeDocument.objects.filter(dispute=dispute).order_by('-created_at'))
+    for doc in documents:
+        doc.was_edited = (doc.updated_at - doc.created_at).total_seconds() > 5
+        if doc.was_edited:
+            # Computed directly (not via the template's |date filter) so it always
+            # reads in the same clock the value was compared in above, regardless
+            # of the app's display-timezone auto-localization.
+            doc.edited_display = date_filter(doc.updated_at, "M d, Y H:i")
+    attached_doc = attached_evidence_report(dispute)
+    attached_report_id = attached_doc.id if attached_doc else None
     activity_log = DisputeActivityLog.objects.filter(dispute=dispute).order_by('-performed_at')[:50]
 
     # Get claim evidence if claim exists
@@ -578,6 +593,10 @@ def dispute_detail(request, dispute_id):
     context = {
         'dispute': dispute,
         'documents': documents,
+        # id of the EVIDENCE_REPORT document _build_submission_files would
+        # actually attach to the next reply (most recently edited, not most
+        # recently created) — the documents table flags that one row.
+        'attached_report_id': attached_report_id,
         'activity_log': activity_log,
         'claim_evidence': claim_evidence,
         'raw_payload_json': raw_payload_json,
@@ -967,8 +986,30 @@ def _submit_working_draft(request, dispute):
     if ok:
         messages.success(request, f"Submitted to PayPal via {endpoint}.")
     else:
-        messages.error(request, "PayPal rejected the submission — see the timeline for the reason. "
-                                "You can edit the draft and try again.")
+        # A clean rejection (no exception) already left `draft` FAILED via
+        # _record_submission_outcome — keep that row as the audit record, and
+        # open a fresh, identical DRAFT so the manager's text isn't stranded on
+        # a row that can no longer be edited or sent.
+        new_draft = DisputeSubmission.objects.create(
+            dispute=dispute,
+            kind=draft.kind,
+            source=draft.source,
+            notes=draft.notes,
+            manager_note=draft.manager_note,
+            evidence_type=draft.evidence_type,
+            attach_evidence_pdf=draft.attach_evidence_pdf,
+            attach_terms=draft.attach_terms,
+            attach_invoice=draft.attach_invoice,
+            status=DisputeSubmission.STATUS_DRAFT,
+        )
+        for img in draft.images.all():
+            DisputeSubmissionImage.objects.create(
+                submission=new_draft, file=img.file.name, caption=img.caption,
+                uploaded_by=img.uploaded_by)
+        messages.error(
+            request,
+            "PayPal rejected the submission, see the timeline for the reason. Your text is "
+            "back in the composer as a new draft, so you can edit it and try again.")
     return redirect('disputes:dispute_detail', dispute_id=dispute_id)
 
 
