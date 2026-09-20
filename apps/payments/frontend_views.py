@@ -67,42 +67,69 @@ def sanitize_document_html(html: str) -> str:
 
 def strip_active_html(raw_html: str) -> str:
     """Remove only executable content (<script> blocks, on*= handlers, and
-    javascript:/vbscript:/data:text/html URLs in href/src) while PRESERVING
-    layout (tables, images, inline styles, data:image URIs, and ordinary
-    links). Used when re-rendering an edited EVIDENCE_REPORT to PDF — the
-    strict allowlist sanitizer would destroy the report's tables/images/
+    javascript:/vbscript:/data:text/html URLs in ANY attribute) while
+    PRESERVING layout (tables, images, inline styles, data:image URIs, and
+    ordinary links). Used when re-rendering an edited EVIDENCE_REPORT to PDF —
+    the strict allowlist sanitizer would destroy the report's tables/images/
     styles. Manager-only edit → PDF, so this is enough.
 
     A dangerous scheme can be obfuscated to dodge a naive literal-text match
-    -- split across ASCII control characters (`java\\tscript:`) or spelled
-    with HTML numeric character references (`&#106;avascript:`) -- so every
-    href=/src= attribute value is HTML-unescaped, has its ASCII control
-    characters and whitespace removed, and is lowercased before being
-    compared against the dangerous-scheme list. That normalised form is used
-    ONLY for the comparison: a dangerous attribute is dropped whole (original
-    text and all), and anything else -- including a `data:image/...` URI --
-    is kept exactly as posted, never rewritten to its normalised form."""
+    -- split across ASCII control characters (`java\\tscript:`), spelled with
+    HTML numeric character references (`&#106;avascript:`), left entirely
+    unquoted (`href=javascript:alert(1)`), or tucked into an attribute other
+    than href/src (`xlink:href`, `formaction`, `action`, an <object>'s
+    `data`, `srcset`, ...) -- so EVERY attribute's value (double-quoted,
+    single-quoted, or bare/unquoted), regardless of the attribute's name, is
+    HTML-unescaped, has its ASCII control characters and whitespace removed,
+    and is lowercased before being compared against the dangerous-scheme
+    list. `srcset` carries a comma-separated list of candidate URLs, so it is
+    treated as dangerous if ANY candidate normalises to a dangerous scheme.
+    That normalised form is used ONLY for the comparison: a dangerous
+    attribute is dropped whole (name, `=`, and value, byte for byte as
+    matched), and anything else -- including a `data:image/...` URI or an
+    href that merely CONTAINS "javascript:" without starting with it -- is
+    kept exactly as posted, never rewritten to its normalised form."""
     import html as html_lib
     import re
 
     raw_html = re.sub(r'<script[^>]*>.*?</script>', '', raw_html or '', flags=re.IGNORECASE | re.DOTALL)
     raw_html = re.sub(r'\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', raw_html, flags=re.IGNORECASE)
 
-    # A javascript:/vbscript:/data:text/html URL in href/src is executable
-    # just like an on*= handler or a <script> block -- strip the whole
-    # attribute. Never touches a data:image/... URI (the embedded photos) or
-    # an ordinary http(s)/relative URL.
+    # A javascript:/vbscript:/data:text/html URL is executable wherever it
+    # appears -- not just in href/src -- so every attribute (any name,
+    # quoted with either quote style, or unquoted) is checked, and the whole
+    # attribute is dropped if dangerous. Never touches a data:image/... URI
+    # (the embedded photos) or an ordinary http(s)/relative URL.
     _dangerous_schemes = ('javascript:', 'vbscript:', 'data:text/html')
 
-    def _drop_if_dangerous(match):
-        attr = match.group(0)
-        raw_value = match.group(1) if match.group(1) is not None else match.group(2)
+    def _normalised_attr_value(raw_value):
         normalised = html_lib.unescape(raw_value or '')
-        normalised = re.sub(r'[\x00-\x1f\s]', '', normalised).lower()
-        return '' if normalised.startswith(_dangerous_schemes) else attr
+        return re.sub(r'[\x00-\x1f\s]', '', normalised).lower()
 
+    def _drop_if_dangerous(match):
+        attr_name = match.group(1)
+        raw_value = match.group(2)
+        if raw_value is None:
+            raw_value = match.group(3)
+        if raw_value is None:
+            raw_value = match.group(4)
+        normalised = _normalised_attr_value(raw_value)
+        if attr_name.lower() == 'srcset':
+            dangerous = any(candidate.startswith(_dangerous_schemes)
+                             for candidate in normalised.split(','))
+        else:
+            dangerous = normalised.startswith(_dangerous_schemes)
+        return '' if dangerous else match.group(0)
+
+    # Any HTML attribute: a leading whitespace separator, then a name (any
+    # run of letters/digits/`_`/`-`/`:`/`.`, so "xlink:href" is one name, not
+    # ":href" after a failed match on "href"), then its value -- double-
+    # quoted, single-quoted, or bare/unquoted (ending at the next whitespace,
+    # quote, `=`, `<`, `>` or backtick, same as the HTML spec's unquoted
+    # value grammar). No nested quantifiers -- each branch is a single
+    # non-overlapping char-class run, so this stays linear in input length.
     raw_html = re.sub(
-        r'''\s(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)')''',
+        r'''\s([a-zA-Z_:][-\w:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))''',
         _drop_if_dangerous, raw_html, flags=re.IGNORECASE)
     return raw_html
 

@@ -87,14 +87,20 @@ def _set_src_value(img_tag: str, new_value: str) -> str:
 def extract_image_data_uris(html: str) -> List[str]:
     """The `src` values of every `<img>` whose src is a raster
     `data:image/...;base64,...` URI (see `_DATA_IMAGE_RE`), in document
-    order. A non-raster data URI (e.g. `image/svg+xml`) is not a match and
-    is skipped -- it is neither indexed nor counted towards another photo's
-    index."""
+    order, each STRIPPED of any surrounding whitespace -- so a
+    whitespace-padded attribute value (spaces inside the quotes, outside the
+    URI itself) round-trips through `parse_data_uri` correctly instead of
+    failing its `uri.startswith('data:')` check on a leading space. A
+    non-raster data URI (e.g. `image/svg+xml`) is not a match and is skipped
+    -- it is neither indexed nor counted towards another photo's index."""
     out = []
     for tag in _IMG_TAG_RE.findall(html or ''):
         src = _src_value(tag)
-        if src and _DATA_IMAGE_RE.match(src.strip()):
-            out.append(src)
+        if src is None:
+            continue
+        stripped = src.strip()
+        if _DATA_IMAGE_RE.match(stripped):
+            out.append(stripped)
     return out
 
 
@@ -166,7 +172,11 @@ def parse_data_uri(uri: str) -> Tuple[str, bytes]:
     mime = header[:-len(';base64')]
     if not mime:
         raise ValueError('data URI has no mime type')
-    if mime.lower() not in _RASTER_MIMES:
+    # Lowercased for the membership check AND for the returned value -- a
+    # stored `data:IMAGE/PnG;base64,...` must be served back with the
+    # canonical lowercase Content-Type, never the mixed-case form as-stored.
+    mime = mime.lower()
+    if mime not in _RASTER_MIMES:
         raise ValueError(f'unsupported image mime type: {mime!r}')
     payload = re.sub(r'\s+', '', payload)
     try:
