@@ -1282,7 +1282,12 @@ def _timeline_record_rows(dispute, comments: list, anchor, code_map, ra, ra_dt, 
     recorded acceptance intervenes and the gap from the group's FIRST note
     stays within _FILING_MERGE_WINDOW (round-2 review note R7 — previously
     this measured from the group's LAST note and never broke on a call or an
-    acceptance note)."""
+    acceptance note). A substantive internal update gets its own row here
+    unconditionally, one per note — a repeated note (the same substance
+    logged twice) is NOT merged at this stage, since that can only be told
+    from the AI-written activity text, which does not exist yet; see
+    build_dispute_evidence_bundle's _dedupe_internal_updates, which runs
+    after _narrate_timeline."""
     claim = dispute.claim
     client_email = ((claim.client_email if claim else '') or '').strip().lower()
     sorted_comments = sorted(
@@ -1419,7 +1424,11 @@ def _build_timeline(dispute, comments: list, submitted_at=None) -> list:
 
     events.sort(key=lambda e: e['_dt'])
     for e in events:
-        e['when'] = _fmt_zd_time(e.pop('_dt'))
+        # '_dt' is kept (not popped) — build_dispute_evidence_bundle's
+        # _dedupe_internal_updates still needs the raw datetime for its
+        # 24-hour window check after AI narration runs; it is stripped there
+        # along with the rest of the '_'-prefixed bookkeeping.
+        e['when'] = _fmt_zd_time(e['_dt'])
     return events
 
 
@@ -2642,6 +2651,54 @@ def _narrate_timeline(dispute, timeline: list, claim, comments: list) -> bool:
     return narrated
 
 
+# How close together two internal-update ('update' kind) rows must land for
+# a repeated note to be treated as the SAME note logged twice rather than a
+# new event — see _dedupe_internal_updates.
+_UPDATE_DEDUP_WINDOW = timedelta(hours=24)
+
+
+def _normalize_update_activity(text: str) -> str:
+    """Case-insensitive, whitespace-collapsed, trailing-period-ignored form of
+    an internal-update row's activity text, used only to detect a repeated
+    note in _dedupe_internal_updates — never used for display."""
+    normalized = re.sub(r'\s+', ' ', (text or '').strip().lower())
+    if normalized.endswith('.'):
+        normalized = normalized[:-1]
+    return normalized
+
+
+def _dedupe_internal_updates(timeline: list) -> list:
+    """Drop a repeated internal-update ('update' kind) row whose AI-written
+    activity — once normalised (case/whitespace/trailing period ignored,
+    _normalize_update_activity) — matches an earlier KEPT 'update' row within
+    _UPDATE_DEDUP_WINDOW of it; the first occurrence is kept, at its own
+    time. Only 'update' rows ever merge this way: a call/filing/email/reply
+    row, or one of the four always-deterministic rows, is never touched, even
+    when it renders an identical sentence to another row of its own kind — a
+    real call or a real email is a real event each time, and only an internal
+    note has no deterministic fallback text of its own to fall back to. Runs
+    AFTER _narrate_timeline, since only the AI-written text (not the empty
+    placeholder _build_timeline gives an 'update' row) can reveal that two
+    notes carry the same substance. A row of a different kind sitting between
+    two matching 'update' rows (a customer reply, a call, ...) neither blocks
+    the match nor is itself affected — it simply passes through."""
+    kept = []  # (normalized_text, dt) for surviving 'update' rows only
+    out = []
+    for row in timeline:
+        if row.get('_ai_kind') == 'update':
+            norm = _normalize_update_activity(row.get('text', ''))
+            dt = row.get('_dt')
+            is_dup = any(
+                norm == kept_norm and dt is not None and kept_dt is not None
+                and abs(dt - kept_dt) <= _UPDATE_DEDUP_WINDOW
+                for kept_norm, kept_dt in kept)
+            if is_dup:
+                continue
+            kept.append((norm, dt))
+        out.append(row)
+    return out
+
+
 def _item_entry(item: dict, explanation: str = '') -> dict:
     """One rendered evidence entry (a panel or the flight card) + its note."""
     entry = {'explanation': explanation}
@@ -2923,10 +2980,13 @@ def build_dispute_evidence_bundle(dispute, embed_attachments: bool = True,
         ai_narrated = True
     # An 'internal update' candidate row with no usable AI text never becomes
     # a row at all (no deterministic fallback exists for that kind); this is
-    # the only row kind that can vanish here. Then drop the AI-splicing
-    # bookkeeping — the template and any other reader only ever see
-    # when/activity/text/label.
+    # the only row kind that can vanish here. Then, still among 'update' rows
+    # only, collapse a repeated note (the same substance logged twice within
+    # a day) down to its first occurrence — see _dedupe_internal_updates.
+    # Finally drop the AI-splicing bookkeeping — the template and any other
+    # reader only ever see when/activity/text/label.
     timeline = [row for row in timeline if not (row.get('_ai_kind') == 'update' and not row.get('text'))]
+    timeline = _dedupe_internal_updates(timeline)
     for row in timeline:
         for key in [k for k in row if k.startswith('_')]:
             row.pop(key, None)
