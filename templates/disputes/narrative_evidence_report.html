@@ -102,8 +102,12 @@
   .tl { margin:0 0 18px; }
   .tl .h { font-weight:700; font-size:12px; color:#374151; margin-bottom:6px; }
   .tl table { width:100%; font-size:11px; border-collapse:collapse; }
-  .tl td { padding:3px 8px 3px 0; vertical-align:top; }
-  .tl td.d { color:#6b7280; white-space:nowrap; width:140px; }
+  /* Header row styled like the report's other tables (see .cko .ord th). */
+  .tl th { text-align:left; font-size:10.5px; font-weight:700; color:#374151;
+           text-transform:uppercase; letter-spacing:0.02em; border-bottom:1px solid #d1d5db;
+           padding:4px 8px 6px 0; }
+  .tl td { padding:5px 8px 5px 0; vertical-align:top; border-bottom:1px solid #f3f4f6; }
+  .tl td.d { color:#111827; font-weight:700; white-space:nowrap; width:140px; }
 
   .conclusion p { margin:8px 0; }
   .footer { margin-top:36px; padding-top:12px; border-top:1px solid #e5e7eb;
@@ -152,7 +156,10 @@
 {% if timeline %}
 <div class="tl">
   <div class="h">Case timeline</div>
-  <table>{% for ev in timeline %}<tr><td class="d">{{ ev.when }}</td><td>{{ ev.label }}</td></tr>{% endfor %}</table>
+  <table>
+    <tr><th>Date &amp; Time</th><th>Activity</th></tr>
+    {% for ev in timeline %}<tr><td class="d"><strong>{{ ev.when }}</strong></td><td>{{ ev.activity|safe }}</td></tr>{% endfor %}
+  </table>
 </div>
 {% endif %}
 
@@ -231,7 +238,7 @@
           {% if item.panel.call.to %}<tr><td class="k">To</td><td>{{ item.panel.call.to }}</td></tr>{% endif %}
           {% if item.panel.call.when %}<tr><td class="k">Time</td><td>{{ item.panel.call.when }}</td></tr>{% endif %}
           {% if item.panel.call.length %}<tr><td class="k">Length</td><td>{{ item.panel.call.length }}</td></tr>{% endif %}
-          {% if item.panel.call.answered_by %}<tr><td class="k">Answered by</td><td>{{ item.panel.call.answered_by }}</td></tr>{% endif %}
+          {% if item.panel.call.answered_by %}<tr><td class="k" colspan="2">{% if item.panel.call.label == 'Outbound call' %}Called by{% else %}Answered by{% endif %} {{ item.panel.call.answered_by }}</td></tr>{% endif %}
           {% if item.panel.call.recorded %}<tr><td class="k">Recording</td><td>On file in our support system</td></tr>{% endif %}
         </table>
       </div>
