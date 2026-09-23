@@ -124,6 +124,30 @@ class DisputeNarrative(BaseModel):
     closing: str
 
 
+class TimelineActivity(BaseModel):
+    """One row of the dispute evidence report's Case timeline, written by the
+    AI. `activity` carries NO max_length: the per-row >300-character check is
+    application-level (apps/payments/document_service.py), so one over-long
+    row falls back on its own instead of a schema limit discarding the whole
+    batched reply (the same failure class flight_check hit)."""
+
+    index: int
+    activity: str
+
+
+class TimelineActivities(BaseModel):
+    """Schema for the 'dispute_timeline' AI call in payments/document_service.py
+    — the LLM writes one short, past-tense sentence per numbered case-timeline
+    record (a phone call, an office filing, an email we sent, a customer
+    reply, or a substantive internal note). Facts come only from that
+    record's own text and context; the LLM never invents content. A missing,
+    malformed, or failed-check entry falls back to a deterministic sentence
+    for that row alone — see _build_timeline / the timeline-splicing step in
+    build_dispute_evidence_bundle."""
+
+    rows: list[TimelineActivity] = Field(default_factory=list)
+
+
 class BriefingSummary(BaseModel):
     """Schema for the Zendesk sidebar briefing (POST /zd/briefing/) and the
     stored claim summary engine. The LLM produces a short summary + a few

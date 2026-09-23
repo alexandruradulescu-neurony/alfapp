@@ -40,8 +40,8 @@ class ReportTimezoneTests(TestCase):
             paypal_dispute_id='PP-TZ', buyer_email='b@e.com', transaction_id='TX',
             transaction_date=datetime(2026, 6, 20, 2, 0, tzinfo=dt_tz.utc),
             dispute_reason='UNAUTHORISED', status='MATCHED', raw_webhook_payload={}, claim=claim)
-        labels = {e['label']: e['when'] for e in _build_timeline(d, comments=[])}
-        self.assertIn('Claim submitted on our website', labels)
-        when = labels['Claim submitted on our website']
+        texts = {e['text']: e['when'] for e in _build_timeline(d, comments=[])}
+        self.assertIn('Lost-item service request ALFTZ submitted on our website', texts)
+        when = texts['Lost-item service request ALFTZ submitted on our website']
         self.assertTrue(when.startswith('Jun 19, 2026'))   # local day, not Jun 20 UTC
         self.assertIn('21:00', when)                       # local time (CDT, UTC-5)

@@ -331,7 +331,10 @@ class PanelFidelityTests(TestCase):
         self.assertIn('Outbound call', html)
         self.assertIn('2m 29s', html)              # length
         self.assertIn('+1 (425) 652-8782', html)   # to number shown on the card
-        self.assertIn('Answered by', html)
+        # Outbound calls show WHO PLACED the call, never "Answered by" — nothing in a
+        # Zendesk call record actually tells us whether the customer picked up.
+        self.assertIn('Called by Mark Johnson', html)
+        self.assertNotIn('Answered by', html)
 
 
 class TimelineTests(TestCase):
@@ -359,14 +362,18 @@ class TimelineTests(TestCase):
              'created_at': '2026-06-17T09:00:00Z', 'body': 'thanks'},
         ]
         tl = ds._build_timeline(d, comments)
-        labels = [e['label'] for e in tl]
-        self.assertEqual(labels[0], 'Claim submitted on our website')   # genuine first step
-        self.assertEqual(labels[-1], 'PayPal dispute received')
-        self.assertIn('We called the customer (6m 41s)', labels)
-        self.assertIn('We emailed the customer an update', labels)
-        self.assertIn('The customer replied to us', labels)
-        self.assertNotIn('abandoned cart', ' '.join(labels).lower())     # pre-claim noise dropped
-        self.assertNotIn('First contacted the customer', labels)         # we never initiate
+        texts = [e['text'] for e in tl]
+        # genuine first step — plain in 'text', the ID bolded in 'activity'
+        self.assertEqual(texts[0], 'Lost-item service request ALFTL submitted on our website')
+        self.assertIn('<strong>ALFTL</strong>', tl[0]['activity'])
+        # dispute.raw_webhook_payload has no create_time here, so there is no separate
+        # PayPal-filing row — the last row is when OUR system logged the dispute.
+        self.assertEqual(texts[-1], 'PayPal case notification received in our internal system')
+        self.assertIn('We called the customer (6m 41s)', texts)
+        self.assertIn('We emailed the customer an update on their case', texts)
+        self.assertIn('The customer replied to us', texts)
+        self.assertNotIn('abandoned cart', ' '.join(texts).lower())     # pre-claim noise dropped
+        self.assertNotIn('First contacted the customer', texts)         # we never initiate
         self.assertRegex(tl[0]['when'], r'\d{1,2}:\d{2}')                 # has a timestamp
 
 
@@ -642,7 +649,9 @@ class BottomLineAndTimelineTests(TestCase):
         d = _dispute(claim=claim)
         tl = ds._build_timeline(d, COMMENTS)
         self.assertTrue(tl)
-        self.assertTrue(all('when' in e and 'label' in e for e in tl))
+        # 'label' was replaced by 'activity' (HTML, bold key facts) + 'text' (plain) —
+        # see test_report_timeline_rows.py for the full new timeline-row spec.
+        self.assertTrue(all('when' in e and 'activity' in e and 'text' in e for e in tl))
 
     def test_bottom_line_includes_consent_timestamp_and_ip(self):
         d = _dispute(claim=None, buyer_name='Lee', dispute_reason='UNAUTHORISED')
@@ -991,6 +1000,18 @@ class ClaimsResponsePhoneTests(TestCase):
 
     def test_answered_call_asserts_the_contradiction(self):
         d, claim = self._dispute()
-        comments = [{'channel': 'voice', 'call': {'duration': 120, 'answered_by_name': 'Mark'}}]
+        # A realistic call dict: real Zendesk call payloads only ever carry
+        # 'answered_by' (the handling agent) — never 'answered_by_name',
+        # which the previous version of this fixture used and which never
+        # appears in production data (see _build_timeline's _call_context).
+        # The contradiction is asserted here because of the recorded fee
+        # acceptance note — proof we actually connected by phone — not
+        # because of the call dict alone; test_unanswered_calls_concede_
+        # and_pivot_no_false_contradiction above covers an equally
+        # realistic call dict with no such note, where the wording must
+        # NOT claim a connection.
+        comments = [{'channel': 'voice', 'call': {'duration': 120, 'answered_by': 'Mark'}},
+                   {'author': {'name': 'Mark Johnson', 'email': 'm@alf.com'}, 'public': False,
+                    'created_at': '2026-02-03T22:05:00Z', 'body': _ACCEPT_NOTE, 'attachments': []}]
         point = ds._claims_response(d, comments, claim, {})['points'][0]
         self.assertIn('connected with the customer by phone', point)
